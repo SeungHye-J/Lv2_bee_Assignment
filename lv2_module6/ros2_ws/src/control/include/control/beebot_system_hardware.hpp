@@ -1,0 +1,90 @@
+#pragma once
+
+// BeebotSystemHardware (🛠 직접 작성, 담당: 김현하) — ros2_control hardware component (SystemInterface)
+// controller_manager가 URDF의 <ros2_control> 태그를 보고 이 플러그인을 올린다. 설계: documents/ros2-design/08-ctrl.md
+//   관절·센서 (lv2_module6/urdf/beebot.urdf.xacro):
+//     wheel_left/right_joint   command velocity · state position, velocity          (TurtleBot3 2륜)
+//     joint1~5                 command position · state position, velocity, effort  (OM-X 4축 + 손목 roll)
+//     gripper_left_joint       command position · state position, velocity, effort  (평행 그리퍼, 오른쪽은 mimic)
+//     imu (sensor)             state orientation·angular_velocity·linear_acceleration
+//   한 주기(100Hz): read() → 컨트롤러 update → write()
+//
+// mock:=true (테스트베드): 실기 없이 명령을 그대로 상태로 되돌린다 — 바퀴는 속도를 적분해 위치, 팔은 목표각 = 현재각,
+//   effort는 mock_effort[A] 고정 (arm_safety_monitor 시험용), IMU는 정지 상태.
+// mock:=false (실기): OpenCR 하나와 USB 시리얼 ASCII 줄 프로토콜 (lv2_module6/firmware/beebot_opencr 와 짝)
+//   write(): C,<바퀴L rad/s>,<바퀴R rad/s>,<j1>…<j5 rad>,<그리퍼 m>\n
+//   read():  가장 최근의 완전한 S 줄 (32개 값) → 상태. 순서는 아래 STATE_* 와 firmware/README.md "프로토콜"
+//   OpenCR가 DYNAMIXEL 8개 + 내장 IMU를 맡고, 단위 변환(rad ↔ 서보 각도·rpm)도 펌웨어가 한다.
+// 상태: /diagnostics "BeebotSystem: OpenCR 연결" (mock · 마지막 S 수신 · 송수신 줄 수 · 해석 실패) — 컴포넌트 노드로 발행
+#include <fcntl.h>
+#include <termios.h>
+#include <unistd.h>
+
+#include <array>
+#include <atomic>
+#include <memory>
+#include <cerrno>
+#include <chrono>
+#include <cmath>
+#include <cstdio>
+#include <cstring>
+#include <sstream>
+#include <string>
+#include <vector>
+
+#include "diagnostic_updater/diagnostic_updater.hpp"
+#include "hardware_interface/system_interface.hpp"
+#include "hardware_interface/types/hardware_interface_type_values.hpp"
+#include "rclcpp/rclcpp.hpp"
+
+namespace control {
+
+using hardware_interface::CallbackReturn;
+using hardware_interface::return_type;
+
+class BeebotSystemHardware : public hardware_interface::SystemInterface {
+public:
+  CallbackReturn on_init(const hardware_interface::HardwareComponentInterfaceParams & params) override;
+
+  CallbackReturn on_configure(const rclcpp_lifecycle::State &) override;
+
+  CallbackReturn on_cleanup(const rclcpp_lifecycle::State &) override;
+
+  CallbackReturn on_shutdown(const rclcpp_lifecycle::State &) override;
+
+  CallbackReturn on_activate(const rclcpp_lifecycle::State &) override;
+
+  return_type read(const rclcpp::Time &, const rclcpp::Duration & period) override;
+
+  return_type write(const rclcpp::Time &, const rclcpp::Duration &) override;
+
+private:
+  void report(diagnostic_updater::DiagnosticStatusWrapper & s);
+
+  CallbackReturn missing(const char * name);
+
+  // ---------- mock
+  return_type read_mock(double dt);
+
+  // ---------- 실기: OpenCR 시리얼
+  bool open_port();
+
+  void close_port();
+
+  return_type read_serial();
+
+  bool apply_state(const std::string & text);
+
+  return_type write_serial();
+
+  bool mock_ = false;
+  double mock_effort_ = 0.0;
+  std::string port_, imu_;
+  int fd_ = -1;
+  std::string rx_;
+  std::atomic<std::chrono::steady_clock::time_point> last_state_{};
+  std::atomic<size_t> sent_{0}, received_{0}, bad_{0};
+  std::unique_ptr<diagnostic_updater::Updater> diag_;
+};
+
+}  // namespace control

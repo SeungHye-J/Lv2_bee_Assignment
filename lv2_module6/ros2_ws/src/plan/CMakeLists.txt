@@ -1,0 +1,57 @@
+cmake_minimum_required(VERSION 3.16)
+project(plan)
+
+if(CMAKE_COMPILER_IS_GNUCXX OR CMAKE_CXX_COMPILER_ID MATCHES "Clang")
+  add_compile_options(-Wall -Wextra -Wpedantic)
+endif()
+
+find_package(ament_cmake REQUIRED)
+find_package(rosidl_default_generators REQUIRED)
+find_package(rclcpp REQUIRED)
+find_package(diagnostic_updater REQUIRED)
+find_package(rclcpp_action REQUIRED)
+find_package(std_msgs REQUIRED)
+find_package(std_srvs REQUIRED)
+find_package(geometry_msgs REQUIRED)
+find_package(nav2_msgs REQUIRED)
+find_package(moveit_msgs REQUIRED)
+find_package(moveit_task_constructor_msgs REQUIRED)
+find_package(perception REQUIRED)
+find_package(control REQUIRED)
+find_package(ml REQUIRED)
+
+rosidl_generate_interfaces(${PROJECT_NAME}
+  msg/SubGoal.msg
+  msg/SubGoalArray.msg
+  msg/TaskStatus.msg
+  DEPENDENCIES std_msgs)
+rosidl_get_typesupport_target(msgs_cpp ${PROJECT_NAME} rosidl_typesupport_cpp)
+include_directories(include)
+
+# --- 노드: 클래스 구현(src/<노드>.cpp)은 라이브러리 하나로 묶고, 실행 파일(src/<노드>_main.cpp)과 테스트가 함께 링크
+#     선언·설명은 include/plan/<노드>.hpp
+add_library(${PROJECT_NAME}_nodes STATIC src/user_input.cpp src/vlm_task_planner.cpp src/coordinator.cpp)
+target_include_directories(${PROJECT_NAME}_nodes PUBLIC include)
+target_compile_features(${PROJECT_NAME}_nodes PUBLIC cxx_std_17)
+target_link_libraries(${PROJECT_NAME}_nodes PUBLIC rclcpp::rclcpp rclcpp_action::rclcpp_action
+  ${std_msgs_TARGETS} ${std_srvs_TARGETS} ${geometry_msgs_TARGETS} ${nav2_msgs_TARGETS}
+  ${moveit_msgs_TARGETS} ${moveit_task_constructor_msgs_TARGETS}
+  ${perception_TARGETS} ${control_TARGETS} ${ml_TARGETS} ${msgs_cpp} diagnostic_updater::diagnostic_updater)
+foreach(node user_input vlm_task_planner coordinator)
+  add_executable(${node} src/${node}_main.cpp)
+  target_link_libraries(${node} ${PROJECT_NAME}_nodes)
+endforeach()
+install(TARGETS user_input vlm_task_planner coordinator DESTINATION lib/${PROJECT_NAME})
+
+# 파라미터 (bringup이 share/plan/config/plan.yaml을 노드에 넘긴다)
+install(DIRECTORY config DESTINATION share/${PROJECT_NAME})
+
+# --- 테스트: colcon test --packages-select plan (노드 클래스를 같은 프로세스에 띄워 토픽으로 확인)
+if(BUILD_TESTING)
+  find_package(ament_cmake_gtest REQUIRED)
+  ament_add_gtest(test_coordinator test/test_coordinator.cpp TIMEOUT 60 ENV ROS_DOMAIN_ID=104)
+  target_link_libraries(test_coordinator ${PROJECT_NAME}_nodes)
+endif()
+
+ament_export_dependencies(rosidl_default_runtime)
+ament_package()

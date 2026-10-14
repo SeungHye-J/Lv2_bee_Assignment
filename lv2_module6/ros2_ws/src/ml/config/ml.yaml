@@ -1,0 +1,14 @@
+# ml 패키지 파라미터 — bringup이 노드에 넘긴다. enabled는 launch 인자 learning_enabled가 덮어쓴다
+# (rl_arm_correction은 컨트롤러라 ros_system/config/controllers.yaml)
+grasp_scorer:
+  ros__parameters:
+    enabled: true            # false → 규칙 기반 점수
+rl_nav_tuner:
+  ros__parameters:
+    enabled: true            # false → 프리셋 A 고정
+rl_nav_correction:
+  ros__parameters:
+    enabled: true            # false → Δ=0 (통과만)
+    max_vel_x: 0.26          # [m/s] Waffle Pi 최대 선속도 (/speed_limit 백분율의 기준)
+    max_vel_theta: 1.82      # [rad/s]
+    timeout_s: 0.2           # [s] /odom이 이보다 오래 끊기면 Δ=0

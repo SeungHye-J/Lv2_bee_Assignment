@@ -1,0 +1,4 @@
+# perception 패키지 파라미터 — bringup이 노드에 넘긴다 (ros2 param get /perception <이름> 으로 확인)
+perception:
+  ros__parameters:
+    rate_hz: 10.0            # /tracked_objects 발행 주기 (설계: 10Hz · reliable)

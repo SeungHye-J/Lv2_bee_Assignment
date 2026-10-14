@@ -1,0 +1,107 @@
+name: ci
+
+on:
+  push:
+    branches: [develop, main]
+  pull_request:
+    branches: [develop, main]
+
+jobs:
+  testbed:
+    # 로컬 게이트(test-all)와 동일한 검사를 그대로 실행 — 검사 로직은 docker/test-*.sh 한 곳에만.
+    # x86_64(PC)·aarch64(Raspberry Pi) 두 러너에서 각각 빌드·검사 → 아키텍처별 배포 패키지.
+    #   install/의 실행 파일은 빌드한 CPU에서만 돈다 (x86 빌드를 Pi에서 실행하면 Exec format error).
+    #   aarch64는 GitHub ARM 러너(ubuntu-24.04-arm, 공개 저장소 무료)에서 네이티브로 빌드.
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - arch: x86_64
+            runner: ubuntu-26.04
+          - arch: aarch64
+            runner: ubuntu-26.04-arm
+    runs-on: ${{ matrix.runner }}
+    name: testbed (${{ matrix.arch }})
+    permissions:
+      contents: write   # 배포 패키지를 Release(run-<RUN ID>)에 올리기 위함
+    env:
+      PACKAGE: ros2_ws-deploy-${{ matrix.arch }}.tar.gz   # download-artifact.sh가 uname -m으로 고름
+    steps:
+      - uses: actions/checkout@v4
+      - name: Build testbed image
+        run: docker build -f docker/Dockerfile -t lv2-module6:testbed .
+      - name: test-all (serial → firmware → packages → hardware → bringup → faker)
+        # 소스·스케치는 이미지에 없고 compose 볼륨으로만 연결되므로 마운트 필수.
+        run: |
+          docker run -d --name testbed \
+            -v ${{ github.workspace }}/lv2_module6/ros2_ws/src:/ws/src \
+            -v ${{ github.workspace }}/lv2_module6/urdf:/urdf:ro \
+            -v ${{ github.workspace }}/lv2_module6/firmware:/ws/firmware \
+            -v ${{ github.workspace }}/lv2_module6/debug:/ws/debug \
+            lv2-module6:testbed sleep infinity
+          # docker run -d는 entrypoint(가상 시리얼 브릿지 준비)를 기다리지 않음 → 준비 완료 표시까지 대기
+          timeout 30 bash -c 'until docker exec testbed test -e /run/testbed-ready; do sleep 0.5; done' \
+            || { echo "FAIL: testbed 준비 안 됨"; docker logs testbed; exit 1; }
+          docker exec testbed test-all
+      - name: Package deploy (install + firmware + scripts)
+        # 실기에 바로 올릴 수 있는 묶음 (최상위 폴더 없이):
+        #   install/                       ROS 2 패키지 (build/는 컴파일 중간 산출물이라 불필요) — 이 러너 아키텍처용
+        #   firmware/                      lv2_module6/firmware 폴더 전체 (스케치·upload.sh·README)
+        #   firmware/build/<스케치>/*.bin  test-firmware가 컴파일한 결과 (OpenCR용이라 아키텍처 무관)
+        #   *.sh                           lv2_module6/ros2_ws의 실행 스크립트 전부
+        #   ARCH                           이 패키지의 아키텍처 (start.sh가 확인)
+        # - install: test-bringup이 --symlink-install로 빌드 → cp -L로 링크 대상 실제 파일을 담음.
+        # tar로 묶어 실행 권한 보존 (zip은 권한을 잃음).
+        # upload-artifact v7 archive: false → zip으로 한 번 더 감싸지 않고 tar.gz를 그대로 올림.
+        run: |
+          docker exec testbed bash -c 'rm -rf /tmp/pkg && mkdir -p /tmp/pkg && cp -rL /ws/install /tmp/pkg/'
+          rm -rf ros2_ws && docker cp testbed:/tmp/pkg ros2_ws
+          cp -r lv2_module6/firmware ros2_ws/firmware
+          rm -rf ros2_ws/firmware/build
+          docker cp testbed:/ws/debug/firmware ros2_ws/firmware/build
+          find ros2_ws/firmware/build -type f ! -name '*.bin' -delete
+          cp lv2_module6/ros2_ws/*.sh ros2_ws/
+          echo "${{ matrix.arch }}" > ros2_ws/ARCH
+          tar -czf "$PACKAGE" -C ros2_ws .
+          ls -lh "$PACKAGE" && tar -tzf "$PACKAGE" | grep -E "^\./(ARCH|firmware/build/)|\.sh$"
+      - uses: actions/upload-artifact@v7
+        with:
+          path: ${{ env.PACKAGE }}   # archive: false면 파일 이름이 artifact 이름
+          archive: false
+          retention-days: 7
+      - name: Release (wget으로 받기용)
+        # artifact는 로그인해야 받을 수 있어 wget이 안 된다 → 같은 파일을 Release에 첨부 (공개 저장소는 인증 없이 다운로드).
+        #   wget https://github.com/<저장소>/releases/download/run-<RUN ID>/ros2_ws-deploy-<arch>.tar.gz
+        #   → lv2_module6/ros2_ws/download-artifact.sh <RUN ID>
+        # main에 병합(push)될 때만 — 기능 브랜치·PR 시험 실행마다 Release가 쌓이지 않게.
+        # 두 아키텍처 잡이 같은 Release(run-<RUN ID>)에 각자 파일을 첨부한다 (먼저 온 쪽이 Release 생성).
+        if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          tag="run-${{ github.run_id }}"
+          gh release create "$tag" --repo "${{ github.repository }}" --target "${{ github.sha }}" \
+            --title "CI run ${{ github.run_id }} (${{ github.ref_name }} ${GITHUB_SHA::7})" \
+            --notes "CI 배포 패키지 — install(아키텍처별) · firmware(.bin) · 실행 스크립트. 실행: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}" \
+            || echo "Release $tag 이미 있음 → 파일만 첨부"
+          gh release upload "$tag" "$PACKAGE" --repo "${{ github.repository }}" --clobber
+      - name: 제출 태그 lv2-module6-submit
+        # main = 제출본 → main에 병합될 때마다 제출 태그를 이 커밋으로 옮긴다 (마지막 병합 커밋 = 최종 제출).
+        # 이 커밋에는 run-<RUN ID>(Release)와 lv2-module6-submit 두 태그가 달린다.
+        # 검사가 모두 통과한 커밋에만 (앞 단계 실패 시 건너뜀). 두 아키텍처 잡이 동시에 옮기지 않게 x86_64에서만.
+        if: github.event_name == 'push' && github.ref == 'refs/heads/main' && matrix.arch == 'x86_64'
+        run: |
+          git tag -f lv2-module6-submit "$GITHUB_SHA"
+          git push -f origin refs/tags/lv2-module6-submit
+      # 테스트 로그(토픽 echo·serial-in/out)는 실패했을 때만 원인 확인용으로 올린다.
+      - name: Collect debug (실패 시)
+        # launch 로그 · 토픽 기록 · serial-in/out · 패키지 테스트 결과
+        if: failure()
+        run: |
+          docker exec testbed bash -c 'cp /tmp/*.log /ws/debug/ 2>/dev/null; mkdir -p /ws/debug/test_results && for d in /ws/build/*/test_results; do cp -r "$d" "/ws/debug/test_results/$(basename "$(dirname "$d")")"; done' || true
+          docker cp testbed:/ws/debug ./debug && find ./debug -type f | sort
+      - uses: actions/upload-artifact@v7
+        if: failure()
+        with:
+          name: debug-${{ matrix.arch }}
+          path: debug
