@@ -281,7 +281,7 @@ cd ros2_ws-<RUN ID>
 | --- | --- |
 | 토픽이 두 번씩 오거나 이상한 값 | 이전 실행의 노드가 남음 → `pkill -f /ws/install/` 또는 `docker compose restart` |
 | `Overrun detected!` 경고 (controller_manager) | 컨테이너는 실시간 스케줄링이 안 돼서 나는 경고 — 테스트에는 문제없음 |
-| spawner `Could not contact service` | 기동 직후 CPU가 몰림. 다른 무거운 일(빌드 등)을 끝내고 다시 |
+| spawner `Could not contact service` | 기동 직후 CPU가 몰림. `test-faker`는 spawner를 2회까지 자동 재시도, 그래도 안 되면 다른 무거운 일(빌드 등)을 끝내고 다시 |
 | `malformed launch argument` | `인자:=""`처럼 빈 값은 안 됨 — 인자를 빼거나 공백이 아닌 값 |
 | 메시지 타입을 못 찾음 (`plan/msg/...`) | `source /ws/install/setup.bash` 안 함, 또는 메시지 패키지 빌드 전 |
 | 호스트에서 `lv2_module6/debug` 파일을 못 만들거나 못 지움 (`PermissionError`) | 컨테이너(root)가 만든 디렉토리 — §1 "공유 폴더 권한"의 `chown` 명령으로 회수 |

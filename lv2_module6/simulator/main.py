@@ -136,6 +136,7 @@ class Sim:
         self.renders = {}         # 카메라 → (bgr, depth, T_world_cam)
         self.streaming = True
         self.running = True
+        self.use_mesh = False  # 기본 끔 — 켜면 RobotModel이 urdf/meshes 파일을 찾아 매핑
         self.plant = plant_mod.Plant(DEBUG / 'serial-in', DEBUG / 'serial-out', self.spawn, self.collide)
         self.randomize(6)
 
@@ -157,6 +158,29 @@ class Sim:
     def clear_obstacles(self):
         with self.lock:
             self.props = []
+        self.save_truth()
+
+    def add_puck(self):
+        """퍽 하나 추가 — 빈 칸, 로봇·기존 물체와 0.35m 이상"""
+        x, y, _, _ = self.robot_xy_yaw()
+        with self.lock:
+            avoid = [(x, y), tuple(self.spawn)] + [(p['x'], p['y']) for p in self.pucks + self.props]
+            for _ in range(100):
+                cand = scene.random_pucks(1, self.cells, self.spawn, random.Random())
+                if not cand:
+                    return
+                p = cand[0]
+                if all(math.dist((p['x'], p['y']), a) > 0.35 for a in avoid):
+                    p['id'] = max([q.get('id', 0) for q in self.pucks] + [0]) + 1
+                    self.pucks.append(p)
+                    break
+        self.save_truth()
+
+    def pop_puck(self):
+        """퍽 하나 삭제 — 가장 나중에 추가된 것부터"""
+        with self.lock:
+            if self.pucks:
+                self.pucks.pop()
         self.save_truth()
 
     def pop_prop(self, kind):
@@ -815,18 +839,17 @@ class App:
         self.robot_cam = robot_view.OrbitView(target=(0, 0, 0.2), dist=1.3)
         self.show_frames = tk.BooleanVar(value=False)
         tk.Checkbutton(left, text='관절축 보기 (X빨·Y초·Z파)', variable=self.show_frames).pack(anchor=tk.W)
+        self.mesh_var = tk.BooleanVar(value=self.sim.use_mesh)
+        tk.Checkbutton(left, text='메시 보기 (urdf/meshes 파일 매핑)', variable=self.mesh_var,
+                       command=self.on_mesh).pack(anchor=tk.W)
         self.coords_label = tk.Label(left, justify=tk.LEFT, font=('Menlo', 9), anchor=tk.W)
         self.coords_label.pack(anchor=tk.W)
 
         # 퍽 · 배경 · 카메라
         row = tk.Frame(left)
         row.pack(fill=tk.X, pady=2)
-        tk.Button(row, text='퍽 랜덤 배치', command=lambda: self.sim.randomize(int(self.count.get()))).pack(side=tk.LEFT)
-        self.count = tk.Spinbox(row, from_=0, to=20, width=3)
-        self.count.delete(0, tk.END)
-        self.count.insert(0, '6')
-        self.count.pack(side=tk.LEFT)
-        tk.Label(row, text='개  배경').pack(side=tk.LEFT)
+        tk.Button(row, text='퍽 랜덤 배치', command=lambda: self.sim.randomize(max(len(self.sim.pucks), 1))).pack(side=tk.LEFT)
+        tk.Label(row, text='배경').pack(side=tk.LEFT)
         names = [NO_BG] + [p.name for p in scene.backgrounds(BG_DIR)]
         self.bg = tk.StringVar(value=names[1] if len(names) > 1 else NO_BG)
         tk.OptionMenu(row, self.bg, *names, command=self.on_background).pack(side=tk.LEFT)
@@ -856,6 +879,8 @@ class App:
         self.friction.pack(side=tk.LEFT)
         col = tk.Frame(env)
         col.pack(side=tk.LEFT, padx=4)
+        tk.Button(col, text='퍽 추가', command=self.sim.add_puck).pack(fill=tk.X)
+        tk.Button(col, text='퍽 삭제', command=self.sim.pop_puck).pack(fill=tk.X)
         tk.Button(col, text='이동물체 추가', command=self.sim.spawn_mover).pack(fill=tk.X)
         tk.Button(col, text='이동물체 삭제', command=lambda: self.sim.pop_prop('mover')).pack(fill=tk.X)
         tk.Button(col, text='바닥 장애물 추가', command=self.sim.add_obstacle).pack(fill=tk.X)
@@ -933,6 +958,12 @@ class App:
         self.sim.streaming = self.stream.get()
         if not self.sim.streaming:
             self.sim.stop_streaming()
+
+    def on_mesh(self):
+        self.sim.use_mesh = self.mesh_var.get()
+        self.robot_model = None  # 다음 tick에서 새 옵션으로 다시 로드 (파일 조회 on/off)
+        if hasattr(self, 'manual_panel'):
+            self.manual_panel.model = None
 
     def on_tab(self):
         if self.tabs.select() == str(self.manual_tab):
@@ -1160,7 +1191,7 @@ class App:
         if self.robot_model is None:
             desc, _ = read_msg('robot_description')
             if desc:
-                self.robot_model = robot_view.RobotModel(desc['data'])
+                self.robot_model = robot_view.RobotModel(desc['data'], use_mesh=self.sim.use_mesh)
         q, wheel_vel = current_joints(self.sim)
         self._last_q, self._last_wheel = q, wheel_vel
         if self.robot_model is not None and q:

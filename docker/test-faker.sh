@@ -28,6 +28,14 @@ ros2 launch faker faker.launch.py "$@" > /tmp/faker.log 2>&1 & LAUNCH_PID=$!
 # 컨트롤러 spawn이 겹치면 CPU가 몰려 spawner 서비스 호출이 시간 초과된다
 JS=$(timeout 60 ros2 topic echo --once /joint_states sensor_msgs/msg/JointState 2>/dev/null)
 test-logger 0 > /tmp/test-logger.log 2>&1 & LOGGER_PID=$!
+# spawner가 기동 타이밍을 놓치면(FATAL) 컨트롤러 없이 돈다 — 죽은 spawner 치우고 최대 2회 재시도
+for i in 1 2; do
+  echo "$JS" | grep -q gripper_left_joint && break
+  echo "spawner 재시도 ($i/2)..."
+  pkill -f 'controller_manager/spawner' 2>/dev/null || true
+  ros2 run controller_manager spawner joint_state_broadcaster imu_sensor_broadcaster diff_drive_controller rl_arm_correction arm_controller gripper_controller --controller-manager /controller_manager --controller-manager-timeout 120 --service-call-timeout 30 --param-file /ws/install/ros_system/share/ros_system/config/controllers.yaml --controller-ros-args '-r ~/cmd_vel:=/cmd_vel' --controller-ros-args '-r ~/odom:=/odom' --controller-ros-args '-r ~/imu:=/imu' > /tmp/spawner-retry.log 2>&1 || true
+  JS=$(timeout 30 ros2 topic echo --once /joint_states sensor_msgs/msg/JointState 2>/dev/null)
+done
 
 stop_all() {
   kill "$LOGGER_PID" 2>/dev/null

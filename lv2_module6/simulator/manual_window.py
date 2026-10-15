@@ -14,6 +14,7 @@
 지금 상태: 플랜트가 돌면(mock_hardware:=false) 플랜트 값, 아니면 /joint_states.
 """
 import math
+import sys
 import tkinter as tk
 
 import cv2
@@ -205,6 +206,15 @@ class ManualPanel(tk.Frame):
         self.photos = [to_photo(arm)]
         self.arm_label.config(image=self.photos[-1])
 
+    # 물리 키코드 → KEYS 키 (한글 2벌식 등 입력기에서 keysym이 어긋날 때 폴백 — 자판 위치 기준이라 배열 무관)
+    # darwin = macOS virtual keycode · linux = X11 keycode
+    _PHYSICAL_KEYS = {
+        'darwin': {13: 'w', 7: 'x', 1: 's', 12: 'q', 6: 'z', 14: 'e', 8: 'c', 0: 'a', 2: 'd',
+                   30: 'bracketleft', 33: 'bracketright'},
+        'linux': {25: 'w', 53: 'x', 39: 's', 24: 'q', 52: 'z', 26: 'e', 54: 'c', 38: 'a', 40: 'd',
+                  34: 'bracketleft', 35: 'bracketright'},
+    }
+
     # ---------- 바퀴 단축키 (W/X 앞뒤 · S 멈춤 · Q/Z 좌바퀴 앞뒤 · E/C 우바퀴 앞뒤 · A/D 회전 · [/] 속도)
     KEYS = {
         'w': (1, 1), 'x': (-1, -1), 's': (0, 0),
@@ -219,7 +229,11 @@ class ManualPanel(tk.Frame):
         focus = self.focus_get()
         if focus is not None and focus.winfo_class() in ('Entry', 'Text', 'Spinbox', 'TSpinbox'):
             return  # 명령 입력 중엔 무시
-        d = self.KEYS.get((e.keysym or '').lower())
+        key = (e.keysym or '').lower()
+        d = self.KEYS.get(key)
+        if d is None:
+            # 한글 입력기 등 keysym이 어긋나면 물리 키코드로 (자판 배열 무관)
+            d = self.KEYS.get(_PHYSICAL_KEYS.get(sys.platform, {}).get(getattr(e, 'keycode', None)))
         if d is None:
             return
         if isinstance(d, str):  # 속도 조절 — 바퀴 명령 없이 속도만
@@ -258,7 +272,7 @@ class ManualPanel(tk.Frame):
         if self.model is None:
             desc, _ = read_msg('robot_description')
             if desc:
-                self.model = robot_view.RobotModel(desc['data'])
+                self.model = robot_view.RobotModel(desc['data'], use_mesh=getattr(self.sim, 'use_mesh', True))
                 self.arm_links = self.model.descendants('arm_base_link')
         q, wheel_vel = self.actual()
         if q and not self.target:

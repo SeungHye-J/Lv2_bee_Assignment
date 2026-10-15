@@ -18,6 +18,21 @@ MESH_DIR = Path(__file__).resolve().parent.parent / 'urdf' / 'meshes'  # URDF의
 MESH_CELL = 0.008  # 메시 간소화 격자 [m] — 꼭짓점을 이 격자로 뭉쳐 삼각형 수를 줄인다 (순수 파이썬 렌더가 감당할 만큼)
 _mesh_cache = {}
 
+# 메시 끔(use_mesh=False)일 때 대체 뼈대 — 구 URDF(primitive 시절) 치수 참조, visual 원점 기준 box
+# (arm은 collision마저 메시라 여기서라도 살려야 팔·gripper_cam이 허공에 안 뜸. 카메라는 구 카메라 박스 0.025×0.090×0.025)
+SKELETON_BOX = {
+    'arm_base_link': (0.050, 0.045, 0.060),
+    'shoulder_link': (0.030, 0.045, 0.060),
+    'upper_arm_link': (0.030, 0.030, 0.130),
+    'forearm_link': (0.124, 0.030, 0.030),
+    'wrist_link': (0.040, 0.035, 0.035),
+    'gripper_link': (0.070, 0.050, 0.035),
+    'finger_left_link': (0.030, 0.004, 0.025),
+    'finger_right_link': (0.030, 0.004, 0.025),
+    'pole_cam_link': (0.025, 0.090, 0.025),
+    'gripper_cam_link': (0.025, 0.090, 0.025),
+}
+
 LIGHT = np.array([0.4, 0.3, 0.85]) / np.linalg.norm([0.4, 0.3, 0.85])
 
 
@@ -80,7 +95,8 @@ def primitive_faces(shape, a, h, b=None):
 
 
 class RobotModel:
-    def __init__(self, urdf_xml):
+    def __init__(self, urdf_xml, use_mesh=True):
+        """use_mesh=False면 <mesh> visual은 파일 조회 없이 같은 링크의 collision 원시도형으로 뼈대 유지"""
         root = ET.fromstring(urdf_xml)
         self.kin = scene.Kinematics(urdf_xml)
         colors = {m.get('name'): m.find('color').get('rgba') for m in root.findall('material') if m.find('color') is not None}
@@ -98,6 +114,44 @@ class RobotModel:
                 elif g.tag == 'sphere':
                     faces = _sphere(float(g.get('radius')))
                 elif g.tag == 'mesh':
+                    if not use_mesh:
+                        # 메시 끔 — 파일 조회 없이 뼈대로 대체. 순서는 Skeleton 표 → collision 원시도형.
+                        # Skeleton은 visual 원점에 그려야 카메라 박스처럼 제자리에 붙음
+                        # (collision 원점은 물리용이라 표시용과 어긋남).
+                        origin = vis.find('origin')
+                        xyz = [float(v) for v in (origin.get('xyz', '0 0 0') if origin is not None else '0 0 0').split()]
+                        rpy = [float(v) for v in (origin.get('rpy', '0 0 0') if origin is not None else '0 0 0').split()]
+                        mat = vis.find('material')
+                        rgba = None
+                        if mat is not None:
+                            c = mat.find('color')
+                            rgba = c.get('rgba') if c is not None else colors.get(mat.get('name'))
+                        r, gg, b = ([float(v) for v in rgba.split()[:3]] if rgba else [0.7, 0.7, 0.7])
+                        col = (int(b * 255), int(gg * 255), int(r * 255))
+                        skel = SKELETON_BOX.get(link.get('name'))
+                        if skel is not None:
+                            self.visuals.append((link.get('name'), scene.transform(scene.rpy_matrix(*rpy), xyz),
+                                                 _box(*skel), col))
+                            continue
+                        for col_ in link.findall('collision'):
+                            cg = col_.find('geometry')
+                            if cg is None or len(cg) == 0 or cg[0].tag == 'mesh':
+                                continue
+                            c = cg[0]
+                            if c.tag == 'box':
+                                cfaces = _box(*[float(v) for v in c.get('size').split()])
+                            elif c.tag == 'cylinder':
+                                cfaces = _cylinder(float(c.get('radius')), float(c.get('length')))
+                            elif c.tag == 'sphere':
+                                cfaces = _sphere(float(c.get('radius')))
+                            else:
+                                continue
+                            corig = col_.find('origin')
+                            cxyz = [float(v) for v in (corig.get('xyz', '0 0 0') if corig is not None else '0 0 0').split()]
+                            crpy = [float(v) for v in (corig.get('rpy', '0 0 0') if corig is not None else '0 0 0').split()]
+                            self.visuals.append((link.get('name'), scene.transform(scene.rpy_matrix(*crpy), cxyz),
+                                                 cfaces, col))
+                        continue  # 원 visual mesh는 파일 조회 없이 건너뜀
                     faces = load_stl(Path(g.get('filename')).name, float(g.get('scale', '1').split()[0]))
                 else:
                     continue

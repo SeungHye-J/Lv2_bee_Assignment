@@ -95,7 +95,7 @@ def generate_launch_description():
             # 리매핑은 모든 컨트롤러에 같이 가지만 ~/cmd_vel·~/odom은 diff_drive, ~/imu는 imu broadcaster에만 있다.
             arguments=CONTROLLERS + [
                 '--controller-manager', '/controller_manager',
-                '--controller-manager-timeout', '60',
+                '--controller-manager-timeout', '120',  # 재시작 직후 DDS 탐색·빌드로 느려지면 60초 안에 못 붙고 FATAL → 여유 120초
                 '--service-call-timeout', '30',  # 기동 직후 CPU가 몰리면 10초(기본) 안에 응답 못 할 때가 있다
                 '--param-file', share('config', 'controllers.yaml'),
                 '--controller-ros-args', '-r ~/cmd_vel:=/cmd_vel',
