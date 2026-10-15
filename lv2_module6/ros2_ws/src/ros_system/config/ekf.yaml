@@ -1,0 +1,21 @@
+# robot_localization EKF — 바퀴 /odom + /imu 융합 → /odometry/filtered, odom→base_footprint TF
+# 설계: documents/ros2-design/06-base.md (odom TF는 EKF 하나만, diff_drive_controller는 enable_odom_tf: false)
+ekf_filter_node:
+  ros__parameters:
+    frequency: 50.0
+    two_d_mode: true
+    publish_tf: true
+    map_frame: map
+    odom_frame: odom
+    base_link_frame: base_footprint
+    world_frame: odom
+    # 속도 위주로 넣어 미끄러짐 영향을 줄인다 [x y z, roll pitch yaw, vx vy vz, vroll vpitch vyaw, ax ay az]
+    odom0: /odom
+    odom0_config: [false, false, false, false, false, false,
+                   true,  true,  false, false, false, true,
+                   false, false, false]
+    imu0: /imu
+    imu0_config: [false, false, false, false, false, false,
+                  false, false, false, false, false, true,
+                  false, false, false]
+    # TODO(권형중): 실기 공분산·imu0_remove_gravitational_acceleration 등 튜닝

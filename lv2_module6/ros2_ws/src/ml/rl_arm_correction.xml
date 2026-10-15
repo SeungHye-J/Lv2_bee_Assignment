@@ -1,0 +1,6 @@
+<library path="rl_arm_correction">
+  <class name="ml/RlArmCorrection" type="ml::RlArmCorrection"
+         base_class_type="controller_interface::ChainableControllerInterface">
+    <description>JTC 목표 관절각(reference)에 학습 정책의 Δ를 더해 하드웨어 command로 쓰는 residual 보정 컨트롤러</description>
+  </class>
+</library>

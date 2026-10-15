@@ -14,6 +14,7 @@ build/
 
 # 컨테이너 디버그 덤프 (topic echo 로그 등 휘발성, 커밋 금지)
 lv2_module5/debug/
+lv2_module6/debug/
 
 # 인지 도구 실행 중 생성되는 장면 저장 폴더 (hsv_tuner·view_debug·ros_graph)
 **/captures/
@@ -22,4 +23,5 @@ lv2_module5/debug/
 
 # 펌웨어 빌드 산출물 (upload.sh)
 lv2_module5/firmware/build/
+lv2_module6/firmware/build/
 /temp/

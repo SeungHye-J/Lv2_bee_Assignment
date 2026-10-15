@@ -1,0 +1,44 @@
+<?xml version="1.0"?>
+<?xml-model href="http://download.ros.org/schema/package_format3.xsd" schematypens="http://www.w3.org/2001/XMLSchema"?>
+<package format="3">
+  <name>faker</name>
+  <version>0.1.0</version>
+  <description>테스트베드 — 도커에 없는 📦(RealSense, Nav2, MoveIt) · ML(GPU·모델) 대역 + 호스트 파일 연동(monitor_manager: 토픽 → 파일, input_manager: 파일 → 토픽)</description>
+  <maintainer email="todo@example.com">권형중</maintainer>
+  <license>Apache-2.0</license>
+
+  <buildtool_depend>ament_cmake</buildtool_depend>
+
+  <depend>rclcpp</depend>
+  <depend>rclcpp_action</depend>
+  <depend>std_srvs</depend>
+  <depend>geometry_msgs</depend>
+  <depend>sensor_msgs</depend>
+  <depend>nav_msgs</depend>
+  <depend>nav2_msgs</depend>
+  <depend>moveit_msgs</depend>
+  <depend>moveit_task_constructor_msgs</depend>
+  <depend>rosx_introspection</depend>
+  <depend>perception</depend>
+  <depend>ml</depend>
+  <depend>diagnostic_updater</depend>
+  <depend>control_msgs</depend>
+  <depend>controller_interface</depend>
+  <depend>hardware_interface</depend>
+  <depend>pluginlib</depend>
+  <depend>rclcpp_lifecycle</depend>
+  <depend>cv_bridge</depend>
+  <depend>libopencv-dev</depend>
+  <depend>rapidjson-dev</depend>
+
+  <exec_depend>bringup</exec_depend>
+  <exec_depend>ros_system</exec_depend>
+  <exec_depend>launch</exec_depend>
+  <exec_depend>launch_ros</exec_depend>
+
+  <test_depend>ament_cmake_test</test_depend>
+
+  <export>
+    <build_type>ament_cmake</build_type>
+  </export>
+</package>

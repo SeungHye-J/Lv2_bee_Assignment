@@ -1,0 +1,6 @@
+<library path="beebot_system_hardware">
+  <class name="control/BeebotSystemHardware" type="control::BeebotSystemHardware"
+         base_class_type="hardware_interface::SystemInterface">
+    <description>beebot 하드웨어 (OpenCR: 바퀴 2 · 팔 5축 · 그리퍼 · IMU). mock 파라미터로 실기 없이 동작</description>
+  </class>
+</library>

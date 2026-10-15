@@ -1,0 +1,81 @@
+// input_manager 구현 — 설명·선언은 include/faker/input_manager.hpp, main은 input_manager_main.cpp
+#include "faker/input_manager.hpp"
+
+namespace faker {
+
+InputManager::InputManager()
+: rclcpp::Node("input_manager") {
+  input_dir_ = fs::path(declare_parameter<std::string>("debug_dir", "/ws/debug")) / "input";
+  const double period = declare_parameter<double>("period_s", 0.2);
+  std::error_code ec;
+  fs::create_directories(input_dir_, ec);
+  RCLCPP_INFO(get_logger(), "시작 | 입력 폴더: %s (<토픽>/message 에 {\"type\", \"data\"} JSON)", input_dir_.c_str());
+  scan(true);
+  timer_ = create_wall_timer(std::chrono::duration<double>(period), [this]() { scan(false); });
+}
+
+void InputManager::scan(bool initial) {
+  std::error_code ec;
+  for (auto it = fs::recursive_directory_iterator(input_dir_, ec); !ec && it != fs::recursive_directory_iterator();
+    it.increment(ec))
+  {
+    if (it->path().filename() != "message" || !it->is_regular_file()) continue;
+    const std::string topic = "/" + fs::relative(it->path().parent_path(), input_dir_).generic_string();
+    auto & in = inputs_[topic];
+    const auto mtime = fs::last_write_time(it->path(), ec);
+    if (ec || mtime == in.mtime) continue;
+    in.mtime = mtime;
+    if (initial) {
+      RCLCPP_INFO(get_logger(), "기존 파일은 건너뜀 (바뀌면 발행): %s", topic.c_str());
+      continue;
+    }
+    load(topic, it->path(), in);
+  }
+  for (auto & [topic, in] : inputs_) flush(topic, in);
+}
+
+void InputManager::load(const std::string & topic, const fs::path & file, Input & in) {
+  std::stringstream ss;
+  ss << std::ifstream(file).rdbuf();
+  rapidjson::Document doc;
+  doc.Parse(ss.str().c_str());
+  if (doc.HasParseError() || !doc.IsObject() || !doc.HasMember("type") || !doc["type"].IsString() ||
+    !doc.HasMember("data"))
+  {
+    RCLCPP_WARN(get_logger(), "%s: JSON 형식 오류 — {\"type\": \"pkg/msg/Type\", \"data\": {...}}", file.c_str());
+    return;
+  }
+  const std::string type = doc["type"].GetString();
+  try {
+    if (type != in.type) {
+      in.parser = std::make_shared<RosMsgParser::Parser>(
+        topic, RosMsgParser::ROSType(type), RosMsgParser::GetMessageDefinition(type));
+      in.pub = create_generic_publisher(topic, type, rclcpp::QoS(10).reliable());
+      in.type = type;
+      in.since = now();
+      RCLCPP_INFO(get_logger(), "발행자 생성: %s (%s)", topic.c_str(), type.c_str());
+    }
+    rapidjson::StringBuffer data;
+    rapidjson::Writer<rapidjson::StringBuffer> writer(data);
+    doc["data"].Accept(writer);
+    RosMsgParser::NanoCDR_Serializer serializer;
+    if (!in.parser->serializeFromJson(data.GetString(), &serializer)) throw std::runtime_error("serializeFromJson 실패");
+    auto msg = std::make_shared<rclcpp::SerializedMessage>(serializer.getBufferSize());
+    auto & raw = msg->get_rcl_serialized_message();
+    std::memcpy(raw.buffer, serializer.getBufferData(), serializer.getBufferSize());
+    raw.buffer_length = serializer.getBufferSize();
+    in.pending = msg;
+  } catch (const std::exception & e) {
+    RCLCPP_WARN(get_logger(), "%s (%s) 변환 실패: %s", topic.c_str(), type.c_str(), e.what());
+  }
+}
+
+void InputManager::flush(const std::string & topic, Input & in) {
+  if (!in.pending) return;
+  if (in.pub->get_subscription_count() == 0 && (now() - in.since).seconds() < 2.0) return;
+  in.pub->publish(*in.pending);
+  in.pending.reset();
+  RCLCPP_INFO(get_logger(), "발행: %s (구독자 %zu)", topic.c_str(), in.pub->get_subscription_count());
+}
+
+}  // namespace faker

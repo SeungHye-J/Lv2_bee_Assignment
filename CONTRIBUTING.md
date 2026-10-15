@@ -1,6 +1,6 @@
 # Contributing
 
-Lv2_noon_Assignment 팀의 Git 협업 규칙입니다. 모든 팀원은 아래 규칙에 따라 브랜치를 만들고 커밋·PR을 작성합니다.
+팀의 Git 협업 규칙입니다. 모든 팀원은 아래 규칙에 따라 브랜치를 만들고 커밋·PR을 작성합니다.
 
 ## 브랜치
 
@@ -11,7 +11,7 @@ Lv2_noon_Assignment 팀의 Git 협업 규칙입니다. 모든 팀원은 아래 �
 | `feature/` (`feat/`) | 새로운 기능 개발 | `feature/hsv-detector` |
 | `bugfix/` (`fix/`) | 버그 수정 | `fix/target-sign-inverted` |
 | `hotfix/` | `main`의 긴급 수정 | `hotfix/opencr-timeout` |
-| `release/` | 제출 전 검증·정리 | `release/lv2-module5-submit` |
+| `release/` | 제출 전 검증·정리 | `release/lv2-module6-submit` |
 | `chore/` | 빌드·설정·패키지 등 비코드 작업 | `chore/colcon-setup` |
 
 작업 흐름:
@@ -23,7 +23,7 @@ Issue → 작업 브랜치 → 구현·시험 → PR → 리뷰·수정 → 승�
 1. Issue를 생성하고 담당자·완료 조건을 적습니다.
 2. 최신 `develop`에서 작업 브랜치를 생성합니다 (예: `feat/target-detection`, `fix/lost-stop`, `docs/run-guide`).
 3. 작업 후 `develop`으로 PR을 올리고, 다른 팀원 1명 이상의 승인 후 **팀장이** 병합합니다.
-4. 제출 시점에 `develop` → `main` PR도 같은 절차(타인 승인 → 팀장 병합)로 병합하고, CI가 검사 통과 후 그 커밋에 `lv2-module5-submit` 태그를 자동으로 붙입니다 (다시 병합하면 최신 main 커밋으로 이동).
+4. 제출 시점에 `develop` → `main` PR도 같은 절차(타인 승인 → 팀장 병합)로 병합하고, CI가 검사 통과 후 그 커밋에 `lv2-module6-submit` 태그를 자동으로 붙입니다 (다시 병합하면 최신 main 커밋으로 이동).
 5. 병합 후 각자 최신 `develop`을 내려받고, 다음 작업은 새 브랜치에서 시작합니다.
 
 > 발제 기준은 PR base가 `main`입니다. 팀은 통합 시험을 위해 `develop`을 거치되, `develop`·`main`으로 가는 모든 PR에 아래 PR 규칙을 똑같이 적용합니다.

@@ -1,0 +1,67 @@
+# ros2_control 컨트롤러 — 설계: documents/ros2-design/08-ctrl.md
+# 하드웨어: control/BeebotSystemHardware (URDF lv2_module6/urdf/beebot.urdf.xacro의 <ros2_control>)
+# spawn 순서: joint_state_broadcaster → imu_sensor_broadcaster → diff_drive_controller
+#            → rl_arm_correction → arm_controller (체인은 뒤에서부터: arm_controller가 rl_arm_correction의 reference에 쓴다)
+#            → gripper_controller
+# 팔: joint1~5 (OM-X 4축 + 손목 roll), 그리퍼: gripper_left_joint (오른쪽은 URDF mimic)
+controller_manager:
+  ros__parameters:
+    update_rate: 100
+
+    joint_state_broadcaster:
+      type: joint_state_broadcaster/JointStateBroadcaster
+    imu_sensor_broadcaster:
+      type: imu_sensor_broadcaster/IMUSensorBroadcaster
+    diff_drive_controller:
+      type: diff_drive_controller/DiffDriveController
+    rl_arm_correction:
+      type: ml/RlArmCorrection
+    arm_controller:
+      type: joint_trajectory_controller/JointTrajectoryController
+    # Lyrical엔 gripper_controllers(GripperCommand)가 없다 → parallel_gripper_controller
+    #   액션: /gripper_controller/gripper_cmd (control_msgs/action/ParallelGripperCommand) — MTC 설정에서 이 타입으로 맞출 것
+    gripper_controller:
+      type: parallel_gripper_action_controller/GripperActionController
+
+imu_sensor_broadcaster:
+  ros__parameters:
+    sensor_name: imu
+    frame_id: imu_link
+
+diff_drive_controller:
+  ros__parameters:
+    left_wheel_names: [wheel_left_joint]
+    right_wheel_names: [wheel_right_joint]
+    wheel_separation: 0.287
+    wheel_radius: 0.033
+    base_frame_id: base_footprint
+    odom_frame_id: odom
+    enable_odom_tf: false       # odom→base_footprint TF는 EKF 하나만 (둘 다 내면 TF가 싸운다)
+    publish_rate: 50.0
+
+rl_arm_correction:
+  ros__parameters:
+    joints: [joint1, joint2, joint3, joint4, joint5]
+    enabled: true
+    max_delta: 0.05
+
+arm_controller:
+  ros__parameters:
+    joints: [joint1, joint2, joint3, joint4, joint5]
+    command_joints:            # 체인: 하드웨어 대신 rl_arm_correction의 reference에 쓴다
+      - rl_arm_correction/joint1
+      - rl_arm_correction/joint2
+      - rl_arm_correction/joint3
+      - rl_arm_correction/joint4
+      - rl_arm_correction/joint5
+    command_interfaces: [position]
+    state_interfaces: [position, velocity]
+    constraints:
+      stopped_velocity_tolerance: 0.02
+      goal_time: 0.5
+
+gripper_controller:
+  ros__parameters:
+    joint: gripper_left_joint
+    max_effort: 1.0
+    allow_stalling: true       # 퍽을 쥐면 손가락이 멈춘다 — 멈춤을 실패가 아니라 파지로

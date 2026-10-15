@@ -1,0 +1,27 @@
+# diagnostic_aggregator — 노드별 /diagnostics를 계층별로 묶어 /diagnostics_agg · /diagnostics_toplevel_state 로
+#   상태 이름 = "<노드 이름>: <항목>" (diagnostic_updater) → 노드 이름으로 나눈다
+#   도커에서는 controller_manager가 '주기 불규칙(bad periodicity·jitter)' ERROR를 낸다 — 실시간 스케줄링이 안 돼서, 실기에선 사라져야 정상
+#   확인: ros2 topic echo /diagnostics_agg  ·  시뮬레이터 상태 패널
+analyzers:
+  ros__parameters:
+    path: Beebot
+    perception:
+      type: diagnostic_aggregator/GenericAnalyzer
+      path: 인지
+      startswith: [ 'perception' ]
+    plan:
+      type: diagnostic_aggregator/GenericAnalyzer
+      path: 계획·임무
+      startswith: [ 'user_input', 'vlm_task_planner', 'coordinator' ]
+    ml:
+      type: diagnostic_aggregator/GenericAnalyzer
+      path: 학습
+      startswith: [ 'grasp_scorer', 'rl_nav_tuner', 'rl_nav_correction' ]
+    control:
+      type: diagnostic_aggregator/GenericAnalyzer
+      path: 제어
+      startswith: [ 'arm_safety_monitor', 'manual_control', 'beebotsystem', 'controller_manager' ]
+    system:
+      type: diagnostic_aggregator/GenericAnalyzer
+      path: 제공 패키지
+      startswith: [ 'ekf_filter_node', 'twist_mux', 'robot_state_publisher', 'rtabmap', 'controller_server', 'bt_navigator' ]

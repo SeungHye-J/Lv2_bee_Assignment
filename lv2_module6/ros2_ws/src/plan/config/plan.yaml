@@ -1,0 +1,12 @@
+# plan 패키지 파라미터 — bringup이 노드에 넘긴다. user_input.command는 launch 인자 command가 덮어쓴다
+user_input:
+  ros__parameters:
+    command: ""              # 시작 후 한 번 보낼 텍스트 명령 (비면 안 보냄)
+vlm_task_planner:
+  ros__parameters:
+    max_replans: 1           # 명령 하나당 재계획 횟수 (coordinator의 max_step_failures와 짝)
+coordinator:
+  ros__parameters:
+    max_grasp_tries: 2       # 파지 후보를 점수순으로 몇 개까지 시도 (규칙 4)
+    max_step_failures: 2     # 같은 단계가 이만큼 연속 실패하면 알리고 정지 (규칙 5)
+    server_wait_s: 30.0      # [s] Nav2·MoveIt 서버가 뜰 때까지 기다리는 시간
