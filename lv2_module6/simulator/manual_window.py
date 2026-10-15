@@ -92,8 +92,8 @@ class ManualPanel(tk.Frame):
         row.pack(fill=tk.X)
         tk.Button(row, text='지금 자세로', command=self.reset_target).pack(side=tk.LEFT)
         tk.Button(row, text='팔 초기화', command=self.init_arm).pack(side=tk.LEFT)
-        tk.Button(row, text='그리퍼 열기', command=lambda: self.set_gripper(0.019)).pack(side=tk.LEFT)
-        tk.Button(row, text='그리퍼 닫기', command=lambda: self.set_gripper(-0.010)).pack(side=tk.LEFT)
+        tk.Button(row, text='그리퍼 열기', command=lambda: self.set_gripper(0.026)).pack(side=tk.LEFT)
+        tk.Button(row, text='그리퍼 닫기', command=lambda: self.set_gripper(0.0)).pack(side=tk.LEFT)
         tk.Button(row, text='그리퍼 초기화', command=self.init_gripper).pack(side=tk.LEFT)
         tk.Label(row, text='단축키: W/X 앞뒤 · S 멈춤 · Q/Z 좌바퀴앞뒤 · E/C 우바퀴앞뒤 · A/D 회전 · [/] 속도', fg='#666').pack(side=tk.LEFT, padx=6)
         self.joint_text = tk.Label(right, justify=tk.LEFT, font=('Menlo', 10), anchor=tk.W)
@@ -259,7 +259,7 @@ class ManualPanel(tk.Frame):
             desc, _ = read_msg('robot_description')
             if desc:
                 self.model = robot_view.RobotModel(desc['data'])
-                self.arm_links = self.model.descendants('link1')
+                self.arm_links = self.model.descendants('arm_base_link')
         q, wheel_vel = self.actual()
         if q and not self.target:
             self.target = {j: q.get(j, 0.0) for j in ARM_JOINTS}

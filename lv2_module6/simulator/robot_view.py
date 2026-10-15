@@ -7,11 +7,16 @@
 """
 import math
 import xml.etree.ElementTree as ET
+from pathlib import Path
 
 import cv2
 import numpy as np
 
 import scene
+
+MESH_DIR = Path(__file__).resolve().parent.parent / 'urdf' / 'meshes'  # URDF의 package://…/meshes/x.stl 이 가리키는 곳
+MESH_CELL = 0.008  # 메시 간소화 격자 [m] — 꼭짓점을 이 격자로 뭉쳐 삼각형 수를 줄인다 (순수 파이썬 렌더가 감당할 만큼)
+_mesh_cache = {}
 
 LIGHT = np.array([0.4, 0.3, 0.85]) / np.linalg.norm([0.4, 0.3, 0.85])
 
@@ -45,6 +50,26 @@ def _sphere(r, n=8):
     return faces
 
 
+def load_stl(name, scale):
+    """바이너리 STL → (N,3,3) 삼각형. 꼭짓점을 격자(MESH_CELL)로 뭉쳐 간소화 · 같은 파일은 한 번만 읽는다"""
+    key = (name, scale)
+    if key not in _mesh_cache:
+        data = np.fromfile(MESH_DIR / name, np.uint8)
+        n = int(np.frombuffer(data[80:84], np.uint32)[0])
+        rec = np.frombuffer(data[84:84 + 50 * n], np.dtype([('n', '<f4', 3), ('v', '<f4', (3, 3)), ('a', '<u2')]))
+        pts = rec['v'].astype(float).reshape(-1, 3) * scale
+        _, inv = np.unique(np.round(pts / MESH_CELL).astype(np.int64), axis=0, return_inverse=True)
+        inv = inv.reshape(-1)
+        verts = np.zeros((inv.max() + 1, 3))
+        np.add.at(verts, inv, pts)
+        verts /= np.bincount(inv)[:, None]  # 뭉친 꼭짓점 = 격자 안 원래 꼭짓점의 평균
+        idx = inv.reshape(-1, 3)
+        idx = idx[(idx[:, 0] != idx[:, 1]) & (idx[:, 1] != idx[:, 2]) & (idx[:, 0] != idx[:, 2])]  # 찌그러진 삼각형 제거
+        _, first = np.unique(np.sort(idx, axis=1), axis=0, return_index=True)  # 같은 삼각형 한 번만
+        _mesh_cache[key] = verts[idx[np.sort(first)]]
+    return _mesh_cache[key]
+
+
 def primitive_faces(shape, a, h, b=None):
     """상태 뷰용 물체 원형 — a=반지름(원기둥·구) 또는 x폭(상자), h=높이, b=y폭(상자, 없으면 a)"""
     if shape == 'cylinder':
@@ -72,8 +97,10 @@ class RobotModel:
                     faces = _cylinder(float(g.get('radius')), float(g.get('length')))
                 elif g.tag == 'sphere':
                     faces = _sphere(float(g.get('radius')))
+                elif g.tag == 'mesh':
+                    faces = load_stl(Path(g.get('filename')).name, float(g.get('scale', '1').split()[0]))
                 else:
-                    continue  # mesh는 아직
+                    continue
                 origin = vis.find('origin')
                 xyz = [float(v) for v in (origin.get('xyz', '0 0 0') if origin is not None else '0 0 0').split()]
                 rpy = [float(v) for v in (origin.get('rpy', '0 0 0') if origin is not None else '0 0 0').split()]
@@ -115,6 +142,9 @@ class RobotModel:
                 cache[link] = self.kin.pose(link, q)
             T = cache[link] @ T_o
             col = tint or color
+            if isinstance(faces, np.ndarray):  # 메시: 삼각형 묶음 하나로 (render가 한꺼번에 처리)
+                out.append((faces @ T[:3, :3].T + T[:3, 3], col))
+                continue
             for f in faces:
                 out.append((f @ T[:3, :3].T + T[:3, 3], col))
         return out
@@ -163,6 +193,18 @@ class OrbitView:
         eye = self.basis()[0]
         polys = []
         for verts, color in faces:
+            if verts.ndim == 3:  # 삼각형 묶음 (N,3,3) — 뒷면 제거 · 투영을 한꺼번에
+                n = np.cross(verts[:, 1] - verts[:, 0], verts[:, 2] - verts[:, 0])
+                norm = np.linalg.norm(n, axis=1)
+                n = n / np.maximum(norm, 1e-12)[:, None]
+                ok = (norm > 1e-12) & (np.einsum('ij,ij->i', n, eye - verts.mean(1)) > 0)
+                uv, z = self.project(verts.reshape(-1, 3), size)
+                uv, z = uv.reshape(-1, 3, 2), z.reshape(-1, 3)
+                ok &= (z >= 0.02).all(1)
+                shade = 0.35 + 0.65 * np.maximum(0.0, n @ LIGHT)
+                for i in np.flatnonzero(ok):
+                    polys.append((float(z[i].mean()), uv[i].astype(np.int32), tuple(int(c * shade[i]) for c in color)))
+                continue
             n = np.cross(verts[1] - verts[0], verts[2] - verts[0])
             norm = np.linalg.norm(n)
             if norm < 1e-12:

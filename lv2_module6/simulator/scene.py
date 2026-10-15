@@ -183,7 +183,11 @@ class BodyModel:
                   if m.find('color') is not None}
         self.boxes = []  # (link, T_origin 4x4, (sx, sy, sz), BGR)
         for link in root.findall('link'):
-            for vis in link.findall('visual'):
+            # mesh 모양은 못 그리니 visual이 전부 mesh인 링크는 collision 도형(상자 · 원기둥 · 구)으로 대신한다
+            vis_all = link.findall('visual')
+            if vis_all and all(v.find('geometry') is not None and v.find('geometry')[0].tag == 'mesh' for v in vis_all):
+                vis_all = [c for c in link.findall('collision') if c.find('geometry') is not None and c.find('geometry')[0].tag != 'mesh']
+            for vis in vis_all:
                 geom = vis.find('geometry')
                 if geom is None or len(geom) == 0:
                     continue
