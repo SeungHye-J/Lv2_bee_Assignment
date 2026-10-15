@@ -4,6 +4,8 @@
 
 노드마다 제공/직접 작성, 패키지, 형태, **받는 것**(구독·서비스 서버·액션 서버·인터페이스)과 **내보내는 것**(발행·호출·요청)을 메시지 타입과 함께 정리했습니다.
 
+> 인터페이스 명세: [커스텀 인터페이스](../API.md#api-custom)
+
 방식: ✉️ 구독/발행 = 토픽 · 📞 서버/호출/응답 = 서비스 · 🎬 서버/요청/결과 = 액션 · 🧩 읽기/쓰기 = ros2_control 인터페이스 · 🔌 장치 = USB·시리얼 · ⌨️ 운영자 → 로봇 · 💬 로봇 → 운영자 · 💾 파일 · ⚙️ 파라미터 · 🌐 외부 API
 
 - **센서·인지**: [📦 realsense2_camera (pole_cam)](#realsense_pole) · [📦 realsense2_camera (gripper_cam)](#realsense_gripper) · [🛠️ perception](#perception) · [📦 robot_state_publisher](#robot_state_publisher)
@@ -1062,6 +1064,8 @@ OpenCR IMU의 state interface를 Imu 메시지로 발행한다.
 | ✉️ 발행 | `/dynamic_joint_states` | `control_msgs/msg/DynamicJointState` | 디버그 |  |
 
 ## 커스텀 인터페이스 정의 (메시지를 내보내는 패키지가 가짐)
+
+> 정본: [API.md 커스텀 인터페이스](../API.md#api-custom) — 아래는 발췌. 파일과 다르면 파일이 맞습니다.
 
 **perception/msg/TrackedObject.msg**
 

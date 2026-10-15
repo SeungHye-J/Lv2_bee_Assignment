@@ -4,6 +4,8 @@
 
 controller_manager는 장치를 모릅니다. 장치별 연결·전송은 **하드웨어 플러그인**이 맡고, controller_manager는 그 플러그인과 컨트롤러 플러그인을 정해진 순서로 불러 쓰기만 합니다 — "인터페이스만 맞춰라, 내가 불러다 쓸게." 개념·한 주기 흐름·플러그인 만들기·연결 5단계는 **ros2_control 탭**에 따로 정리했습니다.
 
+> 인터페이스 명세: [토픽](../API.md#api-topics) · [서비스](../API.md#api-services)
+
 [📘 ros2_control 탭 — 개념부터 보기 →](https://dooboostore.github.io/ros2?concept=ros2control&cs=concept) · [▶ 한 주기 흐름 스텝퍼](https://dooboostore.github.io/ros2?concept=ros2control&cs=flow) · [🔧 연결 5단계](https://dooboostore.github.io/ros2?concept=ros2control&cs=connect) · [🤖 이 로봇 적용](https://dooboostore.github.io/ros2?concept=ros2control&cs=robot)
 
 ```mermaid

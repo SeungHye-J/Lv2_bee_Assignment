@@ -28,9 +28,27 @@ test-all                               # 빌드 + 전체 검사. ALL PASS면 셋
 | `lv2_module6/ros2_ws/src` | `/ws/src` | ROS 2 패키지 소스 (호스트에서 편집하면 바로 반영) |
 | `lv2_module6/urdf` | `/urdf` (읽기 전용) | 로봇 모델 |
 | `lv2_module6/firmware` | `/ws/firmware` | OpenCR 펌웨어 스케치 |
-| `lv2_module6/debug` | `/ws/debug` | 토픽 기록 · 시뮬레이터 연동 · 가상 시리얼(serial-in/out) · 펌웨어 빌드 결과 (gitignore) |
+| `lv2_module6/debug` | `/ws/debug` | 토픽 기록 · 시뮬레이터 연동 · 가상 시리얼(serial-in/out) · 펌웨어 빌드 결과 (gitignore). **양방향**: 호스트→컨테이너(`input/` 명령·수동, `input-live/` 카메라, `service/*/request`·`action/*/goal·cancel`, `sim/objects.json`)와 컨테이너→호스트(`topic/`·`service/*/response·type|info`·`action/*/accept·feedback·result`, `serial-out`)가 같은 폴더를 쓴다. 소유권·권한은 아래 "공유 폴더 권한" 참조 |
 
 Dockerfile·`docker/*.sh`를 고쳤으면 `docker compose build` 후 `docker compose up -d`로 다시 띄웁니다 (스크립트는 이미지에 복사돼 있음).
+
+### 공유 폴더 권한 (`lv2_module6/debug`)
+
+이미지에 `USER` 지정이 없어 컨테이너 안 프로세스는 uid 0(root)으로 돕니다. 바인드 마운트는 호스트 파일시스템을 그대로 공유하고 user namespace remapping을 쓰지 않으므로(기본값), 컨테이너가 만든 파일·디렉토리는 호스트에서 root 소유로 보입니다. `sudo`라서가 아니라 uid 문제입니다.
+
+그래서 양쪽 다 쓸 수 있게 디렉토리는 777로 유지합니다:
+
+- `docker/entrypoint.sh`: 기동 시 `input/`·`input-live/`·`topic/`·`service/`·`action/`·`interface/`·`sim/` 미리 생성 + `chmod -R 777 /ws/debug`
+- `faker` 노드(`monitor_manager`·`service_action_monitor`·`service_action_input`): 디렉토리 생성 직후 `chmod 0777` — 실행 중 새로 생기는 `topic/<토픽>/`·`service/<이름>/`·`action/<이름>/`도 호스트가 rename(원자적 쓰기)으로 교체 가능
+- 파일 자체는 644여도 된다: 읽는 쪽은 읽기만, 쓰는 쪽은 디렉토리 권한으로 rename 하므로
+
+`PermissionError`가 나면 (예: 시뮬레이터 `save_truth`가 `debug/sim` 생성 실패) 컨테이너에서 소유권 회수 — 호스트 `sudo`는 비밀번호가 필요할 수 있으니 컨테이너(root) 경유가 확실:
+
+```bash
+cd docker && docker compose exec -u root lyrical bash -c "chown -R 1000:1000 /ws/debug && chmod -R 777 /ws/debug"
+```
+
+참고: `docker compose up -d`로 컨테이너를 재생성하면 `/ws/build`·`/ws/install`(컨테이너 내부, 마운트 아님)이 날아가므로 `colcon build`부터 다시 합니다.
 
 ## 2. 컨테이너 안 명령
 
@@ -211,49 +229,10 @@ xacro /urdf/beebot.urdf.xacro mock_hardware:=true > /tmp/beebot.urdf && check_ur
 
 ## 9. SIL 시뮬레이터 (`simulator/`)
 
-**SIL(Software-in-the-Loop)**: 실기 대신 시뮬레이터가 세상(코스·퍽·장애물·사람·카메라 장면)과 로봇 몸(OpenCR)을 흉내 내고, ROS 쪽은 실제 노드가 그대로 돈다.
-시뮬레이터는 호스트에서 띄우는 창이고, 컨테이너와는 `lv2_module6/debug/` 파일로만 주고받는다 (호스트에 ROS 불필요).
+실행·화면·파일 규격은 [simulator/README.md](simulator/README.md)를 본다. 요약만 두면:
 
-```bash
-# 컨테이너 (둘 중 하나로 띄워 두기)
-test-faker 0                          # mock 하드웨어: 바퀴·팔은 명령 그대로 — 카메라 · 명령 · 수동 조작 확인용
-test-faker 0 mock_hardware:=false     # 시뮬레이터 플랜트가 OpenCR 역할 — 미끄럼 · 마찰 · 충돌 · 통신 끊김까지
-# 호스트
-cd lv2_module6/simulator
-python3 -m venv .venv && .venv/bin/pip install -r requirements.txt   # 최초 1회
-.venv/bin/python main.py
-.venv/bin/python main.py --snapshot out.png                # 창 없이 한 장 (확인용)
-```
-
-| 화면 | 내용 |
-| --- | --- |
-| 지도 | 코스 + **실제 로봇(채움, 플랜트)** · `/odom`(테두리 — 미끄럼만큼 어긋남) · 경로(`/plan`) · 인지 물체(`/tracked_objects`, 보라 테두리) · 퍽(정답) · 바닥 장애물(회색) · 사람(파랑) · 두 카메라 시야. 퍽·장애물은 드래그로 이동 |
-| 퍽 · 배경 | [퍽 랜덤 배치] 개수 · 모양(원기둥·상자·구) · 색 무작위 / 360° 파노라마 배경 / [카메라 송출] 끄기 = 카메라 빠짐 |
-| 환경 | 미끄럼(바퀴가 돈 만큼 덜 나감) · 마찰(가속 한계) · [사람 끼어들기](로봇 앞을 가로지름) · [바닥 장애물 추가/지우기] · [로봇 시작 칸으로] · OpenCR 통신 끊기 · 팔 붙잡기(과전류) |
-| 수동 조작 | [수동 조작 창 열기] → 별도 창 (`manual_window.py`, 열면 수동 모드 · 닫으면 바퀴 정지 + 자동 모드): 바퀴 버튼 앞 · 뒤 · 멈춤 · 좌측 바퀴 앞/뒤 · 우측 바퀴 앞/뒤 · 전체 속도 ▲▼, 비상정지, **로봇 3D**(지금 상태, 드래그 회전 · 휠 줌), **팔 3D**(노란 관절 마커를 잡아 위아래로 끌면 그 관절 회전 → 놓으면 `/manual/arm`, 목표 밝게 · 지금 어둡게, 그리퍼 열기/닫기) |
-| 카메라 2대 | ROS 영상(로봇이 실제로 발행한 토픽, 없으면 시뮬레이터 렌더) · 깊이 컬러맵 · 점구름(드래그로 회전) |
-| 상태 · 진단 | 작업 · 계획 · 운영 모드 · 위치 · 팔 · 플랜트 / `/diagnostics_agg` 노드별 OK·WARN·ERROR |
-
-주고받는 파일:
-
-| 방향 | 파일 | ROS 쪽 |
-| --- | --- | --- |
-| 시뮬레이터 → ROS | `debug/input-live/<카메라>.png` · `<카메라>_depth.png` (16비트 mm) | faker `fake_camera` → RealSense 토픽 (컬러 · 정렬 depth · 점구름 · camera_info) |
-| 시뮬레이터 → ROS | `debug/input/<토픽>/message` (`{"type", "data"}` JSON) | faker `input_manager` → `/user_command` · `/manual/*` · `/e_stop` |
-| 플랜트 ↔ ROS | `debug/serial-out`(C 명령) 읽기 · `debug/serial-in`(S 상태) 쓰기 | 가상 시리얼 `/dev/ttyACM0` ↔ BeebotSystemHardware (`mock_hardware:=false`) |
-| ROS → 시뮬레이터 | `debug/topic/<토픽>/message` · `image.jpg` · `depth.png` | faker `monitor_manager` (모든 토픽의 마지막 메시지) |
-| 시뮬레이터 기록 | `debug/sim/objects.json` | 퍽 · 바닥 장애물 정답 (미로 좌표 + map 좌표) — 인지 결과와 비교용 |
-
-- 파일: `main.py`(메인 창) · `manual_window.py`(수동 조작 창) · `robot_view.py`(URDF 3D 뷰) · `scene.py`(카메라 렌더) · `plant.py`(OpenCR + 로봇 몸) · `maze.py`(코스) · `bridge.py`(debug 파일 주고받기)
-- 플랜트(`plant.py`): 바퀴는 명령 속도로 가속(한계 × 마찰), 엔코더는 바퀴 회전 그대로지만 바닥 이동은 (1 − 미끄럼)만큼 → `/odom`이 실제와 어긋난다 (rl_nav_correction·EKF가 다룰 문제).
-  로봇 원(반경 0.18m)이 벽·장애물·사람과 겹치면 그 걸음은 막힌다(충돌). 팔은 관절 속도 한계로 따라가고, 팔 붙잡기면 안 움직이고 과전류(→ arm_safety_monitor).
-  통신 끊기면 C를 안 읽고 S를 안 보낸다 → 호스트 진단 "OpenCR 상태(S) 수신 없음" ERROR, 펌웨어 watchdog처럼 0.5초 뒤 바퀴 정지.
-- faker를 다시 띄우면 `/odom`이 0부터 시작한다 — [로봇 시작 칸으로]로 플랜트도 맞춘다.
-- 카메라 렌더: 로봇 URDF(`/robot_description`) 순기구학 + 관절값 + 로봇 위치(플랜트가 돌면 실제 자세, 아니면 `/odom`)로 두 카메라 자세를 구해 광선 추적 (`scene.py`, 카메라당 약 0.5초).
-  화각 `HFOV_DEG`는 `faker/config/faker.yaml`의 `hfov_deg`와 같아야 한다. 로봇 자기 몸은 안 그린다.
-- 코스는 저장소의 `course/twin_closed_maze/walls.json`을 읽는다 (네트워크 불필요) — [course/README.md](course/README.md).
-- map·odom 원점 = 미로 시작 칸으로 가정 (위치추정이 붙기 전까지). 퍽은 시작 칸이 있는 절반에만 놓는다 (가운데 벽이 위·아래를 막음).
-- 실기 로봇에 붙여 보기: 로봇과 같은 네트워크의 PC에서 `ros2_ws/monitor.sh` (monitor_manager만) → 시뮬레이터가 상태·영상·진단을 표시
+- 호스트에서 `cd lv2_module6/simulator && .venv/bin/python main.py` (컨테이너 셸에서는 `test-faker 0` 또는 `test-faker 0 mock_hardware:=false`로 띄워 두기 — 컨테이너 접속은 §1 참조)
+- 컨테이너와는 `lv2_module6/debug/` 파일로만 주고받는다 (호스트에 ROS 불필요)
 
 ## 10. OpenCR 펌웨어 (`firmware/`)
 
@@ -305,7 +284,7 @@ cd ros2_ws-<RUN ID>
 | spawner `Could not contact service` | 기동 직후 CPU가 몰림. 다른 무거운 일(빌드 등)을 끝내고 다시 |
 | `malformed launch argument` | `인자:=""`처럼 빈 값은 안 됨 — 인자를 빼거나 공백이 아닌 값 |
 | 메시지 타입을 못 찾음 (`plan/msg/...`) | `source /ws/install/setup.bash` 안 함, 또는 메시지 패키지 빌드 전 |
-| 호스트에서 `lv2_module6/debug` 파일을 못 지움 | 컨테이너(root)가 만든 파일 — 컨테이너 안에서 지우거나 `sudo` |
+| 호스트에서 `lv2_module6/debug` 파일을 못 만들거나 못 지움 (`PermissionError`) | 컨테이너(root)가 만든 디렉토리 — §1 "공유 폴더 권한"의 `chown` 명령으로 회수 |
 | `docker compose build`에서 `not enough free space` | 다시 빌드할 때마다 이전 이미지가 이름 없이(dangling) 쌓인다 → `docker image prune -f && docker builder prune -f` |
 | test-hardware `OpenCR 포트를 열 수 없음` | 가상 시리얼 브릿지가 안 떴음 → `docker compose restart` (entrypoint가 다시 만든다) |
 | 시뮬레이터 카메라가 `waiting` | 컨테이너에서 `test-faker 0`이 떠 있어야 로봇 자세(`/odom`·`/robot_description`)가 온다 |

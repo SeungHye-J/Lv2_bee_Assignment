@@ -48,6 +48,9 @@ private:
   double fx_;
   std::string frame_, color_path_, depth_path_;
   Live color_live_, depth_live_;
+  PointCloud2 cloud_cache_;  // depth가 안 바뀌면 재발행 (매 틱 재계산 방지 — CPU 절약)
+  fs::file_time_type cloud_mtime_{};
+  bool cloud_valid_ = false;
   rclcpp::Publisher<Image>::SharedPtr color_pub_, depth_pub_;
   rclcpp::Publisher<CameraInfo>::SharedPtr info_pub_;
   rclcpp::Publisher<PointCloud2>::SharedPtr points_pub_;

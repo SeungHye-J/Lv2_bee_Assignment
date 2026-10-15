@@ -5,6 +5,8 @@
 직접 작성은 노드 10개 + 하드웨어 플러그인(BeebotSystemHardware) + OpenCR 펌웨어입니다. 나머지는 생태계 패키지를 가져와 설정하고 연결하는 일입니다.
 구현 위치: `lv2_module6/ros2_ws/src/<패키지>` — 전부 C++ (ament_cmake).
 
+> 인터페이스 명세: [커스텀 인터페이스](../API.md#api-custom)
+
 | 노드 | 구분 | 패키지 · 형태 | 핵심 작업 |
 | --- | --- | --- | --- |
 | perception | 직접 | perception · ROS 2 노드 | 퍽·목표 구역·장애물 검출, 3D 위치, ID 추적, /tracked_objects |

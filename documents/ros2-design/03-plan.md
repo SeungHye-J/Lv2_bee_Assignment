@@ -4,6 +4,8 @@
 
 VLM이 작업 순서를 정하고, coordinator가 검증한 뒤 Nav2와 MoveIt에 **액션**으로 실행을 맡깁니다. 앞단 학습 노드 두 개가 여기에 붙습니다.
 
+> 인터페이스 명세: [토픽](../API.md#api-topics) · [액션](../API.md#api-actions) · [서비스](../API.md#api-services)
+
 ```mermaid
 flowchart TB
     USER(((운영자)))

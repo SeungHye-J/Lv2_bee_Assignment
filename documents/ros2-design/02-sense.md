@@ -4,6 +4,8 @@
 
 센서 장치(육각형)는 🔌 USB로 드라이버 노드에 연결되고, **토픽은 드라이버 노드가 발행**합니다. 카메라 드라이버가 영상·depth·camera_info를 내고, perception이 물체를 map 기준 3D로 추적합니다. gripper_cam은 팔과 함께 움직이므로 **영상 시각의 TF**로 변환해야 위치가 어긋나지 않습니다(`lookupTransform`에 header.stamp 사용, 메시지 필터로 동기화).
 
+> 인터페이스 명세: [토픽](../API.md#api-topics)
+
 ```mermaid
 flowchart TB
     GCH{{"gripper_cam<br/>RealSense RGB-D"}}

@@ -42,10 +42,11 @@ def include(package, launch_file, args):
         launch_arguments=args.items())
 
 
-def fake(executable, name, overrides=None):
+def fake(executable, name, overrides=None, respawn=False):
     # 파라미터: config/faker.yaml(노드 이름별) → launch 인자(overrides)가 덮어씀
     config = PathJoinSubstitution([FindPackageShare('faker'), 'config', 'faker.yaml'])
-    return Node(package='faker', executable=executable, name=name, output='screen', parameters=[config, overrides or {}])
+    return Node(package='faker', executable=executable, name=name, output='screen', parameters=[config, overrides or {}],
+                respawn=respawn, respawn_delay=1.0)
 
 
 def num(name, t):
@@ -81,8 +82,8 @@ def generate_launch_description():
                 ["'ml/RlArmCorrection' if '", LaunchConfiguration('ml'), "' == 'real' else 'faker/PassthroughArmCorrection'"]),
         }),
 
-        fake('fake_camera', 'pole_cam'),
-        fake('fake_camera', 'gripper_cam'),
+        fake('fake_camera', 'pole_cam', respawn=True),
+        fake('fake_camera', 'gripper_cam', respawn=True),
         fake('fake_nav2', 'controller_server', {'fail_count': num('nav_fail_count', int)}),
         fake('fake_moveit', 'move_group', {'fail_count': num('pick_fail_count', int)}),
         Node(package='faker', executable='fake_ml', output='screen',  # 노드 3개라 name을 주지 않는다
@@ -90,4 +91,6 @@ def generate_launch_description():
              condition=IfCondition(PythonExpression(["'", LaunchConfiguration('ml'), "' == 'fake'"]))),
         fake('monitor_manager', 'monitor_manager', {'debug_dir': LaunchConfiguration('debug_dir')}),
         fake('input_manager', 'input_manager', {'debug_dir': LaunchConfiguration('debug_dir')}),
+        fake('service_action_monitor', 'service_action_monitor', {'debug_dir': LaunchConfiguration('debug_dir')}),
+        fake('service_action_input', 'service_action_input', {'debug_dir': LaunchConfiguration('debug_dir')}),
     ])

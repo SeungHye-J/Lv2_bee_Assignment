@@ -6,6 +6,7 @@
 //   <debug_dir>/topic/<토픽명>/message    마지막 메시지 JSON {"type": "...", "data": {...}} (덮어씀)
 //   <debug_dir>/topic/<토픽명>/image.jpg  Image / CompressedImage 토픽이면 마지막 영상 (덮어씀)
 //   <debug_dir>/topic/<토픽명>/depth.png  16UC1 depth 영상이면 무손실 16비트 PNG [mm] (시뮬레이터 깊이·점구름 보기)
+//   <debug_dir>/topic/list.json           {"topics": [{"name": "/task_status", "type": "plan/msg/TaskStatus"}]}
 //   예) /task_status → /ws/debug/topic/task_status/message (호스트 lv2_module6/debug/topic/task_status/message)
 // test-logger의 echo·info와 같은 폴더. 갱신 시각은 파일 mtime으로 본다.
 // image.jpg는 토픽별로 period_s에 한 번만 (카메라 30fps 영상을 다 쓰면 디스크만 바쁨).
@@ -50,6 +51,8 @@ private:
 
   void scan();
 
+  void write_topic_list();
+
   // 이미지: best-effort 구독은 reliable·best-effort 발행 모두와 연결된다
   static rclcpp::QoS qos();
 
@@ -82,6 +85,7 @@ private:
   std::set<std::string> excluded_;
   double period_;
   std::set<std::string> seen_;
+  std::map<std::string, std::string> types_;  // 토픽 -> 타입 (list.json용)
   std::vector<rclcpp::SubscriptionBase::SharedPtr> subs_;
   std::map<std::string, rclcpp::Time> last_;
   rclcpp::TimerBase::SharedPtr scan_timer_;

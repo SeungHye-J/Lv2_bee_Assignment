@@ -1,8 +1,10 @@
-[목차](README.md) · [◀ 3 Nav2·SLAM](04-nav.md) · [5 베이스 ▶](06-base.md)
+[목차](README.md) · [◀ 3-1 지도 맵핑 실습](04b-mapping.md) · [5 베이스 ▶](06-base.md)
 
 ## 4. 팔: MoveIt 2 + MTC + ros2_control
 
 pick·place는 MoveIt Task Constructor(MTC) 태스크로 짭니다. 접근(직선) → 그리퍼 열기 → 파지 → **퍽 attach** → 들어올리기(직선) → 후퇴를 한 번에 계획하고, move_group이 `arm_controller`(JointTrajectoryController)에 궤적을 넘깁니다. controller_manager 안쪽은 토픽이 아니라 같은 프로세스의 메모리로 연결됩니다.
+
+> 인터페이스 명세: [토픽](../API.md#api-topics) · [액션](../API.md#api-actions) · [서비스](../API.md#api-services)
 
 ```mermaid
 flowchart TB
@@ -156,4 +158,4 @@ arm_controller:
 
 ---
 
-[목차](README.md) · [◀ 3 Nav2·SLAM](04-nav.md) · [5 베이스 ▶](06-base.md) · [원본 페이지](https://dooboostore.github.io/ros2?concept=design&sec=arm)
+[목차](README.md) · [◀ 3-1 지도 맵핑 실습](04b-mapping.md) · [5 베이스 ▶](06-base.md) · [원본 페이지](https://dooboostore.github.io/ros2?concept=design&sec=arm)

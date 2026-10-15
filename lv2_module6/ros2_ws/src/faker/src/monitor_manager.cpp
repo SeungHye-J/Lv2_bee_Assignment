@@ -1,6 +1,8 @@
 // monitor_manager 구현 — 설명·선언은 include/faker/monitor_manager.hpp, main은 monitor_manager_main.cpp
 #include "faker/monitor_manager.hpp"
 
+#include <sys/stat.h>
+
 namespace faker {
 
 MonitorManager::MonitorManager()
@@ -62,9 +64,23 @@ void MonitorManager::scan() {
       ++excluded_count_;
       continue;
     }
+    types_[topic] = types.front();
+    write_topic_list();
     subscribe_message(topic, types.front());
     subscribe_image(topic, types.front());
   }
+}
+
+void MonitorManager::write_topic_list() {
+  std::string list = "{\"topics\": [";
+  bool first = true;
+  for (const auto & [name, type] : types_) {
+    if (!first) list += ", ";
+    first = false;
+    list += "{\"name\": \"" + name + "\", \"type\": \"" + type + "\"}";
+  }
+  list += "]}\n";
+  write_file(fs::path(debug_dir_) / "topic" / "list.json", list);
 }
 
 rclcpp::QoS MonitorManager::qos() { return rclcpp::SensorDataQoS(); }
@@ -171,6 +187,7 @@ fs::path MonitorManager::dir_of(const std::string & topic) const {
 fs::path MonitorManager::prepare_tmp(const fs::path & out) {
   std::error_code ec;
   fs::create_directories(out.parent_path(), ec);
+  ::chmod(out.parent_path().c_str(), 0777);  // 컨테이너(root)가 만들어도 호스트가 rename으로 교체 가능
   return out.parent_path() / (".tmp-" + out.filename().string());
 }
 

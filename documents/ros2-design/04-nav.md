@@ -1,8 +1,10 @@
-[목차](README.md) · [◀ 2 계획·임무](03-plan.md) · [4 팔·MoveIt ▶](05-arm.md)
+[목차](README.md) · [◀ 2 계획·임무](03-plan.md) · [3-1 지도 맵핑 실습 ▶](04b-mapping.md)
 
 ## 3. Nav2
 
 bt_navigator가 행동 트리로 "경로 계산 → 따라가기 → 막히면 복구"를 지휘합니다. LiDAR가 없으므로 **장애물은 pole_cam 점구름**, **위치는 RTAB-Map**(위치추정 모드)이 공급합니다. planner_server 안에 global_costmap, controller_server 안에 local_costmap과 DWB가 들어 있고, **behavior_server**가 Spin·BackUp·Wait 복구를 맡습니다(기본 BT가 호출하므로 반드시 띄운다).
+
+> 인터페이스 명세: [토픽](../API.md#api-topics) · [액션](../API.md#api-actions)
 
 ```mermaid
 flowchart TB
@@ -202,4 +204,4 @@ ros2 launch rtabmap_launch rtabmap.launch.py ...(위와 같은 토픽 인자) lo
 
 ---
 
-[목차](README.md) · [◀ 2 계획·임무](03-plan.md) · [4 팔·MoveIt ▶](05-arm.md) · [원본 페이지](https://dooboostore.github.io/ros2?concept=design&sec=nav)
+[목차](README.md) · [◀ 2 계획·임무](03-plan.md) · [3-1 지도 맵핑 실습 ▶](04b-mapping.md) · [원본 페이지](https://dooboostore.github.io/ros2?concept=design&sec=nav)

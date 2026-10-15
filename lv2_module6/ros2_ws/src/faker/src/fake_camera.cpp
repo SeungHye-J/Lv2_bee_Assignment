@@ -82,29 +82,37 @@ void FakeCamera::tick() {
   info.p = {fx_, 0, cx, 0, 0, fx_, cy, 0, 0, 0, 1, 0};
   info_pub_->publish(info);
 
-  // depth → 점구름 (optical 프레임: z 앞 · x 오른쪽 · y 아래). 0(측정 안 됨)은 뺀다
-  PointCloud2 cloud;
-  cloud.header = h;
-  PointCloud2Modifier mod(cloud);
-  mod.setPointCloud2FieldsByString(1, "xyz");
-  mod.resize((width_ / cloud_step_) * (height_ / cloud_step_));
-  size_t n = 0;
-  {
-    PointCloud2Iterator<float> x(cloud, "x"), y(cloud, "y"), z(cloud, "z");
-    for (int v = 0; v + cloud_step_ <= height_; v += cloud_step_) {
-      for (int u = 0; u + cloud_step_ <= width_; u += cloud_step_) {
-        const uint16_t mm = d.at<uint16_t>(v, u);
-        if (mm == 0) continue;
-        const float zm = mm / 1000.0f;
-        *x = static_cast<float>((u - cx) * zm / fx_);
-        *y = static_cast<float>((v - cy) * zm / fx_);
-        *z = zm;
-        ++x, ++y, ++z, ++n;
+  // depth → 점구름 (optical 프레임: z 앞 · x 오른쪽 · y 아래). 0(측정 안 됨)은 뺀다.
+  // depth 파일이 안 바뀌면 캐시를 header만 갈아 재발행 (같은 장면 재계산 방지 — CPU 절약)
+  if (depth_live_.mtime != cloud_mtime_ || !cloud_valid_) {
+    cloud_mtime_ = depth_live_.mtime;
+    PointCloud2 cloud;
+    cloud.header = h;
+    PointCloud2Modifier mod(cloud);
+    mod.setPointCloud2FieldsByString(1, "xyz");
+    mod.resize((width_ / cloud_step_) * (height_ / cloud_step_));
+    size_t n = 0;
+    {
+      PointCloud2Iterator<float> x(cloud, "x"), y(cloud, "y"), z(cloud, "z");
+      for (int v = 0; v + cloud_step_ <= height_; v += cloud_step_) {
+        for (int u = 0; u + cloud_step_ <= width_; u += cloud_step_) {
+          const uint16_t mm = d.at<uint16_t>(v, u);
+          if (mm == 0) continue;
+          const float zm = mm / 1000.0f;
+          *x = static_cast<float>((u - cx) * zm / fx_);
+          *y = static_cast<float>((v - cy) * zm / fx_);
+          *z = zm;
+          ++x, ++y, ++z, ++n;
+        }
       }
     }
+    mod.resize(n);
+    cloud_cache_ = cloud;
+    cloud_valid_ = true;
+  } else {
+    cloud_cache_.header = h;
   }
-  mod.resize(n);
-  points_pub_->publish(cloud);
+  points_pub_->publish(cloud_cache_);
 }
 
 }  // namespace faker

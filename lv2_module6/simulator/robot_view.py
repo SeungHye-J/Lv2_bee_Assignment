@@ -45,6 +45,15 @@ def _sphere(r, n=8):
     return faces
 
 
+def primitive_faces(shape, a, h, b=None):
+    """상태 뷰용 물체 원형 — a=반지름(원기둥·구) 또는 x폭(상자), h=높이, b=y폭(상자, 없으면 a)"""
+    if shape == 'cylinder':
+        return _cylinder(a, h)
+    if shape == 'sphere':
+        return _sphere(a)
+    return _box(a, b if b else a, h)
+
+
 class RobotModel:
     def __init__(self, urdf_xml):
         root = ET.fromstring(urdf_xml)

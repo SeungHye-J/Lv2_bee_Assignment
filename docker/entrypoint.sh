@@ -13,6 +13,11 @@ fi
 #   /ws/debug/serial-in 에 쓴 데이터 → /dev/ttyV0 으로 전송         (OpenCR 응답 S 상태를 흉내)
 rm -f /run/testbed-ready
 mkdir -p /ws/debug
+# 공유 폴더 권한: 컨테이너(root)와 호스트(일반 사용자)가 서로 만든 파일·폴더를 읽고 써야 함.
+# 파일은 644여도 상대가 읽기만 하면 되지만, 디렉토리는 양쪽 다 rename(원자적 쓰기)으로 교체하므로 777 유지.
+mkdir -p /ws/debug/input /ws/debug/input-live /ws/debug/topic /ws/debug/service /ws/debug/action \
+  /ws/debug/interface /ws/debug/sim
+chmod -R 777 /ws/debug
 if command -v socat >/dev/null 2>&1; then
   # 시작할 때마다 로그 파일 초기화 (빈 파일 재생성)
   : > /ws/debug/serial-in

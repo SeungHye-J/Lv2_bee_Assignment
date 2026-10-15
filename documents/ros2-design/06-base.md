@@ -4,6 +4,8 @@
 
 속도 명령은 RL 보정, twist_mux(자동·수동 고르기, 비상정지 잠금), velocity_smoother(가속 제한), collision_monitor(충돌 감속·정지) 순서로 지나간 뒤 diff_drive_controller로 들어갑니다. 바퀴 오도메트리와 IMU는 **robot_localization EKF**가 융합해 odom→base_footprint를 냅니다.
 
+> 인터페이스 명세: [토픽](../API.md#api-topics)
+
 ```mermaid
 flowchart TB
     CIN(["/cmd_vel_nav ← 3"])
