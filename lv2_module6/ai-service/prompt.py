@@ -10,8 +10,10 @@ HISTORY_N = 20
 HISTORY_CHARS = 500
 
 
-def build(req):
+def build(req, system=""):
     lines = []
+    if isinstance(system, str) and system.strip():
+        lines.append(f"시스템: {system.strip()}")
     lines.append(f"명령: {req.get('command', '')}")
     objs = req.get("objects", [])
     lines.append(f"보이는 물체({len(objs)}개, 좌표=map 기준 m):")

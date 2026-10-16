@@ -39,6 +39,10 @@ from tkinter import ttk
 
 from pathlib import Path
 
+# OpenBLAS 스레드풀 폭주 방지 (import numpy보다 먼저 — 실측: 8+ 스레드 busy-spin으로 700%)
+os.environ.setdefault('OPENBLAS_NUM_THREADS', '2')
+os.environ.setdefault('OMP_NUM_THREADS', '2')
+os.environ.setdefault('VECLIB_MAXIMUM_THREADS', '2')
 import cv2
 import numpy as np
 
@@ -46,8 +50,8 @@ import maze
 import plant as plant_mod
 import robot_view
 import scene
-from bridge import (DEBUG, INPUT_DIR, LIVE_DIR, TOPIC_DIR, current_joints, read_msg, send, send_arm, send_bool,
-                    send_service_request,
+from bridge import (DEBUG, INPUT_DIR, LIVE_DIR, TOPIC_DIR, current_joints, read_msg, read_topic_list, send,
+                    send_arm, send_bool, send_service_request,
                     send_twist, write_atomic, yaw_of)
 from manual_window import ManualPanel
 
@@ -125,6 +129,7 @@ class Sim:
         self.walls = np.asarray(maze.wall_boxes(course), float)
         self.renderer = scene.Renderer(self.walls)
         self.cells = scene.maze_cells(course)
+        self.goal = scene.goal_zone(course, self.cells)  # 고정 목표 구역 (카메라 렌더·지도·데이터셋 공용)
         self.kin = None
         self.body = None
         self.render_ts = {}          # 카메라 → 마지막 렌더 시각 (화면이 SIM 직결인지 판단)
@@ -437,8 +442,11 @@ class Sim:
         self.settle_cargo(x, y, yaw)
         self._base_prev = (x, y, yaw)
         self._step_t = now
+        if now - getattr(self, '_render_t', 0) < 0.2 and self.renders:
+            return True  # 물리는 매번, 무거운 카메라 렌더는 5Hz로 (실측 700% → 절감)
+        self._render_t = now
         with self.lock:
-            things = [dict(p) for p in self.pucks + self.props]
+            things = [dict(p) for p in self.pucks + self.props] + [dict(self.goal)]
         kin, body, renderer, twb = self.kin, self.body, self.renderer, T_wb
 
         def render_one(cam):
@@ -600,6 +608,10 @@ class MapView:
 
         with self.sim.lock:
             things = [dict(p) for p in self.sim.pucks + self.sim.props]
+        g = self.sim.goal  # 고정 목표 구역 (보라 테두리 — 인지 전에도 위치 표시)
+        gpts = np.array([self.px(*q) for q in _rect(g['x'], g['y'], g['yaw'], g['sx'], g['sy'])], np.int32)
+        cv2.polylines(img, [gpts], True, (200, 0, 200), 2)
+        cv2.putText(img, 'goal', tuple(gpts[0] + [4, -4]), cv2.FONT_HERSHEY_SIMPLEX, 0.4, (150, 0, 150), 1)
         for p in things:
             color = scene.PALETTE.get(p['color'], (128, 128, 128)) if isinstance(p['color'], str) else tuple(p['color'])
             c = self.px(p['x'], p['y'])
@@ -688,8 +700,9 @@ def camera_tiles(sim, cam, view):
     with sim.lock:
         fresh = time.time() - sim.render_ts.get(cam, 0) < 3.0
         cached = sim.renders.get(cam)
+    t_world_cam = None
     if fresh and cached is not None:
-        color, depth, _ = cached
+        color, depth, t_world_cam = cached
         source = 'SIM'
     else:
         color = cv2.imread(str(TOPIC_DIR / cam / 'color/image_raw/image.jpg'))
@@ -701,15 +714,55 @@ def camera_tiles(sim, cam, view):
                 cv2.putText(blank, 'waiting (test-faker 0?)', (10, 20), cv2.FONT_HERSHEY_SIMPLEX, 0.45,
                             (200, 200, 200), 1)
                 return blank, blank, blank
-            color, depth, _ = cached
+            color, depth, t_world_cam = cached
             source = 'SIM'
+        elif cached is not None:
+            _, _, t_world_cam = cached  # ROS 영상에도 마지막 SIM 자세로 근사 투영
     if color.shape[:2] != depth.shape:
         color = cv2.resize(color, (depth.shape[1], depth.shape[0]))
     rgb = cv2.resize(color, TILE)
+    seg = rgb.copy()  # 원본은 그대로, 인지 오버레이는 별도 타일
+    overlay_tracked(seg, sim, cam, t_world_cam)
     dep = cv2.resize(scene.depth_colormap(depth), TILE, interpolation=cv2.INTER_NEAREST)
     cloud = scene.cloud_view(depth, TILE, view[0], view[1], color=color, step=4 if depth.shape[1] > 400 else 2)
     cv2.putText(rgb, source, (6, 16), cv2.FONT_HERSHEY_SIMPLEX, 0.45, (0, 255, 255), 1)
-    return rgb, dep, cloud
+    cv2.putText(seg, source + '+seg', (6, 16), cv2.FONT_HERSHEY_SIMPLEX, 0.45, (0, 255, 255), 1)
+    return rgb, seg, dep, cloud
+
+
+def overlay_tracked(rgb, sim, cam, t_world_cam):
+    """카메라 타일 위에 /tracked_objects 네모+라벨 (지도 보라테두리와 같은 색).
+    중심은 인지 px(640×480 기준)를 타일에 스케일 — 회전·프레임 가정 없음.
+    네모 크기는 핀홀 근사(카메라 위치~물체 3D 거리, 회전 불필요)."""
+    objects, _ = read_msg('tracked_objects')
+    objs = (objects or {}).get('objects', [])
+    if not objs:
+        return
+    h, w = rgb.shape[:2]
+    try:
+        twc = np.asarray(t_world_cam[:3, 3], float) if t_world_cam is not None else None
+    except (TypeError, ValueError, IndexError):
+        twc = None
+    fx = (640.0 / 2) / math.tan(math.radians(scene.HFOV_DEG) / 2)
+    sx0, sy0 = sim.spawn[0], sim.spawn[1]
+    for o in objs:
+        if o.get('camera') and o['camera'] != cam:
+            continue
+        try:
+            px = o.get('px') or (0, 0)
+            u, v = px[0] * w / 640.0, px[1] * h / 480.0
+            dist = 1.0
+            if twc is not None:
+                p = o['pose']['pose']['position']
+                dist = max(float(np.linalg.norm(
+                    np.array([p['x'] + sx0, p['y'] + sy0, p['z']], float) - twc)), 0.05)
+        except (KeyError, TypeError, ValueError, IndexError):
+            continue
+        hw = max(o.get('size', {}).get('x', 0.06), o.get('size', {}).get('y', 0.06), 0.02) * fx / dist / 2 * w / 640.0
+        hh = max(o.get('size', {}).get('z', 0.06), 0.02) * fx / dist / 2 * h / 480.0
+        cv2.rectangle(rgb, (int(u - hw), int(v - hh)), (int(u + hw), int(v + hh)), (150, 0, 150), 1)
+        cv2.putText(rgb, f"{o.get('class_name', '?')}#{o.get('id', '?')}", (int(u + hw + 2), int(v)),
+                    cv2.FONT_HERSHEY_SIMPLEX, 0.35, (150, 0, 150), 1)
 
 
 def status_lines(sim=None):
@@ -865,14 +918,14 @@ class App:
         # 카메라
         self.tiles = {}
         for cam in CAMERAS:
-            tk.Label(right, text=f'{cam}   ROS 영상 │ 깊이 │ 점구름 (드래그로 회전)', anchor=tk.W).pack(fill=tk.X)
+            tk.Label(right, text=f'{cam}   ROS 영상 │ 영상+인지 │ 깊이 │ 점구름 (드래그로 회전)', anchor=tk.W).pack(fill=tk.X)
             r = tk.Frame(right)
             r.pack(anchor=tk.W)
-            labels = [tk.Label(r, bg='black', width=TILE[0], height=TILE[1]) for _ in range(3)]
+            labels = [tk.Label(r, bg='black', width=TILE[0], height=TILE[1]) for _ in range(4)]
             for lab in labels:
                 lab.pack(side=tk.LEFT, padx=1)
-            labels[2].bind('<B1-Motion>', lambda e, c=cam: self.on_cloud_drag(e, c))
-            labels[2].bind('<ButtonPress-1>', lambda e, c=cam: self.on_cloud_press(e, c))
+            labels[3].bind('<B1-Motion>', lambda e, c=cam: self.on_cloud_drag(e, c))
+            labels[3].bind('<ButtonPress-1>', lambda e, c=cam: self.on_cloud_press(e, c))
             self.tiles[cam] = labels
 
         texts = ttk.Notebook(right)
@@ -901,6 +954,7 @@ class App:
         tk.Button(cmd, text='보내기', command=self.send_command).pack(side=tk.LEFT)
         for text in QUICK_COMMANDS:
             tk.Button(cmd, text=text, command=lambda t=text: self.send_command(t)).pack(side=tk.LEFT)
+        tk.Button(cmd, text='토픽보기', command=self.open_topic_viewer).pack(side=tk.LEFT)
         self.sent = tk.Label(right, text='', fg='#2e7d32')
         self.sent.pack(anchor=tk.W)
         self.photos = []
@@ -1142,6 +1196,45 @@ class App:
         send('/user_command', 'std_msgs/msg/String', {'data': text})
         self.sent.config(text=f'보냄: {text}  ({time.strftime("%H:%M:%S")}) — input_manager가 /user_command로 발행')
         self.entry.delete(0, tk.END)
+
+    def open_topic_viewer(self):
+        """토픽 보기 새 창 — 콤보박스로 토픽 선택, 0.5초마다 갱신. 버튼을 누를 때마다 독립 창."""
+        win = tk.Toplevel(self.root)
+        win.title('토픽 보기')
+        win.geometry('640x480')
+        topics, _ = read_topic_list()
+        names = [t['name'] for t in (topics or {}).get('topics', []) if t.get('name')] if topics else []
+        if not names:  # list.json 없으면 파일에서 직접 수집
+            try:
+                names = sorted('/' + p.name for p in TOPIC_DIR.iterdir()
+                               if p.is_dir() and (p / 'message').exists())
+            except OSError:
+                names = []
+        box = ttk.Combobox(win, values=names, width=50)
+        box.pack(fill=tk.X, padx=4, pady=4)
+        if names:
+            box.set(names[0])
+        meta = tk.Label(win, text='', anchor=tk.W)
+        meta.pack(fill=tk.X, padx=4)
+        text = tk.Text(win, font=('Menlo', 10))
+        text.pack(fill=tk.BOTH, expand=True, padx=4, pady=4)
+
+        def refresh():
+            if not win.winfo_exists():
+                return
+            name = box.get().strip()
+            if name:
+                data, age = read_msg(name)
+                meta.config(text=f'{name}  ({age:.1f}초 전)' if age is not None
+                            else f'{name} (없음 — test-faker 실행 중인지 확인)')
+                text.delete('1.0', tk.END)
+                if data is not None:
+                    try:
+                        text.insert(tk.END, json.dumps(data, ensure_ascii=False, indent=1)[:20000])
+                    except (TypeError, ValueError):
+                        text.insert(tk.END, str(data)[:20000])
+            win.after(500, refresh)
+        refresh()
 
     def tick(self):
         self.tick_n = getattr(self, 'tick_n', 0) + 1

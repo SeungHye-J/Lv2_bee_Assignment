@@ -173,6 +173,18 @@ def maze_cells(course):
             if (y0 + y1) / 2 * side > 0]
 
 
+GOAL_SIZE = 0.30  # 목표 구역 한 변 [m] — 바닥 표시판
+
+
+def goal_zone(course, cells):
+    """목표 구역 (고정) — spawn에서 가장 먼 칸 중심, GOAL_SIZE 정사각 바닥판.
+    Renderer._puck 박스 경로로 그려지고, YOLO class 1 · MapView에도 표시된다."""
+    gx, gy = max(cells, key=lambda c: math.dist(c, course['spawn']))
+    return {'kind': 'goal_zone', 'shape': 'box', 'color': (200, 0, 200),
+            'x': round(gx, 3), 'y': round(gy, 3), 'yaw': 0.0,
+            'sx': GOAL_SIZE, 'sy': GOAL_SIZE, 'size': [GOAL_SIZE, 0.005]}
+
+
 class BodyModel:
     """URDF visual → 로봇 자기 몸 렌더용. 퍽 싣는 뒤쪽 상판까지 카메라에 보여야 해서 그린다.
     link별 (T_origin, 크기, BGR). cylinder·sphere는 맞춤 상자로 근사 (mesh는 건너뜀)"""

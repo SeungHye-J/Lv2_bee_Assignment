@@ -3,6 +3,7 @@
   "ai": {
     "backend": "opencode_cli",
     "model": "opencode-go/muse-spark-1.3-contributor",
-    "timeout_s": 120
+    "timeout_s": 120,
+    "system": ""
   }
 }

@@ -3,6 +3,7 @@
   "ai": {
     "backend": "template",
     "model": "default",
-    "timeout_s": 60
+    "timeout_s": 60,
+    "system": ""
   }
 }
