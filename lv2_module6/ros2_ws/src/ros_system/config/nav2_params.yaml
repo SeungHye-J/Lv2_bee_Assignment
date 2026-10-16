@@ -35,7 +35,8 @@ bt_navigator:
     # TODO(권형중): BackUp 0.1m 제한한 BT XML → default_nav_to_pose_bt_xml
     #   기본 BT는 복구 때 0.30m 후진 — pole_cam이 뒤를 못 봐서 위험 (15-changes #23)
     # 행동 트리 default_nav_to_pose_bt_xml = config/navigate_to_pose.xml — 파일 경로라 ros_system.launch.py가 넘긴다.
-    #   기본 BT 복사본에서 복구 후진만 0.30m → 0.10m (pole_cam이 뒤를 못 봐서 벽에 박힘, 15-changes #23)
+    # TODO(권형중): BackUp 0.1m 제한한 BT XML → default_nav_to_pose_bt_xml
+    #   기본 BT는 복구 때 0.30m 후진 — pole_cam이 뒤를 못 봐서 위험 (15-changes #23)
 
 
 # ─────────────────────────────────────────────────────────────────────────────
