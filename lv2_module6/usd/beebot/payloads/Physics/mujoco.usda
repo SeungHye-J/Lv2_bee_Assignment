@@ -3,7 +3,7 @@
     customLayerData = {
         string creator = "URDF USD Converter v0.3.2"
     }
-    defaultPrim = "bee"
+    defaultPrim = "beebot"
     endTimeCode = 1000000
     kilogramsPerUnit = 1
     metersPerUnit = 1
@@ -14,7 +14,7 @@
     upAxis = "Z"
 )
 
-over "bee"
+over "beebot"
 {
     over "Physics"
     {
@@ -67,14 +67,14 @@ over "bee"
         {
         }
 
-        over "gripper_joint" (
+        over "gripper_left_joint" (
             delete apiSchemas = ["PhysicsDriveAPI:linear", "PhysicsJointStateAPI:linear"]
             prepend apiSchemas = ["MjcJointAPI"]
         )
         {
         }
 
-        over "gripper_mimic_joint" (
+        over "gripper_right_joint" (
             delete apiSchemas = ["PhysicsDriveAPI:linear", "PhysicsJointStateAPI:linear"]
             prepend apiSchemas = ["MjcJointAPI"]
         )
@@ -86,7 +86,7 @@ over "bee"
             uniform double mjc:forceRange:max = 3
             uniform double mjc:forceRange:min = -3
             custom rel mjc:target
-            append rel mjc:target = </bee/Physics/wheel_left_joint>
+            append rel mjc:target = </beebot/Physics/wheel_left_joint>
         }
 
         def MjcActuator "wheel_right_joint_actuator"
@@ -94,7 +94,7 @@ over "bee"
             uniform double mjc:forceRange:max = 3
             uniform double mjc:forceRange:min = -3
             custom rel mjc:target
-            append rel mjc:target = </bee/Physics/wheel_right_joint>
+            append rel mjc:target = </beebot/Physics/wheel_right_joint>
         }
 
         def MjcActuator "joint1_actuator"
@@ -102,7 +102,7 @@ over "bee"
             uniform double mjc:forceRange:max = 4.099999904632568
             uniform double mjc:forceRange:min = -4.099999904632568
             custom rel mjc:target
-            append rel mjc:target = </bee/Physics/joint1>
+            append rel mjc:target = </beebot/Physics/joint1>
         }
 
         def MjcActuator "joint2_actuator"
@@ -110,7 +110,7 @@ over "bee"
             uniform double mjc:forceRange:max = 4.099999904632568
             uniform double mjc:forceRange:min = -4.099999904632568
             custom rel mjc:target
-            append rel mjc:target = </bee/Physics/joint2>
+            append rel mjc:target = </beebot/Physics/joint2>
         }
 
         def MjcActuator "joint3_actuator"
@@ -118,7 +118,7 @@ over "bee"
             uniform double mjc:forceRange:max = 4.099999904632568
             uniform double mjc:forceRange:min = -4.099999904632568
             custom rel mjc:target
-            append rel mjc:target = </bee/Physics/joint3>
+            append rel mjc:target = </beebot/Physics/joint3>
         }
 
         def MjcActuator "joint4_actuator"
@@ -126,7 +126,7 @@ over "bee"
             uniform double mjc:forceRange:max = 4.099999904632568
             uniform double mjc:forceRange:min = -4.099999904632568
             custom rel mjc:target
-            append rel mjc:target = </bee/Physics/joint4>
+            append rel mjc:target = </beebot/Physics/joint4>
         }
 
         def MjcActuator "joint5_actuator"
@@ -134,23 +134,23 @@ over "bee"
             uniform double mjc:forceRange:max = 4.099999904632568
             uniform double mjc:forceRange:min = -4.099999904632568
             custom rel mjc:target
-            append rel mjc:target = </bee/Physics/joint5>
+            append rel mjc:target = </beebot/Physics/joint5>
         }
 
-        def MjcActuator "gripper_joint_actuator"
+        def MjcActuator "gripper_left_joint_actuator"
         {
             uniform double mjc:forceRange:max = 20
             uniform double mjc:forceRange:min = -20
             custom rel mjc:target
-            append rel mjc:target = </bee/Physics/gripper_joint>
+            append rel mjc:target = </beebot/Physics/gripper_left_joint>
         }
 
-        def MjcActuator "gripper_mimic_joint_actuator"
+        def MjcActuator "gripper_right_joint_actuator"
         {
             uniform double mjc:forceRange:max = 20
             uniform double mjc:forceRange:min = -20
             custom rel mjc:target
-            append rel mjc:target = </bee/Physics/gripper_mimic_joint>
+            append rel mjc:target = </beebot/Physics/gripper_right_joint>
         }
     }
 }

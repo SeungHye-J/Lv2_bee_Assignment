@@ -3,7 +3,7 @@
     customLayerData = {
         string creator = "URDF USD Converter v0.3.2"
     }
-    defaultPrim = "bee"
+    defaultPrim = "beebot"
     endTimeCode = 1000000
     kilogramsPerUnit = 1
     metersPerUnit = 1
@@ -14,7 +14,7 @@
     upAxis = "Z"
 )
 
-over "bee"
+over "beebot"
 {
     over "Physics"
     {
@@ -60,13 +60,13 @@ over "bee"
         {
         }
 
-        over "gripper_joint" (
+        over "gripper_left_joint" (
             prepend apiSchemas = ["PhysxJointAPI"]
         )
         {
         }
 
-        over "gripper_mimic_joint" (
+        over "gripper_right_joint" (
             prepend apiSchemas = ["PhysxJointAPI"]
         )
         {
