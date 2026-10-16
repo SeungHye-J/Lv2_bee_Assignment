@@ -4,6 +4,7 @@
     "backend": "ollama",
     "model": "llama4",
     "endpoint": "http://localhost:11434/v1",
-    "timeout_s": 120
+    "timeout_s": 120,
+    "system": ""
   }
 }

@@ -16,9 +16,28 @@
 #include <set>
 #include <thread>
 
+#include "opencv2/imgcodecs.hpp"
+#include "opencv2/imgproc.hpp"
+
 namespace plan {
 
 namespace {
+
+// base64 (요청 본문 images[].data_b64용) — 의존성 없이 직접 인코딩
+std::string base64_encode(const std::vector<uint8_t> & in) {
+  static const char * tbl = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
+  std::string o;
+  o.reserve((in.size() + 2) / 3 * 4);
+  for (size_t i = 0; i < in.size(); i += 3) {
+    const uint32_t a = in[i], b = i + 1 < in.size() ? in[i + 1] : 0, c = i + 2 < in.size() ? in[i + 2] : 0;
+    const uint32_t v = (a << 16) | (b << 8) | c;
+    o += tbl[(v >> 18) & 63];
+    o += tbl[(v >> 12) & 63];
+    o += (i + 1 < in.size()) ? tbl[(v >> 6) & 63] : '=';
+    o += (i + 2 < in.size()) ? tbl[v & 63] : '=';
+  }
+  return o;
+}
 
 // JSON 문자열 이스케이프 (요청 본문용)
 std::string json_escape(const std::string & s) {
@@ -307,6 +326,15 @@ VlmTaskPlanner::VlmTaskPlanner()
     });
   status_sub_ = create_subscription<TaskStatus>("/task_status", rclcpp::QoS(10).reliable().transient_local(),
     [this](TaskStatus::ConstSharedPtr m) { on_status(*m); });
+  const auto sensor_qos = rclcpp::SensorDataQoS();
+  for (const std::string cam : {"pole_cam", "gripper_cam"}) {
+    image_subs_.push_back(create_subscription<sensor_msgs::msg::Image>(
+      "/" + cam + "/color/image_raw", sensor_qos,
+      [this, cam](sensor_msgs::msg::Image::ConstSharedPtr m) {
+        std::lock_guard<std::mutex> lock(mutex_);
+        images_[cam] = m;  // 최신 1장만 유지 (VLM 호출 때 꺼냄)
+      }));
+  }
   diag_.setHardwareID("beebot");
   diag_.add("상태", [this](diagnostic_updater::DiagnosticStatusWrapper & s) {
     if (pending_) s.summary(diagnostic_msgs::msg::DiagnosticStatus::WARN, "계획 보류 — 대상 물체 대기");
@@ -348,15 +376,15 @@ void VlmTaskPlanner::make_plan() {
     RCLCPP_WARN_THROTTLE(get_logger(), *get_clock(), 5000, "/tracked_objects 대기 — 계획 보류");
     return;
   }
-  if (find_in(*objs, "puck").empty() || find_in(*objs, "goal_zone").empty()) {
-    RCLCPP_WARN_THROTTLE(get_logger(), *get_clock(), 5000, "/tracked_objects에 퍽·목표 구역이 없음 — 계획 보류");
-    return;
-  }
-  pending_ = true;
-  if (vlm_endpoint_.empty()) {
+  if (vlm_endpoint_.empty()) {  // 템플릿(오프라인)은 퍽·목표 id가 있어야 짜진다
+    if (find_in(*objs, "puck").empty() || find_in(*objs, "goal_zone").empty()) {
+      RCLCPP_WARN_THROTTLE(get_logger(), *get_clock(), 5000, "/tracked_objects에 퍽·목표 구역이 없음 — 계획 보류");
+      return;
+    }
     make_template(*objs);
     return;
   }
+  pending_ = true;  // VLM이면 인지 유무와 무관하게 사용자 명령 그대로 전달 (빈 물체+이미지로 판단은 모델 몫)
   try_vlm_async();
 }
 
@@ -376,21 +404,26 @@ void VlmTaskPlanner::make_template(const TrackedObjectArray & objs) {
 }
 
 void VlmTaskPlanner::try_vlm_async() {
-  const uint64_t epoch = epoch_.fetch_add(1) + 1;
   bool expected = false;
   if (!vlm_busy_.compare_exchange_strong(expected, true)) return;  // 비행 중 — 끝난 워커가 최신으로 다시 시도
+  const uint64_t epoch = epoch_.fetch_add(1) + 1;
   std::string cmd;
   TrackedObjectArray objs;
   ReplanInfo rp;
+  std::vector<ImageFrame> imgs;
   {
     std::lock_guard<std::mutex> lock(mutex_);
     cmd = cmd_;
     if (objects_) objs = *objects_;
     rp = replan_;
+    for (const auto & cam : {"pole_cam", "gripper_cam"}) {
+      auto it = images_.find(cam);
+      if (it != images_.end() && it->second) imgs.push_back({cam, it->second});
+    }
   }
-  std::thread([this, epoch, cmd, objs, rp]() {
+  std::thread([this, epoch, cmd, objs, rp, imgs]() {
     std::vector<SubGoal> goals;
-    const bool ok = fetch_goals(vlm_endpoint_, plan_request(cmd, objs, rp), goals, vlm_timeout_s_);
+    const bool ok = fetch_goals(vlm_endpoint_, plan_request(cmd, objs, rp, imgs), goals, vlm_timeout_s_);
     bool stale = false;
     {
       std::lock_guard<std::mutex> lock(mutex_);
@@ -418,8 +451,24 @@ void VlmTaskPlanner::try_vlm_async() {
   }).detach();
 }
 
+// sensor_msgs/Image(rgb8) → 320px JPEG base64 (ai-service images[]용)
+std::string VlmTaskPlanner::encode_jpeg_base64(const sensor_msgs::msg::Image & msg) {
+  if (msg.encoding != "rgb8" || msg.width == 0 || msg.height == 0) return "";
+  const size_t expect = static_cast<size_t>(msg.width) * msg.height * 3;
+  if (msg.data.size() < expect) return "";
+  cv::Mat rgb(msg.height, msg.width, CV_8UC3, const_cast<uint8_t *>(msg.data.data()));
+  cv::Mat small;
+  const double scale = 320.0 / msg.width;
+  cv::resize(rgb, small, cv::Size(), scale, scale, cv::INTER_LINEAR);
+  std::vector<uint8_t> jpeg;
+  if (!cv::imencode(".jpg", small, jpeg, {cv::IMWRITE_JPEG_QUALITY, 70})) return "";
+  if (jpeg.size() > 500 * 1024) return "";  // ai-service 장당 제한
+  return base64_encode(jpeg);
+}
+
 std::string VlmTaskPlanner::plan_request(
-  const std::string & cmd, const TrackedObjectArray & objs, const ReplanInfo & rp) {
+  const std::string & cmd, const TrackedObjectArray & objs, const ReplanInfo & rp,
+  const std::vector<ImageFrame> & imgs) {
   std::string o = "{\"command\": \"" + json_escape(cmd) + "\", \"objects\": [";
   bool first = true;
   for (const auto & obj : objs.objects) {
@@ -431,16 +480,29 @@ std::string VlmTaskPlanner::plan_request(
     snprintf(size, sizeof(size), "[%.3f, %.3f, %.3f]", obj.size.x, obj.size.y, obj.size.z);
     char conf[16];
     snprintf(conf, sizeof(conf), "%.2f", obj.confidence);
+    char px[64];
+    snprintf(px, sizeof(px), "[%d, %d]", obj.px[0], obj.px[1]);
     o += std::string("{\"id\": ") + std::to_string(obj.id) + ", \"class_name\": \"" +
       json_escape(obj.class_name) + "\", \"position\": " + pos + ", \"size\": " + size +
-      ", \"confidence\": " + conf + "}";
+      ", \"confidence\": " + conf + ", \"camera\": \"" + json_escape(obj.camera) +
+      "\", \"px\": " + px + "}";
   }
   o += "]";
   if (rp.active) {
     o += ", \"replan\": {\"plan_id\": " + std::to_string(rp.plan_id) + ", \"failed_step\": " +
       std::to_string(rp.step) + ", \"reason\": \"" + json_escape(rp.reason) + "\"}";
   }
-  // TODO: 이미지 — /pole_cam/color/image_raw 최신 1장을 320px JPEG base64로 (OpenCV 의존 추가 후)
+  o += ", \"images\": [";
+  bool ifirst = true;
+  for (const auto & im : imgs) {
+    if (!im.msg) continue;
+    const std::string b64 = encode_jpeg_base64(*im.msg);
+    if (b64.empty()) continue;
+    if (!ifirst) o += ", ";
+    ifirst = false;
+    o += "{\"camera\": \"" + im.camera + "\", \"format\": \"jpeg\", \"data_b64\": \"" + b64 + "\"}";
+  }
+  o += "]";
   return o + "}";
 }
 

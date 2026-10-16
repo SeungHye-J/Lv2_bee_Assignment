@@ -18,6 +18,7 @@ FakeCamera::FakeCamera()
   const auto qos = rclcpp::SensorDataQoS();
   color_pub_ = create_publisher<Image>("~/color/image_raw", qos);
   info_pub_ = create_publisher<CameraInfo>("~/color/camera_info", qos);
+  depth_info_pub_ = create_publisher<CameraInfo>("~/depth/camera_info", qos);
   depth_pub_ = create_publisher<Image>("~/aligned_depth_to_color/image_raw", qos);
   points_pub_ = create_publisher<PointCloud2>("~/depth/color/points", qos);
   timer_ = create_wall_timer(std::chrono::duration<double>(period), [this]() { tick(); });
@@ -81,6 +82,8 @@ void FakeCamera::tick() {
   info.r = {1, 0, 0, 0, 1, 0, 0, 0, 1};
   info.p = {fx_, 0, cx, 0, 0, fx_, cy, 0, 0, 0, 1, 0};
   info_pub_->publish(info);
+  // depth 카메라 info — 정렬 depth라 컬러와 동일 해상도·프레임, K도 같음 (실기는 별도 캘리브레이션)
+  depth_info_pub_->publish(info);
 
   // depth → 점구름 (optical 프레임: z 앞 · x 오른쪽 · y 아래). 0(측정 안 됨)은 뺀다.
   // depth 파일이 안 바뀌면 캐시를 header만 갈아 재발행 (같은 장면 재계산 방지 — CPU 절약)

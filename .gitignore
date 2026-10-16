@@ -27,3 +27,9 @@ lv2_module6/firmware/build/
 /temp/
 /lv2_module6/ros2_ws/debug/
 /lv2_module6/ros2_ws/firmware/
+
+/lv2_module6/ros2_ws/model/yolo/*.pt
+/lv2_module6/ros2_ws/model/grasp_scorer/*.pt
+/lv2_module6/ros2_ws/model/arm_correction/*.pt
+/lv2_module6/ros2_ws/model/nav_correction/*.pt
+/lv2_module6/ros2_ws/model/nav_tuner/*.pt

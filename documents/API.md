@@ -32,6 +32,8 @@ float32 confidence
 geometry_msgs/PoseWithCovariance pose   # map 기준
 geometry_msgs/Vector3 size              # m
 builtin_interfaces/Time last_seen
+string camera                           # 본 카메라 (pole_cam | gripper_cam) — VLM 이미지 마킹용
+int32[2] px                             # 그 카메라 영상 속 박스 중심 픽셀 [u, v]
 ```
 
 <a id="api-msg-trackedobjectarray"></a>
@@ -119,6 +121,7 @@ string message
 | --- | --- | --- | --- |
 | `/pole_cam/color/image_raw` | sensor_msgs/Image (rgb8) | realsense2_camera (pole_cam) → perception, rtabmap | 30Hz · best_effort |
 | `/pole_cam/color/camera_info` | sensor_msgs/CameraInfo | realsense2_camera (pole_cam) → perception, rtabmap | 내부 파라미터 |
+| `/pole_cam/depth/camera_info` | sensor_msgs/CameraInfo | realsense2_camera (pole_cam) → (예비) | 정렬 depth와 동일 해상도·프레임 |
 | `/pole_cam/aligned_depth_to_color/image_raw` | sensor_msgs/Image (16UC1, mm) | realsense2_camera (pole_cam) → perception, rtabmap | 컬러와 1:1 정렬 |
 | `/pole_cam/depth/color/points` | sensor_msgs/PointCloud2 | realsense2_camera (pole_cam) → costmap_2d, collision_monitor, move_group | 10~15Hz 다운샘플 권장 |
 | `/gripper_cam/color/image_raw` | sensor_msgs/Image (rgb8) | realsense2_camera (gripper_cam) → perception | 15Hz · best_effort |

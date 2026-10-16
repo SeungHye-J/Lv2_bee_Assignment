@@ -1,7 +1,7 @@
 #pragma once
 
 // 더미 RealSense: realsense2_camera(camera_namespace:='', camera_name:=<이름>) 대신 같은 토픽을 발행.
-//   /<이름>/color/image_raw · color/camera_info · aligned_depth_to_color/image_raw (best_effort)
+//   /<이름>/color/image_raw · color/camera_info · depth/camera_info · aligned_depth_to_color/image_raw (best_effort)
 //   /<이름>/depth/color/points (PointCloud2, depth에서 cloud_step 픽셀 간격으로 만든 xyz — optical 프레임)
 // 장면: 시뮬레이터(lv2_module6/simulator)가 로봇 카메라 시점으로 렌더해 쓰는 파일
 //   <live_dir>/<이름>.png        컬러 (없으면 회색)
@@ -52,7 +52,7 @@ private:
   fs::file_time_type cloud_mtime_{};
   bool cloud_valid_ = false;
   rclcpp::Publisher<Image>::SharedPtr color_pub_, depth_pub_;
-  rclcpp::Publisher<CameraInfo>::SharedPtr info_pub_;
+  rclcpp::Publisher<CameraInfo>::SharedPtr info_pub_, depth_info_pub_;
   rclcpp::Publisher<PointCloud2>::SharedPtr points_pub_;
   rclcpp::TimerBase::SharedPtr timer_;
 };

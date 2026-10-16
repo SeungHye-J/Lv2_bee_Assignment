@@ -1,2 +1,3 @@
 opencv-python
 numpy
+xacro  # export_dataset.py의 URDF 전개용 (순수 파이썬, 시뮬레이터 본체는 불필요)

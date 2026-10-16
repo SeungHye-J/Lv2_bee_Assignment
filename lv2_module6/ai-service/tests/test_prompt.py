@@ -21,6 +21,12 @@ class TestBuild(unittest.TestCase):
         self.assertIn("명령: 빨간 퍽", p)
         self.assertIn("id=3 class=puck", p)
         self.assertNotIn("이전 대화", p)
+        self.assertNotIn("시스템:", p)
+
+    def test_system_prepended(self):
+        p = prompt.build(self.req, "미션 설명")
+        self.assertTrue(p.startswith("시스템: 미션 설명\n"))
+        self.assertIn("명령: 빨간 퍽", p)
 
     def test_history_rendered(self):
         p = prompt.build(dict(self.req, history=[

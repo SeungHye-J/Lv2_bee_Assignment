@@ -186,10 +186,11 @@ coordinator:               # 노드 이름
 ## 7. 테스트 작성
 
 ROS 2 권장 방식대로 C++은 **gtest**(`ament_cmake_gtest`)를 `colcon test`로 돌립니다. 패키지마다 기본 테스트가 하나씩 있으니 복사해서 늘리면 됩니다.
+Python 노드(perception)는 **pytest**(`ament_cmake_pytest` + `test/test_node.py`) — `colcon test`가 같이 돌립니다.
 
 | 패키지 | 테스트 | 확인하는 것 |
 | --- | --- | --- |
-| perception | `test/test_perception_node.cpp` | 영상이 들어오면 `/tracked_objects`가 나온다 |
+| perception | `test/test_node.py` (pytest, YOLO 없이 빈 발행·진단) | 모델 없이도 노드가 떠서 빈 `/tracked_objects`가 나온다 |
 | control | `test/test_arm_safety_monitor.cpp` | 전류 과다가 0.1초 넘게 이어지면 `/arm_safety_event` |
 | control | `test/test_manual_control.cpp` | 수동 모드일 때만 `/manual/cmd_vel` → `/cmd_vel_manual`, `/operation_mode` 전환 |
 | ml | `test/test_rl_nav_correction.cpp` | 보정 출력이 `/speed_limit` 상한으로 잘린다 |
