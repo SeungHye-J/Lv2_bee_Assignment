@@ -3,7 +3,7 @@
     customLayerData = {
         string creator = "URDF USD Converter v0.3.2"
     }
-    defaultPrim = "bee"
+    defaultPrim = "beebot"
     endTimeCode = 1000000
     kilogramsPerUnit = 1
     metersPerUnit = 1
@@ -11,42 +11,43 @@
     upAxis = "Z"
 )
 
-over "bee" (
+over "beebot" (
     prepend apiSchemas = ["IsaacRobotAPI"]
 )
 {
     prepend rel isaac:physics:robotJoints = [
-        </bee/Physics/base_joint>,
-        </bee/Physics/wheel_left_joint>,
-        </bee/Physics/wheel_right_joint>,
-        </bee/Physics/camera_rear_joint>,
-        </bee/Physics/arm_mount_joint>,
-        </bee/Physics/joint1>,
-        </bee/Physics/joint2>,
-        </bee/Physics/joint3>,
-        </bee/Physics/joint4>,
-        </bee/Physics/joint5>,
-        </bee/Physics/gripper_joint>,
-        </bee/Physics/gripper_mimic_joint>,
-        </bee/Physics/camera_wrist_joint>,
+        </beebot/Physics/base_joint>,
+        </beebot/Physics/wheel_left_joint>,
+        </beebot/Physics/wheel_right_joint>,
+        </beebot/Physics/pole_cam_joint>,
+        </beebot/Physics/arm_mount_joint>,
+        </beebot/Physics/joint1>,
+        </beebot/Physics/joint2>,
+        </beebot/Physics/joint3>,
+        </beebot/Physics/joint4>,
+        </beebot/Physics/joint5>,
+        </beebot/Physics/gripper_left_joint>,
+        </beebot/Physics/gripper_right_joint>,
+        </beebot/Physics/gripper_cam_joint>,
     ]
     prepend rel isaac:physics:robotLinks = [
-        </bee/Geometry/base_footprint/base_link>,
-        </bee/Geometry/base_footprint/base_link/wheel_left_link>,
-        </bee/Geometry/base_footprint/base_link/wheel_right_link>,
-        </bee/Geometry/base_footprint/base_link/camera_rear_link>,
-        </bee/Geometry/base_footprint/base_link/camera_rear_link/camera_rear_optical_frame>,
-        </bee/Geometry/base_footprint/base_link/arm_base_link>,
-        </bee/Geometry/base_footprint/base_link/arm_base_link/shoulder_link>,
-        </bee/Geometry/base_footprint/base_link/arm_base_link/shoulder_link/upper_arm_link>,
-        </bee/Geometry/base_footprint/base_link/arm_base_link/shoulder_link/upper_arm_link/forearm_link>,
-        </bee/Geometry/base_footprint/base_link/arm_base_link/shoulder_link/upper_arm_link/forearm_link/wrist_link>,
-        </bee/Geometry/base_footprint/base_link/arm_base_link/shoulder_link/upper_arm_link/forearm_link/wrist_link/gripper_link>,
-        </bee/Geometry/base_footprint/base_link/arm_base_link/shoulder_link/upper_arm_link/forearm_link/wrist_link/gripper_link/tcp_link>,
-        </bee/Geometry/base_footprint/base_link/arm_base_link/shoulder_link/upper_arm_link/forearm_link/wrist_link/gripper_link/finger_left_link>,
-        </bee/Geometry/base_footprint/base_link/arm_base_link/shoulder_link/upper_arm_link/forearm_link/wrist_link/gripper_link/finger_right_link>,
-        </bee/Geometry/base_footprint/base_link/arm_base_link/shoulder_link/upper_arm_link/forearm_link/wrist_link/gripper_link/camera_wrist_link>,
-        </bee/Geometry/base_footprint/base_link/arm_base_link/shoulder_link/upper_arm_link/forearm_link/wrist_link/gripper_link/camera_wrist_link/camera_wrist_optical_frame>,
+        </beebot/Geometry/base_footprint/base_link>,
+        </beebot/Geometry/base_footprint/base_link/imu_link>,
+        </beebot/Geometry/base_footprint/base_link/wheel_left_link>,
+        </beebot/Geometry/base_footprint/base_link/wheel_right_link>,
+        </beebot/Geometry/base_footprint/base_link/pole_cam_link>,
+        </beebot/Geometry/base_footprint/base_link/pole_cam_link/pole_cam_color_optical_frame>,
+        </beebot/Geometry/base_footprint/base_link/arm_base_link>,
+        </beebot/Geometry/base_footprint/base_link/arm_base_link/shoulder_link>,
+        </beebot/Geometry/base_footprint/base_link/arm_base_link/shoulder_link/upper_arm_link>,
+        </beebot/Geometry/base_footprint/base_link/arm_base_link/shoulder_link/upper_arm_link/forearm_link>,
+        </beebot/Geometry/base_footprint/base_link/arm_base_link/shoulder_link/upper_arm_link/forearm_link/wrist_link>,
+        </beebot/Geometry/base_footprint/base_link/arm_base_link/shoulder_link/upper_arm_link/forearm_link/wrist_link/gripper_link>,
+        </beebot/Geometry/base_footprint/base_link/arm_base_link/shoulder_link/upper_arm_link/forearm_link/wrist_link/gripper_link/end_effector_link>,
+        </beebot/Geometry/base_footprint/base_link/arm_base_link/shoulder_link/upper_arm_link/forearm_link/wrist_link/gripper_link/finger_left_link>,
+        </beebot/Geometry/base_footprint/base_link/arm_base_link/shoulder_link/upper_arm_link/forearm_link/wrist_link/gripper_link/finger_right_link>,
+        </beebot/Geometry/base_footprint/base_link/arm_base_link/shoulder_link/upper_arm_link/forearm_link/wrist_link/gripper_link/gripper_cam_link>,
+        </beebot/Geometry/base_footprint/base_link/arm_base_link/shoulder_link/upper_arm_link/forearm_link/wrist_link/gripper_link/gripper_cam_link/gripper_cam_color_optical_frame>,
     ]
     token isaac:robotType = "Default"
 
@@ -70,11 +71,11 @@ over "bee" (
                 {
                 }
 
-                over "camera_rear_link" (
+                over "pole_cam_link" (
                     prepend apiSchemas = ["IsaacLinkAPI"]
                 )
                 {
-                    over "camera_rear_optical_frame" (
+                    over "pole_cam_color_optical_frame" (
                         prepend apiSchemas = ["IsaacSiteAPI"]
                     )
                     {
@@ -117,18 +118,18 @@ over "bee" (
                                         {
                                         }
 
-                                        over "camera_wrist_link" (
+                                        over "gripper_cam_link" (
                                             prepend apiSchemas = ["IsaacLinkAPI"]
                                         )
                                         {
-                                            over "camera_wrist_optical_frame" (
+                                            over "gripper_cam_color_optical_frame" (
                                                 prepend apiSchemas = ["IsaacSiteAPI"]
                                             )
                                             {
                                             }
                                         }
 
-                                        over "tcp_link" (
+                                        over "end_effector_link" (
                                             prepend apiSchemas = ["IsaacSiteAPI"]
                                         )
                                         {
@@ -138,6 +139,12 @@ over "bee" (
                             }
                         }
                     }
+                }
+
+                over "imu_link" (
+                    prepend apiSchemas = ["IsaacSiteAPI"]
+                )
+                {
                 }
             }
         }
@@ -163,7 +170,7 @@ over "bee" (
         {
         }
 
-        over "camera_rear_joint" (
+        over "pole_cam_joint" (
             prepend apiSchemas = ["IsaacJointAPI"]
         )
         {
@@ -205,19 +212,19 @@ over "bee" (
         {
         }
 
-        over "gripper_joint" (
+        over "gripper_left_joint" (
             prepend apiSchemas = ["IsaacJointAPI"]
         )
         {
         }
 
-        over "gripper_mimic_joint" (
+        over "gripper_right_joint" (
             prepend apiSchemas = ["IsaacJointAPI"]
         )
         {
         }
 
-        over "camera_wrist_joint" (
+        over "gripper_cam_joint" (
             prepend apiSchemas = ["IsaacJointAPI"]
         )
         {

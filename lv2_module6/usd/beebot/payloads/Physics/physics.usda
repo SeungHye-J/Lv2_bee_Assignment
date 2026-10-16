@@ -3,7 +3,7 @@
     customLayerData = {
         string creator = "URDF USD Converter v0.3.2"
     }
-    defaultPrim = "bee"
+    defaultPrim = "beebot"
     endTimeCode = 1000000
     kilogramsPerUnit = 1
     metersPerUnit = 1
@@ -11,7 +11,7 @@
     upAxis = "Z"
 )
 
-over "bee"
+over "beebot"
 {
     over "Geometry"
     {
@@ -41,6 +41,18 @@ over "bee"
                 }
 
                 over "box_2" (
+                    prepend apiSchemas = ["NewtonCollisionAPI"]
+                )
+                {
+                }
+
+                over "box_3" (
+                    prepend apiSchemas = ["NewtonCollisionAPI"]
+                )
+                {
+                }
+
+                over "box_4" (
                     prepend apiSchemas = ["NewtonCollisionAPI"]
                 )
                 {
@@ -92,7 +104,7 @@ over "bee"
                     }
                 }
 
-                over "camera_rear_link" (
+                over "pole_cam_link" (
                     prepend apiSchemas = ["PhysicsRigidBodyAPI", "PhysicsMassAPI", "NewtonMassAPI"]
                 )
                 {
@@ -191,7 +203,7 @@ over "bee"
                                             quatf physics:principalAxes = (0.99517745, -0.0001332477, 0.09809066, -0.00009511371)
                                         }
 
-                                        over "camera_wrist_link" (
+                                        over "gripper_cam_link" (
                                             prepend apiSchemas = ["PhysicsRigidBodyAPI", "PhysicsMassAPI", "NewtonMassAPI"]
                                         )
                                         {
@@ -227,9 +239,9 @@ over "bee"
             float newton:velocityLimit = 461.97586
             uniform token physics:axis = "Y"
             custom rel physics:body0
-            append rel physics:body0 = </bee/Geometry/base_footprint/base_link>
+            append rel physics:body0 = </beebot/Geometry/base_footprint/base_link>
             custom rel physics:body1
-            append rel physics:body1 = </bee/Geometry/base_footprint/base_link/wheel_left_link>
+            append rel physics:body1 = </beebot/Geometry/base_footprint/base_link/wheel_left_link>
             point3f physics:localPos0 = (0, 0.1439, 0.023)
             point3f physics:localPos1 = (0, 0, 0)
             quatf physics:localRot0 = (1, 0, 0, 0)
@@ -245,9 +257,9 @@ over "bee"
             float newton:velocityLimit = 461.97586
             uniform token physics:axis = "Y"
             custom rel physics:body0
-            append rel physics:body0 = </bee/Geometry/base_footprint/base_link>
+            append rel physics:body0 = </beebot/Geometry/base_footprint/base_link>
             custom rel physics:body1
-            append rel physics:body1 = </bee/Geometry/base_footprint/base_link/wheel_right_link>
+            append rel physics:body1 = </beebot/Geometry/base_footprint/base_link/wheel_right_link>
             point3f physics:localPos0 = (0, -0.1439, 0.023)
             point3f physics:localPos1 = (0, 0, 0)
             quatf physics:localRot0 = (1, 0, 0, 0)
@@ -263,9 +275,9 @@ over "bee"
             float newton:velocityLimit = 275.99377
             uniform token physics:axis = "Z"
             custom rel physics:body0
-            append rel physics:body0 = </bee/Geometry/base_footprint/base_link/arm_base_link>
+            append rel physics:body0 = </beebot/Geometry/base_footprint/base_link/arm_base_link>
             custom rel physics:body1
-            append rel physics:body1 = </bee/Geometry/base_footprint/base_link/arm_base_link/shoulder_link>
+            append rel physics:body1 = </beebot/Geometry/base_footprint/base_link/arm_base_link/shoulder_link>
             point3f physics:localPos0 = (0, 0, 0.0409)
             point3f physics:localPos1 = (0, 0, 0)
             quatf physics:localRot0 = (1, 0, 0, 0)
@@ -283,9 +295,9 @@ over "bee"
             float newton:velocityLimit = 275.99377
             uniform token physics:axis = "Z"
             custom rel physics:body0
-            append rel physics:body0 = </bee/Geometry/base_footprint/base_link/arm_base_link/shoulder_link>
+            append rel physics:body0 = </beebot/Geometry/base_footprint/base_link/arm_base_link/shoulder_link>
             custom rel physics:body1
-            append rel physics:body1 = </bee/Geometry/base_footprint/base_link/arm_base_link/shoulder_link/upper_arm_link>
+            append rel physics:body1 = </beebot/Geometry/base_footprint/base_link/arm_base_link/shoulder_link/upper_arm_link>
             point3f physics:localPos0 = (0, -0.01875, 0.0416)
             point3f physics:localPos1 = (0, 0, 0)
             quatf physics:localRot0 = (7.58092e-11, 7.580929e-11, 0.70710677, 0.70710677)
@@ -303,9 +315,9 @@ over "bee"
             float newton:velocityLimit = 275.99377
             uniform token physics:axis = "Z"
             custom rel physics:body0
-            append rel physics:body0 = </bee/Geometry/base_footprint/base_link/arm_base_link/shoulder_link/upper_arm_link>
+            append rel physics:body0 = </beebot/Geometry/base_footprint/base_link/arm_base_link/shoulder_link/upper_arm_link>
             custom rel physics:body1
-            append rel physics:body1 = </bee/Geometry/base_footprint/base_link/arm_base_link/shoulder_link/upper_arm_link/forearm_link>
+            append rel physics:body1 = </beebot/Geometry/base_footprint/base_link/arm_base_link/shoulder_link/upper_arm_link/forearm_link>
             point3f physics:localPos0 = (-0.024, 0.128, 5.195438e-12)
             point3f physics:localPos1 = (0, 0, 0)
             quatf physics:localRot0 = (1, 0, 0, 0)
@@ -323,9 +335,9 @@ over "bee"
             float newton:velocityLimit = 275.99377
             uniform token physics:axis = "Z"
             custom rel physics:body0
-            append rel physics:body0 = </bee/Geometry/base_footprint/base_link/arm_base_link/shoulder_link/upper_arm_link/forearm_link>
+            append rel physics:body0 = </beebot/Geometry/base_footprint/base_link/arm_base_link/shoulder_link/upper_arm_link/forearm_link>
             custom rel physics:body1
-            append rel physics:body1 = </bee/Geometry/base_footprint/base_link/arm_base_link/shoulder_link/upper_arm_link/forearm_link/wrist_link>
+            append rel physics:body1 = </beebot/Geometry/base_footprint/base_link/arm_base_link/shoulder_link/upper_arm_link/forearm_link/wrist_link>
             point3f physics:localPos0 = (-0.124, 5.551115e-17, 2.657112e-11)
             point3f physics:localPos1 = (0, 0, 0)
             quatf physics:localRot0 = (1, 0, 0, 0)
@@ -343,9 +355,9 @@ over "bee"
             float newton:velocityLimit = 275.99377
             uniform token physics:axis = "Z"
             custom rel physics:body0
-            append rel physics:body0 = </bee/Geometry/base_footprint/base_link/arm_base_link/shoulder_link/upper_arm_link/forearm_link/wrist_link>
+            append rel physics:body0 = </beebot/Geometry/base_footprint/base_link/arm_base_link/shoulder_link/upper_arm_link/forearm_link/wrist_link>
             custom rel physics:body1
-            append rel physics:body1 = </bee/Geometry/base_footprint/base_link/arm_base_link/shoulder_link/upper_arm_link/forearm_link/wrist_link/gripper_link>
+            append rel physics:body1 = </beebot/Geometry/base_footprint/base_link/arm_base_link/shoulder_link/upper_arm_link/forearm_link/wrist_link/gripper_link>
             point3f physics:localPos0 = (-0.0629, -1.110223e-16, 0.01875)
             point3f physics:localPos1 = (0, 0, 0)
             quatf physics:localRot0 = (-1.416344e-16, -0.70710677, -1.110223e-16, 0.70710677)
@@ -355,7 +367,7 @@ over "bee"
             custom float urdf:limit:effort = 4.1
         }
 
-        def PhysicsPrismaticJoint "gripper_joint" (
+        def PhysicsPrismaticJoint "gripper_left_joint" (
             prepend apiSchemas = ["NewtonJointAPI", "PhysicsDriveAPI:linear", "PhysicsJointStateAPI:linear"]
         )
         {
@@ -363,9 +375,9 @@ over "bee"
             float newton:velocityLimit = 0.07
             uniform token physics:axis = "Z"
             custom rel physics:body0
-            append rel physics:body0 = </bee/Geometry/base_footprint/base_link/arm_base_link/shoulder_link/upper_arm_link/forearm_link/wrist_link/gripper_link>
+            append rel physics:body0 = </beebot/Geometry/base_footprint/base_link/arm_base_link/shoulder_link/upper_arm_link/forearm_link/wrist_link/gripper_link>
             custom rel physics:body1
-            append rel physics:body1 = </bee/Geometry/base_footprint/base_link/arm_base_link/shoulder_link/upper_arm_link/forearm_link/wrist_link/gripper_link/finger_left_link>
+            append rel physics:body1 = </beebot/Geometry/base_footprint/base_link/arm_base_link/shoulder_link/upper_arm_link/forearm_link/wrist_link/gripper_link/finger_left_link>
             point3f physics:localPos0 = (-0.03861387, 0, 0.05315)
             point3f physics:localPos1 = (0, 0, 0)
             quatf physics:localRot0 = (4.7750246e-15, 0.70710677, 5.0515148e-15, -0.70710677)
@@ -375,18 +387,18 @@ over "bee"
             custom float urdf:limit:effort = 20
         }
 
-        def PhysicsPrismaticJoint "gripper_mimic_joint" (
+        def PhysicsPrismaticJoint "gripper_right_joint" (
             prepend apiSchemas = ["NewtonJointAPI", "NewtonMimicAPI", "PhysicsDriveAPI:linear", "PhysicsJointStateAPI:linear"]
         )
         {
             float drive:linear:physics:maxForce = 20
-            rel newton:mimicJoint = </bee/Physics/gripper_joint>
+            rel newton:mimicJoint = </beebot/Physics/gripper_left_joint>
             float newton:velocityLimit = 0.07
             uniform token physics:axis = "Z"
             custom rel physics:body0
-            append rel physics:body0 = </bee/Geometry/base_footprint/base_link/arm_base_link/shoulder_link/upper_arm_link/forearm_link/wrist_link/gripper_link>
+            append rel physics:body0 = </beebot/Geometry/base_footprint/base_link/arm_base_link/shoulder_link/upper_arm_link/forearm_link/wrist_link/gripper_link>
             custom rel physics:body1
-            append rel physics:body1 = </bee/Geometry/base_footprint/base_link/arm_base_link/shoulder_link/upper_arm_link/forearm_link/wrist_link/gripper_link/finger_right_link>
+            append rel physics:body1 = </beebot/Geometry/base_footprint/base_link/arm_base_link/shoulder_link/upper_arm_link/forearm_link/wrist_link/gripper_link/finger_right_link>
             point3f physics:localPos0 = (0.03861387, 0, 0.05315)
             point3f physics:localPos1 = (0, 0, 0)
             quatf physics:localRot0 = (0.70710677, -5.031729e-15, 0.70710677, 5.162537e-15)
@@ -399,21 +411,21 @@ over "bee"
         def PhysicsFixedJoint "base_joint"
         {
             custom rel physics:body0
-            append rel physics:body0 = </bee>
+            append rel physics:body0 = </beebot>
             custom rel physics:body1
-            append rel physics:body1 = </bee/Geometry/base_footprint/base_link>
+            append rel physics:body1 = </beebot/Geometry/base_footprint/base_link>
             point3f physics:localPos0 = (0, 0, 0.01)
             point3f physics:localPos1 = (0, 0, 0)
             quatf physics:localRot0 = (1, 0, 0, 0)
             quatf physics:localRot1 = (1, 0, 0, 0)
         }
 
-        def PhysicsFixedJoint "camera_rear_joint"
+        def PhysicsFixedJoint "pole_cam_joint"
         {
             custom rel physics:body0
-            append rel physics:body0 = </bee/Geometry/base_footprint/base_link>
+            append rel physics:body0 = </beebot/Geometry/base_footprint/base_link>
             custom rel physics:body1
-            append rel physics:body1 = </bee/Geometry/base_footprint/base_link/camera_rear_link>
+            append rel physics:body1 = </beebot/Geometry/base_footprint/base_link/pole_cam_link>
             point3f physics:localPos0 = (-0.137869, 0.000185, 0.417108)
             point3f physics:localPos1 = (0, 0, 0)
             quatf physics:localRot0 = (0.98768836, 0, 0.15643433, 0)
@@ -423,21 +435,21 @@ over "bee"
         def PhysicsFixedJoint "arm_mount_joint"
         {
             custom rel physics:body0
-            append rel physics:body0 = </bee/Geometry/base_footprint/base_link>
+            append rel physics:body0 = </beebot/Geometry/base_footprint/base_link>
             custom rel physics:body1
-            append rel physics:body1 = </bee/Geometry/base_footprint/base_link/arm_base_link>
+            append rel physics:body1 = </beebot/Geometry/base_footprint/base_link/arm_base_link>
             point3f physics:localPos0 = (0.051045, 0, 0.134795)
             point3f physics:localPos1 = (0, 0, 0)
             quatf physics:localRot0 = (1, 0, 0, 0)
             quatf physics:localRot1 = (1, 0, 0, 0)
         }
 
-        def PhysicsFixedJoint "camera_wrist_joint"
+        def PhysicsFixedJoint "gripper_cam_joint"
         {
             custom rel physics:body0
-            append rel physics:body0 = </bee/Geometry/base_footprint/base_link/arm_base_link/shoulder_link/upper_arm_link/forearm_link/wrist_link/gripper_link>
+            append rel physics:body0 = </beebot/Geometry/base_footprint/base_link/arm_base_link/shoulder_link/upper_arm_link/forearm_link/wrist_link/gripper_link>
             custom rel physics:body1
-            append rel physics:body1 = </bee/Geometry/base_footprint/base_link/arm_base_link/shoulder_link/upper_arm_link/forearm_link/wrist_link/gripper_link/camera_wrist_link>
+            append rel physics:body1 = </beebot/Geometry/base_footprint/base_link/arm_base_link/shoulder_link/upper_arm_link/forearm_link/wrist_link/gripper_link/gripper_cam_link>
             point3f physics:localPos0 = (0.000504, -0.050245, 0.080871)
             point3f physics:localPos1 = (0, 0, 0)
             quatf physics:localRot0 = (-0.49941188, -0.5011133, 0.5006586, -0.49881285)
