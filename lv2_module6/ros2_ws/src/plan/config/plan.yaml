@@ -5,6 +5,8 @@ user_input:
 vlm_task_planner:
   ros__parameters:
     max_replans: 1           # 명령 하나당 재계획 횟수 (coordinator의 max_step_failures와 짝)
+    vlm_endpoint: ""         # 비면 템플릿 고정(기본·CI). 호스트 ai-service면 "http://127.0.0.1:8000" (컨테이너 host망이라 localhost가 호스트)
+    vlm_timeout_s: 120.0    # [s] VLM 대기 — 넘기면 템플릿 폴백
 coordinator:
   ros__parameters:
     max_grasp_tries: 2       # 파지 후보를 점수순으로 몇 개까지 시도 (규칙 4)

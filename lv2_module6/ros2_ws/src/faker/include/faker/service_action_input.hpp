@@ -15,7 +15,7 @@
 //   service: /score_grasps · /clear_octomap · /apply_planning_scene · /diff_drive_controller/set_odometry · /reset(EKF)
 //   action:  /navigate_to_pose · /execute_task_solution
 // 시작 전 잔재 파일은 무시, 서비스·액션마다 1건씩 순차 처리(처리 중 새 요청은 busy 에러).
-// 파라미터: debug_dir(기본 /ws/debug), period_s(폴링 간격, 기본 0.2), timeout_s(기본 10.0)
+// 파라미터: debug_dir(기본 /debug), period_s(폴링 간격, 기본 0.2), timeout_s(기본 10.0)
 #include <chrono>
 #include <cmath>
 #include <filesystem>

@@ -50,15 +50,14 @@ service/action은 `request_id`·`goal_id` 일치로 자기 응답만 받는다 (
 
 | 방향 | 파일 | ROS 쪽 |
 | --- | --- | --- |
-| 시뮬레이터 → ROS | `debug/input-live/<카메라>.png` · `<카메라>_depth.png` (16비트 mm) | faker `fake_camera` → RealSense 토픽 (컬러 · 정렬 depth · 점구름 · camera_info) |
-| 시뮬레이터 → ROS | `debug/input/<토픽>/message` (`{"type", "data"}` JSON) | faker `input_manager` → `/user_command` · `/manual/*` · `/e_stop` |
-| 플랜트 ↔ ROS | `debug/serial-out`(C 명령) 읽기 · `debug/serial-in`(S 상태) 쓰기 | 가상 시리얼 `/dev/ttyACM0` ↔ BeebotSystemHardware (`mock_hardware:=false`) |
-| ROS → 시뮬레이터 | `debug/topic/<토픽>/message` · `image.jpg` · `depth.png` + `debug/topic/list.json` | faker `monitor_manager` (모든 토픽의 마지막 메시지 + 목록) |
+| 시뮬레이터 → ROS | `debug/input/hardware/camera/<카메라>.png` · `<카메라>_depth.png` (16비트 mm) | faker `fake_camera` → RealSense 토픽 (컬러 · 정렬 depth · 점구름 · camera_info) |
+| 시뮬레이터 → ROS | `debug/input/topic/<토픽>/message` (`{"type", "data"}` JSON) | faker `input_manager` → `/user_command` · `/manual/*` · `/e_stop` |
+| 플랜트 ↔ ROS | `debug/output/hardware/serial`(C 명령) 읽기 · `debug/input/hardware/serial`(S 상태) 쓰기 | 가상 시리얼 `/dev/ttyACM0` ↔ BeebotSystemHardware (`mock_hardware:=false`) |
+| ROS → 시뮬레이터 | `debug/output/topic/<토픽>/message` · `image.jpg` · `depth.png` + `debug/output/topic/list.json` | faker `monitor_manager` (모든 토픽의 마지막 메시지 + 목록) |
 | ROS → 시뮬레이터 | `debug/service/list.json` · `service/<이름>/type|info` · `debug/action/list.json` · `action/<이름>/type|info` | faker `service_action_monitor` (서비스·액션 목록·정의) |
 | 시뮬레이터 → ROS | `debug/service/<이름>/request` (`{"request_id", "data"}`) → `response` (`{"request_id", "ok", "data"|"error"}`) | faker `service_action_input` → `/score_grasps` · `/clear_octomap` · `/apply_planning_scene` |
 | 시뮬레이터 ↔ ROS | `debug/action/<이름>/goal` + `cancel` → `accept` · `feedback`(최신 1건) · `result` | faker `service_action_input` → `/navigate_to_pose` · `/execute_task_solution` |
 | ROS → 시뮬레이터 | `debug/interface/list` + `debug/interface/<종류>/list` + `debug/interface/<종류>/<패키지>/<이름>/info` (예: `srv/ml/ScoreGrasps/info`, 프로젝트 타입은 자동 생성, 나머지는 `.../request` 쓰면 생성 — `bee.py interface <타입>`) | faker `service_action_monitor` (`ros2 interface list` 카탈로그) |
-| 시뮬레이터 기록 | `debug/sim/objects.json` | 퍽 · 바닥 장애물 정답 (미로 좌표 + map 좌표) — 인지 결과와 비교용 |
 
 - 파일: `main.py`(메인 창) · `manual_window.py`(수동 조작 탭 패널) · `robot_view.py`(URDF 3D 뷰) · `scene.py`(카메라 렌더) · `plant.py`(OpenCR + 로봇 몸) · `maze.py`(코스) · `bridge.py`(debug 파일 주고받기)
 - 팔·물체 상호작용(`main.py` `grip_interact`, 매 렌더 스텝): 손끝 3cm 안에 + 높이도 맞는 퍽 + 그리퍼 닫힘 → 집어서 손끝 높이로 들어올림(지도의 `held`, 카메라도 공중 퍽 렌더), 벌리면 그 자리에서 떨어짐(트레이·데크·몸통 위면 안착, 아니면 바닥). 높이 안 맞으면 위를 지나가도 무시. 손끝이 물체 높이에 닿아 팔이 움직여야 밀려남(퍽·바닥장애물, 벽은 안 뚫음; 베이스 이동분은 제외). 바퀴가 바닥 퍽에 닿으면 막지 않고 밀어냄(벽에 끼면 막힘).
@@ -68,7 +67,7 @@ service/action은 `request_id`·`goal_id` 일치로 자기 응답만 받는다 (
   통신 끊기면 C를 안 읽고 S를 안 보낸다 → 호스트 진단 "OpenCR 상태(S) 수신 없음" ERROR, 펌웨어 watchdog처럼 0.5초 뒤 바퀴 정지.
 - faker를 다시 띄우면 `/odom`이 0부터 시작한다 — [로봇 위치 초기화]로 플랜트·odom을 함께 맞춘다.
 - 카메라 렌더: 로봇 URDF(`/robot_description`) 순기구학 + 관절값 + 로봇 위치(플랜트가 돌면 실제 자세, 아니면 `/odom`)로 두 카메라 자세를 구해 광선 추적 (`scene.py`, 2대 병렬로 약 0.3초 — 내부는 절반 해상도로 쏘고 320×240으로 확대).
-  화면 타일은 SIM 렌더를 직접 보여준다 (ROS 왕복분 빠름, 타일에 SIM/ROS 표시). `input-live` 파일 → `fake_camera` → ROS 토픽 경로는 그대로 돌아간다.
+  화면 타일은 SIM 렌더를 직접 보여준다 (ROS 왕복분 빠름, 타일에 SIM/ROS 표시). `input/hardware/camera` 파일 → `fake_camera` → ROS 토픽 경로는 그대로 돌아간다.
   URDF visual 상자로 **자기 몸(팔·폴·상판)도 그린다** — 뒤쪽 상판에 실은 퍽 확인용. 렌더 중인 카메라 자체 마운트만 제외.
   화각 `HFOV_DEG`는 `faker/config/faker.yaml`의 `hfov_deg`와 같아야 한다.
 - 코스는 저장소의 `course/twin_closed_maze/walls.json`을 읽는다 (네트워크 불필요) — [course/README.md](../course/README.md).

@@ -6,7 +6,7 @@ pole_cam:                    # fake_camera (realsense2_camera 대역) — 장면
     period_s: 0.0333         # 30fps
     hfov_deg: 69.0           # D435 컬러 수평 화각 — 시뮬레이터 렌더와 같아야 한다
     cloud_step: 4            # 점구름: depth 4픽셀마다 한 점
-    live_dir: /ws/debug/input-live
+    live_dir: /debug/input/hardware/camera
 gripper_cam:
   ros__parameters:
     width: 640
@@ -14,7 +14,7 @@ gripper_cam:
     period_s: 0.0667         # 15fps
     hfov_deg: 69.0
     cloud_step: 4
-    live_dir: /ws/debug/input-live
+    live_dir: /debug/input/hardware/camera
 controller_server:           # fake_nav2 (Nav2 대역)
   ros__parameters:
     nav_time_s: 2.0          # NavigateToPose 하나에 걸리는 시간
@@ -23,14 +23,14 @@ move_group:                  # fake_moveit (move_group + MTC 대역)
   ros__parameters:
     exec_time_s: 1.0         # ExecuteTaskSolution 하나에 걸리는 시간
     fail_count: 0            # 처음 N번 실패
-monitor_manager:             # 토픽 → debug/topic/<토픽>/message · image.jpg
+monitor_manager:             # 토픽 → debug/output/topic/<토픽>/message · image.jpg
   ros__parameters:
-    debug_dir: /ws/debug
+    debug_dir: /debug
     period_s: 0.2            # 이미지 저장 간격
     raw_images: true
-input_manager:               # debug/input/<토픽>/message → 토픽
+input_manager:               # debug/input/topic/<토픽>/message → 토픽
   ros__parameters:
-    debug_dir: /ws/debug
+    debug_dir: /debug
     period_s: 0.2
 rl_nav_tuner:                # fake_ml — ml 대역 (ml:=fake). grasp_scorer 대역은 파라미터 없음
   ros__parameters:

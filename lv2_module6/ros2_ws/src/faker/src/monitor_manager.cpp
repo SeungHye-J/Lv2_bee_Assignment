@@ -7,15 +7,15 @@ namespace faker {
 
 MonitorManager::MonitorManager()
 : rclcpp::Node("monitor_manager") {
-  // debug 폴더를 받는다. 토픽별 파일은 <debug_dir>/topic/<토픽>/ 에 저장 (통제실이 읽는 위치)
-  debug_dir_ = declare_parameter<std::string>("debug_dir", "/ws/debug");
+  // debug 폴더를 받는다. 토픽별 파일은 <debug_dir>/output/topic/<토픽>/ 에 저장 (통제실이 읽는 위치)
+  debug_dir_ = declare_parameter<std::string>("debug_dir", "/debug");
   period_ = declare_parameter<double>("period_s", 0.2);
   raw_images_ = declare_parameter<bool>("raw_images", true);
   const auto excluded = declare_parameter<std::vector<std::string>>("exclude_topics", std::vector<std::string>{});
   excluded_ = std::set<std::string>(excluded.begin(), excluded.end());
 
   // 저장 폴더를 시작할 때 만든다 (없으면 생성). 못 만들면 바로 알 수 있게 종료
-  const fs::path topic_dir = fs::absolute(fs::path(debug_dir_) / "topic");
+  const fs::path topic_dir = fs::absolute(fs::path(debug_dir_) / "output" / "topic");
   std::error_code ec;
   fs::create_directories(topic_dir, ec);
   if (ec || !fs::is_directory(topic_dir)) {
@@ -80,7 +80,7 @@ void MonitorManager::write_topic_list() {
     list += "{\"name\": \"" + name + "\", \"type\": \"" + type + "\"}";
   }
   list += "]}\n";
-  write_file(fs::path(debug_dir_) / "topic" / "list.json", list);
+  write_file(fs::path(debug_dir_) / "output" / "topic" / "list.json", list);
 }
 
 rclcpp::QoS MonitorManager::qos() { return rclcpp::SensorDataQoS(); }
@@ -181,7 +181,7 @@ bool MonitorManager::due(const std::string & key) {
 }
 
 fs::path MonitorManager::dir_of(const std::string & topic) const {
-  return fs::path(debug_dir_) / "topic" / topic.substr(1);
+  return fs::path(debug_dir_) / "output" / "topic" / topic.substr(1);
 }
 
 fs::path MonitorManager::prepare_tmp(const fs::path & out) {

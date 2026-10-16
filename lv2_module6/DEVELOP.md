@@ -21,14 +21,14 @@ docker compose exec lyrical bash       # 컨테이너 셸 — 이후 명령은 �
 test-all                               # 빌드 + 전체 검사. ALL PASS면 셋팅 끝
 ```
 
-컨테이너는 소스만 마운트하고 빌드 결과(`/ws/build`, `/ws/install`)는 컨테이너 안에 둡니다.
+컨테이너는 워크스페이스 전체(`lv2_module6/ros2_ws` → `/ws`)를 마운트합니다. 빌드 결과·로그도 호스트에서 바로 봅니다.
+같은 LAN의 다른 팀 스택과 DDS 토픽이 섞이지 않게 `ROS_DOMAIN_ID=6` (docker-compose.yml) — 컨테이너 안 명령은 자동 적용.
 
 | 호스트 | 컨테이너 | 용도 |
 | --- | --- | --- |
-| `lv2_module6/ros2_ws/src` | `/ws/src` | ROS 2 패키지 소스 (호스트에서 편집하면 바로 반영) |
-| `lv2_module6/urdf` | `/urdf` (읽기 전용) | 로봇 모델 |
-| `lv2_module6/firmware` | `/ws/firmware` | OpenCR 펌웨어 스케치 |
-| `lv2_module6/debug` | `/ws/debug` | 토픽 기록 · 시뮬레이터 연동 · 가상 시리얼(serial-in/out) · 펌웨어 빌드 결과 (gitignore). **양방향**: 호스트→컨테이너(`input/` 명령·수동, `input-live/` 카메라, `service/*/request`·`action/*/goal·cancel`, `sim/objects.json`)와 컨테이너→호스트(`topic/`·`service/*/response·type|info`·`action/*/accept·feedback·result`, `serial-out`)가 같은 폴더를 쓴다. 소유권·권한은 아래 "공유 폴더 권한" 참조 |
+| `lv2_module6/ros2_ws` | `/ws` | ROS 2 워크스페이스 전체 (src + urdf + build/install/log — 호스트에서 편집·열람) |
+| `lv2_module6/firmware` | `/firmware` | OpenCR 펌웨어 스케치 |
+| `lv2_module6/debug` | `/debug` | 토픽 기록 · 시뮬레이터 연동 · 가상 시리얼(input/hardware/serial·output/hardware/serial) (gitignore). **양방향**: 호스트→컨테이너(`input/topic/` 명령·수동, `input/hardware/camera/` 카메라 장면, `service/*/request`·`action/*/goal·cancel`)와 컨테이너→호스트(`output/topic/`·`service/*/response·type|info`·`action/*/accept·feedback·result`, `output/hardware/serial`)가 같은 폴더를 쓴다. 펌웨어 빌드 결과는 `firmware/build/` (gitignore). 소유권·권한은 아래 "공유 폴더 권한" 참조 |
 
 Dockerfile·`docker/*.sh`를 고쳤으면 `docker compose build` 후 `docker compose up -d`로 다시 띄웁니다 (스크립트는 이미지에 복사돼 있음).
 
@@ -38,30 +38,30 @@ Dockerfile·`docker/*.sh`를 고쳤으면 `docker compose build` 후 `docker com
 
 그래서 양쪽 다 쓸 수 있게 디렉토리는 777로 유지합니다:
 
-- `docker/entrypoint.sh`: 기동 시 `input/`·`input-live/`·`topic/`·`service/`·`action/`·`interface/`·`sim/` 미리 생성 + `chmod -R 777 /ws/debug`
-- `faker` 노드(`monitor_manager`·`service_action_monitor`·`service_action_input`): 디렉토리 생성 직후 `chmod 0777` — 실행 중 새로 생기는 `topic/<토픽>/`·`service/<이름>/`·`action/<이름>/`도 호스트가 rename(원자적 쓰기)으로 교체 가능
+- `docker/entrypoint.sh`: 기동 시 `input/`·`input/hardware/camera/`·`output/topic/`·`service/`·`action/`·`interface/`·`output/` 미리 생성 + `chmod -R 777 /debug`
+- `faker` 노드(`monitor_manager`·`service_action_monitor`·`service_action_input`): 디렉토리 생성 직후 `chmod 0777` — 실행 중 새로 생기는 `output/topic/<토픽>/`·`service/<이름>/`·`action/<이름>/`도 호스트가 rename(원자적 쓰기)으로 교체 가능
 - 파일 자체는 644여도 된다: 읽는 쪽은 읽기만, 쓰는 쪽은 디렉토리 권한으로 rename 하므로
 
-`PermissionError`가 나면 (예: 시뮬레이터 `save_truth`가 `debug/sim` 생성 실패) 컨테이너에서 소유권 회수 — 호스트 `sudo`는 비밀번호가 필요할 수 있으니 컨테이너(root) 경유가 확실:
+`PermissionError`가 나면 컨테이너에서 소유권 회수 — 호스트 `sudo`는 비밀번호가 필요할 수 있으니 컨테이너(root) 경유가 확실:
 
 ```bash
-cd docker && docker compose exec -u root lyrical bash -c "chown -R 1000:1000 /ws/debug && chmod -R 777 /ws/debug"
+cd docker && docker compose exec -u root lyrical bash -c "chown -R 1000:1000 /debug && chmod -R 777 /debug"
 ```
 
-참고: `docker compose up -d`로 컨테이너를 재생성하면 `/ws/build`·`/ws/install`(컨테이너 내부, 마운트 아님)이 날아가므로 `colcon build`부터 다시 합니다.
+참고: `build/`·`install/`·`log/`는 호스트에 그대로 남으므로 재생성 뒤에도 `colcon build` 없이 바로 쓸 수 있습니다. 빌드가 꼬였다 싶으면 `install`·`build` 지우고 처음부터 다시 합니다(지울 때 소유권 주의 — 위 chown 참고).
 
 ## 2. 컨테이너 안 명령
 
 | 명령 | 하는 일 |
 | --- | --- |
 | `test-all` | **push 전 필수.** CI와 같은 검사: test-serial → test-firmware → test-packages → test-hardware → test-bringup → test-faker(정상) → test-faker(파지 실패·재계획) |
-| `test-serial` | 가상 시리얼(`/dev/ttyV0` = `/dev/ttyACM0`) ↔ `debug/serial-in`·`serial-out` 파일 왕복 |
+| `test-serial` | 가상 시리얼(`/dev/ttyV0` = `/dev/ttyACM0`) ↔ `debug/input/hardware/serial`·`output/hardware/serial` 파일 왕복 |
 | `test-firmware` | OpenCR 펌웨어 컴파일 → 가상 시리얼로 업로드 → 보낸 바이트가 .bin과 같은지 (결과 `debug/firmware/`) |
 | `test-packages [패키지...]` | colcon build + 패키지별 테스트 (`colcon test`). 예) `test-packages plan` |
 | `test-hardware` | controller_manager를 실기 모드(`mock_hardware:=false`)로 가상 시리얼에 붙여 펌웨어 프로토콜 확인 (C 명령 송신 · S 상태 → `/joint_states`) |
 | `test-bringup` | 🛠 노드 8개가 모두 뜨는지 |
 | `test-faker [초\|0] [launch 인자]` | 더미로 전체 흐름 → `/task_status` SUCCEEDED면 PASS. `0`이면 띄워 두기 (Ctrl+C 종료). `mock_hardware:=false`면 시뮬레이터 플랜트가 OpenCR 역할, `ml:=real`이면 ML 대역 대신 진짜 ml 노드 |
-| `test-logger [초]` | 지금 떠 있는 토픽을 `/ws/debug/topic/<토픽>/echo`로 기록 |
+| `test-logger [초]` | 지금 떠 있는 그래프를 사람용 로그로 기록: `topic/<토픽>/info`·`type`·`topic/list`, `node/<노드>/info`·`params`·`node/list`, `pkg/<패키지>/prefix`·`executables`·`pkg/list`, `output/topic/<토픽>/echo` (sim 실시간값 `message`·`image`는 monitor, 타입 틀(`proto`)은 `interface|service|action` 밑) |
 
 ```bash
 # 띄워 두고 직접 보기 — 셸 두 개 (docker compose exec lyrical bash 를 하나 더)
@@ -88,6 +88,14 @@ source install/setup.bash                                   # 빌드 후 새 셸
 
 - `--symlink-install`: launch·yaml·URDF는 다시 빌드하지 않아도 수정이 반영됩니다. C++은 다시 빌드해야 합니다.
 - 의존 방향: `perception`, `control` ← `ml` ← `plan` ← `bringup` · `faker`. 아래쪽 패키지(메시지 포함)를 고치면 위쪽도 다시 빌드됩니다.
+- 호스트에서 빌드할 땐 `ros2_ws/rebuild.sh` (build/·install/·log/ 삭제 후 풀빌드 — 컨테이너와 같은 이름, 한 번에 한 곳에서만).
+- 호스트 의존성: ROS 2 Lyrical (`/opt/ros/lyrical`) + 아래 패키지. rosdep는 lyrical을 몰라서 그냥 apt로 받는다.
+  ```bash
+  sudo apt install -y ros-lyrical-moveit-msgs ros-lyrical-moveit-task-constructor-msgs \
+    ros-lyrical-twist-mux ros-lyrical-controller-manager ros-lyrical-joint-trajectory-controller \
+    ros-lyrical-parallel-gripper-controller ros-lyrical-imu-sensor-broadcaster ros-lyrical-diagnostic-aggregator
+  ```
+  더 없다고 나오면 `docker/Dockerfile`의 apt 목록과 대조 (그게 컨테이너 정본). 호스트 빌드는 참고용, CI·테스트베드 정본은 컨테이너 빌드.
 
 ## 4. 커스텀 메시지
 
@@ -216,7 +224,7 @@ target_link_libraries(test_foo <노드가 쓰는 타깃들>)
 
 ## 8. 로봇 모델 (URDF)
 
-`lv2_module6/urdf/beebot.urdf.xacro` — TurtleBot3 Waffle Pi + 앞쪽 상판 위 OpenMANIPULATOR-X + 손목 roll + 그리퍼(위에 gripper_cam) + 뒤쪽 전원선 가이드 폴(pole_cam). 치수는 아직 더미.
+`lv2_module6/ros2_ws/urdf/beebot.urdf.xacro` — TurtleBot3 Waffle Pi + 앞쪽 상판 위 OpenMANIPULATOR-X + 손목 roll + 그리퍼(위에 gripper_cam) + 뒤쪽 전원선 가이드 폴(pole_cam). 치수는 아직 더미.
 
 ```bash
 xacro /urdf/beebot.urdf.xacro mock_hardware:=true > /tmp/beebot.urdf && check_urdf /tmp/beebot.urdf   # 트리 확인
@@ -252,7 +260,7 @@ OpenCR 하나가 바퀴 2 · 팔 5축 · 그리퍼 · IMU를 맡고, 호스트�
 | 배포 패키지 | `ros2_ws-deploy-<arch>.tar.gz` = `install/`(그 아키텍처용) + `firmware/`(스케치 · `build/*.bin`) + `ros2_ws/*.sh` + `ARCH` → Actions artifact (7일) |
 | Release | `main`에 병합(push)될 때만 `run-<RUN ID>` Release에 두 패키지 첨부 (로그인 없이 wget) |
 | 제출 태그 | `main` 병합 + 검사 통과 커밋에 `lv2-module6-submit` (마지막 병합 = 최종 제출) |
-| 실패 시 | launch 로그 · 토픽 기록 · serial-in/out · 테스트 결과를 artifact `debug-<arch>`로 |
+| 실패 시 | launch 로그 · 토픽 기록 · input/hardware/serial·output/hardware/serial · 테스트 결과를 artifact `debug-<arch>`로 |
 
 실기(라즈베리파이·PC)에서 배포 패키지 쓰기:
 

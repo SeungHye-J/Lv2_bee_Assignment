@@ -6,11 +6,11 @@ find_package(ament_cmake REQUIRED)
 install(DIRECTORY launch config
   DESTINATION share/${PROJECT_NAME})
 
-# 로봇 모델은 워크스페이스 밖 lv2_module6/urdf 에 둔다 (Isaac Sim 등 ROS 밖에서도 같은 파일을 쓰므로).
-# 테스트베드 컨테이너는 같은 상대 위치(/ws/src/ros_system/../../../urdf = /urdf)로 마운트한다.
-set(URDF_DIR "${CMAKE_CURRENT_SOURCE_DIR}/../../../urdf" CACHE PATH "lv2_module6/urdf")
+# 로봇 모델은 워크스페이스 루트의 urdf/ 에 둔다 (Isaac Sim 등 ROS 밖에서도 같은 파일을 쓰므로).
+# 컨테이너·호스트 모두 워크스페이스 상대 위치(/ws/src/ros_system/../../urdf)로 찾는다.
+set(URDF_DIR "${CMAKE_CURRENT_SOURCE_DIR}/../../urdf" CACHE PATH "ros2_ws/urdf")
 if(NOT EXISTS "${URDF_DIR}/beebot.urdf.xacro")
-  message(FATAL_ERROR "URDF 없음: ${URDF_DIR}/beebot.urdf.xacro (도커면 ../lv2_module6/urdf:/urdf 마운트 확인)")
+  message(FATAL_ERROR "URDF 없음: ${URDF_DIR}/beebot.urdf.xacro (워크스페이스 루트의 urdf/ 확인)")
 endif()
 install(DIRECTORY "${URDF_DIR}/" DESTINATION share/${PROJECT_NAME}/urdf)
 

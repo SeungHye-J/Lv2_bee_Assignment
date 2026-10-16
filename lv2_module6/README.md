@@ -177,7 +177,7 @@ flowchart LR
     subgraph HOST["호스트 (Mac·PC)"]
         SIM["simulator/ (main.py)<br/>코스 · 퍽 · 장애물 · 사람 · 두 카메라 렌더<br/>환경(미끄럼·마찰·통신 끊기) · 수동 조작 창(3D) · 진단"]
         PLANT["simulator/plant.py<br/>OpenCR + 로봇 몸 흉내<br/>(mock_hardware:=false)"]
-        DBG[("lv2_module6/debug/<br/>topic/ · input/ · input-live/<br/>serial-in · serial-out")]
+        DBG[("lv2_module6/debug/<br/>output/topic/ · topic/ · node/ · pkg/ · input/ · output/<br/>input/hardware/serial · output/hardware/serial · input/hardware/camera")]
     end
     subgraph DOCKER["도커 테스트베드 (ROS 2 Lyrical)"]
         BR["🛠 노드 전부 (bringup)<br/>+ diagnostic_aggregator"]
@@ -188,7 +188,7 @@ flowchart LR
     end
     SIM -->|"카메라 장면 · 명령 · 수동 조작"| DBG
     PLANT <-->|"C 명령 읽기 · S 상태 쓰기"| DBG
-    DBG -->|"input-live · input"| FK
+    DBG -->|"input/hardware/camera · input/topic"| FK
     FK -->|"RealSense·Nav2·MoveIt 토픽"| BR
     BR <--> RS
     FK -->|"토픽 → JSON · 영상 · 깊이"| DBG

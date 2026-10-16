@@ -1,6 +1,6 @@
 """컨테이너(ROS)와 파일로 주고받기 — 시뮬레이터 창들이 같이 쓴다 (lv2_module6/debug)
-  읽기: debug/topic/<토픽>/message  (faker monitor_manager가 쓴 마지막 메시지 JSON)
-  쓰기: debug/input/<토픽>/message  (faker input_manager가 그 토픽으로 발행)
+  읽기: debug/output/topic/<토픽>/message  (faker monitor_manager가 쓴 마지막 메시지 JSON)
+  쓰기: debug/input/topic/<토픽>/message  (faker input_manager가 그 토픽으로 발행)
 """
 import json
 import math
@@ -10,15 +10,14 @@ from pathlib import Path
 
 HERE = Path(__file__).resolve().parent
 DEBUG = HERE.parent / 'debug'
-TOPIC_DIR = DEBUG / 'topic'
-INPUT_DIR = DEBUG / 'input'
-LIVE_DIR = DEBUG / 'input-live'
-SIM_DIR = DEBUG / 'sim'
+TOPIC_DIR = DEBUG / 'output' / 'topic'
+INPUT_DIR = DEBUG / 'input' / 'topic'
+LIVE_DIR = DEBUG / 'input' / 'hardware' / 'camera'
 WHEEL_SEPARATION = 0.287
 
 
 def read_msg(topic, _cache={}):
-    """debug/topic/<토픽>/message → (data, 몇 초 전) · 없으면 (None, None).
+    """debug/output/topic/<토픽>/message → (data, 몇 초 전) · 없으면 (None, None).
     같은 mtime이면 파싱 결과 재사용 (diagnostics_agg 같은 대용량 매 틱 파싱 방지) — 반환값 변경 금지"""
     path = TOPIC_DIR / topic.strip('/') / 'message'
     try:
@@ -45,7 +44,7 @@ def write_atomic(path, write):
 
 
 def send(topic, msg_type, data):
-    """debug/input/<토픽>/message → input_manager가 발행"""
+    """debug/input/topic/<토픽>/message → input_manager가 발행"""
     write_atomic(INPUT_DIR / topic.strip('/') / 'message',
                  lambda p: p.write_text(json.dumps({'type': msg_type, 'data': data}, ensure_ascii=False)))
 
@@ -122,7 +121,7 @@ def read_interface_list():
 
 
 def read_topic_list():
-    """debug/topic/list.json → (data, 몇 초 전) · 없으면 (None, None)"""
+    """debug/output/topic/list.json → (data, 몇 초 전) · 없으면 (None, None)"""
     path = TOPIC_DIR / 'list.json'
     try:
         return json.loads(path.read_text()), time.time() - path.stat().st_mtime

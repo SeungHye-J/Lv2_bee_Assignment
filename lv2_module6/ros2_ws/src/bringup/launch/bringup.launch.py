@@ -39,6 +39,8 @@ def generate_launch_description():
                               description='false면 ml 노드(grasp_scorer · rl_nav_tuner · rl_nav_correction)를 띄우지 않음 — faker ML 대역을 쓸 때'),
         DeclareLaunchArgument('learning_enabled', default_value='true',
                               description='false면 학습 노드가 Δ=0 · 기본 프리셋 (노드는 그대로 뜸)'),
+        DeclareLaunchArgument('vlm_endpoint', default_value='',
+                              description='호스트 ai-service 주소 (비면 템플릿 고정, 예: http://127.0.0.1:8000)'),
         DeclareLaunchArgument('command', default_value='',
                               description='user_input이 시작 후 한 번 보낼 텍스트 명령'),
 
@@ -50,7 +52,8 @@ def generate_launch_description():
 
         node('perception', 'perception_node'),
         node('plan', 'user_input', {'command': ParameterValue(LaunchConfiguration('command'), value_type=str)}),  # 공백·빈 값도 문자열로
-        node('plan', 'vlm_task_planner'),
+        node('plan', 'vlm_task_planner',
+             {'vlm_endpoint': ParameterValue(LaunchConfiguration('vlm_endpoint'), value_type=str)}),
         node('plan', 'coordinator'),
         GroupAction([
             node('ml', 'grasp_scorer', learning),

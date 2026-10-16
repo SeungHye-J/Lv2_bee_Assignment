@@ -43,7 +43,7 @@ std::string escape_json(const std::string & s) {
 
 ServiceActionInput::ServiceActionInput()
 : rclcpp::Node("service_action_input") {
-  debug_dir_ = declare_parameter<std::string>("debug_dir", "/ws/debug");
+  debug_dir_ = declare_parameter<std::string>("debug_dir", "/debug");
   const double period = declare_parameter<double>("period_s", 0.2);
   timeout_s_ = declare_parameter<double>("timeout_s", 10.0);
   for (auto s : kServices) svc_[s] = SvcState{};

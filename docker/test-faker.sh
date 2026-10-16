@@ -7,12 +7,15 @@
 #   예) test-faker                       정상 흐름
 #       test-faker 1 pick_fail_count:=2   파지 실패 → 재계획 → 성공
 #       test-faker 0                      띄워 두고 다른 터미널에서 ros2 topic echo …
-# 실행 중엔 test-logger를 같이 띄워 /ws/debug/topic 에 토픽 echo를 기록한다.
+# 실행 중엔 test-logger를 같이 띄워 topic/·node/·pkg/에 echo·info·list를 기록한다.
 # NOTE: set -u 사용 금지 — setup.bash가 미설정 변수를 참조해서 죽음.
 # shellcheck disable=SC1091
 source /opt/ros/lyrical/setup.bash
 cd /ws || { echo "FAIL: /ws 없음"; exit 2; }
 
+# 매번 풀빌드 (캐시 포기, 혼선 원천 차단) — build/ 안 CMakeCache가 절대경로라
+# 호스트에서 건드린 뒤엔 컨테이너 빌드가 깨진다. 호스트도 같은 규칙: ros2_ws/rebuild.sh
+rm -rf build install log
 colcon build --symlink-install --event-handlers console_direct- || { echo "FAIL: colcon build"; exit 1; }
 # shellcheck disable=SC1091
 source install/setup.bash
@@ -68,6 +71,6 @@ grep -E '\] \[(user_input|vlm_task_planner|coordinator|grasp_scorer|rl_nav_tuner
 grep -q '🔊' /tmp/faker.log || { echo "FAIL: /robot_say 없음"; exit 1; }
 echo "$JS" | grep -q gripper_left_joint || { echo "FAIL: /joint_states에 gripper_left_joint 없음 (controller_manager·BeebotSystemHardware)"; grep -E "controller_manager|spawner|ros2_control" /tmp/faker.log | tail -20; exit 1; }
 [ -n "$ODOM" ] || { echo "FAIL: /odometry/filtered 없음 (EKF ← /odom·/imu)"; exit 1; }
-[ -s /ws/debug/topic/task_status/message ] || { echo "FAIL: monitor_manager 파일 없음 (/ws/debug/topic/task_status/message)"; exit 1; }
-echo "토픽 기록: /ws/debug/topic (호스트 lv2_module6/debug/topic)"
+[ -s /debug/output/topic/task_status/message ] || { echo "FAIL: monitor_manager 파일 없음 (/debug/output/topic/task_status/message)"; exit 1; }
+echo "토픽 기록: /debug/topic (info·list) · /debug/node · /debug/pkg (사람용) · /debug/output/topic (echo·message·image)"
 echo "PASS: faker (user_input → vlm → coordinator → nav·grasp·mtc → task_status SUCCEEDED · controller_manager mock · EKF · monitor_manager)"

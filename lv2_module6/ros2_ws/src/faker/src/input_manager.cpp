@@ -5,7 +5,7 @@ namespace faker {
 
 InputManager::InputManager()
 : rclcpp::Node("input_manager") {
-  input_dir_ = fs::path(declare_parameter<std::string>("debug_dir", "/ws/debug")) / "input";
+  input_dir_ = fs::path(declare_parameter<std::string>("debug_dir", "/debug")) / "input" / "topic";
   const double period = declare_parameter<double>("period_s", 0.2);
   std::error_code ec;
   fs::create_directories(input_dir_, ec);

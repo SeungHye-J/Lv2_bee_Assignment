@@ -2,8 +2,8 @@
 
 컨테이너 faker를 mock_hardware:=false로 띄우면 controller_manager(BeebotSystemHardware)가 가상 시리얼로
 펌웨어 프로토콜(firmware/README.md)을 주고받는다. 가상 시리얼은 파일로 이어져 있다 (docker/entrypoint.sh):
-  호스트 → OpenCR  C 명령  → debug/serial-out (이 플랜트가 읽음)
-  OpenCR → 호스트  S 상태  ← debug/serial-in  (이 플랜트가 씀)
+  호스트 → OpenCR  C 명령  → debug/output/hardware/serial (이 플랜트가 읽음)
+  OpenCR → 호스트  S 상태  ← debug/input/hardware/serial  (이 플랜트가 씀)
 그래서 미끄럼·마찰·충돌·통신 끊김이 실기와 같은 경로로 ROS에 들어간다 — 바퀴는 도는데 덜 가면 /odom이 실제 위치와 어긋난다.
 
 물리 (한 걸음 dt):
@@ -45,7 +45,7 @@ class Plant:
         self.comm_down = False   # OpenCR 통신 끊김 (C를 안 읽고 S를 안 보냄)
         self.arm_grabbed = False  # 팔 붙잡힘 (관절이 안 움직이고 과전류)
         self.reset(start_xy)
-        self.offset = None       # serial-out 읽은 위치 (None = 지금 끝부터)
+        self.offset = None       # output/hardware/serial 읽은 위치 (None = 지금 끝부터)
         self.rx = ''
         self.last_cmd = 0.0
         self.last_state = 0.0

@@ -1,0 +1,71 @@
+import os
+import unittest
+
+import prompt
+
+DATA = os.path.join(os.path.dirname(os.path.abspath(__file__)), "data")
+
+
+def load_image(name):
+    with open(os.path.join(DATA, name), "rb") as f:
+        return f.read()
+
+
+class TestBuild(unittest.TestCase):
+    def setUp(self):
+        self.req = {"command": "빨간 퍽",
+                    "objects": [{"id": 3, "class_name": "puck"}]}
+
+    def test_no_history_unchanged(self):
+        p = prompt.build(self.req)
+        self.assertIn("명령: 빨간 퍽", p)
+        self.assertIn("id=3 class=puck", p)
+        self.assertNotIn("이전 대화", p)
+
+    def test_history_rendered(self):
+        p = prompt.build(dict(self.req, history=[
+            {"role": "user", "text": "파란 퍽은 놔둬"},
+            {"role": "plan", "text": "navigate 3"}]))
+        self.assertIn("  - user: 파란 퍽은 놔둬", p)
+        self.assertIn("  - plan: navigate 3", p)
+
+    def test_objects_with_pose(self):
+        objs = [{"id": 3, "class_name": "puck", "position": [3.45, 0.9, 0.02],
+                 "size": [0.1, 0.1, 0.05], "confidence": 0.92},
+                {"id": 7, "class_name": "goal_zone"}]
+        p = prompt.build({"command": "x", "objects": objs})
+        self.assertIn("좌표=map 기준 m", p)
+        self.assertIn("  - id=3 class=puck pos=(3.45,0.90,0.02) size=(0.10,0.10,0.05) conf=0.92", p)
+        self.assertIn("  - id=7 class=goal_zone", p)  # 좌표 없어도 됨
+
+    def test_history_caps(self):
+        hist = [{"role": "user", "text": "x" * 600} for _ in range(25)]
+        lines = [l for l in prompt.build(dict(self.req, history=hist)).splitlines()
+                 if l.startswith("  - user: ")]
+        self.assertEqual(len(lines), 20)  # 최근 20개
+        self.assertEqual(len(lines[0]), len("  - user: ") + 500)  # 개당 500자
+
+    def test_history_bad_shapes_ignored(self):
+        for bad in ("문자열", [{"role": "user"}], [{"text": 1}]):
+            p = prompt.build(dict(self.req, history=bad))
+            self.assertIsInstance(p, str)
+
+    def test_images_in_prompt(self):
+        import base64
+        # 실물: /pole_cam·/gripper_cam color/image_raw 토픽 저장본 그대로
+        raw = [load_image("pole_cam.jpg"), load_image("gripper_cam.jpg")]
+        for b in raw:
+            self.assertTrue(b.startswith(b"\xff\xd8\xff"))  # JPEG
+        req = dict(self.req,
+                   images=[{"data_b64": base64.b64encode(b).decode()} for b in raw],
+                   history=[{"role": "user", "text": "파란 퍽은 놔둬"}])
+        p = prompt.build(req)
+        self.assertIn("첨부 이미지: 2장 — 카메라별 원본·마킹(번호=id) 순으로 전달", p)
+        self.assertIn("  - user: 파란 퍽은 놔둬", p)
+        self.assertIn("JSON 배열로만 답하라", p)  # 계획 지시 유지
+        for b in raw:  # base64 원문은 프롬프트에 안 박음 (용량) — 백엔드가 따로 첨부
+            self.assertNotIn(base64.b64encode(b).decode()[:64], p)
+
+
+if __name__ == "__main__":
+    unittest.main()

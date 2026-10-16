@@ -25,3 +25,5 @@ lv2_module6/debug/
 lv2_module5/firmware/build/
 lv2_module6/firmware/build/
 /temp/
+/lv2_module6/ros2_ws/debug/
+/lv2_module6/ros2_ws/firmware/

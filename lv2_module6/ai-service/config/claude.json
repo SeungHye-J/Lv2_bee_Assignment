@@ -1,0 +1,8 @@
+{
+  "http": {"host": "127.0.0.1", "port": 8002},
+  "ai": {
+    "backend": "claude_cli",
+    "model": "default",
+    "timeout_s": 60
+  }
+}
