@@ -939,7 +939,7 @@ JTC가 낸 관절 목표에 작은 Δ를 더해 중력 처짐 같은 오차를 �
 
 **🔧 직접 연결·설정할 것**
 
-1. URDF(lv2_module6/urdf/beebot.urdf.xacro)에 <ros2_control name="BeebotSystem" type="system"> 블록 — <plugin>control/BeebotSystemHardware</plugin>, <param> mock · mock_effort · port, 그리고 관절(wheel_left/right_joint, joint1~5, gripper_left_joint)·센서(imu)별 command/state 인터페이스 (팔·그리퍼에 effort).
+1. URDF(lv2_module6/ros2_ws/urdf/beebot.urdf.xacro)에 <ros2_control name="BeebotSystem" type="system"> 블록 — <plugin>control/BeebotSystemHardware</plugin>, <param> mock · mock_effort · port, 그리고 관절(wheel_left/right_joint, joint1~5, gripper_left_joint)·센서(imu)별 command/state 인터페이스 (팔·그리퍼에 effort).
 2. controllers.yaml의 controller_manager.ros__parameters에 update_rate: 100과 컨트롤러 6개의 type: joint_state_broadcaster/JointStateBroadcaster · imu_sensor_broadcaster/IMUSensorBroadcaster · diff_drive_controller/DiffDriveController · ml/RlArmCorrection · joint_trajectory_controller/JointTrajectoryController · parallel_gripper_action_controller/GripperActionController. 컨트롤러별 파라미터는 같은 파일의 <이름>.ros__parameters 아래에.
 3. launch(ros_system): robot_state_publisher(URDF 발행) → ros2_control_node(parameters=[controllers.yaml]) → spawner(--param-file controllers.yaml, --controller-ros-args로 ~/cmd_vel·~/odom·~/imu 리매핑 — ros2_control_node에 준 리매핑은 컨트롤러에 안 먹음)로 joint_state_broadcaster, imu_sensor_broadcaster, diff_drive_controller, rl_arm_correction, arm_controller, gripper_controller 순서 (체인은 rl_arm_correction이 arm_controller보다 먼저).
 4. 확인: ros2 control list_hardware_components → list_hardware_interfaces([claimed] 표시, joint2/effort가 보이는지) → list_controllers(전부 active) → view_controller_chains.

@@ -7,12 +7,12 @@
 
 SIL(Software-in-the-Loop): 실기 대신 이 시뮬레이터가 세상(코스·퍽·장애물·이동물체·카메라 장면·로봇 몸)을 만들고,
 ROS 쪽은 실제 노드·컨트롤러가 그대로 돈다.
-  ① 카메라: 로봇 자세로 두 카메라 시점 렌더(scene.py) → debug/input-live/ → fake_camera → RealSense 토픽
+  ① 카메라: 로봇 자세로 두 카메라 시점 렌더(scene.py) → debug/input/hardware/camera/ → fake_camera → RealSense 토픽
   ② 하드웨어(플랜트, plant.py): faker를 mock_hardware:=false로 띄우면 controller_manager가 가상 시리얼로 보내는
-     C 명령(debug/serial-out)을 받아 바퀴·팔을 움직이고(미끄럼·마찰·충돌) S 상태(debug/serial-in)를 돌려준다.
+     C 명령(debug/output/hardware/serial)을 받아 바퀴·팔을 움직이고(미끄럼·마찰·충돌) S 상태(debug/input/hardware/serial)를 돌려준다.
      → 지도의 '실제 로봇'(채움)과 /odom(테두리)이 미끄럼만큼 어긋난다.  mock_hardware:=true(기본)면 /odom을 따라 그린다.
-  ③ ROS → 화면: monitor_manager가 debug/topic/<토픽>/ 에 저장한 것을 표시
-  ④ 화면 → ROS: input_manager가 debug/input/<토픽>/message 를 발행 (명령 · 수동 조작 · 비상정지)
+  ③ ROS → 화면: monitor_manager가 debug/output/topic/<토픽>/ 에 저장한 것을 표시
+  ④ 화면 → ROS: input_manager가 debug/input/topic/<토픽>/message 를 발행 (명령 · 수동 조작 · 비상정지)
 - 지도: 퍽(정답, 채움 — 왼쪽 드래그로 이동) · 바닥 장애물(회색 상자) · 이동물체(파랑, 움직임) · 인지 물체(/tracked_objects, 보라 테두리)
 - 수동 조작: 우측 [수동 조작] 탭 (manual_window.py) — 탭을 고르면 수동 모드, 나가면 바퀴 정지 + 자동 모드
              바퀴 버튼(앞·뒤·멈춤·좌/우 바퀴 앞·뒤·전체 속도 ▲▼) · 로봇 3D · 팔 3D(관절 마커 드래그)
@@ -28,7 +28,6 @@ ROS 쪽은 실제 노드·컨트롤러가 그대로 돈다.
 """
 import argparse
 import base64
-import json
 import math
 import os
 import random
@@ -47,7 +46,7 @@ import maze
 import plant as plant_mod
 import robot_view
 import scene
-from bridge import (DEBUG, INPUT_DIR, LIVE_DIR, SIM_DIR, TOPIC_DIR, current_joints, read_msg, send, send_arm, send_bool,
+from bridge import (DEBUG, INPUT_DIR, LIVE_DIR, TOPIC_DIR, current_joints, read_msg, send, send_arm, send_bool,
                     send_service_request,
                     send_twist, write_atomic, yaw_of)
 from manual_window import ManualPanel
@@ -130,21 +129,19 @@ class Sim:
         self.body = None
         self.render_ts = {}          # 카메라 → 마지막 렌더 시각 (화면이 SIM 직결인지 판단)
         self.pool = ThreadPoolExecutor(max_workers=len(CAMERAS))
-        self.lock = threading.RLock()  # grip_interact가 잠근 채 save_truth를 부름 (재진입)
+        self.lock = threading.RLock()  # 물체 목록·렌더 공유 (재진입 가능)
         self.pucks = []
         self.props = []           # 바닥 장애물 · 이동물체
         self.renders = {}         # 카메라 → (bgr, depth, T_world_cam)
         self.streaming = True
         self.running = True
-        self.use_mesh = False  # 기본 끔 — 켜면 RobotModel이 urdf/meshes 파일을 찾아 매핑
-        self.plant = plant_mod.Plant(DEBUG / 'serial-in', DEBUG / 'serial-out', self.spawn, self.collide)
+        self.plant = plant_mod.Plant(DEBUG / 'input' / 'hardware' / 'serial', DEBUG / 'output' / 'hardware' / 'serial', self.spawn, self.collide)
         self.randomize(6)
 
     # --- 물체
     def randomize(self, count):
         with self.lock:
             self.pucks = scene.random_pucks(count, self.cells, self.spawn, random.Random())
-        self.save_truth()
 
     def add_obstacle(self):
         x, y, _, _ = self.robot_xy_yaw()
@@ -153,12 +150,10 @@ class Sim:
             ob = scene.random_obstacle(self.cells, avoid)
             if ob:
                 self.props.append(ob)
-        self.save_truth()
 
     def clear_obstacles(self):
         with self.lock:
             self.props = []
-        self.save_truth()
 
     def add_puck(self):
         """퍽 하나 추가 — 빈 칸, 로봇·기존 물체와 0.35m 이상"""
@@ -174,14 +169,12 @@ class Sim:
                     p['id'] = max([q.get('id', 0) for q in self.pucks] + [0]) + 1
                     self.pucks.append(p)
                     break
-        self.save_truth()
 
     def pop_puck(self):
         """퍽 하나 삭제 — 가장 나중에 추가된 것부터"""
         with self.lock:
             if self.pucks:
                 self.pucks.pop()
-        self.save_truth()
 
     def pop_prop(self, kind):
         """스택식 삭제 — 같은 종류 중 가장 나중에 추가된 것부터"""
@@ -190,7 +183,6 @@ class Sim:
                 if self.props[i].get('kind') == kind:
                     del self.props[i]
                     break
-        self.save_truth()
 
     def spawn_mover(self):
         """미로 안을 돌아다니는 이동물체 — 빈 칸에서 시작해 칸 사이를 계속 이동 (장애물 지우기까지)"""
@@ -232,7 +224,6 @@ class Sim:
                     self._tl_n = getattr(self, '_tl_n', 0) + 1
                     self.props.append(scene.traffic_light(tx, ty, f'T{self._tl_n}'))
                     break
-        self.save_truth()
 
     def update_traffic(self, dt):
         """신호등 순환 green → (꺼짐) → yellow → (꺼짐) → red → (꺼짐) …"""
@@ -250,8 +241,6 @@ class Sim:
                     p['timer'] = dur
                     p['color'] = scene.TL_COLORS[nxt]
                     changed = True
-            if changed:
-                self.save_truth()
 
     def _retarget(self, p):
         """0.5m 이상 떨어진 칸을 새 목표로 (벽에 막히면 move_people이 다시 고름)"""
@@ -293,18 +282,6 @@ class Sim:
                     p['until'] -= dt
             self.props = [p for p in self.props if p['kind'] != 'mover' or p.get('wander') or p['until'] > 0]
 
-    def save_truth(self):
-        """정답 물체 목록 (미로 좌표 + map 좌표) — 인지 결과와 비교용"""
-        with self.lock:
-            out = {'pucks': [dict(p, map_x=round(p['x'] - self.spawn[0], 3), map_y=round(p['y'] - self.spawn[1], 3))
-                             for p in self.pucks],
-                   'obstacles': [dict(p, color=list(p['color'])) for p in self.props if p['kind'] == 'obstacle'],
-                   'traffic_lights': [{'id': p.get('id'), 'x': p['x'], 'y': p['y'], 'state': p['state'],
-                                        'map_x': round(p['x'] - self.spawn[0], 3),
-                                        'map_y': round(p['y'] - self.spawn[1], 3)}
-                                       for p in self.props if p.get('kind') == 'traffic_light']}
-        write_atomic(SIM_DIR / 'objects.json', lambda p: p.write_text(json.dumps(out, indent=1)))
-
     # --- 충돌 (플랜트가 부름): 벽·바닥장애물·이동물체는 막힘, 퍽은 바퀴에 밀려남
     def blocked(self, x, y, r):
         # 이동 차단 여부만 (퍽 밀기 없음) - 수동 조종 예측용
@@ -335,9 +312,6 @@ class Sim:
                     if self.wall_hit(nx, ny, reach):
                         return True
                     p['x'], p['y'] = round(nx, 3), round(ny, 3)
-                    if time.time() - getattr(self, '_truth_t', 0) > 1.0:
-                        self._truth_t = time.time()
-                        self.save_truth()
         return False
 
     # --- 팔·물체 상호작용: 집기(attach) · 놓기(detach) · 밀기(push)
@@ -372,7 +346,6 @@ class Sim:
                 held['z'] = round(max(tip[2] - h / 2, 0.0), 3)  # 손끝 높이로 들어올림
                 if grip > GRIP_OPEN:  # 벌리면 놓음 — z는 settle_cargo가 판단 (트레이 위면 적재, 아니면 바닥)
                     held.pop('held', None)
-                    self.save_truth()
                 return
             near = [p for p in self.pucks
                     if math.dist((tip[0], tip[1]), (p['x'], p['y'])) < GRIP_R + p['size'][0]
@@ -384,7 +357,6 @@ class Sim:
                 pick['x'], pick['y'] = round(tip[0], 3), round(tip[1], 3)
                 ph = pick['size'][0] * 2 if pick['shape'] == 'sphere' else pick['size'][1]
                 pick['z'] = round(max(tip[2] - ph / 2, 0.0), 3)
-                self.save_truth()
                 return
             if math.sqrt(vx * vx + vy * vy + vz * vz) > 0.05:  # 손끝이 물체를 밀면 밀려남 (퍽·바닥장애물)
                 moved = False
@@ -399,9 +371,7 @@ class Sim:
                     if not self.wall_hit(nx, ny, reach):
                         p['x'], p['y'] = round(nx, 3), round(ny, 3)
                         moved = True
-                if moved and time.time() - getattr(self, '_truth_t', 0) > 1.0:
-                    self._truth_t = time.time()
-                    self.save_truth()
+
 
     def carry_cargo(self, x, y, yaw):
         """로봇 위 퍽(z 있음, 든 것 제외)을 베이스와 함께 운반"""
@@ -810,7 +780,7 @@ class App:
         right = tk.Frame(root)
         right.pack(side=tk.LEFT, fill=tk.BOTH, expand=True, padx=6, pady=6)
 
-        top = tk.Frame(left)  # 지도 + 로봇상태 좌우 절반씩
+        top = tk.Frame(left)  # 지도 + 물체 조작(세로) 나란히
         top.pack(fill=tk.X)
         mapbox = tk.Frame(top)
         mapbox.pack(side=tk.LEFT, anchor=tk.N)
@@ -824,80 +794,73 @@ class App:
         self.map_label.bind('<MouseWheel>', self.on_map_wheel)
         self.map_label.bind('<Button-4>', lambda e: self.on_map_wheel_step(1))
         self.map_label.bind('<Button-5>', lambda e: self.on_map_wheel_step(-1))
-        tk.Button(mapbox, text='지도 리셋', command=self.view.reset_view).pack(anchor=tk.W)
-        robotbox = tk.Frame(top)
-        robotbox.pack(side=tk.LEFT, anchor=tk.N, padx=(6, 0))
-        tk.Label(robotbox, text='로봇 (지금 상태) — 드래그 회전 · 휠 줌', anchor=tk.W).pack(fill=tk.X)
-        self.robot_label = tk.Label(robotbox, bg='black', width=ROBOT_VIEW[0], height=ROBOT_VIEW[1])
-        self.robot_label.pack()
+        mapctl = tk.Frame(mapbox)
+        mapctl.pack(fill=tk.X, pady=2)
+        tk.Button(mapctl, text='지도 리셋', command=self.view.reset_view).pack(side=tk.LEFT)
+        self.slip = tk.Scale(mapctl, label='미끄럼', from_=0.0, to=0.6, resolution=0.05, orient=tk.HORIZONTAL,
+                             length=120, command=lambda v: setattr(self.sim.plant, 'slip', float(v)))
+        self.slip.pack(side=tk.LEFT)
+        self.friction = tk.Scale(mapctl, label='마찰(가속)', from_=0.2, to=1.5, resolution=0.1, orient=tk.HORIZONTAL,
+                                 length=120, command=lambda v: setattr(self.sim.plant, 'friction', float(v)))
+        self.friction.set(1.0)
+        self.friction.pack(side=tk.LEFT)
+        mapside = tk.Frame(top)
+        mapside.pack(side=tk.LEFT, anchor=tk.N, padx=(6, 0))
+        envbox = tk.LabelFrame(mapside, text='물체·환경')
+        envbox.pack(fill=tk.X)
+        tk.Button(envbox, text='퍽 랜덤 배치', command=lambda: self.sim.randomize(max(len(self.sim.pucks), 1))).pack(fill=tk.X)
+        tk.Button(envbox, text='퍽 추가', command=self.sim.add_puck).pack(fill=tk.X)
+        tk.Button(envbox, text='퍽 삭제', command=self.sim.pop_puck).pack(fill=tk.X)
+        tk.Button(envbox, text='이동물체 추가', command=self.sim.spawn_mover).pack(fill=tk.X)
+        tk.Button(envbox, text='이동물체 삭제', command=lambda: self.sim.pop_prop('mover')).pack(fill=tk.X)
+        tk.Button(envbox, text='바닥 장애물 추가', command=self.sim.add_obstacle).pack(fill=tk.X)
+        tk.Button(envbox, text='바닥 장애물 삭제', command=lambda: self.sim.pop_prop('obstacle')).pack(fill=tk.X)
+        tk.Button(envbox, text='신호등 추가', command=self.sim.spawn_traffic).pack(fill=tk.X)
+        tk.Button(envbox, text='신호등 삭제', command=lambda: self.sim.pop_prop('traffic_light')).pack(fill=tk.X)
+        # faker를 다시 띄우면 /odom이 0부터 — 실제 로봇도 시작 칸으로 돌려 맞춘다
+        tk.Button(envbox, text='로봇 위치 초기화', command=self.sim.reset_robot).pack(fill=tk.X)
+        self.comm = tk.BooleanVar(value=False)
+        tk.Checkbutton(envbox, text='OpenCR 통신 끊기', variable=self.comm,
+                       command=lambda: setattr(self.sim.plant, 'comm_down', self.comm.get())).pack(anchor=tk.W)
+        self.grab = tk.BooleanVar(value=False)
+        tk.Checkbutton(envbox, text='팔 붙잡기(과전류)', variable=self.grab,
+                       command=lambda: setattr(self.sim.plant, 'arm_grabbed', self.grab.get())).pack(anchor=tk.W)
+        self.robot_model = None
+        self.robot_cam = robot_view.OrbitView(target=(0, 0, 0.2), dist=1.3)
+        self.coords_label = tk.Label(left, justify=tk.LEFT, font=('Menlo', 9), anchor=tk.W)
+        self.coords_label.pack(anchor=tk.W)
+
+        viewbox = tk.LabelFrame(mapside, text='보기')
+        viewbox.pack(fill=tk.X, pady=(6, 0))
+        names = [NO_BG] + [p.name for p in scene.backgrounds(BG_DIR)]
+        self.bg = tk.StringVar(value=names[1] if len(names) > 1 else NO_BG)
+        tk.Label(viewbox, text='배경').pack(anchor=tk.W)
+        tk.OptionMenu(viewbox, self.bg, *names, command=self.on_background).pack(fill=tk.X)
+        self.on_background(self.bg.get())
+        fnames = [NO_FLOOR] + [p.name for p in scene.backgrounds(FLOOR_DIR) if p.name != 'FLOOR_CREDITS.txt']
+        self.floor = tk.StringVar(value=fnames[1] if len(fnames) > 1 else NO_FLOOR)
+        tk.Label(viewbox, text='바닥').pack(anchor=tk.W)
+        tk.OptionMenu(viewbox, self.floor, *fnames, command=self.on_floor).pack(fill=tk.X)
+        self.on_floor(self.floor.get())
+        wnames = [NO_WALL] + [p.name for p in scene.backgrounds(WALL_DIR) if p.suffix == '.jpg']
+        self.wall = tk.StringVar(value=wnames[1] if len(wnames) > 1 else NO_WALL)
+        tk.Label(viewbox, text='벽').pack(anchor=tk.W)
+        tk.OptionMenu(viewbox, self.wall, *wnames, command=self.on_wall).pack(fill=tk.X)
+        self.on_wall(self.wall.get())
+        self.stream = tk.BooleanVar(value=True)
+        tk.Checkbutton(viewbox, text='카메라 송출', variable=self.stream, command=self.on_stream).pack(anchor=tk.W)
+
+        # 로봇 3D (지금 상태) — 카메라와 한 덩이
+        tk.Label(right, text='로봇 (지금 상태) — 드래그 회전 · 휠 줌', anchor=tk.W).pack(fill=tk.X)
+        self.robot_label = tk.Label(right, bg='black', width=ROBOT_VIEW[0], height=ROBOT_VIEW[1])
+        self.robot_label.pack(anchor=tk.W)
         self.robot_label.bind('<ButtonPress-1>', self.on_robot_press)
         self.robot_label.bind('<B1-Motion>', self.on_robot_drag)
         self.robot_label.bind('<MouseWheel>', lambda e: self.robot_cam.zoom(1 if e.delta > 0 else -1))
         self.robot_label.bind('<Button-4>', lambda e: self.robot_cam.zoom(1))
         self.robot_label.bind('<Button-5>', lambda e: self.robot_cam.zoom(-1))
-        self.robot_model = None
-        self.robot_cam = robot_view.OrbitView(target=(0, 0, 0.2), dist=1.3)
         self.show_frames = tk.BooleanVar(value=False)
-        tk.Checkbutton(left, text='관절축 보기 (X빨·Y초·Z파)', variable=self.show_frames).pack(anchor=tk.W)
-        self.mesh_var = tk.BooleanVar(value=self.sim.use_mesh)
-        tk.Checkbutton(left, text='메시 보기 (urdf/meshes 파일 매핑)', variable=self.mesh_var,
-                       command=self.on_mesh).pack(anchor=tk.W)
-        self.coords_label = tk.Label(left, justify=tk.LEFT, font=('Menlo', 9), anchor=tk.W)
-        self.coords_label.pack(anchor=tk.W)
-
-        # 퍽 · 배경 · 카메라
-        row = tk.Frame(left)
-        row.pack(fill=tk.X, pady=2)
-        tk.Button(row, text='퍽 랜덤 배치', command=lambda: self.sim.randomize(max(len(self.sim.pucks), 1))).pack(side=tk.LEFT)
-        tk.Label(row, text='배경').pack(side=tk.LEFT)
-        names = [NO_BG] + [p.name for p in scene.backgrounds(BG_DIR)]
-        self.bg = tk.StringVar(value=names[1] if len(names) > 1 else NO_BG)
-        tk.OptionMenu(row, self.bg, *names, command=self.on_background).pack(side=tk.LEFT)
-        self.on_background(self.bg.get())
-        tk.Label(row, text='바닥').pack(side=tk.LEFT)
-        fnames = [NO_FLOOR] + [p.name for p in scene.backgrounds(FLOOR_DIR) if p.name != 'FLOOR_CREDITS.txt']
-        self.floor = tk.StringVar(value=fnames[1] if len(fnames) > 1 else NO_FLOOR)
-        tk.OptionMenu(row, self.floor, *fnames, command=self.on_floor).pack(side=tk.LEFT)
-        self.on_floor(self.floor.get())
-        tk.Label(row, text='벽').pack(side=tk.LEFT)
-        wnames = [NO_WALL] + [p.name for p in scene.backgrounds(WALL_DIR) if p.suffix == '.jpg']
-        self.wall = tk.StringVar(value=wnames[1] if len(wnames) > 1 else NO_WALL)
-        tk.OptionMenu(row, self.wall, *wnames, command=self.on_wall).pack(side=tk.LEFT)
-        self.on_wall(self.wall.get())
-        self.stream = tk.BooleanVar(value=True)
-        tk.Checkbutton(row, text='카메라 송출', variable=self.stream, command=self.on_stream).pack(side=tk.LEFT)
-
-        # 환경
-        env = tk.LabelFrame(left, text='환경 (플랜트: mock_hardware:=false일 때 로봇 몸에 적용)')
-        env.pack(fill=tk.X, pady=2)
-        self.slip = tk.Scale(env, label='미끄럼', from_=0.0, to=0.6, resolution=0.05, orient=tk.HORIZONTAL, length=150,
-                             command=lambda v: setattr(self.sim.plant, 'slip', float(v)))
-        self.slip.pack(side=tk.LEFT)
-        self.friction = tk.Scale(env, label='마찰(가속)', from_=0.2, to=1.5, resolution=0.1, orient=tk.HORIZONTAL,
-                                 length=150, command=lambda v: setattr(self.sim.plant, 'friction', float(v)))
-        self.friction.set(1.0)
-        self.friction.pack(side=tk.LEFT)
-        col = tk.Frame(env)
-        col.pack(side=tk.LEFT, padx=4)
-        tk.Button(col, text='퍽 추가', command=self.sim.add_puck).pack(fill=tk.X)
-        tk.Button(col, text='퍽 삭제', command=self.sim.pop_puck).pack(fill=tk.X)
-        tk.Button(col, text='이동물체 추가', command=self.sim.spawn_mover).pack(fill=tk.X)
-        tk.Button(col, text='이동물체 삭제', command=lambda: self.sim.pop_prop('mover')).pack(fill=tk.X)
-        tk.Button(col, text='바닥 장애물 추가', command=self.sim.add_obstacle).pack(fill=tk.X)
-        tk.Button(col, text='바닥 장애물 삭제', command=lambda: self.sim.pop_prop('obstacle')).pack(fill=tk.X)
-        tk.Button(col, text='신호등 추가', command=self.sim.spawn_traffic).pack(fill=tk.X)
-        tk.Button(col, text='신호등 삭제', command=lambda: self.sim.pop_prop('traffic_light')).pack(fill=tk.X)
-        # faker를 다시 띄우면 /odom이 0부터 — 실제 로봇도 시작 칸으로 돌려 맞춘다
-        tk.Button(col, text='로봇 위치 초기화', command=self.sim.reset_robot).pack(fill=tk.X)
-        col = tk.Frame(env)
-        col.pack(side=tk.LEFT, padx=4)
-        self.comm = tk.BooleanVar(value=False)
-        tk.Checkbutton(col, text='OpenCR 통신 끊기', variable=self.comm,
-                       command=lambda: setattr(self.sim.plant, 'comm_down', self.comm.get())).pack(anchor=tk.W)
-        self.grab = tk.BooleanVar(value=False)
-        tk.Checkbutton(col, text='팔 붙잡기(과전류)', variable=self.grab,
-                       command=lambda: setattr(self.sim.plant, 'arm_grabbed', self.grab.get())).pack(anchor=tk.W)
-
+        tk.Checkbutton(right, text='관절축 보기 (X빨·Y초·Z파)', variable=self.show_frames).pack(anchor=tk.W)
 
         # 카메라
         self.tiles = {}
@@ -959,12 +922,6 @@ class App:
         if not self.sim.streaming:
             self.sim.stop_streaming()
 
-    def on_mesh(self):
-        self.sim.use_mesh = self.mesh_var.get()
-        self.robot_model = None  # 다음 tick에서 새 옵션으로 다시 로드 (파일 조회 on/off)
-        if hasattr(self, 'manual_panel'):
-            self.manual_panel.model = None
-
     def on_tab(self):
         if self.tabs.select() == str(self.manual_tab):
             self.manual_panel.show()
@@ -1007,8 +964,6 @@ class App:
                 x, y = self.view.world(_.x, _.y)
                 self.sim.teleport_robot(x, y)
             return
-        if self.drag:
-            self.sim.save_truth()
         self.drag = None
 
     def on_map_pan_press(self, e):
@@ -1052,6 +1007,10 @@ class App:
         x0, y0 = self.robot_drag
         self.robot_cam.orbit(e.x - x0, e.y - y0)
         self.robot_drag = (e.x, e.y)
+        now = time.monotonic()  # 메시 렌더 0.13초 — 드래그 중엔 70ms로 솎음 (각도는 계속 누적)
+        if now - getattr(self, '_rdrag_t', 0) < 0.07:
+            return
+        self._rdrag_t = now
         self.refresh_robot()  # 틱을 기다리지 않고 즉시 (드래그가 부드럽게)
 
     def refresh_robot(self):
@@ -1191,11 +1150,12 @@ class App:
         if self.robot_model is None:
             desc, _ = read_msg('robot_description')
             if desc:
-                self.robot_model = robot_view.RobotModel(desc['data'], use_mesh=self.sim.use_mesh)
+                self.robot_model = robot_view.RobotModel(desc['data'])
         q, wheel_vel = current_joints(self.sim)
         self._last_q, self._last_wheel = q, wheel_vel
         if self.robot_model is not None and q:
-            self.refresh_robot()
+            if self.tick_n % 4 == 0 or not hasattr(self, '_robot_ph'):
+                self.refresh_robot()  # 메시 렌더 0.12초 — 1초마다만 (드래그는 즉시)
             photos.append(self._robot_ph)
         else:
             blank = np.zeros((ROBOT_VIEW[1], ROBOT_VIEW[0], 3), np.uint8)

@@ -11,7 +11,7 @@ FakeCamera::FakeCamera()
   const double hfov = declare_parameter<double>("hfov_deg", 69.0) * M_PI / 180.0;
   fx_ = width_ / 2.0 / std::tan(hfov / 2.0);
   cloud_step_ = declare_parameter<int>("cloud_step", 4);
-  const auto dir = declare_parameter<std::string>("live_dir", "/ws/debug/input-live");
+  const auto dir = declare_parameter<std::string>("live_dir", "/debug/input/hardware/camera");
   color_path_ = dir + "/" + get_name() + ".png";
   depth_path_ = dir + "/" + get_name() + "_depth.png";
   frame_ = std::string(get_name()) + "_color_optical_frame";

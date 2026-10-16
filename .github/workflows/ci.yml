@@ -35,7 +35,7 @@ jobs:
         run: |
           docker run -d --name testbed \
             -v ${{ github.workspace }}/lv2_module6/ros2_ws/src:/ws/src \
-            -v ${{ github.workspace }}/lv2_module6/urdf:/urdf:ro \
+            -v ${{ github.workspace }}/lv2_module6/ros2_ws/urdf:/ws/urdf:ro \
             -v ${{ github.workspace }}/lv2_module6/firmware:/ws/firmware \
             -v ${{ github.workspace }}/lv2_module6/debug:/ws/debug \
             lv2-module6:testbed sleep infinity
@@ -57,8 +57,7 @@ jobs:
           docker exec testbed bash -c 'rm -rf /tmp/pkg && mkdir -p /tmp/pkg && cp -rL /ws/install /tmp/pkg/'
           rm -rf ros2_ws && docker cp testbed:/tmp/pkg ros2_ws
           cp -r lv2_module6/firmware ros2_ws/firmware
-          rm -rf ros2_ws/firmware/build
-          docker cp testbed:/ws/debug/firmware ros2_ws/firmware/build
+          [ -d ros2_ws/firmware/build ] || { echo "FAIL: 펌웨어 빌드 없음 (test-firmware 미실행?)"; exit 1; }
           find ros2_ws/firmware/build -type f ! -name '*.bin' -delete
           cp lv2_module6/ros2_ws/*.sh ros2_ws/
           echo "${{ matrix.arch }}" > ros2_ws/ARCH
@@ -93,9 +92,9 @@ jobs:
         run: |
           git tag -f lv2-module6-submit "$GITHUB_SHA"
           git push -f origin refs/tags/lv2-module6-submit
-      # 테스트 로그(토픽 echo·serial-in/out)는 실패했을 때만 원인 확인용으로 올린다.
+      # 테스트 로그(토픽 echo·input/hardware/serial·output/hardware/serial)는 실패했을 때만 원인 확인용으로 올린다.
       - name: Collect debug (실패 시)
-        # launch 로그 · 토픽 기록 · serial-in/out · 패키지 테스트 결과
+        # launch 로그 · 토픽 기록 · input/hardware/serial·output/hardware/serial · 패키지 테스트 결과
         if: failure()
         run: |
           docker exec testbed bash -c 'cp /tmp/*.log /ws/debug/ 2>/dev/null; mkdir -p /ws/debug/test_results && for d in /ws/build/*/test_results; do cp -r "$d" "/ws/debug/test_results/$(basename "$(dirname "$d")")"; done' || true

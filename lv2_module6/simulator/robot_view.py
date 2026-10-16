@@ -6,6 +6,7 @@
 - 팔 뷰: 관절 원점에 마커를 그리고, 마커를 잡아 위아래로 끌면 그 관절 목표값이 바뀐다 (수동 조작 창).
 """
 import math
+import os
 import xml.etree.ElementTree as ET
 from pathlib import Path
 
@@ -14,9 +15,53 @@ import numpy as np
 
 import scene
 
-MESH_DIR = Path(__file__).resolve().parent.parent / 'urdf' / 'meshes'  # URDF의 package://…/meshes/x.stl 이 가리키는 곳
-MESH_CELL = 0.008  # 메시 간소화 격자 [m] — 꼭짓점을 이 격자로 뭉쳐 삼각형 수를 줄인다 (순수 파이썬 렌더가 감당할 만큼)
+MESH_DIR = Path(__file__).resolve().parent.parent / 'ros2_ws' / 'urdf' / 'meshes'  # 소스 기준 stub
+WS_DIR = Path(__file__).resolve().parent.parent / 'ros2_ws'  # 워크스페이스 (install/ 마운트 포함)
+DEBUG_DIR = WS_DIR.parent / 'debug'  # test-logger의 pkg/<이름>/prefix가 여기 있음
+MESH_CELL = 0.016  # 메시 간소화 격자 [m] — 3D 미리보기용. 0.008의 1/3 삼각형·3배속, 320px 미리보기엔 충분
 _mesh_cache = {}
+
+
+def _dereference(p):
+    """호스트에서 읽을 수 있는 실경로로. install share는 컨테이너 절대 심링크(/ws/…)라 호스트에서 안 풀려서 매핑한다"""
+    p = Path(p)
+    for _ in range(8):
+        if not p.is_symlink():
+            break
+        t = Path(os.readlink(p))
+        p = t if t.is_absolute() else p.parent / t
+    s = str(p)
+    if s.startswith('/ws/'):
+        p = WS_DIR / s[len('/ws/'):]
+    return Path(os.path.normpath(p))
+
+
+def _prefix_share(pkg, rel):
+    """debug/pkg/<pkg>/prefix (컨테이너 경로, 예: /ws/install/plan) → 호스트 install 경로 매핑.
+    prefix 뒤에 share/<pkg>/<경로>를 붙인다 (표준 ROS share 배치 — isolated/merged 둘 다 됨)."""
+    try:
+        pre = (DEBUG_DIR / 'pkg' / pkg / 'prefix').read_text().strip().splitlines()[0]
+    except (OSError, IndexError):
+        return None
+    if not pre.startswith('/ws/'):
+        return None  # /opt/ros 등 호스트에 대응 경로 없음
+    cand = WS_DIR / pre[len('/ws/'):] / 'share' / pkg / rel
+    return cand if cand.is_file() else None
+
+
+def resolve_mesh(filename):
+    """<mesh filename> → STL 실경로. package://<pkg>/<경로>는 prefix 파일 매핑 → install share → 소스 meshes 순.
+    없으면 None (뼈대 대체)"""
+    if filename.startswith('package://'):
+        pkg, _, rel = filename[len('package://'):].partition('/')
+        for cand in (_prefix_share(pkg, rel),
+                     WS_DIR / 'install' / pkg / 'share' / pkg / rel,
+                     MESH_DIR / Path(rel).name):
+            if cand is not None and _dereference(cand).is_file():
+                return _dereference(cand)
+        return None
+    cand = MESH_DIR / Path(filename).name
+    return cand if cand.is_file() else None
 
 # 메시 끔(use_mesh=False)일 때 대체 뼈대 — 구 URDF(primitive 시절) 치수 참조, visual 원점 기준 box
 # (arm은 collision마저 메시라 여기서라도 살려야 팔·gripper_cam이 허공에 안 뜸. 카메라는 구 카메라 박스 0.025×0.090×0.025)
@@ -65,14 +110,15 @@ def _sphere(r, n=8):
     return faces
 
 
-def load_stl(name, scale):
-    """바이너리 STL → (N,3,3) 삼각형. 꼭짓점을 격자(MESH_CELL)로 뭉쳐 간소화 · 같은 파일은 한 번만 읽는다"""
-    key = (name, scale)
+def load_stl(path, scale):
+    """바이너리 STL → (N,3,3) 삼각형. 꼭짓점을 격자(MESH_CELL)로 뭉쳐 간소화 · 같은 파일은 한 번만 읽는다.
+    path는 resolve_mesh()가 준 실경로, scale은 축별(x y z) 배율"""
+    key = (str(path), tuple(scale))
     if key not in _mesh_cache:
-        data = np.fromfile(MESH_DIR / name, np.uint8)
+        data = np.fromfile(path, np.uint8)
         n = int(np.frombuffer(data[80:84], np.uint32)[0])
         rec = np.frombuffer(data[84:84 + 50 * n], np.dtype([('n', '<f4', 3), ('v', '<f4', (3, 3)), ('a', '<u2')]))
-        pts = rec['v'].astype(float).reshape(-1, 3) * scale
+        pts = rec['v'].astype(float).reshape(-1, 3) * np.asarray(scale, float)
         _, inv = np.unique(np.round(pts / MESH_CELL).astype(np.int64), axis=0, return_inverse=True)
         inv = inv.reshape(-1)
         verts = np.zeros((inv.max() + 1, 3))
@@ -95,12 +141,14 @@ def primitive_faces(shape, a, h, b=None):
 
 
 class RobotModel:
-    def __init__(self, urdf_xml, use_mesh=True):
-        """use_mesh=False면 <mesh> visual은 파일 조회 없이 같은 링크의 collision 원시도형으로 뼈대 유지"""
+    def __init__(self, urdf_xml):
+        """<mesh> visual은 항상 STL로 그림 (package:// → install share, 없으면 소스 meshes 폴백).
+        파일이 없으면 그 링크만 뼈대(Skeleton 표 → collision 원시도형)로 대체"""
         root = ET.fromstring(urdf_xml)
         self.kin = scene.Kinematics(urdf_xml)
         colors = {m.get('name'): m.find('color').get('rgba') for m in root.findall('material') if m.find('color') is not None}
         self.visuals = []  # (link, T_origin, faces_local, BGR)
+        self.missing = []  # 못 찾은 STL (파일명) — 상태 표시용
         for link in root.findall('link'):
             for vis in link.findall('visual'):
                 geom = vis.find('geometry')
@@ -114,10 +162,10 @@ class RobotModel:
                 elif g.tag == 'sphere':
                     faces = _sphere(float(g.get('radius')))
                 elif g.tag == 'mesh':
-                    if not use_mesh:
-                        # 메시 끔 — 파일 조회 없이 뼈대로 대체. 순서는 Skeleton 표 → collision 원시도형.
-                        # Skeleton은 visual 원점에 그려야 카메라 박스처럼 제자리에 붙음
-                        # (collision 원점은 물리용이라 표시용과 어긋남).
+                    stl = resolve_mesh(g.get('filename', ''))
+                    if stl is None:
+                        # 파일 없음 — 뼈대로 대체. 순서는 Skeleton 표 → collision 원시도형.
+                        self.missing.append(Path(g.get('filename', '')).name)
                         origin = vis.find('origin')
                         xyz = [float(v) for v in (origin.get('xyz', '0 0 0') if origin is not None else '0 0 0').split()]
                         rpy = [float(v) for v in (origin.get('rpy', '0 0 0') if origin is not None else '0 0 0').split()]
@@ -151,8 +199,9 @@ class RobotModel:
                             crpy = [float(v) for v in (corig.get('rpy', '0 0 0') if corig is not None else '0 0 0').split()]
                             self.visuals.append((link.get('name'), scene.transform(scene.rpy_matrix(*crpy), cxyz),
                                                  cfaces, col))
-                        continue  # 원 visual mesh는 파일 조회 없이 건너뜀
-                    faces = load_stl(Path(g.get('filename')).name, float(g.get('scale', '1').split()[0]))
+                        continue  # 못 찾은 mesh visual은 건너뜀
+                    sc = (g.get('scale', '1').split() * 3)[:3]
+                    faces = load_stl(stl, [float(v) for v in sc])
                 else:
                     continue
                 origin = vis.find('origin')

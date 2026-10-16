@@ -15,6 +15,7 @@
 """
 import math
 import sys
+import time
 import tkinter as tk
 
 import cv2
@@ -180,6 +181,10 @@ class ManualPanel(tk.Frame):
         if self.model and q:
             if not self.target:
                 self.target = {j: q.get(j, 0.0) for j in ARM_JOINTS}
+            now = time.monotonic()  # 팔 렌더 2장분 — 드래그 중엔 70ms로 솎음 (값은 계속 누적)
+            if now - getattr(self, '_adrag_t', 0) < 0.07:
+                return
+            self._adrag_t = now
             self.render_arm(q)  # 드래그는 틱을 기다리지 않고 즉시
 
     def on_arm_release(self, _):
@@ -272,7 +277,7 @@ class ManualPanel(tk.Frame):
         if self.model is None:
             desc, _ = read_msg('robot_description')
             if desc:
-                self.model = robot_view.RobotModel(desc['data'], use_mesh=getattr(self.sim, 'use_mesh', True))
+                self.model = robot_view.RobotModel(desc['data'])
                 self.arm_links = self.model.descendants('arm_base_link')
         q, wheel_vel = self.actual()
         if q and not self.target:

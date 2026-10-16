@@ -13,12 +13,12 @@
 대역 (도커 이미지에 없는 📦 · GPU·모델이 없는 ML):
   fake_ml          grasp_scorer · rl_nav_tuner · rl_nav_correction (같은 노드 이름·토픽 — ml:=fake 기본)
   PassthroughArmCorrection  rl_arm_correction 컨트롤러 자리 (Δ=0)
-  fake_camera ×2   realsense2_camera (pole_cam, gripper_cam) — debug/input-live/<이름>.png가 있으면 그 장면
+  fake_camera ×2   realsense2_camera (pole_cam, gripper_cam) — debug/input/hardware/camera/<이름>.png가 있으면 그 장면
   fake_nav2        Nav2 (노드 이름 controller_server — rl_nav_tuner의 set_parameters를 받음, /cmd_vel_corrected → /cmd_vel 중계)
   fake_moveit      move_group + MTC 실행
 호스트 파일 연동 (통제실·시뮬레이션):
   monitor_manager  토픽 → debug/topic/<토픽>/message (JSON) · image.jpg
-  input_manager    debug/input/<토픽>/message (JSON) → 토픽
+  input_manager    debug/input/topic/<토픽>/message (JSON) → 토픽
 ml:=real이면 진짜 ml 노드를 띄운다 — 모델이 없거나 learning_enabled:=false면 기본 동작(Δ=0·규칙)으로 돌아야 한다.
 """
 
@@ -58,16 +58,18 @@ def generate_launch_description():
         arg('command', '빨간 퍽을 목표 구역으로 옮겨', 'user_input 텍스트 명령 (빈 값이면 안 보냄)'),
         arg('ml', 'fake', 'fake = ML 대역(도커·CI 기본, GPU 불필요) · real = 진짜 ml 노드·컨트롤러'),
         arg('learning_enabled', 'true', '학습 노드 on/off (ml:=real일 때)'),
+        arg('vlm_endpoint', '', '호스트 ai-service 주소 (비면 템플릿 고정)'),
         arg('pick_fail_count', '0', '처음 N번 MTC 실행 실패'),
         arg('nav_fail_count', '0', '처음 N번 NavigateToPose ABORTED'),
         arg('mock_hardware', 'true', 'false면 controller_manager가 가상 시리얼(/dev/ttyACM0)로 OpenCR과 통신 — 시뮬레이터가 OpenCR 역할'),
         arg('mock_effort', '0.0', '팔 관절 전류 [A] (arm_safety_monitor 기준 1.0)'),
-        arg('debug_dir', '/ws/debug', '호스트와 공유하는 폴더 (topic/ · input/ · input-live/)'),
+        arg('debug_dir', '/debug', '호스트와 공유하는 폴더 (topic/ · input/ · output/)'),
 
         include('bringup', 'bringup.launch.py', {
             'use_ros_system': 'false',
             'command': LaunchConfiguration('command'),
             'learning_enabled': LaunchConfiguration('learning_enabled'),
+            'vlm_endpoint': LaunchConfiguration('vlm_endpoint'),
             'use_ml': PythonExpression(["'", LaunchConfiguration('ml'), "' == 'real'"]),
         }),
         include('ros_system', 'ros_system.launch.py', {

@@ -7,11 +7,11 @@
 //   <debug_dir>/topic/<토픽명>/image.jpg  Image / CompressedImage 토픽이면 마지막 영상 (덮어씀)
 //   <debug_dir>/topic/<토픽명>/depth.png  16UC1 depth 영상이면 무손실 16비트 PNG [mm] (시뮬레이터 깊이·점구름 보기)
 //   <debug_dir>/topic/list.json           {"topics": [{"name": "/task_status", "type": "plan/msg/TaskStatus"}]}
-//   예) /task_status → /ws/debug/topic/task_status/message (호스트 lv2_module6/debug/topic/task_status/message)
+//   예) /task_status → /debug/output/topic/task_status/message (호스트 lv2_module6/debug/output/topic/task_status/message)
 // test-logger의 echo·info와 같은 폴더. 갱신 시각은 파일 mtime으로 본다.
 // image.jpg는 토픽별로 period_s에 한 번만 (카메라 30fps 영상을 다 쓰면 디스크만 바쁨).
 //
-// 파라미터: debug_dir(기본 /ws/debug — 그 아래 topic/에 저장), period_s(이미지 저장 간격),
+// 파라미터: debug_dir(기본 /debug — 그 아래 topic/에 저장), period_s(이미지 저장 간격),
 //   raw_images (기본 true): false면 sensor_msgs/Image(무압축 영상)는 구독 자체를 안 함 (네트워크 너머에서 띄울 때)
 //   exclude_topics (기본 []): 이름으로 뺄 토픽 목록
 //
