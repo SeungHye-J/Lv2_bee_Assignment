@@ -76,9 +76,9 @@ gl = joints['gripper_left_joint'].find('limit'); ml = joints['gripper_right_join
 check(float(gl.get('lower')) == 0 and abs(float(gl.get('upper')) - 0.0265) < 1e-9, f'gripper 범위 {gl.get("lower")} ~ {gl.get("upper")} m')
 check(ml is not None and ml.get('joint') == 'gripper_left_joint', 'gripper_right_joint → gripper_left_joint mimic')
 
-# tcp
+# tcp (팔 장착 위치 수정으로 (−3.026, +0.012, −4.646) mm, 2026-10-17)
 tcp = Te['end_effector_link'][:3, 3] * 1000
-check(np.allclose(tcp, [435.0, 0.0, 345.545], atol=0.01), f'end_effector 위치 {tcp.round(2)} mm (집는 점)')
+check(np.allclose(tcp, [431.974, 0.012, 340.899], atol=0.01), f'end_effector 위치 {tcp.round(2)} mm (집는 점)')
 check(np.allclose(Te['end_effector_link'][:3, 2], [1, 0, 0], atol=1e-6), 'end_effector z축 = 접근 방향(전방 +X)')
 Tr = fk(e, {'joint5': math.pi / 2})
 check(np.linalg.norm(Tr['end_effector_link'][:3, 3] - Te['end_effector_link'][:3, 3]) < 0.002, 'joint5 롤 90°에 end_effector 위치 유지 (롤 축 위, 2 mm 이내)')

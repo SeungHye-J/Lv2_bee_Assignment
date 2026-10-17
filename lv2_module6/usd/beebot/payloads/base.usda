@@ -22,7 +22,7 @@ def Xform "beebot" (
     kind = "component"
 )
 {
-    float3[] extentsHint = [(-0.24419683, -0.153, -0.000001649378), (0.391645, 0.153, 0.4674636), (3.4028235e38, 3.4028235e38, 3.4028235e38), (-3.4028235e38, -3.4028235e38, -3.4028235e38), (3.4028235e38, 3.4028235e38, 3.4028235e38), (-3.4028235e38, -3.4028235e38, -3.4028235e38), (-0.2325, -0.15300001, -2.5779958e-9), (0.391645, 0.15300001, 0.46745)]
+    float3[] extentsHint = [(-0.24419683, -0.153, -0.000001649378), (0.38861904, 0.153, 0.4674636), (3.4028235e38, 3.4028235e38, 3.4028235e38), (-3.4028235e38, -3.4028235e38, -3.4028235e38), (3.4028235e38, 3.4028235e38, 3.4028235e38), (-3.4028235e38, -3.4028235e38, -3.4028235e38), (-0.2325, -0.15300001, -2.5779958e-9), (0.38861904, 0.15300001, 0.46745)]
 
     def Scope "Geometry"
     {
@@ -353,7 +353,7 @@ def Xform "beebot" (
                 {
                     quatf xformOp:orient = (1, 0, 0, 0)
                     float3 xformOp:scale = (1, 1, 1)
-                    double3 xformOp:translate = (0.051045, 0, 0.134795)
+                    double3 xformOp:translate = (0.048019, 0.000012, 0.130149)
                     uniform token[] xformOpOrder = ["xformOp:translate", "xformOp:orient", "xformOp:scale"]
 
                     def Xform "arm_base_link_visual" (
@@ -587,7 +587,7 @@ def Xform "beebot" (
                                         {
                                             quatf xformOp:orient = (0.49941188, 0.5011133, -0.5006586, 0.49881285)
                                             float3 xformOp:scale = (1, 1, 1)
-                                            double3 xformOp:translate = (0.000504, -0.050245, 0.080871)
+                                            double3 xformOp:translate = (0.000516, -0.054891, 0.083897)
                                             uniform token[] xformOpOrder = ["xformOp:translate", "xformOp:orient", "xformOp:scale"]
 
                                             def Xform "camera_wrist_link" (

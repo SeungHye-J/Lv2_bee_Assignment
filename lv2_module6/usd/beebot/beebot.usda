@@ -7,8 +7,8 @@
                 double radius = 5
             }
             dictionary Perspective = {
-                double3 position = (-0.3373899313743869, 0.42486849895191703, 0.44832017218449)
-                double3 target = (-0.03256394211673347, -0.029381949119984874, 0.10198597847097501)
+                double3 position = (-0.18748329256233814, 0.5956069949268391, 0.5148877003809808)
+                double3 target = (-0.11184934855011673, -0.040489106417922915, 0.14562895636240253)
             }
             dictionary Right = {
                 double3 position = (0, -5, 0)
@@ -147,31 +147,6 @@ def Xform "beebot" (
             float state:linear:physics:velocity = 0
         }
     }
-
-    def Mesh "Cube" (
-        prepend apiSchemas = ["PhysicsRigidBodyAPI", "PhysxRigidBodyAPI", "PhysicsCollisionAPI", "PhysxCollisionAPI", "PhysxConvexHullCollisionAPI", "PhysicsMeshCollisionAPI"]
-    )
-    {
-        float3[] extent = [(-0.5, -0.5, -0.5), (0.5, 0.5, 0.5)]
-        int[] faceVertexCounts = [4, 4, 4, 4, 4, 4]
-        int[] faceVertexIndices = [0, 1, 3, 2, 4, 6, 7, 5, 6, 2, 3, 7, 4, 5, 1, 0, 4, 0, 2, 6, 5, 7, 3, 1]
-        normal3f[] normals = [(0, 0, 1), (0, 0, 1), (0, 0, 1), (0, 0, 1), (0, 0, -1), (0, 0, -1), (0, 0, -1), (0, 0, -1), (0, 1, 0), (0, 1, 0), (0, 1, 0), (0, 1, 0), (0, -1, 0), (0, -1, 0), (0, -1, 0), (0, -1, 0), (-1, 0, 0), (-1, 0, 0), (-1, 0, 0), (-1, 0, 0), (1, 0, 0), (1, 0, 0), (1, 0, 0), (1, 0, 0)] (
-            interpolation = "faceVarying"
-        )
-        uniform token physics:approximation = "convexHull"
-        bool physics:collisionEnabled = 1
-        bool physics:kinematicEnabled = 0
-        bool physics:rigidBodyEnabled = 1
-        point3f[] points = [(-0.5, -0.5, 0.5), (0.5, -0.5, 0.5), (-0.5, 0.5, 0.5), (0.5, 0.5, 0.5), (-0.5, -0.5, -0.5), (0.5, -0.5, -0.5), (-0.5, 0.5, -0.5), (0.5, 0.5, -0.5)]
-        texCoord2f[] primvars:st = [(0, 0), (1, 0), (1, 1), (0, 1), (1, 0), (1, 1), (0, 1), (0, 0), (0, 1), (0, 0), (1, 0), (1, 1), (0, 0), (1, 0), (1, 1), (0, 1), (0, 0), (1, 0), (1, 1), (0, 1), (1, 0), (1, 1), (0, 1), (0, 0)] (
-            interpolation = "faceVarying"
-        )
-        uniform token subdivisionScheme = "none"
-        quatd xformOp:orient = (1, 0, 0, 0)
-        double3 xformOp:scale = (0.03, 0.03, 0.06)
-        double3 xformOp:translate = (-0.10658052848470409, -0.02381012785100824, 0.21951110248434944)
-        uniform token[] xformOpOrder = ["xformOp:translate", "xformOp:orient", "xformOp:scale"]
-    }
     variantSet "Physics" = {
         "mujoco" (
             prepend payload = @./payloads/Physics/mujoco.usda@
@@ -241,7 +216,7 @@ def "Render" (
                 bool omni:rtx:scene:hydra:mdlMaterialWarmup = 1
                 rel orderedVars = </Render/Vars/LdrColor>
                 custom bool overrideClipRange = 0
-                uniform int2 resolution = (1733, 1018)
+                uniform int2 resolution = (949, 577)
             }
         }
     }
@@ -291,10 +266,10 @@ over "OmniverseKit_Persp" (
     float exposure:time = 0.02
     float focalLength = 18.147562
     float focusDistance = 400
-    custom uniform vector3d omni:kit:centerOfInterest = (0, 0, -0.6474640739343158)
-    float3 xformOp:rotateXYZ = (57.662277, -9.223609e-14, -146.1363)
+    custom uniform vector3d omni:kit:centerOfInterest = (0, 0, -0.7393853958978543)
+    float3 xformOp:rotateXYZ = (60.038822, -5.2876723e-14, -173.21918)
     float3 xformOp:scale = (1, 1, 1)
-    double3 xformOp:translate = (-0.3373899313743869, 0.42486849895191703, 0.44832017218449)
+    double3 xformOp:translate = (-0.18748329256233814, 0.5956069949268391, 0.5148877003809808)
     uniform token[] xformOpOrder = ["xformOp:translate", "xformOp:rotateXYZ", "xformOp:scale"]
 }
 

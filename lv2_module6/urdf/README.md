@@ -1,6 +1,6 @@
 # urdf
 
-BEE 로봇(TurtleBot3 Waffle Pi 베이스 + RM-X52 팔 + 그리퍼 + 카메라 2개)의 모델 정의 폴더다. Fusion 모델에서 뽑은 URDF와 메시, 그리고 이를 만들고 검증하는 스크립트가 들어 있다.
+BEE 로봇(TurtleBot3 Waffle Pi 베이스 + RM-X52 팔 + 그리퍼 + 카메라 2개)의 모델 정의 폴더다. Fusion 모델에서 뽑은 URDF와 메시, 그리고 이를 변환·검증하는 스크립트가 들어 있다. Fusion에서 URDF를 새로 뽑는 생성 스크립트는 여기 없다(아래 "Fusion에서 처음부터 다시 만들 때").
 
 ## 폴더 구조
 
@@ -9,7 +9,7 @@ urdf/
 ├── beebot.urdf.xacro      # ROS용 xacro (인자: mock_hardware·mock_effort·port·mesh_uri). make_xacro.py 생성본
 ├── beebot.urdf            # Isaac Sim URDF Importer용. xacro를 펼치고 메시 경로를 상대 경로로 바꾼 것
 ├── meshes/                # 링크별 STL 22개 (단위 mm, URDF에서 scale 0.001로 m 변환)
-└── scripts/               # 생성·검증 스크립트
+└── scripts/               # 변환(urdf ↔ xacro)·검증·분석 스크립트
 ```
 
 `beebot.urdf.xacro`와 `beebot.urdf`는 서로 변환된다. 한쪽을 고쳤으면 다른 쪽을 다시 만들고 검수까지 돌린다.
@@ -22,6 +22,8 @@ scripts/make_urdf.sh
 # 검수 (둘 다 고친 뒤 항상)
 scripts/check_urdf.sh
 ```
+
+`.sh`는 bash 스크립트라 그대로 실행한다(`python3`로 돌리면 `SyntaxError`). `.py`는 `python3`로 돌린다.
 
 ### xacro 인자
 
@@ -60,6 +62,8 @@ base_footprint
                      │   └─ gripper_cam_color_optical_frame
                      └─ end_effector_link
 ```
+
+팔은 `arm_mount_joint`로 `base_link`에 고정돼 있고, 위치는 (48.02, 0.01, 130.15) mm다. 팔 베이스 모터 바닥이 4층 받침판 윗면(`base_link` z 136.14 mm)에 맞닿는 값이다(2026-10-17 수정. 이전 값 (51.05, 0, 134.80)은 팔이 3 mm 앞·4.6 mm 위로 떠 있었다).
 
 구동 관절은 6개(joint1~5, gripper_left_joint)와 바퀴 2개다. 오른쪽 손가락은 왼쪽을 따라 움직이는 mimic이다. 그리퍼는 0이 닫힘, 0.0265가 열림이다.
 
@@ -108,12 +112,10 @@ base_footprint
 | --- | --- | --- |
 | `make_urdf.sh` | `beebot.urdf.xacro`를 펼쳐 `beebot.urdf`를 만들고 `check_urdf`로 확인한다 | xacro → `beebot.urdf` |
 | `check_urdf.sh` | 검수 묶음. `check_urdf`, `verify.py`, `check_xacro.py`를 차례로 돌리고 하나라도 실패하면 종료 코드 1을 낸다 (ROS 환경을 알아서 불러옴) | `beebot.urdf`, `beebot.urdf.xacro` → 콘솔 |
-| `build.py` | 질량을 목표값으로 보정하고 관성을 계산해 베이스 URDF를 조립한다. 팔과 합쳐 최종 `bee.urdf`를 만들고 베이스 메시를 간략화한다 | `raw/`, `rm_x52.urdf` → `out/bee.urdf` 등 |
 | `make_xacro.py` | `beebot.urdf`를 xacro로 바꾼다. 메시 경로와 ros2_control 하드웨어 값을 xacro 인자로 되돌린다 | `beebot.urdf` → `beebot.urdf.xacro` |
-| `merge_raw.py` | Fusion 추출 결과(batch)를 `build.py`가 읽는 형태로 합친다 | `raw/bodies_<tag>.json` → `raw/bodies.json` |
-| `verify.py` | URDF를 검증한다 (트리, 관성 유효성, visual·collision 메시 전부 존재, 팔 조인트 위치, `raw/`가 있으면 메시 왕복 위치) | `beebot.urdf` → 콘솔 |
+| `verify.py` | URDF를 검증한다 (트리, 관성 유효성, visual·collision 메시 전부 존재, 팔 조인트 위치. Fusion 추출본 `raw/`가 있을 때만 메시 왕복 위치도 보는데, 이 레포에는 `raw/`가 없어 건너뛴다) | `beebot.urdf` → 콘솔 |
 | `check_xacro.py` | `beebot.urdf.xacro`를 펼쳐 `beebot.urdf`와 비교한다 (이름, 그리퍼 방향과 mimic, 영점 형상 일치, end_effector·optical frame, ros2_control 조인트, xacro 인자 반영). 어긋나면 `make_urdf.sh`로 다시 만든다 | `beebot.urdf.xacro`, `beebot.urdf` → 콘솔 (ROS 환경 필요) |
-| `stlio.py` | 바이너리 STL 읽기·쓰기 도우미 | 라이브러리 |
+| `stlio.py` | 바이너리 STL 읽기·쓰기 도우미 (`verify.py`가 씀) | 라이브러리 |
 | `torque_check.py` | 팔 joint2~5의 정적 중력 토크를 계산하고 XM430-W350 정지 토크와 비교한다 | `beebot.urdf` → 콘솔 |
 | `bracket_check.py` | 롤 브라켓의 강도·강성을 손계산한다 (FEA 아님) | `beebot.urdf` → 콘솔 |
 
@@ -121,7 +123,7 @@ base_footprint
 
 ### Fusion에서 처음부터 다시 만들 때
 
-`fusion_extract.py`(Fusion 안에서 실행, 이 폴더에는 없음)로 링크별 바디 데이터를 뽑고 `merge_raw.py` → `build.py` 순서로 돌린다. 이 두 스크립트는 예전 이름 체계(`bee.urdf`, 링크 `*_1`, 조인트 `J1_Base_Yaw` 등)로 `out/bee.urdf`를 만든다. 지금의 `beebot.urdf`는 그 결과에 이름 정리·그리퍼 mimic·end_effector·optical frame·ros2_control을 더한 것이라, `build.py` 결과를 바로 `beebot.urdf`로 쓸 수는 없다. `raw/`(Fusion 추출 결과)와 `rm_x52.urdf`(팔)는 이 폴더에 없다.
+설계(형상·카메라 위치·브라켓)를 바꿔 Fusion에서 다시 뽑는 일은 Windows(Fusion이 있는 PC)에서 한다. 그 생성 스크립트(`fusion_extract.py`, `merge_raw.py`, `build.py`, `to_beebot.py`, `rm_x52.urdf`)와 절차는 이 레포에 두지 않고 Drive `KANT/BEE/model/v00/urdf/beebot/scripts/`에서만 관리한다. 결과로 나온 `beebot.urdf`와 바뀐 메시를 이 폴더에 넣은 뒤 `python3 scripts/make_xacro.py` → `scripts/check_urdf.sh`를 돌린다.
 
 ### make_xacro.py가 만드는 xacro
 

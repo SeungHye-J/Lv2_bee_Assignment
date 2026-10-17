@@ -214,7 +214,7 @@
   <joint name="arm_mount_joint" type="fixed">
     <parent link="base_link"/>
     <child link="arm_base_link"/>
-    <origin rpy="-0.000000 0.000000 0.000000" xyz="0.051045 -0.000000 0.134795"/>
+    <origin rpy="-0.000000 0.000000 0.000000" xyz="0.048019 0.000012 0.130149"/>
   </joint>
   <link name="arm_base_link">
     <inertial>
@@ -421,7 +421,7 @@
   <joint name="gripper_cam_joint" type="fixed">
     <parent link="gripper_link"/>
     <child link="gripper_cam_link"/>
-    <origin rpy="2.852763 -1.567096 -1.282111" xyz="0.000504 -0.050245 0.080871"/>
+    <origin rpy="2.852763 -1.567096 -1.282111" xyz="0.000516 -0.054891 0.083897"/>
   </joint>
   <link name="gripper_cam_link">
     <inertial>
