@@ -166,7 +166,36 @@ bool Cursor::str(std::string & o) {
         case 'n': o += '\n'; break;
         case 't': o += '\t'; break;
         case 'r': o += '\r'; break;
-        default: if (*p) o += *p; break;
+        case 'b': o += '\b'; break;
+        case 'f': o += '\f'; break;
+        case 'u': {  // \uXXXX (서로게이트 쌍 포함) → UTF-8 — 없으면 한글이 'uba85…'로 깨짐 (VLM·ai-service가 이스케이프해서 보냄)
+          auto hex4 = [](const char * h, unsigned & v) {
+            v = 0;
+            for (int i = 0; i < 4; ++i) {
+              const char ch = h[i];
+              if (!std::isxdigit(static_cast<unsigned char>(ch))) return false;
+              v = v * 16 + static_cast<unsigned>(std::isdigit(static_cast<unsigned char>(ch)) ? ch - '0' : (std::tolower(ch) - 'a' + 10));
+            }
+            return true;
+          };
+          unsigned cp = 0, lo = 0;
+          if (!hex4(p + 1, cp)) return false;
+          p += 4;
+          if (cp >= 0xD800 && cp <= 0xDBFF && p[1] == '\\' && p[2] == 'u' && hex4(p + 3, lo) && lo >= 0xDC00 && lo <= 0xDFFF) {
+            cp = 0x10000 + ((cp - 0xD800) << 10) + (lo - 0xDC00);
+            p += 6;
+          }
+          if (cp < 0x80) { o += static_cast<char>(cp); }
+          else if (cp < 0x800) { o += static_cast<char>(0xC0 | (cp >> 6)); o += static_cast<char>(0x80 | (cp & 0x3F)); }
+          else if (cp < 0x10000) {
+            o += static_cast<char>(0xE0 | (cp >> 12)); o += static_cast<char>(0x80 | ((cp >> 6) & 0x3F)); o += static_cast<char>(0x80 | (cp & 0x3F));
+          } else {
+            o += static_cast<char>(0xF0 | (cp >> 18)); o += static_cast<char>(0x80 | ((cp >> 12) & 0x3F));
+            o += static_cast<char>(0x80 | ((cp >> 6) & 0x3F)); o += static_cast<char>(0x80 | (cp & 0x3F));
+          }
+          break;
+        }
+        default: if (*p) o += *p; break;  // \" \\ \/
       }
       if (*p) ++p;
     } else { o += *p++; }
@@ -217,7 +246,7 @@ bool Cursor::skip() {
   return num(d);
 }
 
-bool parse_goals(const std::string & body, std::vector<SubGoal> & goals) {
+bool parse_goals(const std::string & body, std::vector<SubGoal> & goals, std::string * err = nullptr) {
   Cursor c{body.c_str()};
   c.ws();
   if (*c.p != '{') return false;
@@ -228,7 +257,17 @@ bool parse_goals(const std::string & body, std::vector<SubGoal> & goals) {
   if (*c.p != ':') return false;
   ++c.p;
   c.ws();
-  if (std::strncmp(c.p, "true", 4) != 0) return false;  // ok:false → 실패 취급
+  if (std::strncmp(c.p, "true", 4) != 0) {  // ok:false → 에러문 추출 (say 계획으로 보여줌)
+    if (err) {
+      const char * e = std::strstr(c.p, "\"error\"");
+      if (e) {
+        Cursor ec{e + 7};
+        ec.ws();
+        if (*ec.p == ':') { ++ec.p; ec.ws(); ec.str(*err); }
+      }
+    }
+    return false;
+  }
   const char * g = std::strstr(c.p, "\"goals\"");
   if (!g) return false;
   c.p = g + 7;
@@ -298,31 +337,63 @@ bool parse_goals(const std::string & body, std::vector<SubGoal> & goals) {
 
 }  // namespace
 
+std::vector<SubGoal> move_to_b_goals(const TrackedObjectArray & objs, const std::string & zone, int capacity) {
+  // MISSION ③: 퍽마다 [다가가기 → 집기 → 적재함에 싣기] → 목표 구역으로 → 실은 수만큼 [적재함에서 꺼내기 → 구역에 내려놓기]
+  // (손에 들고 옮기면 인정 안 됨 — 반드시 적재함으로). 적재함 용량을 넘는 퍽은 다음 계획(왕복)에서
+  std::vector<std::string> pucks;
+  for (const auto & o : objs.objects) {
+    if (o.class_name == "puck" && static_cast<int>(pucks.size()) < capacity) pucks.push_back(std::to_string(o.id));
+  }
+  std::vector<SubGoal> g;
+  auto add = [&g](const std::string & skill, const std::string & target, const std::string & rel, float off) {
+    SubGoal s;
+    s.step = static_cast<uint32_t>(g.size() + 1);
+    s.skill = skill;
+    s.target = target;
+    s.relation = rel;
+    s.offset_m = off;
+    g.push_back(s);
+  };
+  for (const auto & p : pucks) {
+    add("navigate", p, "front", 0.20f);
+    add("pick", p, "", 0.0f);
+    add("place", "tray", "", 0.0f);
+  }
+  add("navigate", zone, "front", 0.20f);
+  for (size_t i = 0; i < pucks.size(); ++i) {
+    add("pick", "tray", "", 0.0f);
+    add("place", zone, "on", 0.0f);
+  }
+  return g;
+}
+
 VlmTaskPlanner::VlmTaskPlanner()
 : rclcpp::Node("vlm_task_planner") {
   max_replans_ = declare_parameter<int>("max_replans", 1);
   vlm_endpoint_ = declare_parameter<std::string>("vlm_endpoint", "");
   vlm_timeout_s_ = declare_parameter<double>("vlm_timeout_s", 120.0);
+  tray_capacity_ = declare_parameter<int>("tray_capacity", 4);
   goals_pub_ = create_publisher<SubGoalArray>("/sub_goals", rclcpp::QoS(10).reliable().transient_local());
-  cmd_sub_ = create_subscription<std_msgs::msg::String>("/user_command", rclcpp::QoS(10).reliable(),
-    [this](std_msgs::msg::String::ConstSharedPtr m) {
-      RCLCPP_INFO(get_logger(), "명령: \"%s\"", m->data.c_str());
-      replans_ = 0;
-      {
-        std::lock_guard<std::mutex> lock(mutex_);
-        cmd_ = m->data;
-        replan_ = ReplanInfo{};
-      }
-      pending_ = true;
-      make_plan();
-    });
+  cmd_sub_ = create_subscription<std_msgs::msg::String>("/cmd/user_command", rclcpp::QoS(10).reliable(),
+    [this](std_msgs::msg::String::ConstSharedPtr m) { on_command("명령", m->data); });
+  // A 지역 QR 판에서 읽은 문제 (perception, documents/MISSION.md §3-1) — 명령과 똑같이 계획한다
+  // 템플릿: MOVE_TO_B = 퍽(최대 tray_capacity개)을 적재함에 싣고 목표 구역에 내려놓기 · 그 밖 = 퍽 1개 이송
+  // TODO: SORT_COLOR · STAND_UP 템플릿
+  qr_sub_ = create_subscription<std_msgs::msg::String>("/mission_qr", rclcpp::QoS(1).reliable().transient_local(),
+    [this](std_msgs::msg::String::ConstSharedPtr m) { on_command("QR 문제", m->data); });
   objects_sub_ = create_subscription<TrackedObjectArray>("/tracked_objects", rclcpp::QoS(5).reliable(),
     [this](TrackedObjectArray::ConstSharedPtr m) {
+      std::string sig;
+      for (const auto & o : m->objects) sig += std::to_string(o.id) + ":" + o.class_name + ";";
+      bool changed;
       {
         std::lock_guard<std::mutex> lock(mutex_);
         objects_ = m;
+        changed = (sig != last_objs_sig_);
+        if (changed) last_objs_sig_ = sig;
       }
-      if (pending_) make_plan();  // 물체 목록보다 명령이 먼저 왔으면 지금 계획
+      // 물체 집합이 바뀔 때만 재시도 — 같은 목록(빈 목록 포함)으로 매번 VLM을 때리면 초당 요청 폭주
+      if (pending_ && changed) make_plan();  // 물체 목록보다 명령이 먼저 왔으면 지금 계획
     });
   status_sub_ = create_subscription<TaskStatus>("/task_status", rclcpp::QoS(10).reliable().transient_local(),
     [this](TaskStatus::ConstSharedPtr m) { on_status(*m); });
@@ -331,8 +402,11 @@ VlmTaskPlanner::VlmTaskPlanner()
     image_subs_.push_back(create_subscription<sensor_msgs::msg::Image>(
       "/" + cam + "/color/image_raw", sensor_qos,
       [this, cam](sensor_msgs::msg::Image::ConstSharedPtr m) {
+        // 복사본으로 보관 — 받은 메시지를 그대로 들고 있으면 (Lyrical: data가 미들웨어 공유메모리 버퍼를 가리킬 수 있음)
+        // 그 버퍼가 반납되지 않아 카메라(fake_camera·realsense) 발행이 막혔음 (실측: 이 노드를 끄면 바로 풀림)
+        auto copy = std::make_shared<sensor_msgs::msg::Image>(*m);
         std::lock_guard<std::mutex> lock(mutex_);
-        images_[cam] = m;  // 최신 1장만 유지 (VLM 호출 때 꺼냄)
+        images_[cam] = copy;  // 최신 1장만 유지 (VLM 호출 때 꺼냄)
       }));
   }
   diag_.setHardwareID("beebot");
@@ -350,6 +424,9 @@ VlmTaskPlanner::VlmTaskPlanner()
 void VlmTaskPlanner::on_status(const TaskStatus & s) {
   if (s.state != TaskStatus::FAILED || s.plan_id != plan_id_.load()) return;
   if (s.reason.rfind("manual", 0) == 0) return;  // 수동 개입으로 멈춘 것 — 사람이 다시 명령할 때까지
+  if (s.reason.rfind("explore", 0) == 0) return;  // 자동 탐사(EXPLORE)로 멈춘 것 — 탐사 끝나고 사람이 다시 명령할 때까지
+  if (s.reason.rfind("cancelled", 0) == 0) return;  // 명시적 정지 (sim 정지 버튼) — 재계획 없음
+  if (s.reason.rfind("estop", 0) == 0) return;  // 비상정지 — 사람이 풀고 다시 명령할 때까지
   if (replans_ >= max_replans_) return;  // coordinator가 알리고 정지한다
   ++replans_;
   RCLCPP_WARN(get_logger(), "step %u 실패(%s) → 재계획 %d/%d", s.step, s.reason.c_str(), replans_, max_replans_);
@@ -372,11 +449,11 @@ void VlmTaskPlanner::make_plan() {
     std::lock_guard<std::mutex> lock(mutex_);
     objs = objects_;
   }
-  if (!objs) {
-    RCLCPP_WARN_THROTTLE(get_logger(), *get_clock(), 5000, "/tracked_objects 대기 — 계획 보류");
-    return;
-  }
   if (vlm_endpoint_.empty()) {  // 템플릿(오프라인)은 퍽·목표 id가 있어야 짜진다
+    if (!objs) {
+      RCLCPP_WARN_THROTTLE(get_logger(), *get_clock(), 5000, "/tracked_objects 대기 — 계획 보류");
+      return;
+    }
     if (find_in(*objs, "puck").empty() || find_in(*objs, "goal_zone").empty()) {
       RCLCPP_WARN_THROTTLE(get_logger(), *get_clock(), 5000, "/tracked_objects에 퍽·목표 구역이 없음 — 계획 보류");
       return;
@@ -388,17 +465,38 @@ void VlmTaskPlanner::make_plan() {
   try_vlm_async();
 }
 
+void VlmTaskPlanner::on_command(const char * source, const std::string & text) {
+  RCLCPP_INFO(get_logger(), "%s: \"%s\"", source, text.c_str());
+  replans_ = 0;
+  {
+    std::lock_guard<std::mutex> lock(mutex_);
+    cmd_ = text;
+    replan_ = ReplanInfo{};
+  }
+  pending_ = true;
+  make_plan();
+}
+
 void VlmTaskPlanner::make_template(const TrackedObjectArray & objs) {
   const auto puck = find_in(objs, "puck"), goal_zone = find_in(objs, "goal_zone");
   if (puck.empty() || goal_zone.empty()) return;  // 물체 사라짐 — 보류 유지
+  std::string cmd;
+  {
+    std::lock_guard<std::mutex> lock(mutex_);
+    cmd = cmd_;
+  }
   pending_ = false;
   SubGoalArray plan;
   plan.header.stamp = now();
   plan.plan_id = plan_id_.fetch_add(1) + 1;
-  plan.goals.push_back(goal(1, "navigate", puck, "front", 0.20f));
-  plan.goals.push_back(goal(2, "pick", puck, "", 0.0f));
-  plan.goals.push_back(goal(3, "navigate", goal_zone, "front", 0.20f));
-  plan.goals.push_back(goal(4, "place", goal_zone, "on", 0.0f));
+  if (cmd.find("MOVE_TO_B") != std::string::npos) {
+    plan.goals = move_to_b_goals(objs, goal_zone, tray_capacity_);
+  } else {
+    plan.goals.push_back(goal(1, "navigate", puck, "front", 0.20f));
+    plan.goals.push_back(goal(2, "pick", puck, "", 0.0f));
+    plan.goals.push_back(goal(3, "navigate", goal_zone, "front", 0.20f));
+    plan.goals.push_back(goal(4, "place", goal_zone, "on", 0.0f));
+  }
   goals_pub_->publish(plan);
   RCLCPP_INFO(get_logger(), "/sub_goals plan=%u (%zu steps) [template]", plan.plan_id, plan.goals.size());
 }
@@ -423,7 +521,9 @@ void VlmTaskPlanner::try_vlm_async() {
   }
   std::thread([this, epoch, cmd, objs, rp, imgs]() {
     std::vector<SubGoal> goals;
-    const bool ok = fetch_goals(vlm_endpoint_, plan_request(cmd, objs, rp, imgs), goals, vlm_timeout_s_);
+    std::string vlm_err;
+    const bool ok =
+      fetch_goals(vlm_endpoint_, plan_request(cmd, objs, rp, imgs), goals, vlm_timeout_s_, &vlm_err);
     bool stale = false;
     {
       std::lock_guard<std::mutex> lock(mutex_);
@@ -431,7 +531,15 @@ void VlmTaskPlanner::try_vlm_async() {
       // 발행 결정까지 잠금 — make_plan의 epoch 증가와 직렬화 (낡은 계획 이중 발행 방지)
       if (!stale) {
         vlm_busy_ = false;
-        if (!ok) {
+        if (!ok && !vlm_err.empty()) {  // VLM 업무 거절(보류 등) — say로 화면에 보여줌
+          pending_ = false;
+          SubGoalArray plan;
+          plan.header.stamp = now();
+          plan.plan_id = plan_id_.fetch_add(1) + 1;
+          plan.goals.push_back(goal(1, "say", "VLM: " + vlm_err, "", 0.0f));
+          goals_pub_->publish(plan);
+          RCLCPP_INFO(get_logger(), "/sub_goals plan=%u (say, VLM 거절) [vlm]", plan.plan_id);
+        } else if (!ok) {
           RCLCPP_WARN(get_logger(), "VLM 실패 — 템플릿 폴백");
           make_template(objs);
         } else {
@@ -507,12 +615,12 @@ std::string VlmTaskPlanner::plan_request(
 }
 
 bool VlmTaskPlanner::fetch_goals(const std::string & endpoint, const std::string & body,
-  std::vector<SubGoal> & goals, double timeout_s) {
+  std::vector<SubGoal> & goals, double timeout_s, std::string * err) {
   std::string host;
   int port = 0;
   if (!split_endpoint(endpoint, host, port)) return false;
   std::string resp;
-  return http_post(host, port, body, resp, timeout_s) && parse_goals(resp, goals);
+  return http_post(host, port, body, resp, timeout_s) && parse_goals(resp, goals, err);
 }
 
 SubGoal VlmTaskPlanner::goal(uint32_t step, const std::string & skill, const std::string & target,
