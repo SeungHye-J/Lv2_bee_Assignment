@@ -3,7 +3,7 @@
     customLayerData = {
         string creator = "URDF USD Converter v0.3.2"
     }
-    defaultPrim = "bee"
+    defaultPrim = "beebot"
     endTimeCode = 1000000
     kilogramsPerUnit = 1
     metersPerUnit = 1
@@ -14,10 +14,10 @@
     upAxis = "Z"
 )
 
-def Xform "bee" (
+def Xform "beebot" (
     prepend apiSchemas = ["GeomModelAPI"]
     assetInfo = {
-        string name = "bee"
+        string name = "beebot"
     }
     kind = "component"
 )
@@ -54,12 +54,40 @@ def Xform "bee" (
                     uniform token purpose = "guide"
                     double size = 1
                     quatf xformOp:orient = (1, 0, 0, 0)
-                    float3 xformOp:scale = (0.3013, 0.2656, 0.12635)
-                    double3 xformOp:translate = (-0.08185, 0, 0.063175)
+                    float3 xformOp:scale = (0.3013, 0.2656, 0.091)
+                    double3 xformOp:translate = (-0.08185, 0, 0.0455)
                     uniform token[] xformOpOrder = ["xformOp:translate", "xformOp:orient", "xformOp:scale"]
                 }
 
                 def Cube "box_1" (
+                    prepend apiSchemas = ["PhysicsCollisionAPI"]
+                    displayName = "box"
+                )
+                {
+                    float3[] extent = [(-0.5, -0.5, -0.5), (0.5, 0.5, 0.5)]
+                    uniform token purpose = "guide"
+                    double size = 1
+                    quatf xformOp:orient = (1, 0, 0, 0)
+                    float3 xformOp:scale = (0.0736, 0.1376, 0.03535)
+                    double3 xformOp:translate = (0.032, 0, 0.108675)
+                    uniform token[] xformOpOrder = ["xformOp:translate", "xformOp:orient", "xformOp:scale"]
+                }
+
+                def Cube "box_2" (
+                    prepend apiSchemas = ["PhysicsCollisionAPI"]
+                    displayName = "box"
+                )
+                {
+                    float3[] extent = [(-0.5, -0.5, -0.5), (0.5, 0.5, 0.5)]
+                    uniform token purpose = "guide"
+                    double size = 1
+                    quatf xformOp:orient = (1, 0, 0, 0)
+                    float3 xformOp:scale = (0.02, 0.02, 0.03535)
+                    double3 xformOp:translate = (-0.2094, 0, 0.108675)
+                    uniform token[] xformOpOrder = ["xformOp:translate", "xformOp:orient", "xformOp:scale"]
+                }
+
+                def Cube "box_3" (
                     prepend apiSchemas = ["PhysicsCollisionAPI"]
                     displayName = "box"
                 )
@@ -73,7 +101,7 @@ def Xform "bee" (
                     uniform token[] xformOpOrder = ["xformOp:translate", "xformOp:orient", "xformOp:scale"]
                 }
 
-                def Cube "box_2" (
+                def Cube "box_4" (
                     prepend apiSchemas = ["PhysicsCollisionAPI"]
                     displayName = "box"
                 )
@@ -111,6 +139,105 @@ def Xform "bee" (
                     quatf xformOp:orient = (1, 0, 0, 0)
                     float3 xformOp:scale = (1, 1, 1)
                     double3 xformOp:translate = (-0.177, -0.064, -0.005237)
+                    uniform token[] xformOpOrder = ["xformOp:translate", "xformOp:orient", "xformOp:scale"]
+                }
+
+                def Xform "storage_collision_0" (
+                    instanceable = true
+                    prepend references = @./instances.usda@</Instances/storage_collision_0>
+                )
+                {
+                    quatd xformOp:orient = (0.7071068883, 0.7071066499, 0, 0)
+                    double3 xformOp:scale = (0.001000000047, 0.001000000047, 0.001000000047)
+                    double3 xformOp:translate = (-0.064, 0, -0.0005)
+                    uniform token[] xformOpOrder = ["xformOp:translate", "xformOp:orient", "xformOp:scale"]
+                }
+
+                def Xform "storage_collision_1" (
+                    instanceable = true
+                    prepend references = @./instances.usda@</Instances/storage_collision_1>
+                )
+                {
+                    quatd xformOp:orient = (0.7071068883, 0.7071066499, 0, 0)
+                    double3 xformOp:scale = (0.001000000047, 0.001000000047, 0.001000000047)
+                    double3 xformOp:translate = (-0.064, 0, -0.0005)
+                    uniform token[] xformOpOrder = ["xformOp:translate", "xformOp:orient", "xformOp:scale"]
+                }
+
+                def Xform "storage_collision_2" (
+                    instanceable = true
+                    prepend references = @./instances.usda@</Instances/storage_collision_2>
+                )
+                {
+                    quatd xformOp:orient = (0.7071068883, 0.7071066499, 0, 0)
+                    double3 xformOp:scale = (0.001000000047, 0.001000000047, 0.001000000047)
+                    double3 xformOp:translate = (-0.064, 0, -0.0005)
+                    uniform token[] xformOpOrder = ["xformOp:translate", "xformOp:orient", "xformOp:scale"]
+                }
+
+                def Xform "storage_collision_3" (
+                    instanceable = true
+                    prepend references = @./instances.usda@</Instances/storage_collision_3>
+                )
+                {
+                    quatd xformOp:orient = (0.7071068883, 0.7071066499, 0, 0)
+                    double3 xformOp:scale = (0.001000000047, 0.001000000047, 0.001000000047)
+                    double3 xformOp:translate = (-0.064, 0, -0.0005)
+                    uniform token[] xformOpOrder = ["xformOp:translate", "xformOp:orient", "xformOp:scale"]
+                }
+
+                def Xform "storage_collision_4" (
+                    instanceable = true
+                    prepend references = @./instances.usda@</Instances/storage_collision_4>
+                )
+                {
+                    quatd xformOp:orient = (0.7071068883, 0.7071066499, 0, 0)
+                    double3 xformOp:scale = (0.001000000047, 0.001000000047, 0.001000000047)
+                    double3 xformOp:translate = (-0.064, 0, -0.0005)
+                    uniform token[] xformOpOrder = ["xformOp:translate", "xformOp:orient", "xformOp:scale"]
+                }
+
+                def Xform "storage_collision_5" (
+                    instanceable = true
+                    prepend references = @./instances.usda@</Instances/storage_collision_5>
+                )
+                {
+                    quatd xformOp:orient = (0.7071068883, 0.7071066499, 0, 0)
+                    double3 xformOp:scale = (0.001000000047, 0.001000000047, 0.001000000047)
+                    double3 xformOp:translate = (-0.064, 0, -0.0005)
+                    uniform token[] xformOpOrder = ["xformOp:translate", "xformOp:orient", "xformOp:scale"]
+                }
+
+                def Xform "storage_collision_6" (
+                    instanceable = true
+                    prepend references = @./instances.usda@</Instances/storage_collision_6>
+                )
+                {
+                    quatd xformOp:orient = (0.7071068883, 0.7071066499, 0, 0)
+                    double3 xformOp:scale = (0.001000000047, 0.001000000047, 0.001000000047)
+                    double3 xformOp:translate = (-0.064, 0, -0.0005)
+                    uniform token[] xformOpOrder = ["xformOp:translate", "xformOp:orient", "xformOp:scale"]
+                }
+
+                def Xform "storage_collision_7" (
+                    instanceable = true
+                    prepend references = @./instances.usda@</Instances/storage_collision_7>
+                )
+                {
+                    quatd xformOp:orient = (0.7071068883, 0.7071066499, 0, 0)
+                    double3 xformOp:scale = (0.001000000047, 0.001000000047, 0.001000000047)
+                    double3 xformOp:translate = (-0.064, 0, -0.0005)
+                    uniform token[] xformOpOrder = ["xformOp:translate", "xformOp:orient", "xformOp:scale"]
+                }
+
+                def Xform "storage_collision_8" (
+                    instanceable = true
+                    prepend references = @./instances.usda@</Instances/storage_collision_8>
+                )
+                {
+                    quatd xformOp:orient = (0.7071068883, 0.7071066499, 0, 0)
+                    double3 xformOp:scale = (0.001000000047, 0.001000000047, 0.001000000047)
+                    double3 xformOp:translate = (-0.064, 0, -0.0005)
                     uniform token[] xformOpOrder = ["xformOp:translate", "xformOp:orient", "xformOp:scale"]
                 }
 
@@ -182,7 +309,7 @@ def Xform "bee" (
                     }
                 }
 
-                def Xform "camera_rear_link"
+                def Xform "pole_cam_link"
                 {
                     quatf xformOp:orient = (0.98768836, 0, 0.15643433, 0)
                     float3 xformOp:scale = (1, 1, 1)
@@ -213,7 +340,7 @@ def Xform "bee" (
                         uniform token[] xformOpOrder = ["xformOp:translate", "xformOp:orient", "xformOp:scale"]
                     }
 
-                    def Xform "camera_rear_optical_frame"
+                    def Xform "pole_cam_color_optical_frame"
                     {
                         quatf xformOp:orient = (0.5000002, -0.5, 0.49999985, -0.5)
                         float3 xformOp:scale = (1, 1, 1)
@@ -456,7 +583,7 @@ def Xform "bee" (
                                             }
                                         }
 
-                                        def Xform "camera_wrist_link"
+                                        def Xform "gripper_cam_link"
                                         {
                                             quatf xformOp:orient = (0.49941188, 0.5011133, -0.5006586, 0.49881285)
                                             float3 xformOp:scale = (1, 1, 1)
@@ -487,7 +614,7 @@ def Xform "bee" (
                                                 uniform token[] xformOpOrder = ["xformOp:translate", "xformOp:orient", "xformOp:scale"]
                                             }
 
-                                            def Xform "camera_wrist_optical_frame"
+                                            def Xform "gripper_cam_color_optical_frame"
                                             {
                                                 quatf xformOp:orient = (0.5000002, -0.5, 0.49999985, -0.5)
                                                 float3 xformOp:scale = (1, 1, 1)
@@ -496,7 +623,7 @@ def Xform "bee" (
                                             }
                                         }
 
-                                        def Xform "tcp_link"
+                                        def Xform "end_effector_link"
                                         {
                                             quatf xformOp:orient = (0.7071069, 0, 0, 0.70710665)
                                             float3 xformOp:scale = (1, 1, 1)
@@ -508,6 +635,14 @@ def Xform "bee" (
                             }
                         }
                     }
+                }
+
+                def Xform "imu_link"
+                {
+                    quatf xformOp:orient = (1, 0, 0, 0)
+                    float3 xformOp:scale = (1, 1, 1)
+                    double3 xformOp:translate = (-0.064, 0, 0.068)
+                    uniform token[] xformOpOrder = ["xformOp:translate", "xformOp:orient", "xformOp:scale"]
                 }
             }
         }

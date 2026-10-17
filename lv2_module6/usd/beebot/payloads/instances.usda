@@ -21,6 +21,123 @@ def Scope "Instances"
         }
     }
 
+    def Xform "storage_collision_0" (
+        prepend references = @./geometries.usd@</Geometries/storage_collision_0>
+    )
+    {
+        over "storage_collision_0" (
+            apiSchemas = ["PhysicsCollisionAPI", "NewtonCollisionAPI", "PhysicsMeshCollisionAPI", "NewtonMeshCollisionAPI"]
+        )
+        {
+            token physics:approximation = "convexHull"
+            token purpose = "guide"
+        }
+    }
+
+    def Xform "storage_collision_1" (
+        prepend references = @./geometries.usd@</Geometries/storage_collision_1>
+    )
+    {
+        over "storage_collision_1" (
+            apiSchemas = ["PhysicsCollisionAPI", "NewtonCollisionAPI", "PhysicsMeshCollisionAPI", "NewtonMeshCollisionAPI"]
+        )
+        {
+            token physics:approximation = "convexHull"
+            token purpose = "guide"
+        }
+    }
+
+    def Xform "storage_collision_2" (
+        prepend references = @./geometries.usd@</Geometries/storage_collision_2>
+    )
+    {
+        over "storage_collision_2" (
+            apiSchemas = ["PhysicsCollisionAPI", "NewtonCollisionAPI", "PhysicsMeshCollisionAPI", "NewtonMeshCollisionAPI"]
+        )
+        {
+            token physics:approximation = "convexHull"
+            token purpose = "guide"
+        }
+    }
+
+    def Xform "storage_collision_3" (
+        prepend references = @./geometries.usd@</Geometries/storage_collision_3>
+    )
+    {
+        over "storage_collision_3" (
+            apiSchemas = ["PhysicsCollisionAPI", "NewtonCollisionAPI", "PhysicsMeshCollisionAPI", "NewtonMeshCollisionAPI"]
+        )
+        {
+            token physics:approximation = "convexHull"
+            token purpose = "guide"
+        }
+    }
+
+    def Xform "storage_collision_4" (
+        prepend references = @./geometries.usd@</Geometries/storage_collision_4>
+    )
+    {
+        over "storage_collision_4" (
+            apiSchemas = ["PhysicsCollisionAPI", "NewtonCollisionAPI", "PhysicsMeshCollisionAPI", "NewtonMeshCollisionAPI"]
+        )
+        {
+            token physics:approximation = "convexHull"
+            token purpose = "guide"
+        }
+    }
+
+    def Xform "storage_collision_5" (
+        prepend references = @./geometries.usd@</Geometries/storage_collision_5>
+    )
+    {
+        over "storage_collision_5" (
+            apiSchemas = ["PhysicsCollisionAPI", "NewtonCollisionAPI", "PhysicsMeshCollisionAPI", "NewtonMeshCollisionAPI"]
+        )
+        {
+            token physics:approximation = "convexHull"
+            token purpose = "guide"
+        }
+    }
+
+    def Xform "storage_collision_6" (
+        prepend references = @./geometries.usd@</Geometries/storage_collision_6>
+    )
+    {
+        over "storage_collision_6" (
+            apiSchemas = ["PhysicsCollisionAPI", "NewtonCollisionAPI", "PhysicsMeshCollisionAPI", "NewtonMeshCollisionAPI"]
+        )
+        {
+            token physics:approximation = "convexHull"
+            token purpose = "guide"
+        }
+    }
+
+    def Xform "storage_collision_7" (
+        prepend references = @./geometries.usd@</Geometries/storage_collision_7>
+    )
+    {
+        over "storage_collision_7" (
+            apiSchemas = ["PhysicsCollisionAPI", "NewtonCollisionAPI", "PhysicsMeshCollisionAPI", "NewtonMeshCollisionAPI"]
+        )
+        {
+            token physics:approximation = "convexHull"
+            token purpose = "guide"
+        }
+    }
+
+    def Xform "storage_collision_8" (
+        prepend references = @./geometries.usd@</Geometries/storage_collision_8>
+    )
+    {
+        over "storage_collision_8" (
+            apiSchemas = ["PhysicsCollisionAPI", "NewtonCollisionAPI", "PhysicsMeshCollisionAPI", "NewtonMeshCollisionAPI"]
+        )
+        {
+            token physics:approximation = "convexHull"
+            token purpose = "guide"
+        }
+    }
+
     def Xform "wheel_left_link" (
         prepend references = @./geometries.usd@</Geometries/wheel_left_link>
     )
