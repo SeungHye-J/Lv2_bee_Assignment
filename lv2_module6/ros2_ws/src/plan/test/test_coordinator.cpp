@@ -5,6 +5,7 @@
 #include <thread>
 
 #include "plan/coordinator.hpp"
+#include "plan/vlm_task_planner.hpp"
 
 using namespace plan;  // 노드 클래스·메시지 별칭 (include/plan/*.hpp)
 
@@ -70,7 +71,7 @@ TEST_F(RosTest, ManualModeStopsRunningPlan) {
   const auto latched = rclcpp::QoS(10).reliable().transient_local();
   auto objects_pub = probe->create_publisher<TrackedObjectArray>("/tracked_objects", rclcpp::QoS(5).reliable());
   auto goals_pub = probe->create_publisher<SubGoalArray>("/sub_goals", latched);
-  auto mode_pub = probe->create_publisher<std_msgs::msg::String>("/operation_mode", rclcpp::QoS(1).reliable().transient_local());
+  auto mode_pub = probe->create_publisher<std_msgs::msg::String>("/state/operation_mode", rclcpp::QoS(1).reliable().transient_local());
   std::vector<TaskStatus> got;
   auto sub = probe->create_subscription<TaskStatus>("/task_status", latched,
     [&](TaskStatus::SharedPtr m) { got.push_back(*m); });
@@ -99,4 +100,38 @@ TEST_F(RosTest, ManualModeStopsRunningPlan) {
   mode_pub->publish(manual);
   ASSERT_TRUE(spin_until(exec, [] {},
     [&]() { for (auto & s : got) if (s.plan_id == 8 && s.reason == "manual_override") return true; return false; }));
+}
+
+// 적재함 (MISSION ③): 칸 파라미터 해석 · 같은 곳 여러 개 비켜 놓기 · MOVE_TO_B 템플릿 = 싣고(place tray) → 이동 → 꺼내서(pick tray) 내려놓기
+TEST(Tray, SlotsAndSpread) {
+  const auto slots = tray_slots({-0.14, 0.05, -0.095, -0.05, 9.0});  // 홀수 — 마지막 버림
+  ASSERT_EQ(slots.size(), 2u);
+  EXPECT_DOUBLE_EQ(slots[1].first, -0.095);
+  EXPECT_EQ(spread_offset(0, 0.08), std::make_pair(0.0, 0.0));
+  EXPECT_EQ(spread_offset(1, 0.08), std::make_pair(0.0, 0.08));
+  EXPECT_EQ(spread_offset(2, 0.08), std::make_pair(0.0, -0.08));
+  EXPECT_EQ(spread_offset(9, 0.08), std::make_pair(0.0, 0.0));     // 9개째부터 한 칸 바깥 고리 — 0은 가운데 그대로
+  EXPECT_EQ(spread_offset(10, 0.08), std::make_pair(0.0, 0.16));
+}
+
+TEST(Tray, MoveToBTemplate) {
+  TrackedObjectArray objs;
+  for (uint32_t id : {11u, 12u, 13u, 14u, 15u}) {
+    perception::msg::TrackedObject o;
+    o.id = id;
+    o.class_name = "puck";
+    objs.objects.push_back(o);
+  }
+  const auto g = move_to_b_goals(objs, "7", 4);  // 퍽 5개지만 적재함 4칸 — 4개만
+  ASSERT_EQ(g.size(), 4u * 3 + 1 + 4u * 2);
+  EXPECT_EQ(g[0].skill, "navigate");
+  EXPECT_EQ(g[1].skill, "pick");
+  EXPECT_EQ(g[1].target, "11");
+  EXPECT_EQ(g[2].skill, "place");
+  EXPECT_EQ(g[2].target, "tray");
+  EXPECT_EQ(g[12].skill, "navigate");
+  EXPECT_EQ(g[12].target, "7");
+  EXPECT_EQ(g[13].target, "tray");   // 꺼내기
+  EXPECT_EQ(g[14].target, "7");      // 구역에 내려놓기
+  for (size_t i = 0; i < g.size(); ++i) EXPECT_EQ(g[i].step, i + 1);
 }

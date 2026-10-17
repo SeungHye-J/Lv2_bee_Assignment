@@ -1,4 +1,4 @@
-# Nav2 서버 전체 파라미터 — ros_system.launch.py use_nav2:=true 일 때 navigation_launch.py가 읽는다
+# Nav2 서버 전체 파라미터 — ros_system.launch.py(use_nav2:=true, 기본)가 서버를 직접 띄우며 넘긴다 (nav2_bringup navigation_launch는 안 씀)
 # 설계: documents/ros2-design/04-nav.md (Nav2) · 06-base.md (속도 체인 · collision_monitor) · API.md §2·§3·§5
 # 속도 체인 (API.md:159):
 #   controller_server·behavior_server → /cmd_vel_nav → rl_nav_correction → /cmd_vel_corrected
@@ -23,6 +23,9 @@ bt_navigator:
     bt_loop_duration: 10
     # BT 노드가 액션 서버(planner·controller·behavior)를 기다리는 기본 시간(ms).
     default_server_timeout: 20
+    # BT를 만들 때 BT 노드가 쓰는 서비스(planner_server의 is_path_valid 등)를 기다리는 시간(ms). 기본 1000ms —
+    # 기동 직후 부하로 1초 안에 안 보이면 bt_navigator 활성화가 실패해 Nav2 전체가 중단됐음(실측) → 10초
+    wait_for_service_timeout: 10000
     # 띄울 내비게이터 목록. coordinator는 navigate_to_pose만 쓴다 (navigate_through_poses는 뺌).
     #   이름은 기본값 그대로 — 액션 이름 /navigate_to_pose와 연결된다.
     navigators: ["navigate_to_pose"]
@@ -31,6 +34,8 @@ bt_navigator:
       plugin: "nav2_bt_navigator::NavigateToPoseNavigator"
     # TODO(권형중): BackUp 0.1m 제한한 BT XML → default_nav_to_pose_bt_xml
     #   기본 BT는 복구 때 0.30m 후진 — pole_cam이 뒤를 못 봐서 위험 (15-changes #23)
+    # 행동 트리 default_nav_to_pose_bt_xml = config/navigate_to_pose.xml — 파일 경로라 ros_system.launch.py가 넘긴다.
+    #   기본 BT 복사본에서 복구 후진만 0.30m → 0.10m (pole_cam이 뒤를 못 봐서 벽에 박힘, 15-changes #23)
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -169,3 +174,238 @@ controller_server:
       RotateToGoal.slowing_factor: 5.0
       # 미래 위치로 회전 시작 시점을 미리 판단할 시간(초). -1 = 사용 안 함 (현재 위치로 판단).
       RotateToGoal.lookahead_time: -1.0
+
+
+# ═════════════════════════════════════════════════════════════════════════════
+# 아래는 진짜 Nav2를 faker·시뮬레이터에서도 돌리려고 채운 나머지 서버 (위 두 블록은 feature/nav2-params-config 그대로).
+# ros_system.launch.py가 서버를 직접 띄우고 관리자 둘이 올린다 (맨 아래):
+#   lifecycle_manager_base: velocity_smoother · collision_monitor (바퀴 명령 체인 — 지도 없이도)
+#   lifecycle_manager_navigation: planner_server · controller_server · behavior_server · bt_navigator (map 필요)
+# 센서: pole_cam 점구름(/pole_cam/depth/color/points, 하향 RealSense → body_filter가 자기 몸 점을 뺀 points_filtered) 하나 — LiDAR 없음
+# ═════════════════════════════════════════════════════════════════════════════
+
+# ─────────────────────────────────────────────────────────────────────────────
+# planner_server — map 위 전역 경로(/plan). 미로 칸 단위라 NavFn(Dijkstra)이면 충분.
+#   이름 GridBased = 기본 BT(navigate_to_pose_w_replanning_and_recovery)가 부르는 planner_id
+# ─────────────────────────────────────────────────────────────────────────────
+planner_server:
+  ros__parameters:
+    expected_planner_frequency: 5.0
+    planner_plugins: ["GridBased"]
+    GridBased:
+      plugin: "nav2_navfn_planner::NavfnPlanner"
+      # 목표가 벽·팽창 영역 안이면 이 거리(m)까지 가까운 빈 곳으로 대신 감 (퍽 앞 접근 자세가 벽에 붙을 때)
+      tolerance: 0.20
+      use_astar: false
+      allow_unknown: true
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# behavior_server — BT 복구 동작 (Spin · BackUp · Wait). 출력은 controller와 같은 /cmd_vel_nav (launch 리매핑)
+# ─────────────────────────────────────────────────────────────────────────────
+behavior_server:
+  ros__parameters:
+    local_costmap_topic: local_costmap/costmap_raw
+    global_costmap_topic: global_costmap/costmap_raw
+    local_footprint_topic: local_costmap/published_footprint
+    global_footprint_topic: global_costmap/published_footprint
+    cycle_frequency: 10.0
+    behavior_plugins: ["spin", "backup", "wait"]
+    spin:
+      plugin: "nav2_behaviors::Spin"
+    backup:
+      plugin: "nav2_behaviors::BackUp"
+    wait:
+      plugin: "nav2_behaviors::Wait"
+    local_frame: odom
+    global_frame: map
+    robot_base_frame: base_footprint
+    transform_tolerance: 0.2
+    simulate_ahead_time: 2.0
+    max_rotational_vel: 1.0
+    min_rotational_vel: 0.4
+    rotational_acc_lim: 3.2
+    enable_stamped_cmd_vel: true
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# local_costmap — 로봇 주변 3×3m (odom 기준, 굴러감). controller(DWB)가 장애물 회피에 씀.
+#   VoxelLayer: pole_cam 점구름에서 바닥(0.03m 아래)은 버리고 0.6m까지를 장애물로 — 퍽(높이 3~5cm)도 장애물로 잡힘
+# ─────────────────────────────────────────────────────────────────────────────
+local_costmap:
+  local_costmap:
+    ros__parameters:
+      # 활성화할 때 base_footprint→map/odom TF를 기다리는 시간(초). 기본 60초 안에 안 오면 Nav2 전체 기동이 중단된다 —
+      # 바퀴 컨트롤러(odom TF)가 기동 부하로 늦게 떠도 버티게 길게 (실기 부팅·테스트베드 공통)
+      initial_transform_timeout: 300.0
+      update_frequency: 5.0
+      publish_frequency: 2.0
+      global_frame: odom
+      robot_base_frame: base_footprint
+      rolling_window: true
+      width: 3
+      height: 3
+      resolution: 0.05
+      # 로봇 외곽 반경 (Waffle 폭 0.306 + 상판·팔) — 시뮬레이터 plant.ROBOT_R과 같게
+      robot_radius: 0.18
+      always_send_full_costmap: true
+      plugins: ["voxel_layer", "inflation_layer"]
+      voxel_layer:
+        plugin: "nav2_costmap_2d::VoxelLayer"
+        enabled: true
+        publish_voxel_map: false
+        origin_z: 0.0
+        z_resolution: 0.05
+        z_voxels: 16
+        max_obstacle_height: 0.6
+        mark_threshold: 0
+        observation_sources: pole_cam
+        pole_cam:
+          topic: /pole_cam/depth/color/points_filtered   # control/body_filter가 자기 몸(팔·차체) 점을 뺀 것
+          data_type: "PointCloud2"
+          min_obstacle_height: 0.03
+          max_obstacle_height: 0.6
+          marking: true
+          clearing: true
+          obstacle_min_range: 0.2
+          obstacle_max_range: 2.5
+          raytrace_min_range: 0.2
+          raytrace_max_range: 3.0
+      inflation_layer:
+        plugin: "nav2_costmap_2d::InflationLayer"
+        # 통로 0.73m − 로봇 지름 0.36m → 양쪽 여유 약 0.18m. 팽창이 통로를 다 덮지 않게 작게
+        inflation_radius: 0.25
+        cost_scaling_factor: 8.0
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# global_costmap — map 전체. 정지 지도(/map: 실기 RTAB-Map · 시뮬레이터 map_server) + pole_cam 장애물
+# ─────────────────────────────────────────────────────────────────────────────
+global_costmap:
+  global_costmap:
+    ros__parameters:
+      # 활성화할 때 base_footprint→map/odom TF를 기다리는 시간(초). 기본 60초 안에 안 오면 Nav2 전체 기동이 중단된다 —
+      # 바퀴 컨트롤러(odom TF)가 기동 부하로 늦게 떠도 버티게 길게 (실기 부팅·테스트베드 공통)
+      initial_transform_timeout: 300.0
+      update_frequency: 1.0
+      publish_frequency: 1.0
+      global_frame: map
+      robot_base_frame: base_footprint
+      robot_radius: 0.18
+      resolution: 0.05
+      track_unknown_space: true
+      always_send_full_costmap: true
+      plugins: ["static_layer", "obstacle_layer", "inflation_layer"]
+      static_layer:
+        plugin: "nav2_costmap_2d::StaticLayer"
+        map_subscribe_transient_local: true
+      obstacle_layer:
+        plugin: "nav2_costmap_2d::ObstacleLayer"
+        enabled: true
+        observation_sources: pole_cam
+        pole_cam:
+          topic: /pole_cam/depth/color/points_filtered   # control/body_filter가 자기 몸(팔·차체) 점을 뺀 것
+          data_type: "PointCloud2"
+          min_obstacle_height: 0.03
+          max_obstacle_height: 0.6
+          marking: true
+          clearing: true
+          obstacle_min_range: 0.2
+          obstacle_max_range: 2.5
+          raytrace_min_range: 0.2
+          raytrace_max_range: 3.0
+      inflation_layer:
+        plugin: "nav2_costmap_2d::InflationLayer"
+        inflation_radius: 0.25
+        cost_scaling_factor: 8.0
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# velocity_smoother — twist_mux 출력(/cmd_vel_mux)의 가속을 다듬어 /cmd_vel_smoothed (launch 리매핑)
+#   한계는 FollowPath(프리셋 A)와 같게
+# ─────────────────────────────────────────────────────────────────────────────
+velocity_smoother:
+  ros__parameters:
+    smoothing_frequency: 20.0
+    scale_velocities: false
+    feedback: "OPEN_LOOP"
+    max_velocity: [0.26, 0.0, 1.82]
+    min_velocity: [-0.26, 0.0, -1.82]
+    max_accel: [2.5, 0.0, 3.2]
+    max_decel: [-2.5, 0.0, -3.2]
+    odom_topic: /odometry/filtered
+    odom_duration: 0.1
+    deadband_velocity: [0.0, 0.0, 0.0]
+    # 입력이 이 시간(초) 끊기면 0으로
+    velocity_timeout: 1.0
+    enable_stamped_cmd_vel: true
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# collision_monitor — 맨 마지막 안전장치: /cmd_vel_smoothed → /cmd_vel. pole_cam 점구름 기준 부딪힐 방향만 멈춤(approach) · 가까우면 감속.
+#   학습 보정(rl_nav_correction)까지 다 거친 최종 명령을 거른다 (00-overview "안전장치는 학습 노드보다 뒤")
+#   source_timeout: 점구름이 이만큼 안 오면 정지 — 카메라 끊김 = 멈춤
+# ─────────────────────────────────────────────────────────────────────────────
+collision_monitor:
+  ros__parameters:
+    base_frame_id: base_footprint
+    odom_frame_id: odom
+    cmd_vel_in_topic: /cmd_vel_smoothed
+    cmd_vel_out_topic: /cmd_vel
+    state_topic: collision_monitor_state
+    transform_tolerance: 0.2
+    source_timeout: 1.0
+    base_shift_correction: true
+    stop_pub_timeout: 2.0
+    enable_stamped_cmd_vel: true
+    polygons: ["Approach", "SlowZone"]
+    # approach: 지금 속도로 계속 가면 time_before_collision 안에 몸(반경 0.18 + 2cm)이 점에 닿는 경우에만 그 속도를 줄여 멈춤.
+    #   멀어지는 방향(후진·회전)은 그대로 통과 → 벽에 붙어도 빠져나온다.
+    #   (예전 stop 원 0.22m는 방향과 무관하게 전부 정지 → 벽에 4cm 붙으면 후진도 못 해 갇혔음 — 실측)
+    Approach:
+      type: "circle"
+      radius: 0.20
+      action_type: "approach"
+      time_before_collision: 1.0
+      simulation_time_step: 0.1
+      min_points: 4
+      visualize: true
+      polygon_pub_topic: polygon_approach
+      enabled: true
+    # 0.30m 안이면 절반 속도 (통로 가운데면 벽까지 약 0.37m라 평소엔 안 걸림)
+    SlowZone:
+      type: "circle"
+      radius: 0.30
+      action_type: "slowdown"
+      slowdown_ratio: 0.5
+      min_points: 4
+      visualize: true
+      polygon_pub_topic: polygon_slowdown
+      enabled: true
+    observation_sources: ["pole_cam"]
+    pole_cam:
+      type: "pointcloud"
+      topic: /pole_cam/depth/color/points_filtered   # control/body_filter가 자기 몸(팔·차체) 점을 뺀 것
+      min_height: 0.05
+      max_height: 0.6
+      enabled: true
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# lifecycle 관리자 — 맡은 서버를 순서대로 configure·activate (하나라도 실패하면 그 관리자 것만 중단)
+#   둘로 나눈 이유: 하나로 묶으면 RTAB-Map이 아직 map→odom을 못 낼 때 global_costmap 실패로 바퀴 명령 체인까지
+#   inactive → 수동 조작(→ twist_mux → velocity_smoother → collision_monitor)도 막힘 (실측, map:=slam)
+#   bond_timeout: 활성화한 서버와 이 시간(초) 안에 bond(생존 신호)가 이어지지 않으면 중단.
+#     기동 직후 CPU가 몰리면(진짜 Nav2 + 컨트롤러 + 인지) 10초 안에 신호가 늦게 와서 중단됐음(실측) → 여유 있게
+# ─────────────────────────────────────────────────────────────────────────────
+lifecycle_manager_base:          # 바퀴 명령 체인 — odom TF만 있으면 뜸
+  ros__parameters:
+    autostart: true
+    bond_timeout: 60.0
+    node_names: ["velocity_smoother", "collision_monitor"]
+
+lifecycle_manager_navigation:    # 주행 계획 — map(→odom) 필요
+  ros__parameters:
+    autostart: true
+    bond_timeout: 60.0
+    node_names: ["planner_server", "controller_server", "behavior_server", "bt_navigator"]

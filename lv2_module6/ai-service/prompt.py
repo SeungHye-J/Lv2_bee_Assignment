@@ -6,6 +6,11 @@
 """
 
 ALLOWED = "navigate · pick · place · say"
+# 적재함 (coordinator target "tray") — MISSION ③ MOVE_TO_B는 손에 들고 옮기면 인정 안 됨
+TRAY_RULE = ("적재함: pick·place의 target에 \"tray\"를 쓰면 로봇 뒤 적재함이다 — place tray = 손에 든 퍽을 다음 빈 칸에 싣기, "
+             "pick tray = 실은 퍽을 하나 꺼내기(나중에 실은 것부터). 최대 4개. MOVE_TO_B는 퍽마다 navigate·pick·place tray로 싣고 "
+             "B 지역으로 navigate한 뒤 실은 수만큼 pick tray·place <B 지역 id>로 내려놓는다 (손에 들고 옮기지 말 것). "
+             "같은 곳에 여러 번 place하면 coordinator가 겹치지 않게 비켜 놓는다.")
 HISTORY_N = 20
 HISTORY_CHARS = 500
 
@@ -48,6 +53,7 @@ def build(req, system=""):
             if isinstance(h, dict):
                 text = str(h.get("text", ""))[:HISTORY_CHARS]
                 lines.append(f"  - {h.get('role', '?')}: {text}")
+    lines.append(TRAY_RULE)
     lines.append(f"허용 동작: {ALLOWED}. JSON 배열로만 답하라: "
-                 '[{"step": 1, "skill": "...", "target": "<물체id|말할내용>", "relation": "front|on|", "offset_m": 0.0}]')
+                 '[{"step": 1, "skill": "...", "target": "<물체id|tray|말할내용>", "relation": "front|on|", "offset_m": 0.0}]')
     return "\n".join(lines)
