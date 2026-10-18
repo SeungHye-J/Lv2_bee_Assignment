@@ -58,7 +58,7 @@ private:
 
   void on_command(const char * source, const std::string & text);  // /cmd/user_command · /mission_qr 공통
   void make_plan();                            // 물체 확인 후 VLM 시도 (endpoint 없으면 템플릿 즉시)
-  void make_template(const TrackedObjectArray & objs);  // 고정 4단계 발행
+  void make_template(const TrackedObjectArray & objs, const std::string & cmd);  // 고정 4단계 발행
   void try_vlm_async();                        // 스냅샷 → 별 스레드 POST → 성공 발행·실패 템플릿
 
   static SubGoal goal(uint32_t step, const std::string & skill, const std::string & target,

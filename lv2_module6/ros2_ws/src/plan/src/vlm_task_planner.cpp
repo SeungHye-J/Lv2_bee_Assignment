@@ -458,7 +458,12 @@ void VlmTaskPlanner::make_plan() {
       RCLCPP_WARN_THROTTLE(get_logger(), *get_clock(), 5000, "/tracked_objects에 퍽·목표 구역이 없음 — 계획 보류");
       return;
     }
-    make_template(*objs);
+    std::string cmd;
+    {
+      std::lock_guard<std::mutex> lock(mutex_);
+      cmd = cmd_;
+    }
+    make_template(*objs, cmd);
     return;
   }
   pending_ = true;  // VLM이면 인지 유무와 무관하게 사용자 명령 그대로 전달 (빈 물체+이미지로 판단은 모델 몫)
@@ -477,14 +482,10 @@ void VlmTaskPlanner::on_command(const char * source, const std::string & text) {
   make_plan();
 }
 
-void VlmTaskPlanner::make_template(const TrackedObjectArray & objs) {
+void VlmTaskPlanner::make_template(const TrackedObjectArray & objs, const std::string & cmd) {
+  // cmd는 부르는 쪽이 넘김 — VLM 실패 폴백은 mutex_를 잡은 채 부르므로 여기서 잠그면 교착 (실측: 그 뒤 명령을 못 받았음)
   const auto puck = find_in(objs, "puck"), goal_zone = find_in(objs, "goal_zone");
   if (puck.empty() || goal_zone.empty()) return;  // 물체 사라짐 — 보류 유지
-  std::string cmd;
-  {
-    std::lock_guard<std::mutex> lock(mutex_);
-    cmd = cmd_;
-  }
   pending_ = false;
   SubGoalArray plan;
   plan.header.stamp = now();
@@ -541,7 +542,7 @@ void VlmTaskPlanner::try_vlm_async() {
           RCLCPP_INFO(get_logger(), "/sub_goals plan=%u (say, VLM 거절) [vlm]", plan.plan_id);
         } else if (!ok) {
           RCLCPP_WARN(get_logger(), "VLM 실패 — 템플릿 폴백");
-          make_template(objs);
+          make_template(objs, cmd);
         } else {
           pending_ = false;
           SubGoalArray plan;

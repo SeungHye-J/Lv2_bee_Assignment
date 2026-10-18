@@ -23,12 +23,12 @@ import os
 import yaml
 from ament_index_python.packages import get_package_share_directory
 from launch import LaunchDescription
-from launch.actions import DeclareLaunchArgument, IncludeLaunchDescription, RegisterEventHandler
+from launch.actions import DeclareLaunchArgument, GroupAction, IncludeLaunchDescription, RegisterEventHandler
 from launch.conditions import IfCondition
 from launch.event_handlers import OnProcessExit
 from launch.launch_description_sources import PythonLaunchDescriptionSource
 from launch.substitutions import Command, LaunchConfiguration, PathJoinSubstitution, PythonExpression
-from launch_ros.actions import Node
+from launch_ros.actions import Node, SetRemap
 from launch_ros.parameter_descriptions import ParameterValue
 from launch_ros.substitutions import FindPackageShare
 
@@ -179,34 +179,39 @@ def generate_launch_description():
         # 설계 3-1: 하향 카메라라 시각 오도메트리 끔, x·y·yaw만 (Reg/Force3DoF)
         # 격자(/map)는 body_filter가 자기 몸을 뺀 점구름으로 (Grid/Sensor 0 = scan_cloud). depth 영상(Grid/Sensor 1)으로 만들면
         # pole_cam에 찍힌 팔이 로봇 둘레 벽으로 남아 출발점이 늘 장애물 → planner가 매번 실패, 자동 탐사가 한 곳도 못 감 (실측)
-        IncludeLaunchDescription(
-            PythonLaunchDescriptionSource(PathJoinSubstitution(
-                [FindPackageShare('rtabmap_launch'), 'launch', 'rtabmap.launch.py'])),
-            condition=IfCondition(LaunchConfiguration('use_rtabmap')),
-            launch_arguments={
-                'rgb_topic': '/pole_cam/color/image_raw',
-                'depth_topic': '/pole_cam/aligned_depth_to_color/image_raw',
-                'camera_info_topic': '/pole_cam/color/camera_info',
-                'subscribe_scan_cloud': 'true',
-                'scan_cloud_topic': '/pole_cam/depth/color/points_filtered',
-                'frame_id': 'base_footprint',
-                'odom_topic': '/odometry/filtered',
-                # odom은 토픽 대신 TF(odom→base_footprint, EKF)에서 영상 시각으로 읽음 — 토픽 동기화는 odom 50Hz·큐 10(=0.2초)이라
-                # 영상이 그보다 늦게 오면(카메라 지연·렌더 지연 ~1초 실측) 묶음이 안 맞아 'Did not receive data'로 지도를 못 만듦
-                'odom_frame_id': 'odom',
-                'visual_odometry': 'false',
-                'approx_sync': 'true',
-                'qos': '2',  # best effort 구독 — 카메라가 best effort(fake_camera SensorData)든 reliable이든 받음 (1=reliable이면 best effort 발행을 못 받음)
-                'localization': LaunchConfiguration('localization'),
-                'database_path': LaunchConfiguration('rtabmap_db'),
-                'map_topic': '/map',  # 기본은 이름공간 안 /rtabmap/map — Nav2 global costmap · 시뮬레이터는 /map
-                # 매핑 모드면 DB를 새로 (--delete_db_on_start). localization 값은 'true'·'True' 둘 다 올 수 있어 lower()
-                'rtabmap_args': PythonExpression(["'--Reg/Force3DoF true --Grid/Sensor 0' + ('' if '",
-                                                  LaunchConfiguration('localization'),
-                                                  "'.lower() == 'true' else ' --delete_db_on_start')"]),
-                'rviz': 'false',
-                'rtabmap_viz': 'false',
-            }.items()),
+        # 초기 위치: RTAB-Map은 이름공간 안 /rtabmap/initialpose를 구독 → 표준 /initialpose로 (RViz '2D Pose Estimate' · 시뮬레이터 지도
+        # 우클릭 '초기 위치 지정'). 위치추정 모드에서 위치를 잃었을 때 "여기쯤"이라고 알려 줌
+        GroupAction([
+            SetRemap(src='/rtabmap/initialpose', dst='/initialpose'),
+            IncludeLaunchDescription(
+                PythonLaunchDescriptionSource(PathJoinSubstitution(
+                    [FindPackageShare('rtabmap_launch'), 'launch', 'rtabmap.launch.py'])),
+                condition=IfCondition(LaunchConfiguration('use_rtabmap')),
+                launch_arguments={
+                    'rgb_topic': '/pole_cam/color/image_raw',
+                    'depth_topic': '/pole_cam/aligned_depth_to_color/image_raw',
+                    'camera_info_topic': '/pole_cam/color/camera_info',
+                    'subscribe_scan_cloud': 'true',
+                    'scan_cloud_topic': '/pole_cam/depth/color/points_filtered',
+                    'frame_id': 'base_footprint',
+                    'odom_topic': '/odometry/filtered',
+                    # odom은 토픽 대신 TF(odom→base_footprint, EKF)에서 영상 시각으로 읽음 — 토픽 동기화는 odom 50Hz·큐 10(=0.2초)이라
+                    # 영상이 그보다 늦게 오면(카메라 지연·렌더 지연 ~1초 실측) 묶음이 안 맞아 'Did not receive data'로 지도를 못 만듦
+                    'odom_frame_id': 'odom',
+                    'visual_odometry': 'false',
+                    'approx_sync': 'true',
+                    'qos': '2',  # best effort 구독 — 카메라가 best effort(fake_camera SensorData)든 reliable이든 받음 (1=reliable이면 best effort 발행을 못 받음)
+                    'localization': LaunchConfiguration('localization'),
+                    'database_path': LaunchConfiguration('rtabmap_db'),
+                    'map_topic': '/map',  # 기본은 이름공간 안 /rtabmap/map — Nav2 global costmap · 시뮬레이터는 /map
+                    # 매핑 모드면 DB를 새로 (--delete_db_on_start). localization 값은 'true'·'True' 둘 다 올 수 있어 lower()
+                    'rtabmap_args': PythonExpression(["'--Reg/Force3DoF true --Grid/Sensor 0' + ('' if '",
+                                                      LaunchConfiguration('localization'),
+                                                      "'.lower() == 'true' else ' --delete_db_on_start')"]),
+                    'rviz': 'false',
+                    'rtabmap_viz': 'false',
+                }.items()),
+        ]),
 
         *nav2_nodes(),
     ])

@@ -1883,7 +1883,32 @@ class App:
                          command=lambda: self.navigate_to(x, y))
         if self.nav_goal_id:
             menu.add_command(label='이동 취소', command=self.cancel_navigation)
+        # 초기 위치 — 위치추정(RTAB-Map)이 위치를 잃었을 때 "로봇은 여기"라고 알려 줌 (/initialpose → RTAB-Map, RViz 2D Pose Estimate와 같음)
+        menu.add_command(label='여기가 로봇 위치 (초기 위치 지정 /initialpose)' + ('' if mode == 'LOCALIZATION' else f' — 지도 모드 {mode} (위치추정에서)'),
+                         state=tk.NORMAL if mode == 'LOCALIZATION' else tk.DISABLED,
+                         command=lambda: self.set_initial_pose(x, y))
         menu.tk_popup(e.x_root, e.y_root)
+
+    def to_map(self, x, y):
+        """미로(시뮬레이터 지도) 좌표 → map 좌표 + 회전각 (RTAB-Map map→odom 보정 반영 — map_to_world의 역변환)"""
+        tx, ty, th = self.view.map_to_world()
+        dx, dy = x - tx, y - ty
+        return math.cos(th) * dx + math.sin(th) * dy, -math.sin(th) * dx + math.cos(th) * dy, th
+
+    def set_initial_pose(self, x, y):
+        """[초기 위치 지정] → /initialpose (geometry_msgs/PoseWithCovarianceStamped, map) — 위치는 클릭한 곳,
+        방향은 지금 실제 로봇 방향 (시뮬레이터는 진짜를 앎 · 실기라면 사람이 보고 정함). 공분산 = 위치 0.05m² · 방향 0.07rad²"""
+        mx, my, th = self.to_map(x, y)
+        yaw = self.sim.robot_xy_yaw()[2] - th
+        cov = [0.0] * 36
+        cov[0] = cov[7] = 0.05
+        cov[35] = 0.07
+        send('/initialpose', 'geometry_msgs/msg/PoseWithCovarianceStamped', {
+            'header': {'stamp': {'sec': 0, 'nanosec': 0}, 'frame_id': 'map'},
+            'pose': {'pose': {'position': {'x': round(mx, 3), 'y': round(my, 3), 'z': 0.0},
+                              'orientation': {'x': 0.0, 'y': 0.0, 'z': math.sin(yaw / 2), 'w': math.cos(yaw / 2)}},
+                     'covariance': cov}})
+        self.sent.config(text=f'요청: 초기 위치 (map {mx:+.2f}, {my:+.2f}, {math.degrees(yaw):+.0f}°) — /initialpose → RTAB-Map')
 
     def current_urdf(self):
         """지금 돌고 있는 로봇 모델 폴더 — /robot_description 메시 경로 package://ros_system/urdf/<폴더>/meshes 에서.
