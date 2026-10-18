@@ -349,7 +349,7 @@ cd ros2_ws-<RUN ID>
 1. 로봇(SBC)과 PC를 **같은 네트워크 · 같은 `ROS_DOMAIN_ID=6`** 에 둔다. 로봇은 `ROS_AUTOMATIC_DISCOVERY_RANGE`를 LOCALHOST로 두지 않는다 (기본 SUBNET).
 2. PC에서 파일 연동 노드만 띄운다: `monitor_manager` · `input_manager` · `service_action_input` · `service_action_monitor` (`debug_dir` = 시뮬레이터의 `lv2_module6/debug`).
    카메라 원본(무압축 영상)은 네트워크가 무거우니 `monitor_manager raw_images:=false`.
-3. 로봇은 `./start.sh` — 버튼은 테스트베드와 같다: [스캔 시작]·[위치추정으로](`/cmd/map_mode`) · 지도 목록(`/cmd/map_name`) · [지도 저장] · 오른쪽 클릭 [여기로 이동](Nav2).
+3. 로봇은 `./start.sh` — 버튼은 테스트베드와 같다: [스캔 시작]·[위치추정으로](`/cmd/map_mode`) · 지도 목록(`/cmd/map_name`) · [지도 저장] · 오른쪽 클릭 [여기로 이동](Nav2) · [여기가 로봇 위치](`/initialpose` → RTAB-Map — launch가 `/rtabmap/initialpose`를 `/initialpose`로 리매핑).
 
 지도 처리는 **bringup**에 있다 (실기·테스트베드 공통 — faker는 bringup을 그대로 포함하고 대역 인자만 덮어씀):
 ```bash
