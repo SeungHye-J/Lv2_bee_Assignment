@@ -22,6 +22,8 @@
 #include "rclcpp/rclcpp.hpp"
 #include "sensor_msgs/msg/image.hpp"
 #include "std_msgs/msg/string.hpp"
+#include "tf2_ros/buffer.h"
+#include "tf2_ros/transform_listener.h"
 
 namespace plan {
 
@@ -47,6 +49,12 @@ struct ImageFrame {
 // MISSION ③ MOVE_TO_B 템플릿 — 퍽(최대 capacity개)마다 navigate·pick·place tray → navigate zone → (pick tray · place zone)×개수
 std::vector<SubGoal> move_to_b_goals(const TrackedObjectArray & objs, const std::string & zone, int capacity);
 
+// 계획 요청에 실을 로봇 위치 (map) — ok=false면 뺌
+struct RobotPose {
+  bool ok = false;
+  double x = 0, y = 0, yaw = 0;
+};
+
 class VlmTaskPlanner : public rclcpp::Node {
 public:
   VlmTaskPlanner();
@@ -58,16 +66,20 @@ private:
 
   void on_command(const char * source, const std::string & text);  // /cmd/user_command · /mission_qr 공통
   void make_plan();                            // 물체 확인 후 VLM 시도 (endpoint 없으면 템플릿 즉시)
-  void make_template(const TrackedObjectArray & objs);  // 고정 4단계 발행
+  void make_template(const TrackedObjectArray & objs, const std::string & cmd);  // 고정 4단계 발행
   void try_vlm_async();                        // 스냅샷 → 별 스레드 POST → 성공 발행·실패 템플릿
 
   static SubGoal goal(uint32_t step, const std::string & skill, const std::string & target,
     const std::string & relation, float offset);
 
   // ai-service 계약 (POST /plan → {"ok","goals"}) — 의존성 없이 소켓+최소 파서
+  //   objects[]: /tracked_objects 그대로의 뜻 — id · class_name · position(map) · size · confidence · color ·
+  //              camera · px {카메라: [u, v]} (ai-service images.py가 그 카메라 영상에 번호를 찍는 형식)
+  //   robot: 로봇 위치 {x, y, yaw} (map, TF map→base_footprint) — VLM이 물체까지 거리를 보고 navigate를 넣게. TF 없으면 뺌
   static std::string plan_request(
     const std::string & cmd, const TrackedObjectArray & objs, const ReplanInfo & rp,
-    const std::vector<ImageFrame> & imgs);
+    const std::vector<ImageFrame> & imgs, const RobotPose & robot = {});
+  RobotPose robot_pose() const;
   static bool fetch_goals(const std::string & endpoint, const std::string & body,
     std::vector<SubGoal> & goals, double timeout_s, std::string * err = nullptr);
   // 320px JPEG base64 (ai-service images[]용) — OpenCV 의존
@@ -86,6 +98,8 @@ private:
   TrackedObjectArray::ConstSharedPtr objects_;
   std::string last_objs_sig_;  // 마지막으로 계획 시도한 물체 집합 — 같으면 재시도 안 함 (VLM 폭주 방지)
   std::map<std::string, sensor_msgs::msg::Image::ConstSharedPtr> images_;  // 카메라별 최신 1장
+  std::unique_ptr<tf2_ros::Buffer> tf_buffer_;
+  std::shared_ptr<tf2_ros::TransformListener> tf_listener_;
   std::mutex mutex_;  // cmd_·replan_·objects_·images_·발행 결정 (구독 콜백 ↔ 워커)
   rclcpp::Publisher<SubGoalArray>::SharedPtr goals_pub_;
   rclcpp::Subscription<std_msgs::msg::String>::SharedPtr cmd_sub_;

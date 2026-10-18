@@ -61,10 +61,10 @@ cd docker && docker compose exec -u root lyrical bash -c "chown -R 1000:1000 /de
 | `test-packages [패키지...]` | colcon build + 패키지별 테스트 (`colcon test`). 예) `test-packages plan` |
 | `test-hardware` | controller_manager를 실기 모드(`mock_hardware:=false`)로 가상 시리얼에 붙여 펌웨어 프로토콜 확인 (C 명령 송신 · S 상태 → `/joint_states`) |
 | `test-bringup` | 🛠 노드가 모두 뜨는지 (perception · user_input · vlm_task_planner · coordinator · arm_safety_monitor · manual_control · body_filter · state_manager) |
-| `test-faker [초\|0] [launch 인자]` | 더미로 전체 흐름 → `/task_status` SUCCEEDED면 PASS. `0`이면 띄워 두기 (Ctrl+C 종료, 시뮬레이터 [ROS 재시작] = `/cmd/restart`로 ROS 전부 껐다 다시 띄움). 기본은 fake_opencr가 가상 시리얼 반대편 OpenCR 역할 (`mock_hardware:=true`면 OpenCR 없이 mock — 물리 없음), `ml:=real`이면 ML 대역 대신 진짜 ml 노드. 지도 `map:=course`(기본, 코스 지도 외움) · `map:=slam`(RTAB-Map 스캔 → 새 폴더 `ros2_ws/map/<날짜_시각>/rtabmap.db`) · `map:=saved`(저장 지도로 위치추정 — default 폴더, 없으면 가장 최근, `map_name:=<폴더>`로 고름) |
+| `test-faker [초\|0] [launch 인자]` | 더미로 전체 흐름 → `/task_status` SUCCEEDED면 PASS. `0`이면 띄워 두기 (Ctrl+C 종료, 시뮬레이터 [ROS 재시작] = `/cmd/restart all` → state_manager가 ROS 전부 껐다 `build-ws` 후 같은 인자로 다시 띄움 — 다시 뜬 launch가 끝날 때까지 기다림). 기본은 fake_opencr가 가상 시리얼 반대편 OpenCR 역할 (`mock_hardware:=true`면 OpenCR 없이 mock — 물리 없음), `ml:=real`이면 ML 대역 대신 진짜 ml 노드. 지도 `map:=course`(기본, 코스 지도 외움) · `map:=slam`(RTAB-Map 스캔 → 새 폴더 `ros2_ws/map/<날짜_시각>/rtabmap.db`) · `map:=saved`(저장 지도로 위치추정 — default 폴더, 없으면 가장 최근, `map_name:=<폴더>`로 고름) |
 | `ros-kill` | ROS 전부 끄기 + 캐시 정리: launch에 SIGINT → 최대 20초 대기(RTAB-Map DB 닫기) → 안 죽은 것만 SIGKILL → ros2 daemon stop · `/dev/shm/fastdds_*` 삭제 |
 | `ros-restart [launch 인자]` | **진짜 bringup** 다시 띄우기: `ros-kill` → `build-ws` → `ros2 launch bringup bringup.launch.py [인자]` (🛠 노드 + ros_system 📦, Ctrl+C 종료, 로그 `/tmp/bringup.log`). 컨테이너엔 RealSense·OpenCR가 없으니 보통 `use_ros_system:=false` |
-| `ros-faker-restart [launch 인자]` | **테스트베드(faker)** 다시 띄우기: 띄워 둔 `test-faker 0`이 있으면 거기에 재시작 요청(`/cmd/restart` — 시뮬레이터 [ROS 재시작]과 같음) → `ros-kill` · `build-ws`(고친 코드·설정 반영) · 다시 띄움, 없으면 `ros-kill` 후 `test-faker 0 [인자]` |
+| `ros-faker-restart [launch 인자]` | **테스트베드(faker)** 다시 띄우기: state_manager가 떠 있으면 `/cmd/restart all [인자]` 요청(시뮬레이터 [ROS 재시작]과 같음 — 끄고 `build-ws` 후 같은 인자로), ROS가 막혀 state_manager가 없으면 `ros-kill` 후 `test-faker 0 [인자]` |
 | (기록) | `test-faker` 실행 중 **monitor_manager**(노드 하나)가 남김 (시작할 때 `output/topic/`·`topic/`·`node/`·`pkg/`를 비우고 새로 — 지난 실행 값이 남지 않게, `input/`·`output/hardware/`는 그대로): `output/topic/<토픽>/message`·`image.jpg`, `topic/<토픽>/info`·`type`·`topic/list`, `node/<노드>/info`·`params`·`node/list`, `pkg/<패키지>/prefix`·`executables`·`pkg/list` (예전 test-logger — 토픽마다 ros2 CLI를 띄워 CPU를 먹어서 없앰). 빌드 뒤 `install/` 실파일 복사본은 `debug/install` (`build-ws`) |
 
 ```bash
@@ -113,7 +113,7 @@ source install/setup.bash                                   # 빌드 후 새 셸
     ros-lyrical-nav2-dwb-controller ros-lyrical-nav2-behaviors ros-lyrical-nav2-costmap-2d \
     ros-lyrical-nav2-velocity-smoother ros-lyrical-nav2-collision-monitor ros-lyrical-nav2-map-server \
     ros-lyrical-moveit-ros-move-group ros-lyrical-moveit-kinematics ros-lyrical-moveit-planners-ompl \
-    ros-lyrical-moveit-simple-controller-manager ros-lyrical-rtabmap-ros ros-lyrical-ament-cmake-pytest
+    ros-lyrical-moveit-simple-controller-manager ros-lyrical-rtabmap-msgs ros-lyrical-rtabmap-ros ros-lyrical-ament-cmake-pytest
   ```
   위 목록 = `docker/Dockerfile`의 apt 목록 (그게 컨테이너 정본 — Dockerfile에 추가하면 여기도 같이 고친다).
   pick_ik(MoveIt IK)는 Lyrical apt에 없어 소스 빌드 (Dockerfile과 같은 커밋):
@@ -220,7 +220,7 @@ Python 노드(perception)는 **pytest**(`ament_cmake_pytest` + `test/test_node.p
 
 | 패키지 | 테스트 | 확인하는 것 |
 | --- | --- | --- |
-| perception | `test/test_node.py` (pytest, YOLO 없이 빈 발행·진단) | 모델 없이도 노드가 떠서 빈 `/tracked_objects`가 나온다 |
+| perception | `test/test_node.py` (pytest, YOLO 없이 빈 발행·진단) | 모델 없이도 노드가 떠서 빈 `/tracked_objects`가 나온다 · QR · 색 분류 · 영상 시각 TF(없으면 최신으로) · 두 카메라 융합(오차 축소 · 1:1 배정 · 클래스 분리) |
 | control | `test/test_arm_safety_monitor.cpp` | 전류 과다가 0.1초 넘게 이어지면 `/arm_safety_event` |
 | control | `test/test_manual_control.cpp` | `/state/operation_mode`가 MANUAL일 때만 `/cmd/manual/cmd_vel` → `/cmd_vel_manual` |
 | manager | `test/test_state_manager.cpp` | `/cmd/operation_mode` → `/state/operation_mode` · `/cmd/map_mode` → RTAB-Map 응답 뒤 `/state/map_mode` (서버 없거나 COURSE면 그대로) |
@@ -297,6 +297,20 @@ xacro /ws/urdf/beebot_mesh/urdf.xacro mock_hardware:=true > /tmp/beebot.urdf && 
 - **재시작이 필요한 것**: 코스 ↔ RTAB-Map — 노드 구성이 다르고(`/map`·`map→odom`을 map_server와 RTAB-Map이 같이 내면 안 됨) launch는 시작 때 노드를 정한다.
   시뮬레이터에서 코스 모드일 때 [스캔 시작]·[위치추정으로]·지도 고르기를 누르면 확인 창 → `/cmd/restart`(`map:=slam` / `map:=saved [map_name:=…]`).
 - 상태: `/state/map_mode` · `/state/map_name`(지금 지도 폴더) · `/state/map_list`(가진 지도 폴더) — 전부 state_manager.
+- **카메라 두 대로 지도** (RTAB-Map — `ros_system.launch.py` `rtabmap_nodes()`): 지도를 만들 때(MAPPING · 자동 탐사) coordinator가 팔을
+  **스캔 자세**(`ros_system/config/scan_pose.yaml` — 팔을 낮춰 왼쪽 뒤로, gripper_cam이 왼쪽 뒤를 20° 내려다봄 · pole_cam 앞 시야를 안 가림)로
+  보내고, `scan_cam_gate`가 팔이 그 자세에 멈춰 있을 때만 gripper_cam depth를 넘김(아니면 0 — 지도를 안 망치고 동기화도 안 끊김).
+  pole_cam · gripper_cam → `rgbd_sync` ×2 → `rgbdx_sync` → rtabmap(`rgbd_images`). 점구름도 둘 다: 몸 뺀 pole_cam +
+  gripper_cam(게이트 — 스캔 자세일 때만, 카메라 0.5m 안 = 손가락·폴대·적재함은 뺌) → `point_cloud_aggregator` → `/rtabmap/scan_cloud` (격자 `/map` · ICP).
+  **MAPPING 동안 팔 수동 조작 금지**: coordinator가 수동 모드여도 스캔 자세로 보냄(스캔은 보통 수동 주행) · `/cmd/manual/arm` 팔 관절(manual_control)과
+  시뮬레이터 MoveIt 팔 목표(service_action_input `/move_action`)는 거절 — 그리퍼만 됨. [위치추정으로] 뒤에 조작.
+  회전 시험(새 지도 · 제자리 3바퀴 · 전진 · 반대 3바퀴, 실측 2026-10-19): 지도 위 로봇 방향 오차 카메라 하나 −2.4°/−1.1°/−2.1° → 두 대 +0.6°/−0.4°/−0.1°.
+  남은 것: 지금 설정이 엄격해 클로저를 거의 받지 않음 — 지도 ≈ EKF(odom). 짧은 매핑엔 좋으나 오래 돌면 자이로 오차가 쌓여도 안 고침.
+- **재시작** (`/cmd/restart` → state_manager, 실기·테스트베드 같음 — 결과 `/state/restart`):
+  `ros2 topic pub --once /cmd/restart std_msgs/msg/String "{data: 'all'}"` (이 launch 전체, 같은 인자) · `"{data: 'all map:=slam'}"` (그 인자만 바꿔) ·
+  `"{data: 'node perception'}"` (그 노드만, 같은 파라미터). 분리된 도우미가 끄고 띄움 — launch에 SIGINT → 3초 안에 안 꺼지면 SIGTERM + 노드에 직접 SIGINT
+  (셸이 `&`로 띄운 launch는 SIGINT를 무시하고, SIGTERM을 받은 launch는 노드를 고아로 남김 — 실측) → `restart_wait_s` 넘으면 SIGKILL → 다시.
+  `node`로 다시 띄운 노드는 launch 자식이 아니라 `restart_registry` 파일에 적어 두고 다음 `all`·`node` 때 같이 다룸.
 
 ## 10. OpenCR 펌웨어 (`firmware/`)
 
@@ -349,7 +363,7 @@ cd ros2_ws-<RUN ID>
 1. 로봇(SBC)과 PC를 **같은 네트워크 · 같은 `ROS_DOMAIN_ID=6`** 에 둔다. 로봇은 `ROS_AUTOMATIC_DISCOVERY_RANGE`를 LOCALHOST로 두지 않는다 (기본 SUBNET).
 2. PC에서 파일 연동 노드만 띄운다: `monitor_manager` · `input_manager` · `service_action_input` · `service_action_monitor` (`debug_dir` = 시뮬레이터의 `lv2_module6/debug`).
    카메라 원본(무압축 영상)은 네트워크가 무거우니 `monitor_manager raw_images:=false`.
-3. 로봇은 `./start.sh` — 버튼은 테스트베드와 같다: [스캔 시작]·[위치추정으로](`/cmd/map_mode`) · 지도 목록(`/cmd/map_name`) · [지도 저장] · 오른쪽 클릭 [여기로 이동](Nav2).
+3. 로봇은 `./start.sh` — 버튼은 테스트베드와 같다: [스캔 시작]·[위치추정으로](`/cmd/map_mode`) · 지도 목록(`/cmd/map_name`) · [지도 저장] · 오른쪽 클릭 [여기로 이동](Nav2) · [여기가 로봇 위치](`/initialpose` → RTAB-Map — launch가 `/rtabmap/initialpose`를 `/initialpose`로 리매핑).
 
 지도 처리는 **bringup**에 있다 (실기·테스트베드 공통 — faker는 bringup을 그대로 포함하고 대역 인자만 덮어씀):
 ```bash
@@ -360,7 +374,6 @@ cd ros2_ws-<RUN ID>
 bringup 기본은 실기 값: `use_cameras:=true` · `mock_hardware:=false` · `use_moveit:=true` (예전 ros_system 기본 false라 실기에서 move_group이 안 떴음).
 
 **아직 안 되는 것 (TODO)**:
-- `/cmd/restart`를 받을 쪽이 실기엔 없음 (테스트베드는 `test-faker 0`) → `start.sh`에 같은 재시작 루프가 필요.
 - 시뮬레이터 [지도 저장]이 저장 경로를 `/ws/map/<폴더>/map`(컨테이너 경로)으로 직접 만듦 → state_manager가 `map_dir`로 정하도록 (`/cmd/map_save`) 바꿔야 실기 경로와 맞음.
 
 ## 13. 문제 해결

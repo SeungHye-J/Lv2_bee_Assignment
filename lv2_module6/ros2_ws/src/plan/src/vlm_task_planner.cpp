@@ -373,6 +373,8 @@ VlmTaskPlanner::VlmTaskPlanner()
   vlm_endpoint_ = declare_parameter<std::string>("vlm_endpoint", "");
   vlm_timeout_s_ = declare_parameter<double>("vlm_timeout_s", 120.0);
   tray_capacity_ = declare_parameter<int>("tray_capacity", 4);
+  tf_buffer_ = std::make_unique<tf2_ros::Buffer>(get_clock());
+  tf_listener_ = std::make_shared<tf2_ros::TransformListener>(*tf_buffer_);
   goals_pub_ = create_publisher<SubGoalArray>("/sub_goals", rclcpp::QoS(10).reliable().transient_local());
   cmd_sub_ = create_subscription<std_msgs::msg::String>("/cmd/user_command", rclcpp::QoS(10).reliable(),
     [this](std_msgs::msg::String::ConstSharedPtr m) { on_command("명령", m->data); });
@@ -458,7 +460,12 @@ void VlmTaskPlanner::make_plan() {
       RCLCPP_WARN_THROTTLE(get_logger(), *get_clock(), 5000, "/tracked_objects에 퍽·목표 구역이 없음 — 계획 보류");
       return;
     }
-    make_template(*objs);
+    std::string cmd;
+    {
+      std::lock_guard<std::mutex> lock(mutex_);
+      cmd = cmd_;
+    }
+    make_template(*objs, cmd);
     return;
   }
   pending_ = true;  // VLM이면 인지 유무와 무관하게 사용자 명령 그대로 전달 (빈 물체+이미지로 판단은 모델 몫)
@@ -477,14 +484,10 @@ void VlmTaskPlanner::on_command(const char * source, const std::string & text) {
   make_plan();
 }
 
-void VlmTaskPlanner::make_template(const TrackedObjectArray & objs) {
+void VlmTaskPlanner::make_template(const TrackedObjectArray & objs, const std::string & cmd) {
+  // cmd는 부르는 쪽이 넘김 — VLM 실패 폴백은 mutex_를 잡은 채 부르므로 여기서 잠그면 교착 (실측: 그 뒤 명령을 못 받았음)
   const auto puck = find_in(objs, "puck"), goal_zone = find_in(objs, "goal_zone");
   if (puck.empty() || goal_zone.empty()) return;  // 물체 사라짐 — 보류 유지
-  std::string cmd;
-  {
-    std::lock_guard<std::mutex> lock(mutex_);
-    cmd = cmd_;
-  }
   pending_ = false;
   SubGoalArray plan;
   plan.header.stamp = now();
@@ -519,11 +522,12 @@ void VlmTaskPlanner::try_vlm_async() {
       if (it != images_.end() && it->second) imgs.push_back({cam, it->second});
     }
   }
-  std::thread([this, epoch, cmd, objs, rp, imgs]() {
+  const RobotPose robot = robot_pose();  // 보낼 때 로봇 위치
+  std::thread([this, epoch, cmd, objs, rp, imgs, robot]() {
     std::vector<SubGoal> goals;
     std::string vlm_err;
     const bool ok =
-      fetch_goals(vlm_endpoint_, plan_request(cmd, objs, rp, imgs), goals, vlm_timeout_s_, &vlm_err);
+      fetch_goals(vlm_endpoint_, plan_request(cmd, objs, rp, imgs, robot), goals, vlm_timeout_s_, &vlm_err);
     bool stale = false;
     {
       std::lock_guard<std::mutex> lock(mutex_);
@@ -541,7 +545,7 @@ void VlmTaskPlanner::try_vlm_async() {
           RCLCPP_INFO(get_logger(), "/sub_goals plan=%u (say, VLM 거절) [vlm]", plan.plan_id);
         } else if (!ok) {
           RCLCPP_WARN(get_logger(), "VLM 실패 — 템플릿 폴백");
-          make_template(objs);
+          make_template(objs, cmd);
         } else {
           pending_ = false;
           SubGoalArray plan;
@@ -565,18 +569,34 @@ std::string VlmTaskPlanner::encode_jpeg_base64(const sensor_msgs::msg::Image & m
   const size_t expect = static_cast<size_t>(msg.width) * msg.height * 3;
   if (msg.data.size() < expect) return "";
   cv::Mat rgb(msg.height, msg.width, CV_8UC3, const_cast<uint8_t *>(msg.data.data()));
-  cv::Mat small;
+  cv::Mat small, bgr;
   const double scale = 320.0 / msg.width;
   cv::resize(rgb, small, cv::Size(), scale, scale, cv::INTER_LINEAR);
+  // imencode는 BGR로 읽음 — rgb8을 그대로 넣으면 빨강↔파랑이 뒤바뀐 JPEG가 됨 (실측: 모래 바닥·주황 퍽이 파랗게 → VLM이 색을 틀림)
+  cv::cvtColor(small, bgr, cv::COLOR_RGB2BGR);
   std::vector<uint8_t> jpeg;
-  if (!cv::imencode(".jpg", small, jpeg, {cv::IMWRITE_JPEG_QUALITY, 70})) return "";
+  if (!cv::imencode(".jpg", bgr, jpeg, {cv::IMWRITE_JPEG_QUALITY, 70})) return "";
   if (jpeg.size() > 500 * 1024) return "";  // ai-service 장당 제한
   return base64_encode(jpeg);
 }
 
+RobotPose VlmTaskPlanner::robot_pose() const {
+  RobotPose r;
+  try {
+    const auto t = tf_buffer_->lookupTransform("map", "base_footprint", tf2::TimePointZero);
+    const auto & q = t.transform.rotation;
+    r.x = t.transform.translation.x;
+    r.y = t.transform.translation.y;
+    r.yaw = std::atan2(2.0 * (q.w * q.z + q.x * q.y), 1.0 - 2.0 * (q.y * q.y + q.z * q.z));
+    r.ok = true;
+  } catch (const std::exception &) {
+  }
+  return r;
+}
+
 std::string VlmTaskPlanner::plan_request(
   const std::string & cmd, const TrackedObjectArray & objs, const ReplanInfo & rp,
-  const std::vector<ImageFrame> & imgs) {
+  const std::vector<ImageFrame> & imgs, const RobotPose & robot) {
   std::string o = "{\"command\": \"" + json_escape(cmd) + "\", \"objects\": [";
   bool first = true;
   for (const auto & obj : objs.objects) {
@@ -588,14 +608,20 @@ std::string VlmTaskPlanner::plan_request(
     snprintf(size, sizeof(size), "[%.3f, %.3f, %.3f]", obj.size.x, obj.size.y, obj.size.z);
     char conf[16];
     snprintf(conf, sizeof(conf), "%.2f", obj.confidence);
-    char px[64];
+    char px[64];  // ai-service 형식 {카메라: [u, v]} — 예전 [u, v]만 보내서 images.py가 번호를 못 찍었음
     snprintf(px, sizeof(px), "[%d, %d]", obj.px[0], obj.px[1]);
     o += std::string("{\"id\": ") + std::to_string(obj.id) + ", \"class_name\": \"" +
       json_escape(obj.class_name) + "\", \"position\": " + pos + ", \"size\": " + size +
-      ", \"confidence\": " + conf + ", \"camera\": \"" + json_escape(obj.camera) +
-      "\", \"px\": " + px + "}";
+      ", \"confidence\": " + conf + ", \"color\": \"" + json_escape(obj.color) +
+      "\", \"camera\": \"" + json_escape(obj.camera) + "\", \"px\": " +
+      (obj.camera.empty() ? std::string("{}") : "{\"" + json_escape(obj.camera) + "\": " + px + "}") + "}";
   }
   o += "]";
+  if (robot.ok) {
+    char rb[160];
+    snprintf(rb, sizeof(rb), ", \"robot\": {\"x\": %.3f, \"y\": %.3f, \"yaw\": %.3f}", robot.x, robot.y, robot.yaw);
+    o += rb;
+  }
   if (rp.active) {
     o += ", \"replan\": {\"plan_id\": " + std::to_string(rp.plan_id) + ", \"failed_step\": " +
       std::to_string(rp.step) + ", \"reason\": \"" + json_escape(rp.reason) + "\"}";

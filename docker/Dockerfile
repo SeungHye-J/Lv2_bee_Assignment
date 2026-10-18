@@ -92,6 +92,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 
 # RTAB-Map (faker map:=slam · saved — pole_cam으로 지도 작성·위치추정. RealSense 본체는 faker 대역)
 RUN apt-get update && apt-get install -y --no-install-recommends \
+    ros-lyrical-rtabmap-msgs \
     ros-lyrical-rtabmap-ros \
     && rm -rf /var/lib/apt/lists/*
 

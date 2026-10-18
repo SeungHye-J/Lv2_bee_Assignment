@@ -15,6 +15,7 @@ ROS 쪽은 실제 노드·컨트롤러가 그대로 돈다.
   ③ ROS → 화면: monitor_manager가 debug/output/topic/<토픽>/ 에 저장한 것을 표시
   ④ 화면 → ROS: input_manager가 debug/input/topic/<토픽>/message 를 발행 (명령 · 수동 조작 · 비상정지)
 - 지도: 퍽(정답, 채움 — 왼쪽 드래그로 이동) · 바닥 장애물(회색 상자) · 이동물체(파랑, 움직임) · 인지 물체(/tracked_objects, 보라 테두리)
+- 감지 물체: 하단 [감지 물체 보기] 버튼 → 별도 창 (objects_window.py) — 두 카메라 융합 트랙 · 카메라별 검출 · 2σ 확대도
 - 수동 조작: 하단 [수동 조작] 버튼 → 별도 창 (manual_window.py) — 창을 열면 수동 모드, 닫으면 바퀴 정지 + 자동 모드
              바퀴 버튼(앞·뒤·멈춤·좌/우 바퀴 앞·뒤·전체 속도 ▲▼) · 로봇 3D · 팔 3D(관절 마커 드래그)
              [비상정지] → /cmd/e_stop → state_manager /state/emergency (twist_mux 잠금: 모든 바퀴 명령 차단)
@@ -50,6 +51,7 @@ import maze
 import opencr
 import robot_view
 import scene
+from perception_view import CAM_COLORS, camera_detections, draw_detected_3d, fused_ids
 from bridge import (DEBUG, INPUT_DIR, FileTail, LIVE_DIR, TOPIC_DIR, cancel_action_goal, cmd_manual_mode, current_joints,
                     read_action_file, read_grid, read_msg, read_points, read_service_response, read_topic_list, send, send_action_goal,
                     send_arm, send_bool, send_service_request,
@@ -238,6 +240,14 @@ class Sim:
         if self.opencr.alive:
             self.opencr.set_pose((wx, wy), yaw)
             self._base_prev = None
+            # EKF는 속도만 적분해서 순간이동을 모른다 → 같이 옮기지 않으면 로봇이 아는 위치가 옛 자리에 남음
+            # (perception이 그 위치로 map에 옮기므로 감지 물체가 통째로 어긋났음)
+            send('/set_pose', 'geometry_msgs/msg/PoseWithCovarianceStamped', {
+                'header': {'stamp': {'sec': 0, 'nanosec': 0}, 'frame_id': 'odom'},
+                'pose': {'pose': {'position': {'x': round(wx - self.spawn[0], 3), 'y': round(wy - self.spawn[1], 3), 'z': 0.0},
+                                  'orientation': {'x': 0.0, 'y': 0.0, 'z': round(math.sin(yaw / 2), 6),
+                                                  'w': round(math.cos(yaw / 2), 6)}},
+                         'covariance': [1e-4 if i in (0, 7, 35) else 0.0 for i in range(36)]}})
         else:
             send_service_request('diff_drive_controller/set_odometry',
                                  {'x': round(wx - self.spawn[0], 3),
@@ -881,6 +891,20 @@ class MapView:
     def from_map(self, x, y):
         return x + self.sim.spawn[0], y + self.sim.spawn[1]
 
+    def cov_ellipse(self, img, x, y, o, color, k=2.0):
+        """pose.covariance 위치 x·y 블록 → k·σ 타원 (map→미로는 평행이동뿐이라 공분산은 그대로)"""
+        try:
+            c = o['pose']['covariance']
+            P = np.array([[c[0], c[1]], [c[6], c[7]]], float)
+        except (KeyError, IndexError, TypeError, ValueError):
+            return
+        if not np.all(np.isfinite(P)) or P[0, 0] <= 0 or P[1, 1] <= 0:
+            return
+        w, v = np.linalg.eigh(P)
+        r = np.sqrt(np.clip(w, 0, None)) * k * self.ppm
+        ang = -math.degrees(math.atan2(v[1, 1], v[0, 1]))  # 긴 축(고유값 큰 쪽) — 화면 y는 위아래 반대
+        cv2.ellipse(img, self.px(x, y), (max(1, int(r[1])), max(1, int(r[0]))), ang, 0, 360, color, 1)
+
     def base_from_tf(self):
         """/tf에서 odom→base_footprint를 찾아 미로 좌표 base 위치. 없으면 None.
         /odom 테두리와 같은 규약 (map 원점 = spawn, map→odom 보정은 무시).
@@ -896,6 +920,25 @@ class MapView:
         if self._base and time.time() - self._base[1] < STALE_S:
             return self._base[0]
         return None
+
+    def base_map_estimate(self):
+        """로봇이 아는 자기 위치 (map x, y, yaw) = map→odom(RTAB-Map) ∘ odom→base_footprint(EKF TF) — perception이 쓰는 것.
+        TF가 없으면 실제 위치(미로 − 출발 칸)로 대신"""
+        base = self.base_from_tf()
+        if base is None:
+            x, y, yaw, _ = self.sim.robot_xy_yaw()
+            return x - self.sim.spawn[0], y - self.sim.spawn[1], yaw
+        ox, oy, oyaw = base[0] - self.sim.spawn[0], base[1] - self.sim.spawn[1], base[2]
+        tx, ty, th = self._map_odom
+        return (tx + math.cos(th) * ox - math.sin(th) * oy, ty + math.sin(th) * ox + math.cos(th) * oy, th + oyaw)
+
+    def localization_error(self):
+        """(로봇이 아는 위치 − 실제 위치) [m, rad] — 실제 위치(fake_opencr)가 없으면 None"""
+        if not self.sim.opencr.alive:
+            return None
+        ex, ey, eyaw = self.base_map_estimate()
+        x, y, yaw = self.sim.opencr.pose()
+        return ex - (x - self.sim.spawn[0]), ey - (y - self.sim.spawn[1]), math.atan2(math.sin(eyaw - yaw), math.cos(eyaw - yaw))
 
     def dashed(self, img, a, b, color, dash=8, gap=6):
         ax, ay = self.px(*a)
@@ -1007,14 +1050,30 @@ class MapView:
                 cv2.circle(img, c, max(6, int(p['size'][0] * self.ppm) + 3), (255, 255, 255), 2)
                 cv2.putText(img, 'held', (c[0] + 8, c[1] + 14), cv2.FONT_HERSHEY_SIMPLEX, 0.35, (60, 60, 60), 1)
 
+        # 인지: 융합 결과(/tracked_objects, 보라 테두리 + 2σ 타원) · 융합 전 카메라별 검출(/perception/<cam>/detections,
+        # 카메라 색 ✕ + 2σ 타원 → 붙은 융합 트랙까지 선). 두 카메라가 같은 트랙에 붙었으면 라벨에 F
+        cams_det = camera_detections()
+        both = fused_ids(cams_det)
         objects, _ = read_msg('tracked_objects')
-        for o in (objects or {}).get('objects', []):  # 인지 결과 (보라 테두리)
+        fused_px = {}
+        for o in (objects or {}).get('objects', []):
             pos = o['pose']['pose']['position']
             x, y = self.from_map(pos['x'], pos['y'])
             hx, hy = max(o['size']['x'], 0.06) / 2, max(o['size']['y'], 0.06) / 2
             cv2.rectangle(img, self.px(x - hx, y + hy), self.px(x + hx, y - hy), (150, 0, 150), 2)
-            cv2.putText(img, f"{o['class_name']}#{o['id']}", self.px(x + hx + 0.03, y + hy),
-                        cv2.FONT_HERSHEY_SIMPLEX, 0.4, (150, 0, 150), 1)
+            self.cov_ellipse(img, x, y, o, (150, 0, 150))
+            fused_px[o['id']] = self.px(x, y)
+            cv2.putText(img, f"{o['class_name']}#{o['id']}" + (' F' if o['id'] in both else ''),
+                        self.px(x + hx + 0.03, y + hy), cv2.FONT_HERSHEY_SIMPLEX, 0.4, (150, 0, 150), 1)
+        for cam, objs in cams_det.items():
+            for o in objs:
+                pos = o['pose']['pose']['position']
+                x, y = self.from_map(pos['x'], pos['y'])
+                c = self.px(x, y)
+                cv2.drawMarker(img, c, CAM_COLORS[cam], cv2.MARKER_TILTED_CROSS, 9, 1)
+                self.cov_ellipse(img, x, y, o, CAM_COLORS[cam])
+                if o['id'] in fused_px:
+                    cv2.line(img, c, fused_px[o['id']], CAM_COLORS[cam], 1)
 
         # /plan = Nav2 planner_server의 전역 경로 — 주행 중엔 BT가 1초마다 다시 계산해 새로 옴. 끝나도 빈 경로를 안 내서
         # 마지막 경로 파일이 남음(이전 실행 것까지) → 3초 넘게 안 바뀌면 주행 중이 아님 → 안 그림
@@ -1032,7 +1091,7 @@ class MapView:
             for side in (-1, 1):
                 a = math.atan2(f[1], f[0]) + side * math.radians(scene.HFOV_DEG) / 2
                 cv2.line(img, self.px(o[0], o[1]), self.px(o[0] + 0.6 * math.cos(a), o[1] + 0.6 * math.sin(a)),
-                         (0, 170, 255) if cam == 'pole_cam' else (255, 0, 170), 1)
+                         CAM_COLORS.get(cam, (255, 0, 170)), 1)
 
         odom, age = read_msg('odom')
         if self.sim.opencr.alive:  # 실제 로봇(채움, fake_opencr 진짜 위치) + /odom(테두리) — 미끄럼만큼 어긋남
@@ -1075,19 +1134,31 @@ class MapView:
             cv2.line(img, c, (c[0], c[1] - 18), (0, 160, 0), 2)
             cv2.putText(img, 'goal', (c[0] + 6, c[1] - 10), cv2.FONT_HERSHEY_SIMPLEX, 0.4, (0, 130, 0), 1)
         if self.show_cloud:  # 점구름 — LiDAR 대신 깊이 카메라: 몸을 뺀 점(body_filter)을 바닥에 눌러 편 것 = 로봇이 보는 장애물
-            xyz, _, age = read_points('pole_cam/depth/color/points_filtered')
-            if xyz is None:
-                xyz, _, age = read_points('pole_cam/depth/color/points')
-            if xyz is not None and len(xyz) and age < ROS_FRESH_S:  # 지금 받은 것만
-                pts = xyz[(xyz[:, 2] > 0.02) & (xyz[:, 2] < 0.6)]  # 바닥은 빼고 부딪힐 높이만 (Nav2 costmap과 같은 생각)
-                rx, ry, ryaw = self.sim.robot_xy_yaw()[:3]  # base_footprint 기준 점 → 지금 그린 로봇 자리에 (실기면 /odom)
-                c, s_ = math.cos(ryaw), math.sin(ryaw)
+            # pole_cam = 빨강 (body_filter가 몸 뺀 것 — Nav2가 보는 것) · gripper_cam = 분홍 (원본 — 손가락·차체가 섞여 로봇 중심
+            # 0.22m 안은 뺌. 지도 만들 땐 스캔 자세로 왼쪽 뒤를 봄). 예전엔 pole_cam만 그려 gripper_cam 점이 안 보였음
+            sources = [(('pole_cam/depth/color/points_filtered', 'pole_cam/depth/color/points'), (0, 0, 230), 0.0),
+                       (('gripper_cam/depth/color/points',), CAM_COLORS['gripper_cam'], 0.22)]
+            rx, ry, ryaw = self.sim.robot_xy_yaw()[:3]  # base_footprint 기준 점 → 지금 그린 로봇 자리에 (실기면 /odom)
+            c, s_ = math.cos(ryaw), math.sin(ryaw)
+            h, w = img.shape[:2]
+            for topics, color, body_r in sources:
+                xyz, age = None, None
+                for t in topics:
+                    xyz, _, age = read_points(t)
+                    if xyz is not None:
+                        break
+                if xyz is None or not len(xyz) or age >= ROS_FRESH_S:  # 지금 받은 것만
+                    continue
+                keep = (xyz[:, 2] > 0.02) & (xyz[:, 2] < 0.6)  # 바닥은 빼고 부딪힐 높이만 (Nav2 costmap과 같은 생각)
+                if body_r > 0:
+                    keep &= np.hypot(xyz[:, 0], xyz[:, 1]) > body_r
+                pts = xyz[keep]
                 world = np.stack([rx + c * pts[:, 0] - s_ * pts[:, 1], ry + s_ * pts[:, 0] + c * pts[:, 1]], -1)
                 pp = self.px_array(world)
-                h, w = img.shape[:2]
                 ok = (pp[:, 0] >= 0) & (pp[:, 0] < w) & (pp[:, 1] >= 0) & (pp[:, 1] < h)
-                img[pp[ok, 1], pp[ok, 0]] = (0, 0, 230)
-        cv2.putText(img, 'robot: fill=real(fake_opencr) ring=/odom green=base_footprint(/tf) path=/plan  purple=/tracked_objects  grey=obstacle  blue=mover',
+                img[pp[ok, 1], pp[ok, 0]] = color
+        cv2.putText(img, 'robot: fill=real(fake_opencr) ring=/odom green=base_footprint(/tf) path=/plan  purple=/tracked_objects(F=both cams)'
+                    '  orange/pink x=pole/gripper det  grey=obstacle  blue=mover',
                     (MARGIN - 25, self.size[1] - 10), cv2.FONT_HERSHEY_SIMPLEX, 0.34, (80, 80, 80), 1)
         return img
 
@@ -1185,8 +1256,14 @@ def camera_tiles(sim, cam, view):
     ros.append(mark(seg, c_age, 'ROS RGB-SEG') if color is not None else blank(f'ROS RGB-SEG: {why(c_age)}'))
     xyz, _, p_age = read_points(f'{cam}/depth/color/points')
     if xyz is not None and len(xyz) and usable(p_age):
-        # base_footprint(x 앞 · y 왼 · z 위) → points_view 축(x 오른 · y 아래 · z 앞), 색 = 높이
-        pts = np.stack([-xyz[:, 1], -xyz[:, 2], xyz[:, 0]], -1)
+        # 점구름(base_footprint) → 그 카메라 자신의 시점(광학 프레임: x 오른 · y 아래 · z 앞 = points_view 축) — RGB 칸과 같은 방향.
+        # 예전엔 늘 로봇 앞을 보는 시점이라, 스캔 자세에서 뒤를 보는 gripper_cam 점은 시점 뒤로 가 안 보였음. 색 = 높이
+        if t_world_cam is not None:
+            rx, ry, ryaw, _ = sim.robot_xy_yaw()
+            T_cb = np.linalg.inv(np.asarray(t_world_cam, float)) @ scene.transform(scene.rpy_matrix(0, 0, ryaw), (rx, ry, 0))
+            pts = xyz @ T_cb[:3, :3].T + T_cb[:3, 3]
+        else:  # 카메라 자세를 모르면 로봇 앞 시점
+            pts = np.stack([-xyz[:, 1], -xyz[:, 2], xyz[:, 0]], -1)
         cols = cv2.applyColorMap((np.clip(xyz[:, 2] / 0.6, 0, 1) * 255).astype(np.uint8)[None], cv2.COLORMAP_TURBO)[0]
         ros.append(mark(scene.points_view(pts, cols, TILE, view[0], view[1]), p_age, f'ROS POINT {len(xyz)}'))
     else:
@@ -1195,13 +1272,20 @@ def camera_tiles(sim, cam, view):
 
 
 def overlay_tracked(rgb, sim, cam, t_world_cam):
-    """카메라 타일 위에 /tracked_objects 네모+라벨 (지도 보라테두리와 같은 색).
+    """카메라 타일 위에 인지 네모+라벨 (지도 보라테두리와 같은 색). 라벨 F = 다른 카메라도 같은 트랙에 붙음(융합).
+    이 카메라의 융합 전 검출(/perception/<cam>/detections)을 우선 — 그 영상의 px라 카메라마다 늘 맞는다.
+    없으면(이전 perception) /tracked_objects 중 마지막에 이 카메라가 본 것만.
     중심은 인지 px(640×480 기준)를 타일에 스케일 — 회전·프레임 가정 없음.
     네모 크기는 핀홀 근사(카메라 위치~물체 3D 거리, 회전 불필요)."""
-    objects, age = read_msg('tracked_objects')
-    if age is None or age > ROS_FRESH_S:  # 지금 받은 인지 결과만 (이전 실행 파일은 안 그림)
-        return
-    objs = (objects or {}).get('objects', [])
+    cams_det = camera_detections()
+    both = fused_ids(cams_det)
+    if cam in cams_det:
+        objs = cams_det[cam]
+    else:
+        objects, age = read_msg('tracked_objects')
+        if age is None or age > ROS_FRESH_S:  # 지금 받은 인지 결과만 (이전 실행 파일은 안 그림)
+            return
+        objs = (objects or {}).get('objects', [])
     if not objs:
         return
     h, w = rgb.shape[:2]
@@ -1227,7 +1311,8 @@ def overlay_tracked(rgb, sim, cam, t_world_cam):
         hw = max(o.get('size', {}).get('x', 0.06), o.get('size', {}).get('y', 0.06), 0.02) * fx / dist / 2 * w / 640.0
         hh = max(o.get('size', {}).get('z', 0.06), 0.02) * fx / dist / 2 * h / 480.0
         cv2.rectangle(rgb, (int(u - hw), int(v - hh)), (int(u + hw), int(v + hh)), (150, 0, 150), 1)
-        cv2.putText(rgb, f"{o.get('class_name', '?')}#{o.get('id', '?')}", (int(u + hw + 2), int(v)),
+        cv2.putText(rgb, f"{o.get('class_name', '?')}#{o.get('id', '?')}" + (' F' if o.get('id') in both else ''),
+                    (int(u + hw + 2), int(v)),
                     cv2.FONT_HERSHEY_SIMPLEX, 0.35, (150, 0, 150), 1)
 
 
@@ -1253,6 +1338,7 @@ def status_lines(sim=None):
     add('작업', 'task_status', lambda d: f"plan {d['plan_id']} step {d['step']} {STATE_NAMES.get(d['state'], d['state'])} {d['reason']}")
     add('계획', 'sub_goals', lambda d: f"plan {d['plan_id']}: " + ' → '.join(f"{g['skill']}({g['target']})" for g in d['goals']))
     add('로봇 말', 'robot_say', lambda d: d['data'])
+    add('재시작 (state_manager)', 'state/restart', lambda d: d['data'], latched=True)
     # Nav2 관리자 — 기동 때 가끔(약 4번에 1번) 서버 응답을 못 받고 멈춤 → 꺼짐이면 빨간불, 사람이 [ROS 재시작]
     for label, mgr in (('Nav2 바퀴 체인 (velocity_smoother · collision_monitor)', 'lifecycle_manager_base'),
                        ('Nav2 주행 계획 (planner · controller · bt_navigator)', 'lifecycle_manager_navigation')):
@@ -1300,25 +1386,68 @@ def status_lines(sim=None):
     return lines
 
 
+# 그래프의 내부 노드 — 사람이 볼 일 없음 (TF 리스너 · 액션 내부 · rclcpp 보조 노드)
+INTERNAL_NODE = ('transform_listener_impl_', '_private_', '_rclcpp_node')
+
+
+def graph_nodes():
+    """지금 ROS 그래프의 노드 이름들 (monitor_manager debug/node/list — 중복·내부 노드 뺌, 앞 '/' 뺌)"""
+    try:
+        lines = (DEBUG / 'node' / 'list').read_text().split()
+    except OSError:
+        return []
+    return sorted({n.strip('/') for n in lines if n.strip('/') and not any(k in n for k in INTERNAL_NODE)})
+
+
+def restartable_nodes():
+    """state_manager /state/restartable → {이름: pid} (재시작할 수 있는 노드 = 프로세스) · 없으면 None (예전 state_manager)"""
+    data, _ = read_msg('state/restartable')
+    if data is None:
+        return None
+    out = {}
+    for line in (data.get('data') or '').splitlines():
+        parts = line.split()
+        if len(parts) == 2 and parts[1].isdigit():
+            out[parts[0]] = int(parts[1])
+    return out
+
+
 def diagnostics_lines():
-    """/diagnostics_agg → [(글, 태그)] — 노드별 항목만 (묶음 줄은 뺌)"""
+    """진단 칸 → [(글, 태그 — 여러 개면 공백 구분)]: ① 노드 전부 — 그래프 노드마다 진단(가장 나쁜 수준 · 메시지), 재시작할 수 있는 노드는 태그 'rs:<이름>'
+    (누르면 확인 → /cmd/restart node <이름>) ② 노드가 아닌 진단 (하드웨어 · Nav2 관리자 상태 등)"""
     data, age = read_msg('diagnostics_agg')
-    if not data:
-        return [('(진단 없음 — bringup의 diagnostic_aggregator)', 'warn')]
-    out = []
-    for s in sorted(data['status'], key=lambda s: s['name']):
+    by_node, other = {}, []
+    for s in sorted((data or {}).get('status', []), key=lambda s: s['name']):
         if ': ' not in s['name']:
             continue
-        level, tag = LEVEL.get(s['level'], ('?', 'warn'))
-        # Nav2 관리자는 노드가 안 켜져도(멈춤) 수준을 OK로 냄 → active가 아니면 오류로 + 누르면 재시작
-        nav2_down = s['name'].endswith('Nav2 Health') and 'map_saver' not in s['name'] and s['message'] != 'Managed nodes are active'
-        if nav2_down:
-            level, tag = 'ERROR', 'error'
-        out.append((f"{level:5} {s['name'].split('/')[-1]} — {s['message']}", tag))
-        if nav2_down:
-            out.append(('      → 기동 중이 아니면 멈춘 것: 여기를 눌러 [ROS 재시작]', 'restart'))
-    if age > STALE_S:
-        out.insert(0, (f'(진단이 {age:.0f}s 전 값)', 'warn'))
+        node, item = s['name'].split('/')[-1].split(': ', 1)
+        # Nav2 관리자는 노드가 안 켜져도(멈춤) 수준을 OK로 냄 → active가 아니면 오류로 + 누르면 전체 재시작
+        nav2_down = item == 'Nav2 Health' and 'map_saver' not in node and s['message'] != 'Managed nodes are active'
+        by_node.setdefault(node, []).append((2 if nav2_down else s['level'], f"{item}: {s['message']}", nav2_down))
+    nodes = graph_nodes()
+    rs = restartable_nodes()
+    out = []
+    head = f'노드 {len(nodes)}개'
+    if rs is None:
+        head += ' — 재시작 목록 없음 (/state/restartable: state_manager 새 버전이 떠야 함)'
+    else:
+        head += f' · 재시작 가능 {len(rs)}개 — 이름을 누르면 그 노드만 재시작 (같은 파라미터)'
+    out.append((head, 'title'))
+    if not data:
+        out.append(('(진단 없음 — bringup의 diagnostic_aggregator)', 'warn'))
+    elif age > STALE_S:
+        out.append((f'(진단이 {age:.0f}s 전 값)', 'warn'))
+    for n in sorted(set(nodes) | set(by_node) | set(rs or {})):
+        items = by_node.pop(n, [])
+        level, tag = LEVEL.get(max((i[0] for i in items), default=-1), ('-', ''))
+        msg = ' · '.join(i[1] for i in items) if items else '(진단 없음)'
+        if rs is not None and n in rs:  # 태그 여러 개는 공백으로 — 수준 색 + 누를 수 있음(rs:)
+            out.append((f'{level:5} {n:24} {msg}   [재시작 pid {rs[n]}]', f'{tag} rs:{n}'.strip()))
+        else:
+            why = '' if rs is None else ('  (프로세스 아님 — 컨트롤러 · 하위 노드)' if n in nodes else '  (그래프에 없음)')
+            out.append((f'{level:5} {n:24} {msg}{why}', tag))
+        if any(i[2] for i in items):
+            out.append(('      → 기동 중이 아니면 멈춘 것: 여기를 눌러 [ROS 재시작] (전체)', 'restart'))
     return out
 
 
@@ -1358,7 +1487,7 @@ class App:
         self.map_label.bind('<Button-5>', lambda e: self.on_map_wheel_step(-1))
         mapctl = tk.Frame(mapbox)
         mapctl.pack(fill=tk.X, pady=2)
-        tk.Button(mapctl, text='지도 리셋', command=self.view.reset_view).pack(side=tk.LEFT)
+        tk.Button(mapctl, text='보기 리셋', command=self.view.reset_view).pack(side=tk.LEFT)  # 확대·이동만 처음으로 (지도 데이터는 그대로)
         self.coords_label = tk.Label(mapctl, justify=tk.LEFT, font=('Menlo', 9), anchor=tk.W)
         self.coords_label.pack(side=tk.LEFT, padx=(6, 0))
         self.scan_choice = tk.StringVar(value='선택없음')
@@ -1376,6 +1505,14 @@ class App:
 
         def _pick_scan(*_):
             name = self.scan_choice.get()
+            if not getattr(self, '_syncing_map', False):  # 사람이 고른 것 — '선택없음'이면 그 선택을 지킴 (로봇 지도 이름을 안 따라감)
+                self._map_none = name == '선택없음'
+            if name == '선택없음' and self._map_none:
+                self.navmap_on.set(False)
+                self.view.show_navmap = False
+                cur = (read_msg('state/map_name')[0] or {}).get('data')
+                self.sent.config(text='지도 선택없음 — Nav2 지도를 겹치지 않고, 로봇 지도 이름을 따라가지 않음'
+                                      + (f' (로봇은 지금 지도 {cur} 를 계속 씀 — ROS는 그대로)' if cur else ''))
             if name != '선택없음':
                 # 그 지도로 갈아끼움 → state_manager가 RTAB-Map load_database + 위치추정 (결과 /state/map_name · /state/map_mode)
                 # 화면엔 토픽 /map([Nav2 지도])으로만 — 호스트의 map.pgm 파일은 안 씀 (실기에 붙이면 의미 없음)
@@ -1468,6 +1605,8 @@ class App:
         tk.Button(row, text='자동 탐사', command=self.start_explore).pack(side=tk.LEFT, fill=tk.X, expand=True)
         tk.Button(row, text='탐사 멈춤', command=lambda: self.stop_explore()).pack(side=tk.LEFT, fill=tk.X, expand=True)
         tk.Button(slambox, text='지도 저장', command=self.save_map).pack(fill=tk.X)  # → ros2_ws/map/<지금 지도 폴더>/map.pgm·yaml
+        # 위치추정이 어긋났을 때 — 실제 위치를 /initialpose로 (위치추정 모드에서만. 지도 오른쪽 클릭 [여기가 로봇 위치]는 찍은 곳으로)
+        tk.Button(slambox, text='실제 위치로 맞추기 (/initialpose)', command=self.snap_to_real_pose).pack(fill=tk.X)
         self.save_pending = None  # 지도 저장 request_id — 응답 기다리는 중
         self.nav_goal_id = None  # [여기로 이동] goal_id — 진행 중
 
@@ -1536,6 +1675,10 @@ class App:
         self.show_collision = tk.BooleanVar(value=False)
         tk.Checkbutton(viewrow, text='충돌모양', variable=self.show_collision,
                        command=self.on_toggle_collision).pack(side=tk.LEFT)
+        # 감지 물체 — /tracked_objects(보라 와이어 상자, F = 두 카메라 융합) + 카메라별 검출 점. 조작 창 3D도 같은 체크
+        self.show_detected = tk.BooleanVar(value=False)
+        tk.Checkbutton(viewrow, text='감지 물체', variable=self.show_detected,
+                       command=self.refresh_robot).pack(side=tk.LEFT)
         self.robot_model_col = None
 
         # 상태 · 진단 — 맨 오른쪽 열 (세로로 길게)
@@ -1558,6 +1701,8 @@ class App:
         self.status = scrolled_text(20)
         self.diag = scrolled_text(30)
         self.status.tag_config('title', font=('Menlo', 9, 'bold'))
+        self.diag.tag_config('title', font=('Menlo', 9, 'bold'))
+        self._rs_tags = set()  # 진단 칸 노드 줄 태그 'rs:<이름>' — 처음 나올 때 한 번만 묶음
         for t in (self.status, self.diag):
             t.tag_config('warn', foreground='#b26a00')
             t.tag_config('error', foreground='#c62828')
@@ -1592,6 +1737,7 @@ class App:
         cmd = tk.Frame(mapside)  # 왼쪽 버튼 열(물체·환경 · 미션 · 지도 · 보기) 맨 아래
         cmd.pack(fill=tk.X, pady=(6, 0))
         tk.Button(cmd, text='토픽보기', command=self.open_topic_viewer).pack(fill=tk.X)
+        tk.Button(cmd, text='감지 물체 보기', command=self.open_objects_window).pack(fill=tk.X)
         tk.Button(cmd, text='조작 (명령·수동)', command=self.open_manual_window).pack(fill=tk.X)
         # 로봇 모델 — lv2_module6/urdf/<폴더>/urdf.xacro 중 고르면 확인 후 urdf:=<폴더>로 ROS 재시작 (모델은 기동 때만 읽힘)
         # 목록 = 호스트의 urdf/ (컨테이너 /ws/urdf와 같은 폴더) · 지금 모델 = /robot_description 메시 경로의 폴더 이름
@@ -1668,8 +1814,48 @@ class App:
             else:
                 self.sent.config(text='위치추정 불가: 저장된 지도 없음 — 먼저 [스캔 시작]으로 매핑')
             return
+        if mode == 'MAPPING':
+            self.ask_scan_start()
+            return
         send('/cmd/map_mode', 'std_msgs/msg/String', {'data': mode})
         self.sent.config(text=f'요청: 지도 모드 {mode} (/cmd/map_mode → state_manager)')
+
+    def ask_scan_start(self):
+        """[스캔 시작] — 지금 지도를 어떻게 할지 고름:
+          이어서 스캔      지금 지도(같은 폴더 rtabmap.db)에 덧붙임 — /cmd/map_mode MAPPING (재시작 없음)
+          지우고 처음부터  같은 폴더를 비우고 다시 — 📞 /rtabmap/rtabmap/reset → /cmd/map_mode MAPPING (재시작 없음)
+          새 지도로        지금 지도는 그대로 두고 새 폴더 <날짜_시각>/ — /cmd/restart all map:=slam (ROS 재시작)
+        [지도 저장]은 그때 쓰는 지도 폴더(/state/map_name)에 씀"""
+        name = (read_msg('state/map_name')[0] or {}).get('data') or '(없음)'
+        mode = (read_msg('state/map_mode')[0] or {}).get('data') or '?'
+        win = tk.Toplevel(self.root)
+        win.title('스캔 시작')
+        win.transient(self.root)
+        tk.Label(win, justify=tk.LEFT, padx=12, pady=8,
+                 text=f'지금 지도: {name} (모드 {mode})\n스캔을 어떻게 시작할까요?').pack(anchor=tk.W)
+
+        def pick(choice):
+            win.destroy()
+            if choice == 'continue':
+                send('/cmd/map_mode', 'std_msgs/msg/String', {'data': 'MAPPING'})
+                self.sent.config(text=f'요청: 지도 {name} 에 이어서 스캔 (/cmd/map_mode MAPPING)')
+            elif choice == 'clear':
+                from tkinter import messagebox
+                if not messagebox.askyesno('지우고 처음부터', f'지도 {name} 의 내용(rtabmap.db)을 비우고 처음부터 스캔합니다.\n'
+                                                            '되돌릴 수 없습니다. 진행할까요?'):
+                    return
+                send_service_request('rtabmap/rtabmap/reset', {})
+                # 비운 뒤 매핑 모드로 (위치추정 중이었으면 바꿈) — 순서 보장 위해 조금 뒤에
+                self.root.after(1500, lambda: send('/cmd/map_mode', 'std_msgs/msg/String', {'data': 'MAPPING'}))
+                self.sent.config(text=f'요청: 지도 {name} 비우고 처음부터 스캔 (/rtabmap/rtabmap/reset → /cmd/map_mode MAPPING)')
+            elif choice == 'new':
+                self.restart_ros('map:=slam', f'지금 지도 {name} 는 그대로 두고, 새 지도 폴더(날짜_시각)로 ROS를 다시 띄워 스캔합니다.')
+        for text, choice in (('이어서 스캔 — 지금 지도에 덧붙임', 'continue'),
+                             ('지우고 처음부터 — 같은 지도 폴더를 비움', 'clear'),
+                             ('새 지도로 — 지금 지도는 그대로, 새 폴더 (ROS 재시작)', 'new'),
+                             ('취소', None)):
+            tk.Button(win, text=text, anchor=tk.W, command=(lambda c=choice: pick(c)) if choice else win.destroy).pack(
+                fill=tk.X, padx=12, pady=2)
 
     def save_map(self):
         name, _ = read_msg('state/map_name')  # state_manager 발행 — launch가 정한 RTAB-Map DB 폴더
@@ -1691,8 +1877,13 @@ class App:
         cur = (read_msg('state/map_name')[0] or {}).get('data')
         if cur and cur != getattr(self, '_map_name_seen', None):
             self._map_name_seen = cur
-            if cur in names and self.scan_choice.get() != cur:
-                self.scan_choice.set(cur)
+            # 사람이 '선택없음'을 고른 동안은 따라가지 않음 (명시적으로 안 고른 것 — 위치추정 모드에서도)
+            if cur in names and self.scan_choice.get() != cur and not getattr(self, '_map_none', False):
+                self._syncing_map = True
+                try:
+                    self.scan_choice.set(cur)
+                finally:
+                    self._syncing_map = False
 
     def refresh_scan_menu(self):
         """지도 목록을 다시 읽음 (/state/map_list) — 새 지도 폴더가 생기면 보이게"""
@@ -1756,7 +1947,8 @@ class App:
         self.manual_win = tk.Toplevel(self.root)
         self.manual_win.title('조작')
         self.manual_panel = ManualPanel(self.manual_win, self.sim, on_close=self.manual_win.destroy,
-                                        frame_var=self.show_frames, object_faces=self.world_object_faces)
+                                        frame_var=self.show_frames, object_faces=self.world_object_faces,
+                                        detected_var=self.show_detected, base_map=self.view.base_map_estimate)
         self.manual_panel.pack(fill=tk.BOTH, expand=True)
         self.manual_panel.show()
         self.manual_win.protocol('WM_DELETE_WINDOW', self.close_manual_window)
@@ -1883,7 +2075,46 @@ class App:
                          command=lambda: self.navigate_to(x, y))
         if self.nav_goal_id:
             menu.add_command(label='이동 취소', command=self.cancel_navigation)
+        # 초기 위치 — 위치추정(RTAB-Map)이 위치를 잃었을 때 "로봇은 여기"라고 알려 줌 (/initialpose → RTAB-Map, RViz 2D Pose Estimate와 같음)
+        menu.add_command(label='여기가 로봇 위치 (초기 위치 지정 /initialpose)' + ('' if mode == 'LOCALIZATION' else f' — 지도 모드 {mode} (위치추정에서)'),
+                         state=tk.NORMAL if mode == 'LOCALIZATION' else tk.DISABLED,
+                         command=lambda: self.set_initial_pose(x, y))
         menu.tk_popup(e.x_root, e.y_root)
+
+    def to_map(self, x, y):
+        """미로(시뮬레이터 지도) 좌표 → map 좌표 + 회전각 (RTAB-Map map→odom 보정 반영 — map_to_world의 역변환)"""
+        tx, ty, th = self.view.map_to_world()
+        dx, dy = x - tx, y - ty
+        return math.cos(th) * dx + math.sin(th) * dy, -math.sin(th) * dx + math.cos(th) * dy, th
+
+    def set_initial_pose(self, x, y, yaw=None):
+        """[초기 위치 지정] → /initialpose (geometry_msgs/PoseWithCovarianceStamped, map) — RTAB-Map이 위치추정 모드일 때만 받음
+        (매핑 중엔 'Initial pose can only be set in localization mode … ignoring it' — librtabmap_core).
+        map 좌표는 **고정 기준**으로: 지도는 출발 칸에서 시작해 만드므로 map 원점 = 출발 칸, 방향 0°.
+        예전엔 map_to_world(= 로봇이 믿는 자기 위치와 실제 위치를 맞댄 변환)로 바꿔서, 실제 자리를 찍어도 로봇이 믿던 위치가 그대로
+        나와 보정이 0이었음 (어긋난 만큼을 스스로 지움). 방향을 안 주면 지금 실제 로봇 방향. 공분산 = 위치 0.05m² · 방향 0.07rad²"""
+        mx, my = x - self.sim.spawn[0], y - self.sim.spawn[1]
+        if yaw is None:
+            yaw = self.sim.robot_xy_yaw()[2]
+        cov = [0.0] * 36
+        cov[0] = cov[7] = 0.05
+        cov[35] = 0.07
+        send('/initialpose', 'geometry_msgs/msg/PoseWithCovarianceStamped', {
+            'header': {'stamp': {'sec': 0, 'nanosec': 0}, 'frame_id': 'map'},
+            'pose': {'pose': {'position': {'x': round(mx, 3), 'y': round(my, 3), 'z': 0.0},
+                              'orientation': {'x': 0.0, 'y': 0.0, 'z': math.sin(yaw / 2), 'w': math.cos(yaw / 2)}},
+                     'covariance': cov}})
+        self.sent.config(text=f'요청: 초기 위치 (map {mx:+.2f}, {my:+.2f}, {math.degrees(yaw):+.0f}°) — /initialpose → RTAB-Map')
+
+    def snap_to_real_pose(self):
+        """[실제 위치로 맞추기] — 시뮬레이터는 진짜 위치를 앎(fake_opencr) → 그대로 /initialpose. 위치추정 모드에서만 (RTAB-Map이 그때만 받음)"""
+        mode = (read_msg('state/map_mode')[0] or {}).get('data')
+        if mode != 'LOCALIZATION':
+            self.sent.config(text=f'실제 위치로 맞추기: 위치추정 모드에서만 (지금 {mode}) — RTAB-Map이 매핑 중엔 초기 위치를 무시함. '
+                                  '[위치추정으로] 뒤에 다시')
+            return
+        x, y, yaw, _ = self.sim.robot_xy_yaw()
+        self.set_initial_pose(x, y, yaw)
 
     def current_urdf(self):
         """지금 돌고 있는 로봇 모델 폴더 — /robot_description 메시 경로 package://ros_system/urdf/<폴더>/meshes 에서.
@@ -1905,18 +2136,30 @@ class App:
             self._picked_urdf = name
 
     def restart_ros(self, args='', why=''):
-        """[ROS 재시작] → /cmd/restart (args 비움 = 같은 설정, 있으면 그 launch 인자만 바꿈 — 예 map:=slam · urdf:=beebot_normal, 나머지 유지).
+        """[ROS 재시작] → /cmd/restart "all [args]" (args 비움 = 같은 설정, 있으면 그 launch 인자만 바꿈 — 예 map:=slam · urdf:=beebot_normal, 나머지 유지).
         확인을 누르면 True
-        컨테이너 test-faker 0 이 받아 ROS 전부 정상 종료 → 다시 띄움
-        (ROS가 막혀도 되게 ROS 노드가 아니라 test-faker 스크립트가 파일을 직접 봄 — docker/test-faker.sh)"""
+        state_manager가 받아 이 launch를 정상 종료 → (테스트베드는 빌드) → 같은 명령줄로 다시 띄움 — 실기 bringup도 같은 길.
+        결과는 /state/restart (상태판). 한 노드만은 "node <이름>" (ros2 topic pub --once /cmd/restart …)"""
         from tkinter import messagebox
         if not messagebox.askyesno('ROS 재시작', (why + '\n\n' if why else '') +
                                    f'컨테이너의 ROS를 전부 껐다가 다시 띄웁니다 (1~2분){" — " + args if args else ""}.\n'
                                    '진행 중 작업·매핑은 끊깁니다 (RTAB-Map 지도는 정상 종료로 저장). 진행할까요?'):
             return False
-        send('/cmd/restart', 'std_msgs/msg/String', {'data': args})
-        self.sent.config(text=f'요청: ROS 재시작{" " + args if args else ""} (/cmd/restart → test-faker 0) — 1~2분 뒤 다시 연결')
+        send('/cmd/restart', 'std_msgs/msg/String', {'data': ('all ' + args).strip()})
+        self.sent.config(text=f'요청: ROS 재시작{" " + args if args else ""} (/cmd/restart all → state_manager) — 1~2분 뒤 다시 연결')
         return True
+
+    def restart_node(self, name):
+        """진단 칸 노드 줄 → 확인 → /cmd/restart "node <이름>" (state_manager가 그 프로세스만 같은 명령줄·파라미터로 다시 — 결과 /state/restart)"""
+        from tkinter import messagebox
+        lifecycle = name in ('planner_server', 'controller_server', 'behavior_server', 'bt_navigator', 'velocity_smoother',
+                             'collision_monitor', 'map_server', 'map_saver')
+        if not messagebox.askyesno('노드 재시작', f'{name} 노드만 껐다가 같은 파라미터로 다시 띄웁니다.\n' +
+                                   ('Nav2 수명주기 노드라 다시 떠도 unconfigured — lifecycle_manager가 다시 켜야 합니다 '
+                                    '(안 되면 [ROS 재시작]).\n' if lifecycle else '') + '진행할까요?'):
+            return
+        send('/cmd/restart', 'std_msgs/msg/String', {'data': f'node {name}'})
+        self.sent.config(text=f'요청: 노드 재시작 {name} (/cmd/restart → state_manager) — 결과는 상태판 /state/restart')
 
     def navigate_to(self, x, y):
         """[여기로 이동] → 자동 모드(/cmd/operation_mode AUTO — 수동 명령이 twist_mux에서 이기지 않게) +
@@ -2030,6 +2273,8 @@ class App:
         faces = model.faces(q) + self.world_object_faces(T_wb)
         img = self.robot_cam.render(faces, ROBOT_VIEW)
         self.draw_wheels(img, q, getattr(self, '_last_wheel', [0.0, 0.0]))
+        if self.show_detected.get():
+            draw_detected_3d(img, self.robot_cam, ROBOT_VIEW, self.view.base_map_estimate())
         if self.show_frames.get():
             self.draw_frames(img, q)
         self._robot_ph = to_photo(img)
@@ -2042,32 +2287,7 @@ class App:
             lab.config(image=ph, width=TILE[0], height=TILE[1])
 
     def draw_wheels(self, img, q, wheel_vel):
-        """바퀴 회전 표시 — 바퀴 중심에 회오리(스포크): 각도=관절각, 색=회전 중 주황·정지 회색"""
-        import numpy as _np
-        frames = self.robot_model.joint_frames(q)
-        for i, (joint, w) in enumerate((('wheel_left_joint', wheel_vel[0]),
-                                        ('wheel_right_joint', wheel_vel[1]))):
-            if joint not in frames or joint not in self.robot_model.joints:
-                continue
-            origin, axis = frames[joint]
-            axis = _np.asarray(axis, float)
-            axis = axis / max(_np.linalg.norm(axis), 1e-9)
-            up = _np.array([0.0, 0.0, 1.0])
-            p0 = _np.cross(axis, up)
-            if _np.linalg.norm(p0) < 1e-6:
-                p0 = _np.array([1.0, 0.0, 0.0])
-            p0 = p0 / _np.linalg.norm(p0)
-            ang = q.get(joint, 0.0)
-            rim = origin + (math.cos(ang) * p0 + math.sin(ang) * _np.cross(axis, p0)) * 0.033
-            uv, z = self.robot_cam.project([origin, rim], ROBOT_VIEW)
-            if (z < 0.02).any():
-                continue
-            c, r_ = tuple(uv[0].astype(int)), tuple(uv[1].astype(int))
-            col = (0, 140, 255) if abs(w) > 0.05 else (150, 150, 150)
-            cv2.line(img, c, r_, col, 2, cv2.LINE_AA)
-            cv2.circle(img, r_, 3, col, -1, cv2.LINE_AA)
-            cv2.putText(img, f'{"L" if i == 0 else "R"}{w:+.1f}', (c[0] + 8, c[1]),
-                        cv2.FONT_HERSHEY_SIMPLEX, 0.4, col, 1, cv2.LINE_AA)
+        robot_view.draw_wheel_spin(img, self.robot_model, self.robot_cam, ROBOT_VIEW, q, wheel_vel)
 
     def draw_frames(self, img, q):
         """관절축 트라이어드 (자식 링크 프레임: X빨·Y초·Z파). 바퀴는 자식 프레임이 같이 돌아 회전도 보임"""
@@ -2144,6 +2364,12 @@ class App:
         else:
             lines.append('base  (없음 — /tf 대기)')
         return '\n'.join(lines)
+
+    def open_objects_window(self):
+        """감지 물체 보기 새 창 (objects_window.py) — 융합 트랙 · 카메라별 검출 표 + 확대도 + 두 카메라 영상. 누를 때마다 독립 창"""
+        from objects_window import ObjectsWindow
+        ObjectsWindow(self.root, self.sim, overlay_tracked, camera_detections, CAM_COLORS, ROS_FRESH_S,
+                      localization_error=self.view.localization_error)
 
     def open_topic_viewer(self):
         """토픽 보기 새 창 — 콤보박스로 토픽 선택, 0.5초마다 갱신. 버튼을 누를 때마다 독립 창."""
@@ -2238,7 +2464,15 @@ class App:
             y, x = self.diag.yview()[0], self.diag.xview()[0]
             self.diag.delete('1.0', tk.END)
             for text, tag in diagnostics_lines():
-                self.diag.insert(tk.END, text + '\n', (tag,) if tag else ())
+                tags = tuple(tag.split())
+                for t in tags:
+                    if t.startswith('rs:') and t not in self._rs_tags:  # 재시작할 수 있는 노드 줄 — 누르면 확인 → node 재시작
+                        self._rs_tags.add(t)
+                        self.diag.tag_config(t, underline=True)  # 색은 진단 수준 그대로
+                        self.diag.tag_bind(t, '<Button-1>', lambda e, n=t[3:]: self.restart_node(n))
+                        self.diag.tag_bind(t, '<Enter>', lambda e: self.diag.config(cursor='hand2'))
+                        self.diag.tag_bind(t, '<Leave>', lambda e: self.diag.config(cursor=''))
+                self.diag.insert(tk.END, text + '\n', tags)
             self.diag.yview_moveto(y)
             self.diag.xview_moveto(x)
         self.photos = photos
@@ -2255,7 +2489,7 @@ def snapshot(sim, view, path):
     pad = lambda a: np.vstack([a, np.full((h - a.shape[0], a.shape[1], 3), 255, np.uint8)])
     cv2.imwrite(path, np.hstack([pad(m), pad(tiles)]))
     for text, tag in status_lines(sim) + diagnostics_lines():
-        print(('! ' if tag in ('warn', 'error') else '  ') + text)
+        print(('! ' if {'warn', 'error'} & set(tag.split()) else '  ') + text)
 
 
 def main():

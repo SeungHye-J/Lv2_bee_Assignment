@@ -114,12 +114,15 @@
 
 | 방식 | 이름 | 메시지 타입 / 형식 | 받는 쪽 | 비고 |
 | --- | --- | --- | --- | --- |
-| ✉️ 발행 | `/tracked_objects` | `perception/TrackedObjectArray` | vlm_task_planner, coordinator, grasp_scorer | 10Hz · reliable |
+| ✉️ 발행 | `/tracked_objects` | `perception/TrackedObjectArray` | vlm_task_planner, coordinator, grasp_scorer | 10Hz · reliable — 두 카메라 융합 결과 ([필드 뜻](../API.md#api-msg-trackedobject)) |
+| ✉️ 발행 | `/perception/pole_cam/detections` · `/perception/gripper_cam/detections` | `perception/TrackedObjectArray` | (시뮬레이터·디버그) | 융합 전 카메라별 검출, `id` = 붙은 트랙 |
+| ✉️ 발행 | `/mission_qr` | `std_msgs/String` | vlm_task_planner | QR 문제 · reliable + transient_local |
 
-**⚙️ 주요 파라미터**
+**⚙️ 주요 파라미터** ([perception.yaml](../../lv2_module6/ros2_ws/src/perception/config/perception.yaml)이 정본)
 
-- `model_path (검출 모델 ONNX)`
-- `conf_threshold: 0.5`
+- `model_path` (YOLO `.pt`, 비면 `share/perception/model/best.pt`) · `confidence: 0.4` · `imgsz: 416` · `device: cpu`
+- 동기화·융합: `sync_slop: 0.05` · `match_dist: 0.4` · `pixel_sigma: 4.0` · `depth_sigma0: 0.005` · `depth_sigma_k: 0.01` · `process_noise: 0.01` · `process_noise_dynamic: 1.0`
+- 자기 몸 필터: `self_filter: true` · `base_frame: base_footprint` · `self_links: [shoulder … end_effector]` · `self_radius: 0.06` · `body_radius: 0.2` · `body_height: 0.6`
 - `track_timeout_s: 3.0`
 - `target_frame: map`
 
@@ -1074,10 +1077,15 @@ OpenCR IMU의 state interface를 Imu 메시지로 발행한다.
 uint32 id
 string class_name
 float32 confidence
-geometry_msgs/PoseWithCovariance pose   # map 기준
-geometry_msgs/Vector3 size              # m
-builtin_interfaces/Time last_seen
+geometry_msgs/PoseWithCovariance pose   # map 기준 — 두 카메라 융합 위치 + 위치 공분산 (필드 뜻: documents/API.md)
+geometry_msgs/Vector3 size              # m — x·y = 카메라 영상 박스 가로·세로 폭 환산 (map 축 아님), z = 클래스 기본값
+builtin_interfaces/Time last_seen       # 마지막 관측 영상 시각
+string camera                           # 마지막으로 본 카메라 (pole_cam | gripper_cam) — VLM 이미지 마킹용
+int32[2] px                             # 그 카메라 영상 속 박스 중심 픽셀 [u, v]
+string color                            # 퍽: red | orange | yellow | green | blue | purple | white | black | unknown · 신호등 상태: red | yellow | green | off · 그 외 빈 값 (박스 가운데 HSV)
 ```
+
+필드별 뜻·주의(좌표가 앞면 점인 것 · size가 영상 박스 기준인 것 · id 수명 등)는 [API.md](../API.md#api-msg-trackedobject) 표.
 
 **perception/msg/TrackedObjectArray.msg**
 

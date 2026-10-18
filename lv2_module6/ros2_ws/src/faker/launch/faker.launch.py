@@ -40,6 +40,8 @@ map:=course일 때만 — 실기에서 RTAB-Map이 하는 일의 대신 (시뮬�
 ml:=real이면 진짜 ml 노드를 띄운다 — 모델이 없거나 learning_enabled:=false면 기본 동작(Δ=0·규칙)으로 돌아야 한다.
 """
 
+import socket
+
 from launch import LaunchDescription
 from launch.actions import DeclareLaunchArgument, IncludeLaunchDescription
 from launch.launch_description_sources import PythonLaunchDescriptionSource
@@ -74,6 +76,16 @@ def fake(executable, name, overrides=None, respawn=False, condition=None):
 COURSE_MAP = PythonExpression(["'", LaunchConfiguration('map'), "' == 'course'"])
 
 
+def default_vlm_endpoint():
+    """호스트 ai-service 주소 — macOS Docker Desktop은 host.docker.internal이 호스트를 가리키지만, 리눅스 network_mode: host에선
+    그 이름이 아예 안 풀림(실측: 요청이 한 번도 안 가고 템플릿 폴백 → '계획 보류'). host망이면 호스트 = 127.0.0.1"""
+    try:
+        socket.gethostbyname('host.docker.internal')
+        return 'http://host.docker.internal:8000'
+    except OSError:
+        return 'http://127.0.0.1:8000'
+
+
 def is_real(name):
     return PythonExpression(["'", LaunchConfiguration(name), "' == 'real'"])
 
@@ -84,7 +96,8 @@ def generate_launch_description():
         arg('ml', 'fake', 'fake = ML 대역(도커·CI 기본, GPU 불필요) · real = 진짜 ml 노드·컨트롤러 — 아래 넷의 기본값'),
         *[arg(n, LaunchConfiguration('ml'), f'{n}: fake | real (기본 = ml)') for n in ML],
         arg('learning_enabled', 'true', '학습 노드 on/off (ml:=real일 때)'),
-        arg('vlm_endpoint', 'http://host.docker.internal:8000', '호스트 ai-service 주소 (비면 템플릿 고정)'),
+        arg('vlm_endpoint', default_vlm_endpoint(),
+            '호스트 ai-service 주소 (비면 템플릿 고정) — 기본: host.docker.internal이 풀리면(macOS) 그것, 아니면(리눅스 host망) 127.0.0.1'),
         arg('map', 'course', 'course = 코스 지도 외움 · slam = RTAB-Map 매핑(rtabmap.db 새로) · saved = 저장한 rtabmap.db로 위치추정'),
         arg('map_dir', '/ws/map', '지도 폴더 (호스트 ros2_ws/map 바인드) — 지도마다 <map_name>/ rtabmap.db · map.pgm · map.yaml'),
         arg('map_name', '', '지도 폴더 이름 — slam: 비우면 날짜_시각으로 새로 · saved: 비우면 default (rtabmap.db 없으면 가장 최근 — bringup이 정함)'),
@@ -105,6 +118,9 @@ def generate_launch_description():
             'mock_hardware': LaunchConfiguration('mock_hardware'),
             'mock_effort': LaunchConfiguration('mock_effort'),
             'use_cameras': 'false',  # RealSense 대신 fake_camera (아래)
+            # /cmd/restart all (state_manager): 다시 띄우기 전에 빌드 (고친 코드 반영 — 예전 test-faker 0 재시작과 같게) · 출력은 test-faker 로그로
+            'restart_prepare': 'build-ws',
+            'restart_log': '/tmp/faker.log',
             'arm_correction_type': PythonExpression(
                 ["'ml/RlArmCorrection' if '", LaunchConfiguration('rl_arm_correction'), "' == 'real' else 'faker/FakeRlArmCorrection'"]),
             **{f'use_{n}': is_real(n) for n in ML_NODES},
