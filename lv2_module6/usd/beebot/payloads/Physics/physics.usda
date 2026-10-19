@@ -392,9 +392,9 @@ over "beebot"
             prepend apiSchemas = ["NewtonJointAPI", "PhysicsDriveAPI:linear", "PhysicsJointStateAPI:linear"]
         )
         {
-            float drive:linear:physics:damping = 0.13
+            float drive:linear:physics:damping = 10
             float drive:linear:physics:maxForce = 20
-            float drive:linear:physics:stiffness = 5
+            float drive:linear:physics:stiffness = 1000
             token drive:linear:physics:type = "force"
             float newton:velocityLimit = 0.07
             uniform token physics:axis = "Z"
