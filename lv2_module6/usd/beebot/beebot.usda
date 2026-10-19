@@ -7,18 +7,18 @@
                 double radius = 5
             }
             dictionary Perspective = {
-                double3 position = (-0.0059621225072994605, 0.759548390436158, 0.25747150912933653)
-                double3 target = (0.049513811327852555, 0.046291756150766306, 0.25569371278276687)
+                double3 position = (0.7721816659537131, 0.3015297175889372, 0.45657738142459553)
+                double3 target = (0.05646603945314754, -0.0896234202128765, 0.22079312662961872)
             }
             dictionary Right = {
-                double3 position = (0.09619816219760281, -5, 0.31100147264013045)
-                double radius = 0.8294658660888672
+                double3 position = (0.16547105246210667, -5, 0.2745266802491831)
+                double radius = 0.4062523365020752
             }
             dictionary Top = {
                 double3 position = (0, 0, 5)
                 double radius = 5
             }
-            string boundCamera = "/beebot/Geometry/base_footprint/base_link/arm_base_link/shoulder_link/upper_arm_link/forearm_link/wrist_link/gripper_link/gripper_cam_link/gripper_cam_color_optical_frame/gripper_cam_rgb"
+            string boundCamera = "/OmniverseKit_Persp"
         }
         string creator = "URDF USD Converter v0.3.2"
         dictionary omni_layer = {
@@ -46,6 +46,13 @@ def Xform "beebot" (
         {
             over "base_link"
             {
+                string isaac:nameOverride (
+                    displayName = "Name Override"
+                )
+                bool physxArticulation:enabledSelfCollisions = 0
+                quatf xformOp:orient = (1, -1.0500533e-7, 0.0000015798247, -3.3760028e-9)
+                double3 xformOp:translate = (-0.000029705464839935303, -5.555921234190464e-8, 0.010002948343753815)
+
                 over "wheel_left_link"
                 {
                 }
@@ -98,24 +105,50 @@ def Xform "beebot" (
 
                     over "shoulder_link"
                     {
+                        string isaac:nameOverride (
+                            displayName = "Name Override"
+                        )
+
                         over "upper_arm_link"
                         {
+                            string isaac:nameOverride (
+                                displayName = "Name Override"
+                            )
+
                             over "forearm_link"
                             {
+                                string isaac:nameOverride (
+                                    displayName = "Name Override"
+                                )
+
                                 over "wrist_link"
                                 {
                                     over "gripper_link"
                                     {
+                                        string isaac:nameOverride (
+                                            displayName = "Name Override"
+                                        )
+
                                         over "finger_left_link"
                                         {
+                                            string isaac:nameOverride (
+                                                displayName = "Name Override"
+                                            )
                                         }
 
                                         over "finger_right_link"
                                         {
+                                            string isaac:nameOverride (
+                                                displayName = "Name Override"
+                                            )
                                         }
 
                                         over "gripper_cam_link"
                                         {
+                                            string isaac:nameOverride (
+                                                displayName = "Name Override"
+                                            )
+
                                             over "gripper_cam_color_optical_frame"
                                             {
                                                 string isaac:Description (
@@ -159,48 +192,106 @@ def Xform "beebot" (
     {
         over "wheel_left_joint"
         {
+            float physxJoint:maxJointVelocity = 462
             float state:angular:physics:position = 0
             float state:angular:physics:velocity = 0
         }
 
         over "wheel_right_joint"
         {
+            float physxJoint:maxJointVelocity = 462
             float state:angular:physics:position = 0
             float state:angular:physics:velocity = 0
         }
 
         over "joint1"
         {
+            float drive:angular:physics:damping = 0.13
+            float drive:angular:physics:stiffness = 5
+            bool[] isaac:actuator (
+                displayName = "Actuator"
+            )
+            string isaac:NameOverride (
+                displayName = "Joint Name Override"
+            )
+            token[] isaac:physics:DofOffsetOpOrder (
+                displayName = "Dof Offset Op Order"
+            )
+            float physxJoint:maxJointVelocity = 276
             float state:angular:physics:position = 0
             float state:angular:physics:velocity = 0
         }
 
         over "joint2"
         {
+            float drive:angular:physics:damping = 0.23
+            float drive:angular:physics:stiffness = 15
+            bool[] isaac:actuator (
+                displayName = "Actuator"
+            )
+            string isaac:NameOverride (
+                displayName = "Joint Name Override"
+            )
+            token[] isaac:physics:DofOffsetOpOrder (
+                displayName = "Dof Offset Op Order"
+            )
+            float physxJoint:armature = 0
+            float physxJoint:maxJointVelocity = 276
             float state:angular:physics:position = 0
             float state:angular:physics:velocity = 0
         }
 
         over "joint3"
         {
+            float drive:angular:physics:damping = 0.12
+            float drive:angular:physics:stiffness = 10
+            bool[] isaac:actuator (
+                displayName = "Actuator"
+            )
+            string isaac:NameOverride (
+                displayName = "Joint Name Override"
+            )
+            token[] isaac:physics:DofOffsetOpOrder (
+                displayName = "Dof Offset Op Order"
+            )
+            float physxJoint:maxJointVelocity = 276
             float state:angular:physics:position = 0
             float state:angular:physics:velocity = 0
         }
 
         over "joint4"
         {
+            float drive:angular:physics:damping = 0.045
+            float drive:angular:physics:stiffness = 5
+            float physxJoint:armature = 0
+            float physxJoint:maxJointVelocity = 276
             float state:angular:physics:position = 0
             float state:angular:physics:velocity = 0
         }
 
         over "joint5"
         {
+            float drive:angular:physics:damping = 0.006
+            float drive:angular:physics:stiffness = 2
+            float physxJoint:maxJointVelocity = 276
             float state:angular:physics:position = 0
             float state:angular:physics:velocity = 0
         }
 
         over "gripper_left_joint"
         {
+            float drive:linear:physics:damping = 0.13
+            float drive:linear:physics:stiffness = 5
+            bool[] isaac:actuator (
+                displayName = "Actuator"
+            )
+            string isaac:NameOverride (
+                displayName = "Joint Name Override"
+            )
+            token[] isaac:physics:DofOffsetOpOrder (
+                displayName = "Dof Offset Op Order"
+            )
+            float physxJoint:maxJointVelocity = 0.07
             float state:linear:physics:position = 0
             float state:linear:physics:velocity = 0
         }
@@ -209,35 +300,6 @@ def Xform "beebot" (
         {
             float state:linear:physics:position = 0
             float state:linear:physics:velocity = 0
-        }
-    }
-
-    def Xform "GroundPlane"
-    {
-        quatf xformOp:orient = (1, 0, 0, 0)
-        float3 xformOp:scale = (1, 1, 1)
-        double3 xformOp:translate = (0, 0, 0)
-        uniform token[] xformOpOrder = ["xformOp:translate", "xformOp:orient", "xformOp:scale"]
-
-        def Mesh "CollisionMesh"
-        {
-            uniform bool doubleSided = 0
-            int[] faceVertexCounts = [4]
-            int[] faceVertexIndices = [0, 1, 2, 3]
-            normal3f[] normals = [(0, 0, 1), (0, 0, 1), (0, 0, 1), (0, 0, 1)]
-            point3f[] points = [(-25, -25, 0), (25, -25, 0), (25, 25, 0), (-25, 25, 0)]
-            color3f[] primvars:displayColor = [(0.5, 0.5, 0.5)]
-            texCoord2f[] primvars:st = [(0, 0), (1, 0), (1, 1), (0, 1)] (
-                interpolation = "varying"
-            )
-        }
-
-        def Plane "CollisionPlane" (
-            prepend apiSchemas = ["PhysicsCollisionAPI"]
-        )
-        {
-            uniform token axis = "Z"
-            uniform token purpose = "guide"
         }
     }
     variantSet "Physics" = {
@@ -280,7 +342,7 @@ def "Render" (
                 no_delete = true
             )
             {
-                rel camera = </beebot/Geometry/base_footprint/base_link/arm_base_link/shoulder_link/upper_arm_link/forearm_link/wrist_link/gripper_link/gripper_cam_link/gripper_cam_color_optical_frame/gripper_cam_rgb>
+                rel camera = </OmniverseKit_Persp>
                 token omni:rtx:ambientOcclusion:denoiserMode = "none"
                 token omni:rtx:background:source:texture:textureMode = "repeatMirrored"
                 token omni:rtx:background:source:type = "domeLight"
@@ -309,7 +371,7 @@ def "Render" (
                 bool omni:rtx:scene:hydra:mdlMaterialWarmup = 1
                 rel orderedVars = </Render/Vars/LdrColor>
                 custom bool overrideClipRange = 0
-                uniform int2 resolution = (1285, 738)
+                uniform int2 resolution = (705, 788)
             }
         }
     }
@@ -359,10 +421,10 @@ over "OmniverseKit_Persp" (
     float exposure:time = 0.02
     float focalLength = 18.147562
     float focusDistance = 400
-    custom uniform vector3d omni:kit:centerOfInterest = (0, 0, -0.7154130038983475)
-    float3 xformOp:rotateXYZ = (89.85762, -1.3795655e-13, -175.55258)
+    custom uniform vector3d omni:kit:centerOfInterest = (0, 0, -0.8490252352189094)
+    float3 xformOp:rotateXYZ = (73.87632, -1.5266663e-13, 118.6575)
     float3 xformOp:scale = (1, 1, 1)
-    double3 xformOp:translate = (-0.0059621225072994605, 0.759548390436158, 0.25747150912933653)
+    double3 xformOp:translate = (0.7721816659537131, 0.3015297175889372, 0.45657738142459553)
     uniform token[] xformOpOrder = ["xformOp:translate", "xformOp:rotateXYZ", "xformOp:scale"]
 }
 
@@ -391,13 +453,13 @@ over "OmniverseKit_Right" (
     float exposure:fStop = 5
     float exposure:responsivity = 1.1026709
     float exposure:time = 0.02
-    float horizontalAperture = 8.294659
+    float horizontalAperture = 4.0625234
     custom uniform vector3d omni:kit:centerOfInterest = (0, 0, -5)
     token projection = "orthographic"
-    float verticalAperture = 8.294659
+    float verticalAperture = 4.0625234
     float3 xformOp:rotateXYZ = (90, -5.1684015e-15, 1.2722219e-14)
     float3 xformOp:scale = (1, 1, 1)
-    double3 xformOp:translate = (0.09619816219760281, -5, 0.31100147264013045)
+    double3 xformOp:translate = (0.16547105246210667, -5, 0.2745266802491831)
     uniform token[] xformOpOrder = ["xformOp:translate", "xformOp:rotateXYZ", "xformOp:scale"]
 }
 

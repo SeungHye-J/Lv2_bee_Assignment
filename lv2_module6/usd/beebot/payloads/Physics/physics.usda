@@ -235,7 +235,10 @@ over "beebot"
             prepend apiSchemas = ["NewtonJointAPI", "PhysicsDriveAPI:angular", "PhysicsJointStateAPI:angular"]
         )
         {
+            float drive:angular:physics:damping = 0
             float drive:angular:physics:maxForce = 3
+            float drive:angular:physics:stiffness = 0
+            token drive:angular:physics:type = "force"
             float newton:velocityLimit = 461.97586
             uniform token physics:axis = "Y"
             custom rel physics:body0
@@ -253,7 +256,10 @@ over "beebot"
             prepend apiSchemas = ["NewtonJointAPI", "PhysicsDriveAPI:angular", "PhysicsJointStateAPI:angular"]
         )
         {
+            float drive:angular:physics:damping = 0
             float drive:angular:physics:maxForce = 3
+            float drive:angular:physics:stiffness = 0
+            token drive:angular:physics:type = "force"
             float newton:velocityLimit = 461.97586
             uniform token physics:axis = "Y"
             custom rel physics:body0
@@ -271,7 +277,10 @@ over "beebot"
             prepend apiSchemas = ["NewtonJointAPI", "PhysicsDriveAPI:angular", "PhysicsJointStateAPI:angular"]
         )
         {
+            float drive:angular:physics:damping = 0.13
             float drive:angular:physics:maxForce = 4.1
+            float drive:angular:physics:stiffness = 5
+            token drive:angular:physics:type = "force"
             float newton:velocityLimit = 275.99377
             uniform token physics:axis = "Z"
             custom rel physics:body0
@@ -291,7 +300,10 @@ over "beebot"
             prepend apiSchemas = ["NewtonJointAPI", "PhysicsDriveAPI:angular", "PhysicsJointStateAPI:angular"]
         )
         {
+            float drive:angular:physics:damping = 0.23
             float drive:angular:physics:maxForce = 4.1
+            float drive:angular:physics:stiffness = 15
+            token drive:angular:physics:type = "force"
             float newton:velocityLimit = 275.99377
             uniform token physics:axis = "Z"
             custom rel physics:body0
@@ -311,7 +323,10 @@ over "beebot"
             prepend apiSchemas = ["NewtonJointAPI", "PhysicsDriveAPI:angular", "PhysicsJointStateAPI:angular"]
         )
         {
+            float drive:angular:physics:damping = 0.12
             float drive:angular:physics:maxForce = 4.1
+            float drive:angular:physics:stiffness = 10
+            token drive:angular:physics:type = "force"
             float newton:velocityLimit = 275.99377
             uniform token physics:axis = "Z"
             custom rel physics:body0
@@ -331,7 +346,10 @@ over "beebot"
             prepend apiSchemas = ["NewtonJointAPI", "PhysicsDriveAPI:angular", "PhysicsJointStateAPI:angular"]
         )
         {
+            float drive:angular:physics:damping = 0.045
             float drive:angular:physics:maxForce = 4.1
+            float drive:angular:physics:stiffness = 5
+            token drive:angular:physics:type = "force"
             float newton:velocityLimit = 275.99377
             uniform token physics:axis = "Z"
             custom rel physics:body0
@@ -351,7 +369,10 @@ over "beebot"
             prepend apiSchemas = ["NewtonJointAPI", "PhysicsDriveAPI:angular", "PhysicsJointStateAPI:angular"]
         )
         {
+            float drive:angular:physics:damping = 0.006
             float drive:angular:physics:maxForce = 4.1
+            float drive:angular:physics:stiffness = 2
+            token drive:angular:physics:type = "force"
             float newton:velocityLimit = 275.99377
             uniform token physics:axis = "Z"
             custom rel physics:body0
@@ -371,7 +392,10 @@ over "beebot"
             prepend apiSchemas = ["NewtonJointAPI", "PhysicsDriveAPI:linear", "PhysicsJointStateAPI:linear"]
         )
         {
+            float drive:linear:physics:damping = 0.13
             float drive:linear:physics:maxForce = 20
+            float drive:linear:physics:stiffness = 5
+            token drive:linear:physics:type = "force"
             float newton:velocityLimit = 0.07
             uniform token physics:axis = "Z"
             custom rel physics:body0
@@ -392,6 +416,8 @@ over "beebot"
         )
         {
             float drive:linear:physics:maxForce = 20
+            float drive:linear:physics:stiffness = 0
+            token drive:linear:physics:type = "force"
             rel newton:mimicJoint = </beebot/Physics/gripper_left_joint>
             float newton:velocityLimit = 0.07
             uniform token physics:axis = "Z"
