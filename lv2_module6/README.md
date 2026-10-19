@@ -3,7 +3,7 @@
 **미로 코스 안에서 로봇(beebot)이 스스로 주행하며 코스를 스캔하고, 흩어진 퍽을 찾아 집어 목표 구역으로 옮겨 놓는다.**
 가는 길의 장애물·끼어드는 사람은 피하거나 멈춘다 — 로봇 대회의 "물건 옮기고 위치시키기" 미션.
 
-- 처음이면 **[DEVELOP.md](DEVELOP.md)** — 셋팅 · 도커 · 빌드 · 커스텀 메시지 · 파라미터 · 수동 조작 · 상태 진단 · 테스트 · 펌웨어 · 시뮬레이터 · CI
+- 처음이면 **[DEVELOP.md](develop/DEVELOP.md)** — 셋팅 · 도커 · 빌드 · 커스텀 메시지 · 파라미터 · 수동 조작 · 상태 진단 · 테스트 · 펌웨어 · 시뮬레이터 · CI
 - 설계(노드·토픽 상세): [documents/ros2-design](../documents/ros2-design/README.md)
 - ROS 2 Lyrical (Ubuntu 26.04) · C++ (ament_cmake) · OpenCR 펌웨어 (Arduino)
 
@@ -213,7 +213,7 @@ CI(`.github/workflows/ci.yml`): x86_64 · aarch64 각각 `test-all` → 배포 �
 
 ```text
 lv2_module6/
-├── DEVELOP.md                개발 가이드
+├── develop/                  개발 가이드(DEVELOP.md) + 단축 스크립트(faker·rviz·gazebo)
 ├── course/                   대회 코스 (미로 — 원본 + 세로 벽 보강한 상자 모델 · Gazebo 월드)
 ├── urdf/<이름>/urdf.xacro    로봇 모델 (폴더 하나 = 모델 하나, launch urdf:= · 기본 beebot_mesh) (더미 치수 — 팔은 ROBOTIS OM-X 원본 값 + 손목 roll)
 ├── firmware/beebot_opencr/   OpenCR 펌웨어 (호스트 BeebotSystemHardware와 같은 시리얼 프로토콜)
@@ -235,7 +235,7 @@ lv2_module6/
 ## 실행
 
 ```bash
-# 테스트베드 (저장소 루트에서) — 자세한 건 DEVELOP.md
+# 테스트베드 (저장소 루트에서) — 자세한 건 develop/DEVELOP.md
 cd docker && docker compose build && docker compose up -d && docker compose exec lyrical bash
 test-all                                  # push 전 필수 (CI와 같은 검사)
 test-faker 0                              # 띄워 두기 (fake_opencr가 OpenCR — 미끄럼·충돌·통신 끊김) → 호스트에서 simulator/main.py

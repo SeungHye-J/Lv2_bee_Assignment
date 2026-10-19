@@ -12,18 +12,41 @@
 # 토픽·노드·패키지 기록은 monitor_manager가 debug/topic · node · pkg · output/topic 에 남긴다.
 # NOTE: set -u 사용 금지 — setup.bash가 미설정 변수를 참조해서 죽음.
 # shellcheck disable=SC1091
+if [ -z "$BASH_VERSION" ]; then exec bash "$0" "$@"; fi   # sh(dash)로 실행해도 bash로 재실행
 source /opt/ros/lyrical/setup.bash
-cd /ws || { echo "FAIL: /ws 없음"; exit 2; }
+BIN_DIR=$(dirname "${BASH_SOURCE[0]}")
+[ "$BIN_DIR" = . ] && BIN_DIR="$PWD"   # 형제 스크립트 탐색용 — 컨테이너(/usr/local/bin)·호스트(docker/) 모두 동작
+bin_of() {  # 컨테이너는 확장자 없음, 레포는 .sh — 있는 쪽 반환, 둘 다 없으면 PATH에 기대고 bare 이름
+  [ -x "$BIN_DIR/$1" ] && echo "$BIN_DIR/$1" && return 0
+  [ -x "$BIN_DIR/$1.sh" ] && echo "$BIN_DIR/$1.sh" && return 0
+  echo "$1"
+}
+if [ -z "$WS" ]; then
+  if [ -d /ws/src ]; then WS=/ws; else WS="$BIN_DIR/../lv2_module6/ros2_ws"; fi   # 컨테이너면 /ws, 호스트면 레포 안 ros2_ws (머신 경로 하드코딩 없음)
+fi
+WS=$(realpath -m "$WS")   # ../ 정리 — CMakeCache 절대경로와 문자열 비교하므로 정규화 필수
+# DDS: 컨테이너 compose와 동일 (DEVELOP.md §1). 없으면 노드 40개에서 UDP 폭주로 컨트롤러가 못 뜸
+export ROS_AUTOMATIC_DISCOVERY_RANGE=${ROS_AUTOMATIC_DISCOVERY_RANGE:-SUBNET}
+export FASTDDS_DEFAULT_PROFILES_FILE=${FASTDDS_DEFAULT_PROFILES_FILE:-$WS/src/ros_system/config/fastdds.xml}
+cd "$WS" || { echo "FAIL: $WS 없음"; exit 2; }
 
-KILL_PAT='(/ws/install|/opt/ros/lyrical)/[^ ]*lib/|ros2 launch'   # ROS 노드 전부 + launch (패키지를 적으면 새 패키지가 빠져 고아로 남음)
+KILL_PAT="($WS/install|/opt/ros/lyrical)/[^ ]*lib/|ros2 launch"   # ROS 노드 전부 + launch (패키지를 적으면 새 패키지가 빠져 고아로 남음)
 pkill -f "$KILL_PAT" 2>/dev/null || true   # 빌드 전에 — 이전 실행의 노드가 남아 돌면 빌드도 느려짐
-build-ws || exit 1   # 빌드 + install → /debug/install (docker/build-ws.sh)
+"$(bin_of build-ws)" || exit 1   # 빌드 + install → /debug/install (docker/build-ws.sh)
 # shellcheck disable=SC1091
 source install/setup.bash
 
 
 DUR=${1:-1}
 shift 2>/dev/null
+if [ -z "$DEBUG_DIR" ]; then
+  if [ -d /debug ]; then DEBUG_DIR=/debug; else DEBUG_DIR="$WS/../debug"; fi   # 컨테이너면 /debug, 호스트면 ros2_ws 옆 debug (머신 경로 하드코딩 없음)
+fi
+DEBUG_DIR=$(realpath -m "$DEBUG_DIR")
+case " $* " in
+  *\ debug_dir:=*) : ;;   # 사용자가 직접 지정하면 그대로
+  *) set -- "$@" "debug_dir:=$DEBUG_DIR" ;;
+esac
 set -m
 ros2 launch faker faker.launch.py "$@" > /tmp/faker.log 2>&1 & LAUNCH_PID=$!
 JS=$(timeout 60 ros2 topic echo --once /joint_states sensor_msgs/msg/JointState 2>/dev/null)
@@ -32,13 +55,13 @@ for i in 1 2; do
   echo "$JS" | grep -q gripper_left_joint && break
   echo "spawner 재시도 ($i/2)..."
   pkill -f 'controller_manager/spawner' 2>/dev/null || true
-  ros2 run controller_manager spawner joint_state_broadcaster imu_sensor_broadcaster diff_drive_controller rl_arm_correction arm_controller gripper_controller --controller-manager /controller_manager --controller-manager-timeout 120 --service-call-timeout 30 --param-file /ws/install/ros_system/share/ros_system/config/controllers.yaml --controller-ros-args '-r ~/cmd_vel:=/cmd_vel' --controller-ros-args '-r ~/odom:=/odom' --controller-ros-args '-r ~/imu:=/imu' > /tmp/spawner-retry.log 2>&1 || true
+  ros2 run controller_manager spawner joint_state_broadcaster imu_sensor_broadcaster diff_drive_controller rl_arm_correction arm_controller gripper_controller --controller-manager /controller_manager --controller-manager-timeout 120 --service-call-timeout 30 --param-file "$WS/install/ros_system/share/ros_system/config/controllers.yaml" --controller-ros-args '-r ~/cmd_vel:=/cmd_vel' --controller-ros-args '-r ~/odom:=/odom' --controller-ros-args '-r ~/imu:=/imu' > /tmp/spawner-retry.log 2>&1 || true
   JS=$(timeout 30 ros2 topic echo --once /joint_states sensor_msgs/msg/JointState 2>/dev/null)
 done
 
 # 카메라 = 사용자가 호스트에서 켠 시뮬레이터 (테스트가 띄우지 않음). 켜져 있으면 /robot_description을 받은 뒤 렌더 시작 → 최대 20초 기다림
 # 꺼져 있으면 카메라 → 인지 → 작업 흐름 검사는 건너뛰고 배관(joint_states · odom · Nav2 · monitor)만 본다
-META=/debug/input/hardware/camera/pole_cam.json
+META=$DEBUG_DIR/input/hardware/camera/pole_cam.json
 for _ in $(seq 20); do
   [ -f "$META" ] && [ $(( $(date +%s) - $(stat -c %Y "$META") )) -lt 3 ] && break
   sleep 1
@@ -91,8 +114,8 @@ grep -E '\] \[(user_input|vlm_task_planner|coordinator|grasp_scorer|rl_nav_tuner
 [ "$(echo "$NAV2" | grep -o 'active \[3\]' | wc -l)" = 2 ] || { echo "FAIL: Nav2 서버가 active 아님 (collision_monitor / bt_navigator: ${NAV2:-응답 없음})"; grep -E "lifecycle_manager|ERROR" /tmp/faker.log | tail -20; exit 1; }
 echo "$JS" | grep -q gripper_left_joint || { echo "FAIL: /joint_states에 gripper_left_joint 없음 (controller_manager·BeebotSystemHardware)"; grep -E "controller_manager|spawner|ros2_control" /tmp/faker.log | tail -20; exit 1; }
 [ -n "$ODOM" ] || { echo "FAIL: /odometry/filtered 없음 (EKF ← /odom·/imu)"; exit 1; }
-[ -s /debug/output/topic/joint_states/message ] || { echo "FAIL: monitor_manager 파일 없음 (/debug/output/topic/joint_states/message)"; exit 1; }
-echo "기록 (monitor_manager): /debug/topic · /debug/node · /debug/pkg (그래프) · /debug/output/topic (message·image)"
+[ -s "$DEBUG_DIR/output/topic/joint_states/message" ] || { echo "FAIL: monitor_manager 파일 없음 ($DEBUG_DIR/output/topic/joint_states/message)"; exit 1; }
+echo "기록 (monitor_manager): $DEBUG_DIR/topic · $DEBUG_DIR/node · $DEBUG_DIR/pkg (그래프) · $DEBUG_DIR/output/topic (message·image)"
 if [ "$CAM_OK" = 1 ]; then
   [ -n "$DONE" ] || { echo "FAIL: /task_status SUCCEEDED 없음 (60초)"; tail -n 40 /tmp/faker.log; exit 1; }
   grep -q '🔊' /tmp/faker.log || { echo "FAIL: /robot_say 없음"; exit 1; }

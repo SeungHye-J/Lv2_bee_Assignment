@@ -19,7 +19,7 @@
 <a id="api-custom"></a>
 ## 1. 커스텀 인터페이스 정의
 
-별도 interfaces 패키지 없이 **그 메시지를 내보내는 패키지**가 가집니다 ([DEVELOP.md](../lv2_module6/DEVELOP.md#4-커스텀-메시지)).
+별도 interfaces 패키지 없이 **그 메시지를 내보내는 패키지**가 가집니다 ([DEVELOP.md](../lv2_module6/develop/DEVELOP.md#4-커스텀-메시지)).
 C++ 헤더는 타입명을 snake_case로: `TrackedObjectArray` → `perception/msg/tracked_object_array.hpp`.
 
 <a id="api-msg-trackedobject"></a>

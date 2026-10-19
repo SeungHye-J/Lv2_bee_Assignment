@@ -4,7 +4,7 @@
 >
 > 표기: **[확정]** 팀 결정 또는 대회 공지로 정해진 것 · **[가정]** 규정 전까지 우리가 정한 값 · **[미정]** 대회 측 확인 필요
 >
-> 설계 상세: [ros2-design/](ros2-design/README.md) · 개발: [lv2_module6/DEVELOP.md](../lv2_module6/DEVELOP.md)
+> 설계 상세: [ros2-design/](ros2-design/README.md) · 개발: [lv2_module6/develop/DEVELOP.md](../lv2_module6/develop/DEVELOP.md)
 
 ---
 

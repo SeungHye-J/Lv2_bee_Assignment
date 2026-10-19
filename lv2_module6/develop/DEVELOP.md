@@ -1,6 +1,6 @@
 # DEVELOP — 처음 들어온 개발자용
 
-lv2_module6 워크스페이스에서 개발·빌드·테스트하는 방법입니다. 프로젝트 개요·패키지·담당은 [README.md](README.md), 설계는 [documents/ros2-design](../documents/ros2-design/README.md), 브랜치·커밋·PR 규칙은 [CONTRIBUTING.md](../CONTRIBUTING.md)를 봅니다.
+lv2_module6 워크스페이스에서 개발·빌드·테스트하는 방법입니다. 프로젝트 개요·패키지·담당은 [README.md](../README.md), 설계는 [documents/ros2-design](../../documents/ros2-design/README.md), 브랜치·커밋·PR 규칙은 [CONTRIBUTING.md](../../CONTRIBUTING.md)를 봅니다.
 
 - ROS 2 **Lyrical** (Ubuntu 26.04) · **C++** (ament_cmake, rclcpp)
 - 개발·테스트는 **도커 테스트베드**에서 합니다 (로컬에 ROS를 설치하지 않아도 됨). CI도 같은 컨테이너에서 같은 검사를 돌립니다.
@@ -22,8 +22,8 @@ test-all                               # 빌드 + 전체 검사. ALL PASS면 셋
 ```
 
 컨테이너는 워크스페이스 전체(`lv2_module6/ros2_ws` → `/ws`)를 마운트합니다. 빌드 결과·로그도 호스트에서 바로 봅니다.
-같은 LAN의 다른 팀 스택과 DDS 토픽이 섞이지 않게 `ROS_DOMAIN_ID=6` (docker-compose.yml) — 컨테이너 안 명령은 자동 적용.
-DDS 환경 (docker-compose · CI 공통): `ROS_AUTOMATIC_DISCOVERY_RANGE=SUBNET` (ROS 기본값 — LOCALHOST면 Fast DDS가 localhost 참가자 번호 몇 개에만 유니캐스트로 discovery를 보내 노드 40여 개 중 일부가 서로 안 보였음: Nav2 관리자 멈춤 · `/map` 발행자 0 · CLI가 노드 못 찾음. 다른 팀과는 `ROS_DOMAIN_ID=6`로 분리) · `FASTDDS_DEFAULT_PROFILES_FILE=…/ros_system/config/fastdds.xml` (Fast DDS TypeLookup 끔 — 없으면 노드 40개에서 UDP 폭주로 컨트롤러가 못 뜸).
+같은 LAN의 다른 팀 스택과 DDS 토픽이 섞이지 않게 `ROS_DOMAIN_ID=8` (docker-compose.yml · `~/.bashrc`) — 컨테이너 안 명령은 compose가 자동 적용, 호스트는 셸 설정.
+DDS 환경 (docker-compose · CI 공통): `ROS_AUTOMATIC_DISCOVERY_RANGE=SUBNET` (ROS 기본값 — LOCALHOST면 Fast DDS가 localhost 참가자 번호 몇 개에만 유니캐스트로 discovery를 보내 노드 40여 개 중 일부가 서로 안 보였음: Nav2 관리자 멈춤 · `/map` 발행자 0 · CLI가 노드 못 찾음. 다른 팀과는 `ROS_DOMAIN_ID=8`로 분리) · `FASTDDS_DEFAULT_PROFILES_FILE=…/ros_system/config/fastdds.xml` (Fast DDS TypeLookup 끔 — 없으면 노드 40개에서 UDP 폭주로 컨트롤러가 못 뜸).
 
 | 호스트 | 컨테이너 | 용도 |
 | --- | --- | --- |
@@ -84,6 +84,31 @@ ros2 topic echo /state/map_mode                                            # 상
 ros2 run teleop_twist_keyboard teleop_twist_keyboard --ros-args -p stamped:=true -r cmd_vel:=/cmd/manual/cmd_vel   # 키보드 조종
 ros2 topic pub --once /cmd/e_stop std_msgs/msg/Bool '{data: true}'             # 비상정지 (false로 해제)
 ```
+
+### 호스트(로컬 ROS)에서 직접 — 컨테이너 없이
+
+ROS 2 Lyrical이 깔린 리눅스면 `docker/*.sh`를 그대로 씁니다. 경로는 자동 감지라 지정할 것 없음 (`/ws` 있으면 컨테이너, 없으면 레포 안 `ros2_ws`; `debug`도 `/debug`→없으면 `lv2_module6/debug`):
+
+```bash
+source /opt/ros/lyrical/setup.bash
+export ROS_DOMAIN_ID=8   # 같은 LAN 다른 팀과 분리 (컨테이너 compose·~/.bashrc와 같은 값)
+./lv2_module6/ros2_ws/rebuild.sh              # 최초 1회 풀빌드 (build/·install/·log 재생성)
+docker/test-faker.sh 0                        # 띄워 두기 — 이후 셸에선 source lv2_module6/ros2_ws/install/setup.bash
+```
+
+자주 쓰는 건 `lv2_module6/develop/`에 묶어뒀습니다 (어디서 실행해도 됨):
+
+```bash
+lv2_module6/develop/faker.sh                  # = docker/test-faker.sh 0 (인자 그대로 전달)
+lv2_module6/develop/rviz.sh                   # RViz2 + 기본 구성(URDF·TF·Map, develop/rviz_default.rviz)
+lv2_module6/develop/gazebo.sh                 # Gazebo + 코스 월드(course/worlds/twin_closed_maze.sdf)
+lv2_module6/develop/teleop.sh [twist토픽]          # 키보드 조종 (기본 /gz/cmd_vel — testbed 안 건드림)
+```
+
+- 컨테이너와 같은 셸 스크립트라 같은 검사 (`test-packages`, `test-bringup`, `test-faker`)가 돕니다. `sh script`로 실행해도 bash로 재실행됩니다.
+- 빌드 산출물 소유자가 본인이라 `chown` 문제 없음. 단 `build/`·`install/`·`log/`는 컨테이너와 이름이 같고 CMakeCache에 절대경로가 박히므로 **컨테이너와 호스트에서 동시 빌드 금지** — 한 번에 한 곳에서만.
+- 호스트 apt 목록은 §3 참고 (`ros-lyrical-rtabmap-msgs` 포함). rosdep는 lyrical을 몰라서 그냥 apt.
+- 가상 시리얼(`/dev/opencr`)이 필요한 검사(`test-serial`, `test-hardware`, 펌웨어 업로드)는 컨테이너(entrypoint의 socat 브릿지)에서만 됩니다. 호스트는 mock 모드(`mock_hardware:=true`, 기본값) 위주로 씁니다. push 전 전체 게이트(`test-all`)·CI 정본은 그대로 컨테이너입니다.
 
 ## 3. 빌드
 
@@ -360,7 +385,7 @@ cd ros2_ws-<RUN ID>
 
 시뮬레이터는 ROS 정보를 전부 토픽으로 주고받으므로(`debug/` 파일 ↔ monitor_manager · input_manager · service_action_input) 실기에도 같은 화면·버튼을 쓴다:
 
-1. 로봇(SBC)과 PC를 **같은 네트워크 · 같은 `ROS_DOMAIN_ID=6`** 에 둔다. 로봇은 `ROS_AUTOMATIC_DISCOVERY_RANGE`를 LOCALHOST로 두지 않는다 (기본 SUBNET).
+1. 로봇(SBC)과 PC를 **같은 네트워크 · 같은 `ROS_DOMAIN_ID=8`** 에 둔다. 로봇은 `ROS_AUTOMATIC_DISCOVERY_RANGE`를 LOCALHOST로 두지 않는다 (기본 SUBNET).
 2. PC에서 파일 연동 노드만 띄운다: `monitor_manager` · `input_manager` · `service_action_input` · `service_action_monitor` (`debug_dir` = 시뮬레이터의 `lv2_module6/debug`).
    카메라 원본(무압축 영상)은 네트워크가 무거우니 `monitor_manager raw_images:=false`.
 3. 로봇은 `./start.sh` — 버튼은 테스트베드와 같다: [스캔 시작]·[위치추정으로](`/cmd/map_mode`) · 지도 목록(`/cmd/map_name`) · [지도 저장] · 오른쪽 클릭 [여기로 이동](Nav2) · [여기가 로봇 위치](`/initialpose` → RTAB-Map — launch가 `/rtabmap/initialpose`를 `/initialpose`로 리매핑).

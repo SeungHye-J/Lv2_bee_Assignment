@@ -104,6 +104,7 @@ def generate_launch_description():
         arg('mock_hardware', 'false', 'false(기본) = controller_manager가 가상 시리얼(/dev/opencr)로 fake_opencr와 통신 · true = OpenCR 없이 mock (물리 없음)'),
         arg('mock_effort', '0.0', '팔 관절 전류 [A] (mock_hardware:=true일 때만 — fake_opencr면 시뮬레이터 [팔 붙잡기])'),
         arg('urdf', 'default', '로봇 모델 = lv2_module6/urdf/<이 이름>/urdf.xacro (폴더 하나 = 모델 하나, 메시는 그 폴더 meshes/) — 시뮬레이터 [로봇 모델]이 재시작 인자로 바꿈'),
+        arg('use_gz_cameras', 'false', 'true = Gazebo ros_gz_bridge가 카메라 토픽 직접 발행 — fake_camera(파일 브리지) 끔'),
         arg('debug_dir', '/debug', '호스트와 공유하는 폴더 (topic/ · input/ · output/)'),
 
         # 진짜 bringup 그대로 (🛠 노드 + ros_system 📦 + 지도 처리) — 대역에 맞는 인자만 덮어씀
@@ -126,8 +127,10 @@ def generate_launch_description():
             **{f'use_{n}': is_real(n) for n in ML_NODES},
         }),
 
-        fake('fake_camera', 'pole_cam', respawn=True),
-        fake('fake_camera', 'gripper_cam', respawn=True),
+        fake('fake_camera', 'pole_cam', respawn=True,
+             condition=IfCondition(PythonExpression(["'", LaunchConfiguration('use_gz_cameras'), "' == 'false'"]))),
+        fake('fake_camera', 'gripper_cam', respawn=True,
+             condition=IfCondition(PythonExpression(["'", LaunchConfiguration('use_gz_cameras'), "' == 'false'"]))),
         fake('fake_opencr', 'fake_opencr', {
             'map_yaml': PathJoinSubstitution([FindPackageShare('faker'), 'maps', 'twin_closed_maze.yaml']),
         }, condition=IfCondition(PythonExpression(["'", LaunchConfiguration('mock_hardware'), "' == 'false'"]))),
