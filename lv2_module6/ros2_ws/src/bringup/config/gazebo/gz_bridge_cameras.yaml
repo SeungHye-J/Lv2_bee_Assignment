@@ -1,0 +1,12 @@
+# Gazebo → ROS 2 카메라 브리지 — 토픽 이름은 documents/API.md (RealSense와 같게)
+# 깊이: Gazebo는 32FC1(m) → /<cam>/depth_m 으로 받고 depth_mm.py가 16UC1(mm)로 바꿔 /<cam>/aligned_depth_to_color/image_raw 에 낸다
+# 점구름은 1장 ≈ 4.9MB라 lazy (받는 노드가 있을 때만 변환)
+- {ros_topic_name: /clock, gz_topic_name: /clock, ros_type_name: rosgraph_msgs/msg/Clock, gz_type_name: gz.msgs.Clock, direction: GZ_TO_ROS}
+- {ros_topic_name: /pole_cam/color/image_raw, gz_topic_name: /pole_cam/image, ros_type_name: sensor_msgs/msg/Image, gz_type_name: gz.msgs.Image, direction: GZ_TO_ROS}
+- {ros_topic_name: /pole_cam/color/camera_info, gz_topic_name: /pole_cam/camera_info, ros_type_name: sensor_msgs/msg/CameraInfo, gz_type_name: gz.msgs.CameraInfo, direction: GZ_TO_ROS}
+- {ros_topic_name: /pole_cam/depth_m, gz_topic_name: /pole_cam/depth_image, ros_type_name: sensor_msgs/msg/Image, gz_type_name: gz.msgs.Image, direction: GZ_TO_ROS}
+- {ros_topic_name: /pole_cam/depth/color/points, gz_topic_name: /pole_cam/points, ros_type_name: sensor_msgs/msg/PointCloud2, gz_type_name: gz.msgs.PointCloudPacked, direction: GZ_TO_ROS, lazy: true}
+- {ros_topic_name: /gripper_cam/color/image_raw, gz_topic_name: /gripper_cam/image, ros_type_name: sensor_msgs/msg/Image, gz_type_name: gz.msgs.Image, direction: GZ_TO_ROS}
+- {ros_topic_name: /gripper_cam/color/camera_info, gz_topic_name: /gripper_cam/camera_info, ros_type_name: sensor_msgs/msg/CameraInfo, gz_type_name: gz.msgs.CameraInfo, direction: GZ_TO_ROS}
+- {ros_topic_name: /gripper_cam/depth_m, gz_topic_name: /gripper_cam/depth_image, ros_type_name: sensor_msgs/msg/Image, gz_type_name: gz.msgs.Image, direction: GZ_TO_ROS}
+- {ros_topic_name: /gripper_cam/depth/color/points, gz_topic_name: /gripper_cam/points, ros_type_name: sensor_msgs/msg/PointCloud2, gz_type_name: gz.msgs.PointCloudPacked, direction: GZ_TO_ROS, lazy: true}
