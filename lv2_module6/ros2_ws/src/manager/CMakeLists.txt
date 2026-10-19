@@ -14,7 +14,7 @@ find_package(diagnostic_updater REQUIRED)
 
 # --- 노드: 클래스 구현(src/<노드>.cpp)은 라이브러리 하나로 묶고, 실행 파일(src/<노드>_main.cpp)과 테스트가 함께 링크
 #     선언·설명은 include/manager/<노드>.hpp
-add_library(${PROJECT_NAME}_nodes STATIC src/state_manager.cpp)
+add_library(${PROJECT_NAME}_nodes STATIC src/state_manager.cpp src/restart.cpp)
 target_include_directories(${PROJECT_NAME}_nodes PUBLIC include)
 target_compile_features(${PROJECT_NAME}_nodes PUBLIC cxx_std_17)
 target_link_libraries(${PROJECT_NAME}_nodes PUBLIC rclcpp::rclcpp ${std_msgs_TARGETS} ${std_srvs_TARGETS} ${rtabmap_msgs_TARGETS}
@@ -31,6 +31,8 @@ if(BUILD_TESTING)
   find_package(ament_cmake_gtest REQUIRED)
   ament_add_gtest(test_state_manager test/test_state_manager.cpp TIMEOUT 60 ENV ROS_DOMAIN_ID=109)
   target_link_libraries(test_state_manager ${PROJECT_NAME}_nodes)
+  ament_add_gtest(test_restart test/test_restart.cpp TIMEOUT 60)
+  target_link_libraries(test_restart ${PROJECT_NAME}_nodes)
 endif()
 
 ament_package()

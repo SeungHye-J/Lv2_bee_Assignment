@@ -1,9 +1,13 @@
 // state_manager 구현 — 설명·선언은 include/manager/state_manager.hpp, main은 state_manager_main.cpp
 #include "manager/state_manager.hpp"
 
+#include <unistd.h>
+
 #include <algorithm>
 #include <filesystem>
 #include <vector>
+
+#include "manager/restart.hpp"
 
 namespace manager {
 
@@ -14,11 +18,19 @@ StateManager::StateManager(const rclcpp::NodeOptions & options)
   map_mode_ = declare_parameter<std::string>("map_mode", "LOCALIZATION");
   map_name_ = declare_parameter<std::string>("map_name", "");
   map_dir_ = declare_parameter<std::string>("map_dir", "");
+  restart_prepare_ = declare_parameter<std::string>("restart_prepare", "");
+  restart_log_ = declare_parameter<std::string>("restart_log", "/tmp/bringup.log");
+  restart_marker_ = declare_parameter<std::string>("restart_marker", "/tmp/beebot_restart.pending");
+  restart_wait_s_ = declare_parameter<double>("restart_wait_s", 25.0);
+  restart_registry_ = declare_parameter<std::string>("restart_registry", "/tmp/beebot_restarted_nodes");
   const auto latched = rclcpp::QoS(1).reliable().transient_local();
   operation_pub_ = create_publisher<std_msgs::msg::String>("/state/operation_mode", latched);
   map_pub_ = create_publisher<std_msgs::msg::String>("/state/map_mode", latched);
   map_name_pub_ = create_publisher<std_msgs::msg::String>("/state/map_name", latched);
   map_list_pub_ = create_publisher<std_msgs::msg::String>("/state/map_list", latched);
+  restart_pub_ = create_publisher<std_msgs::msg::String>("/state/restart", latched);
+  restartable_pub_ = create_publisher<std_msgs::msg::String>("/state/restartable", latched);
+  restartable_timer_ = create_wall_timer(std::chrono::seconds(2), [this]() { publish_restartable(); });
   map_list_timer_ = create_wall_timer(std::chrono::seconds(2), [this]() { publish_map_list(); });
   estop_pub_ = create_publisher<std_msgs::msg::Bool>("/state/emergency", latched);
   mapping_cli_ = create_client<std_srvs::srv::Empty>("/rtabmap/rtabmap/set_mode_mapping");
@@ -37,10 +49,15 @@ StateManager::StateManager(const rclcpp::NodeOptions & options)
     });
   map_name_sub_ = create_subscription<std_msgs::msg::String>("/cmd/map_name", rclcpp::QoS(1).reliable(),
     [this](std_msgs::msg::String::ConstSharedPtr m) { request_map_name(m->data); });
+  restart_sub_ = create_subscription<std_msgs::msg::String>("/cmd/restart", rclcpp::QoS(1).reliable(),
+    [this](std_msgs::msg::String::ConstSharedPtr m) { request_restart(m->data); });
   publish(operation_pub_, operation_);
   publish(map_pub_, map_mode_);
   publish(map_name_pub_, map_name_);
   publish_map_list();
+  restart_note_ = "시작 (pid " + std::to_string(getpid()) + ")";
+  publish(restart_pub_, restart_note_);
+  publish_restartable();
   { std_msgs::msg::Bool m; m.data = estop_; estop_pub_->publish(m); }
   diag_.setHardwareID("beebot");
   diag_.add("상태", [this](diagnostic_updater::DiagnosticStatusWrapper & s) {
@@ -52,6 +69,7 @@ StateManager::StateManager(const rclcpp::NodeOptions & options)
     s.add("비상정지", estop_ ? "ON" : "-");
     s.add("탐사", explore_note_.empty() ? "-" : explore_note_);
     s.add("지도 모드 전환 중", map_pending_.empty() ? "-" : map_pending_);
+    s.add("재시작", restart_note_);
   });
   RCLCPP_INFO(get_logger(), "조작 %s · 지도 %s %s", operation_.c_str(), map_mode_.c_str(), map_name_.c_str());
 }
@@ -185,6 +203,88 @@ void StateManager::request_map_name(const std::string & name) {
     });
   }
   if (!map_error_.empty()) RCLCPP_WARN(get_logger(), "지도 바꾸기 %s: %s", name.c_str(), map_error_.c_str());
+}
+
+void StateManager::publish_restartable() {
+  // node로 재시작할 수 있는 노드 = 이 launch 아래 + node로 따로 다시 띄운 것 중 ROS 노드 프로세스 — "이름 pid" 줄들, 바뀔 때만
+  const auto procs = restart::list_procs();
+  std::string list;
+  for (const auto & [name, pid] : restart::restartable(procs, restart::launch_root(procs, getpid()),
+         restart::registered(restart_registry_, procs)))
+  {
+    list += (list.empty() ? "" : "\n") + name + " " + std::to_string(pid);
+  }
+  if (restartable_published_ && list == restartable_) return;
+  restartable_ = list;
+  restartable_published_ = true;
+  publish(restartable_pub_, restartable_);
+}
+
+void StateManager::request_restart(const std::string & text) {
+  namespace rs = restart;
+  const auto req = rs::parse(text);
+  std::string note;
+  rs::Plan plan;
+  std::error_code ec;
+  const auto procs = rs::list_procs();
+  const int root = rs::launch_root(procs, getpid());
+  if (req.kind == rs::Request::INVALID) {
+    note = "거절: " + req.error;
+  } else if (!restart_marker_.empty() && std::filesystem::exists(restart_marker_, ec)) {
+    note = "거절: 재시작이 이미 도는 중 (" + restart_marker_ + ")";
+  } else if (root == 0) {
+    note = "거절: 이 노드를 띄운 ros2 launch를 못 찾음 (ros2 run으로 띄웠나?)";
+  } else if (req.kind == rs::Request::ALL) {
+    std::string exe;
+    if (!rs::read_proc(root, plan.argv, plan.env, plan.cwd, exe)) {
+      note = "거절: launch(pid " + std::to_string(root) + ") 명령줄을 못 읽음";
+    } else {
+      plan.argv = rs::merge_launch_args(plan.argv, req.args);
+      plan.stop = {root};
+      plan.kill = rs::descendants(procs, root);
+      plan.kill.push_back(root);
+      for (int p : rs::registered(restart_registry_, procs)) {  // node로 따로 다시 띄운 것도 (launch 자식이 아님)
+        plan.stop.push_back(p);
+        plan.kill.push_back(p);
+      }
+      plan.clear = restart_registry_;
+      plan.wait_s = restart_wait_s_;
+      plan.clean_shm = true;  // 강제 종료된 노드의 Fast DDS 공유메모리 통로가 남으면 보내는 쪽이 막힐 수 있음 (ros-kill과 같게)
+      plan.prepare = restart_prepare_;
+      plan.marker = restart_marker_;
+      plan.log = restart_log_;
+      note = "all: 재시작 중 — launch pid " + std::to_string(root) +
+        (req.args.empty() ? "" : " · 바꾼 인자 " + text.substr(text.find("all") + 3)) +
+        (restart_prepare_.empty() ? "" : " · 준비 " + restart_prepare_) + " · 출력 " + restart_log_;
+    }
+  } else {
+    const auto pids = rs::find_node(procs, root, req.node, rs::registered(restart_registry_, procs));
+    std::string exe;
+    if (pids.size() != 1) {
+      note = "거절: node " + req.node + " — " +
+        (pids.empty() ? "이 launch 아래에 그 이름의 노드 프로세스 없음" : "프로세스가 " + std::to_string(pids.size()) + "개 (이름이 겹침)");
+    } else if (!rs::read_proc(pids[0], plan.argv, plan.env, plan.cwd, exe)) {
+      note = "거절: node " + req.node + " (pid " + std::to_string(pids[0]) + ") 명령줄을 못 읽음";
+    } else {
+      if (!plan.argv[0].empty() && plan.argv[0][0] != '/' && !exe.empty()) plan.argv[0] = exe;  // PATH 없이도 되게 절대 경로
+      plan.stop = {pids[0]};
+      plan.kill = rs::descendants(procs, pids[0]);
+      plan.kill.push_back(pids[0]);
+      plan.wait_s = 10.0;
+      plan.log = "/tmp/restart_" + req.node + ".log";
+      note = "node " + req.node + ": 재시작 (pid " + std::to_string(pids[0]) + ", 같은 명령줄·파라미터 · 출력 " + plan.log + ")" +
+        (exe.find("nav2_") != std::string::npos ? " — Nav2 수명주기 노드: lifecycle_manager가 다시 활성화해야 함" : "");
+    }
+  }
+  std::string err;
+  int new_pid = 0;
+  if (note.rfind("거절", 0) != 0) {
+    if (!rs::spawn(plan, err, &new_pid)) note = "거절: 도우미 실행 실패 — " + err;
+    else if (req.kind == rs::Request::NODE) rs::record(restart_registry_, new_pid, plan.argv);  // 다시 뜬 노드 = 같은 pid · 같은 명령줄
+  }
+  restart_note_ = note;
+  RCLCPP_WARN(get_logger(), "재시작 요청 '%s' → %s", text.c_str(), note.c_str());
+  publish(restart_pub_, note);
 }
 
 }  // namespace manager

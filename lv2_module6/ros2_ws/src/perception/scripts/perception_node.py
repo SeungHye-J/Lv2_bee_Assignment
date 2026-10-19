@@ -2,27 +2,32 @@
 """🛠 perception (YOLO nano, 담당: 전승혜) — 설계: documents/ros2-design/02-sense.md
 
   입력: pole_cam·gripper_cam 컬러·정렬 depth·camera_info (best_effort)
-  출력: /tracked_objects (perception/TrackedObjectArray, reliable) — vlm_task_planner · coordinator · grasp_scorer
+  출력: /tracked_objects (perception/TrackedObjectArray, reliable) — 두 카메라 융합 결과 · vlm_task_planner · coordinator · grasp_scorer
+        /perception/<cam>/detections (같은 타입) — 융합 전 카메라별 한 프레임 검출 (id = 붙은 트랙 id, covariance = 관측 공분산)
+          → 시뮬레이터가 카메라별 검출과 융합 결과를 나란히 그림 (디버그용 — 소비 노드 없음)
 
-  camera_info 내부 파라미터로 3D 역투영 → TF(header.stamp 시각)로 map 기준 변환 → 최근접 ID 추적.
+  컬러·정렬 depth를 시각 동기화(ApproximateTime)해 한 쌍으로 받고, camera_info 내부 파라미터로 3D 역투영
+  → 영상 시각(header.stamp)의 TF로 map 기준 변환 (gripper_cam처럼 팔과 함께 움직여도 찍힌 순간의 자세로) → 추적.
+  두 카메라 융합: 같은 물체를 pole_cam·gripper_cam이 보면 한 트랙에 칼만 갱신으로 합친다.
+    관측 공분산은 카메라 좌표에서 depth 축 σz = depth_sigma0 + depth_sigma_k·z² (RealSense 오차는 거리² 비례),
+    가로·세로 σ = pixel_sigma·z/f → 그 시각 TF 회전으로 map에 돌려 넣는다 → 가까이서 본 gripper_cam이 자연히 더 무겁고,
+    두 카메라가 다른 방향에서 보면 서로의 depth 축 오차를 줄여 준다. 결과 공분산은 pose.covariance(위치 3×3)로 발행.
   모델 파일이 없으면 빈 목록을 내보낸다 (진단 WARN) — test-bringup 기동 검사용.
 """
-import math
 import threading
 import time
 
 import cv2
+import message_filters
 import numpy as np
 import rclpy
 from cv_bridge import CvBridge
 from diagnostic_msgs.msg import DiagnosticArray, DiagnosticStatus, KeyValue
-from geometry_msgs.msg import PointStamped
 from perception.msg import TrackedObject, TrackedObjectArray
 from rclpy.node import Node
 from rclpy.qos import QoSDurabilityPolicy, QoSHistoryPolicy, QoSProfile, QoSReliabilityPolicy
 from sensor_msgs.msg import CameraInfo, Image
 from std_msgs.msg import String
-from tf2_geometry_msgs import do_transform_point
 from tf2_ros import Buffer, TransformListener
 
 QR_GAP_S = 10.0  # 이만큼 QR이 안 보였다가 다시 읽히면 새 미션 지역으로 보고 재발행 [s]
@@ -39,6 +44,62 @@ SIZE_FALLBACK = {
     "person": (0.40, 0.40, 1.70),
     "traffic_light": (0.14, 0.14, 0.45),
 }
+DYNAMIC_CLASSES = ("person",)  # 스스로 움직이는 물체 — 예측 단계 공정 잡음을 process_noise_dynamic으로 크게
+TRACK_TIMEOUT_S = 2.0          # 이만큼 어느 카메라에도 안 보이면 트랙 삭제 [s]
+ROT_VAR_UNKNOWN = 1e3          # 방향은 추정하지 않음 → pose.covariance 회전 대각 (사실상 모름)
+
+
+PUCK_CLASSES = ("puck", "puck_lying")
+BODY_MIN_Z = 0.05  # 차체 판정은 이 높이 위만 [m]
+
+
+def seg_dist(p, a, b):
+    """점 p와 선분 a-b 사이 거리"""
+    ab = b - a
+    t = float(np.clip((p - a) @ ab / max(float(ab @ ab), 1e-12), 0.0, 1.0))
+    return float(np.linalg.norm(p - (a + t * ab)))
+
+
+def is_self(cls, p, body, body_radius, body_height, self_radius):
+    """map 점 p가 로봇 자기 몸인가 — body = (차체 원점, [팔 체인 링크 원점…]) (map).
+    차체: 원점에서 수평 body_radius 안 · 높이 body_height 아래 (적재함·폴·차체). 팔: 이웃 링크를 잇는 선분에서 self_radius 안.
+    퍽은 마지막 선분(gripper_link→손끝, 손가락 사이)을 빼고 본다 — 집으려고 손끝 바로 아래 둔 퍽을 지우지 않게"""
+    base, chain = body
+    # 바닥(5cm 아래)은 차체로 보지 않음 — 범퍼 바로 앞 퍽이 차체 반경 안에 걸려 지워지지 않게
+    if np.hypot(p[0] - base[0], p[1] - base[1]) < body_radius and base[2] + BODY_MIN_Z < p[2] < base[2] + body_height:
+        return True
+    segs = list(zip(chain[:-1], chain[1:]))
+    if cls in PUCK_CLASSES:
+        segs = segs[:-1]
+    return any(seg_dist(p, a, b) < self_radius for a, b in segs)
+
+
+def stamp_s(stamp):
+    return stamp.sec + stamp.nanosec * 1e-9
+
+
+def quat_to_rot(q):
+    """geometry_msgs Quaternion → 3×3 회전 행렬"""
+    x, y, z, w = q.x, q.y, q.z, q.w
+    return np.array([
+        [1 - 2 * (y * y + z * z), 2 * (x * y - z * w), 2 * (x * z + y * w)],
+        [2 * (x * y + z * w), 1 - 2 * (x * x + z * z), 2 * (y * z - x * w)],
+        [2 * (x * z - y * w), 2 * (y * z + x * w), 1 - 2 * (x * x + y * y)],
+    ])
+
+
+def meas_cov_cam(z, fx, fy, pixel_sigma, depth_sigma0, depth_sigma_k):
+    """카메라 광학 프레임(x 오른쪽 · y 아래 · z 앞)에서 본 한 점의 관측 공분산 [m²]"""
+    sz = depth_sigma0 + depth_sigma_k * z * z
+    return np.diag([(pixel_sigma * z / fx) ** 2, (pixel_sigma * z / fy) ** 2, sz * sz])
+
+
+def kf_update(p, P, z, R):
+    """위치 상태(정지 모델, H=I) 칼만 갱신 → (p, P, K)"""
+    K = P @ np.linalg.inv(P + R)
+    p = p + K @ (z - p)
+    P = (np.eye(3) - K) @ P
+    return p, 0.5 * (P + P.T), K
 
 
 def sensor_qos():
@@ -47,33 +108,45 @@ def sensor_qos():
                       history=QoSHistoryPolicy.KEEP_LAST, depth=5)
 
 
-# HSV 색상(OpenCV H: 0~180) 기준 — 퍽 색 · 신호등 램프 색
-HUES = {"red": (0, 180), "yellow": (30,), "green": (60,), "blue": (120,)}
+# HSV 색상(OpenCV H: 0~180) 기준 — 퍽 색 (시뮬레이터 scene.PALETTE 실측 H: 빨강 0 · 주황 15 · 노랑 28 · 초록 60 · 파랑 109 · 보라 142).
+# 주황은 17: 밝은 조명(1.45배)에서 빨강 채널이 포화되면 주황 H가 22.6까지 올라감 — 노랑(30)과의 경계를 23.5로
+HUES = {"red": (0, 180), "orange": (17,), "yellow": (30,), "green": (60,), "blue": (110,), "purple": (142,)}
+LAMP_COLORS = ("red", "yellow", "green")  # 신호등 램프 — 이 셋 중에서만
+ACHROMATIC_S = 60    # 채도가 이보다 낮은 화소가 대부분이면 무채색 퍽 (흰색 · 검정)
+WHITE_V, BLACK_V = 110, 80  # 무채색일 때 밝기 중앙값 경계 — 조명 0.55~1.45배 (흰 235 → 129 · 검정 40 → 58)
 
 
-def _nearest_hue(h):
-    return min(HUES, key=lambda c: min(min(abs(h - x), 180 - abs(h - x)) for x in HUES[c]))
+def _nearest_hue(h, names=None):
+    return min(names or HUES, key=lambda c: min(min(abs(h - x), 180 - abs(h - x)) for x in HUES[c]))
 
 
 def classify_color(cls, roi):
-    """박스 안 색 → 퍽: 채도 있는 화소의 대표 색상, 신호등: 켜진 램프(밝고 채도 높은 화소) 색 · 없으면 off. 그 외 ''"""
+    """박스 안 색 → 퍽: 박스 가운데(가장자리 20%씩 뺌 — 바닥이 섞이지 않게) 화소의 대표 색상, 채도 없는 화소가 대부분이면
+    흰색·검정 / 신호등: 켜진 램프(밝고 채도 높은 화소) 색 · 없으면 off. 그 외 ''"""
     if roi.size == 0 or cls not in ("puck", "puck_lying", "traffic_light"):
         return ""
+    if cls != "traffic_light":
+        h0, w0 = roi.shape[:2]
+        mh, mw = int(h0 * 0.2), int(w0 * 0.2)
+        roi = roi[mh:h0 - mh, mw:w0 - mw] if h0 - 2 * mh > 0 and w0 - 2 * mw > 0 else roi
     hsv = cv2.cvtColor(roi, cv2.COLOR_BGR2HSV)
     h, s, v = hsv[..., 0].ravel(), hsv[..., 1].ravel(), hsv[..., 2].ravel()
     if cls == "traffic_light":
         lit = (s > 100) & (v > 90)  # 켜짐 V 180~230 · 꺼짐 45~57 (시뮬 램프) — 조명 0.55~1.45배에서도 갈리는 경계
         if lit.sum() < 4:
             return "off"
-        sel = h[lit]
+        sel, names = h[lit], LAMP_COLORS
     else:
-        sel = h[(s > 80) & (v > 50)]
+        if (s < ACHROMATIC_S).mean() > 0.6:
+            med = float(np.median(v))
+            return "white" if med >= WHITE_V else "black" if med <= BLACK_V else "unknown"
+        sel, names = h[(s > 80) & (v > 50)], None
         if sel.size < 8:
             return "unknown"
     # 빨강은 0과 180 양끝에 걸치므로 원형 거리로 가장 많은 색을 고른다
     votes = {}
     for hv in sel[:: max(1, sel.size // 400)]:
-        c = _nearest_hue(int(hv))
+        c = _nearest_hue(int(hv), names)
         votes[c] = votes.get(c, 0) + 1
     return max(votes, key=votes.get)
 
@@ -88,6 +161,26 @@ def qr_crop(bgr, box):
     return cv2.resize(crop, None, fx=k, fy=k, interpolation=cv2.INTER_CUBIC) if k > 1 else crop
 
 
+def to_msg(tid, tr):
+    """트랙(또는 한 검출) dict → TrackedObject — 위치 공분산 3×3을 pose.covariance에, 방향은 모름"""
+    o = TrackedObject()
+    o.id = tid
+    o.class_name = tr["class_name"]
+    o.confidence = float(tr.get("conf", 0.5))
+    o.pose.pose.position.x, o.pose.pose.position.y, o.pose.pose.position.z = (float(v) for v in tr["p"])
+    o.pose.pose.orientation.w = 1.0
+    cov = np.zeros((6, 6))
+    cov[:3, :3] = tr["P"]
+    cov[3, 3] = cov[4, 4] = cov[5, 5] = ROT_VAR_UNKNOWN
+    o.pose.covariance = [float(v) for v in cov.ravel()]
+    o.size.x, o.size.y, o.size.z = (float(v) for v in tr["size"])
+    o.last_seen = tr["last_seen"]
+    o.camera = tr.get("camera", "")
+    o.px = [int(v) for v in tr.get("px", (0, 0))]
+    o.color = tr.get("color", "")
+    return o
+
+
 class PerceptionNode(Node):
     def __init__(self):
         super().__init__("perception")
@@ -97,6 +190,32 @@ class PerceptionNode(Node):
         self.declare_parameter("imgsz", 416)
         self.declare_parameter("device", "cpu")
         self.declare_parameter("cpu_threads", 2)
+        self.declare_parameter("sync_slop", 0.05)
+        self.declare_parameter("match_dist", 0.4)
+        self.declare_parameter("pixel_sigma", 4.0)
+        self.declare_parameter("depth_sigma0", 0.005)
+        self.declare_parameter("depth_sigma_k", 0.01)
+        self.declare_parameter("process_noise", 0.01)
+        self.declare_parameter("process_noise_dynamic", 1.0)
+        self.declare_parameter("self_filter", True)
+        self.declare_parameter("base_frame", "base_footprint")
+        self.declare_parameter("self_links", ["shoulder_link", "upper_arm_link", "forearm_link", "wrist_link",
+                                              "gripper_link", "end_effector_link"])
+        self.declare_parameter("self_radius", 0.06)
+        self.declare_parameter("body_radius", 0.2)
+        self.declare_parameter("body_height", 0.6)
+        self.self_filter = bool(self.get_parameter("self_filter").value)
+        self.base_frame = str(self.get_parameter("base_frame").value)
+        self.self_links = [str(v) for v in self.get_parameter("self_links").value]
+        self.self_radius = float(self.get_parameter("self_radius").value)
+        self.body_radius = float(self.get_parameter("body_radius").value)
+        self.body_height = float(self.get_parameter("body_height").value)
+        self.match_dist = float(self.get_parameter("match_dist").value)
+        self.pixel_sigma = float(self.get_parameter("pixel_sigma").value)
+        self.depth_sigma0 = float(self.get_parameter("depth_sigma0").value)
+        self.depth_sigma_k = float(self.get_parameter("depth_sigma_k").value)
+        self.q = float(self.get_parameter("process_noise").value)
+        self.q_dyn = float(self.get_parameter("process_noise_dynamic").value)
         self.rate_hz = float(self.get_parameter("rate_hz").value)
         conf = float(self.get_parameter("confidence").value)
         self.conf_th = conf
@@ -136,9 +255,12 @@ class PerceptionNode(Node):
         TransformListener(self.tf, self)
         self.lock = threading.Lock()
         self.frames = {}  # cam → dict(bgr, depth_mm, fx, fy, cx, cy, frame_id, stamp)
-        self.tracks = {}  # id → dict(class_name, x, y, z, sx, sy, sz, last_seen)
+        self.tracks = {}  # id → dict(class_name, p[3], P[3×3], t, sx, sy, sz, last_seen, seen{cam: t}, ...)
         self.next_id = 1
         self.published = 0
+        self.synced = {}       # cam → 동기화된 컬러·depth 쌍 수
+        self.tf_fallback = 0   # 영상 시각 TF가 없어 최신 TF로 대신한 횟수
+        self.self_dropped = 0  # 자기 몸(팔·차체)이라 버린 검출 수
         # QR 문제 (documents/MISSION.md §3-1): A 지역 QR 판을 읽어 /mission_qr 로 — 모델 없이도 동작
         self.qr = cv2.QRCodeDetector()
         self.qr_text = ""
@@ -148,14 +270,21 @@ class PerceptionNode(Node):
             QoSProfile(depth=1, reliability=QoSReliabilityPolicy.RELIABLE,
                        durability=QoSDurabilityPolicy.TRANSIENT_LOCAL, history=QoSHistoryPolicy.KEEP_LAST))
 
+        # 컬러·정렬 depth는 시각을 맞춘 쌍으로만 받는다 (다른 순간의 컬러·depth를 섞지 않게) — camera_info는 고정값이라 따로
+        slop = float(self.get_parameter("sync_slop").value)
+        self._syncs = []
         for cam in ("pole_cam", "gripper_cam"):
-            self.create_subscription(Image, f"/{cam}/color/image_raw",
-                                     lambda m, c=cam: self.on_color(c, m), sensor_qos())
-            self.create_subscription(Image, f"/{cam}/aligned_depth_to_color/image_raw",
-                                     lambda m, c=cam: self.on_depth(c, m), sensor_qos())
+            color_sub = message_filters.Subscriber(self, Image, f"/{cam}/color/image_raw", qos_profile=sensor_qos())
+            depth_sub = message_filters.Subscriber(self, Image, f"/{cam}/aligned_depth_to_color/image_raw",
+                                                   qos_profile=sensor_qos())
+            sync = message_filters.ApproximateTimeSynchronizer([color_sub, depth_sub], queue_size=5, slop=slop)
+            sync.registerCallback(lambda c, d, cam=cam: self.on_frame(cam, c, d))
+            self._syncs.append((color_sub, depth_sub, sync))
             self.create_subscription(CameraInfo, f"/{cam}/color/camera_info",
                                      lambda m, c=cam: self.on_info(c, m), sensor_qos())
         self.pub = self.create_publisher(TrackedObjectArray, "/tracked_objects", 5)
+        self.det_pubs = {cam: self.create_publisher(TrackedObjectArray, f"/perception/{cam}/detections", 5)
+                         for cam in ("pole_cam", "gripper_cam")}
         self.diag_pub = self.create_publisher(DiagnosticArray, "/diagnostics", 1)
         self.create_timer(1.0 / max(self.rate_hz, 0.1), self.on_publish)
         self.create_timer(0.25, self.on_infer)  # 카메라당 최대 4Hz 추론
@@ -167,26 +296,21 @@ class PerceptionNode(Node):
         with self.lock:
             return self.frames.setdefault(cam, {})
 
-    def on_color(self, cam, msg):
+    def on_frame(self, cam, color, depth):
+        """동기화된 컬러·depth 한 쌍 — 시각·프레임은 컬러 기준 (depth는 컬러에 정렬된 영상)"""
         try:
-            bgr = self.bridge.imgmsg_to_cv2(msg, desired_encoding="bgr8")
+            bgr = self.bridge.imgmsg_to_cv2(color, desired_encoding="bgr8")
+            d = self.bridge.imgmsg_to_cv2(depth, desired_encoding="passthrough")
         except Exception as e:  # noqa: BLE001
             self.get_logger().warning(f"{cam} 변환 실패: {e}", throttle_duration_sec=5.0)
             return
         s = self._slot(cam)
-        s["bgr"] = np.asarray(bgr)
-        s["stamp"] = msg.header.stamp
-        s["frame_id"] = msg.header.frame_id or f"{cam}_color_optical_frame"
-
-    def on_depth(self, cam, msg):
-        try:
-            d = self.bridge.imgmsg_to_cv2(msg, desired_encoding="passthrough")
-        except Exception as e:  # noqa: BLE001
-            self.get_logger().warning(f"{cam} 깊이 실패: {e}", throttle_duration_sec=5.0)
-            return
-        s = self._slot(cam)
-        s["depth_mm"] = np.asarray(d)
-        s["stamp"] = msg.header.stamp
+        with self.lock:
+            s["bgr"] = np.asarray(bgr)
+            s["depth_mm"] = np.asarray(d)
+            s["stamp"] = color.header.stamp
+            s["frame_id"] = color.header.frame_id or f"{cam}_color_optical_frame"
+            self.synced[cam] = self.synced.get(cam, 0) + 1
 
     def on_info(self, cam, msg):
         s = self._slot(cam)
@@ -216,6 +340,12 @@ class PerceptionNode(Node):
         h, w = s["bgr"].shape[:2]
         depth_m = s["depth_mm"].astype(np.float32) / 1000.0
         now_stamp = s["stamp"]
+        tf = self.lookup_tf(s["frame_id"], now_stamp)
+        if tf is None:
+            return
+        rot, trans = tf
+        body = self.robot_body(now_stamp) if self.self_filter and len(res.boxes) else None
+        dets = []
         qr_boxes = []
         for b in res.boxes:
             cls = self.names.get(int(b.cls[0]))
@@ -234,58 +364,105 @@ class PerceptionNode(Node):
             u, v = (x0 + x1) / 2.0, (y0 + y1) / 2.0
             px = (u - s["cx"]) * zm / s["fx"]
             py = (v - s["cy"]) * zm / s["fy"]
-            mp = self.to_map(s["frame_id"], now_stamp, px, py, zm)
-            if mp is None:
-                continue
             if cls == "qr_board":
                 qr_boxes.append((x0, y0, x1, y1))
-            color = classify_color(cls, s["bgr"][y0:y1, x0:x1])
+            z_map = rot @ np.array([px, py, zm]) + trans
+            if body is not None and is_self(cls, z_map, body, self.body_radius, self.body_height, self.self_radius):
+                with self.lock:
+                    self.self_dropped += 1
+                continue
+            r_cam = meas_cov_cam(zm, s["fx"], s["fy"], self.pixel_sigma, self.depth_sigma0, self.depth_sigma_k)
             fb = SIZE_FALLBACK.get(cls, (0.1, 0.1, 0.1))
-            sx = max((x1 - x0) * zm / s["fx"], 0.01)
-            sy = max((y1 - y0) * zm / s["fy"], 0.01)
-            tid = self.match(cls, mp[0], mp[1], mp[2])
-            with self.lock:
-                self.tracks[tid] = {"class_name": cls, "x": mp[0], "y": mp[1], "z": mp[2],
-                                    "sx": sx, "sy": sy, "sz": fb[2],
-                                    "conf": float(b.conf[0]), "last_seen": now_stamp,
-                                    "camera": cam, "px": (int(u), int(v)), "color": color}
+            dets.append({
+                "class_name": cls,
+                "z": z_map,
+                "R": rot @ r_cam @ rot.T,
+                "size": np.array([max((x1 - x0) * zm / s["fx"], 0.01),
+                                  max((y1 - y0) * zm / s["fy"], 0.01), fb[2]]),
+                "conf": float(b.conf[0]), "px": (int(u), int(v)),
+                "color": classify_color(cls, s["bgr"][y0:y1, x0:x1]),
+            })
+        now_s = stamp_s(now_stamp)
         with self.lock:
             self.frames[cam]["qr_boxes"] = qr_boxes  # on_qr가 이 박스 안만 해독
-            now_s = now_stamp.sec + now_stamp.nanosec * 1e-9
-            for tid in [t for t, tr in self.tracks.items()
-                        if now_s - (tr["last_seen"].sec + tr["last_seen"].nanosec * 1e-9) > 2.0]:
+            tids = self.fuse(cam, now_stamp, dets)
+            for tid in [t for t, tr in self.tracks.items() if now_s - tr["t"] > TRACK_TIMEOUT_S]:
                 del self.tracks[tid]
+        out = TrackedObjectArray()
+        out.header.stamp = now_stamp
+        out.header.frame_id = "map"
+        out.objects = [to_msg(tid, {**d, "p": d["z"], "P": d["R"], "last_seen": now_stamp, "camera": cam})
+                       for tid, d in zip(tids, dets)]
+        self.det_pubs[cam].publish(out)
 
-    def match(self, cls, x, y, z):
-        best, best_d = None, 0.4
-        with self.lock:
-            items = list(self.tracks.items())
-        for tid, tr in items:
-            if tr["class_name"] != cls:
+    def fuse(self, cam, stamp, dets):
+        """한 프레임의 검출들을 트랙에 1:1로 붙여 칼만 갱신 (lock 안에서 호출).
+        후보 = 같은 클래스 · match_dist 안 → 마할라노비스 거리 작은 쌍부터 배정. 남은 검출은 새 트랙.
+        → 검출마다 붙은 트랙 id"""
+        t = stamp_s(stamp)
+        pred = {}
+        for tid, tr in self.tracks.items():
+            q = self.q_dyn if tr["class_name"] in DYNAMIC_CLASSES else self.q
+            pred[tid] = tr["P"] + np.eye(3) * q * max(0.0, t - tr["t"])
+        pairs = []
+        for i, d in enumerate(dets):
+            for tid, tr in self.tracks.items():
+                if tr["class_name"] != d["class_name"]:
+                    continue
+                e = d["z"] - tr["p"]
+                if float(np.linalg.norm(e)) >= self.match_dist:
+                    continue
+                pairs.append((float(e @ np.linalg.solve(pred[tid] + d["R"], e)), i, tid))
+        used_d, used_t = {}, set()
+        for _, i, tid in sorted(pairs):
+            if i in used_d or tid in used_t:
                 continue
-            d = math.dist((x, y, z), (tr["x"], tr["y"], tr["z"]))
-            if d < best_d:
-                best, best_d = tid, d
-        if best is None:
-            with self.lock:
-                best = self.next_id
-                self.next_id += 1
-        return best
+            used_d[i] = tid
+            used_t.add(tid)
+            d, tr = dets[i], self.tracks[tid]
+            tr["p"], tr["P"], k = kf_update(tr["p"], pred[tid], d["z"], d["R"])
+            a = float(np.trace(k)) / 3.0  # 이번 관측을 믿은 정도 — 크기도 같은 비율로
+            tr["size"] = tr["size"] + a * (d["size"] - tr["size"])
+            tr["t"] = max(tr["t"], t)
+            tr["last_seen"] = stamp if t >= stamp_s(tr["last_seen"]) else tr["last_seen"]
+            tr["seen"][cam] = t
+            tr.update(conf=d["conf"], camera=cam, px=d["px"], color=d["color"])
+        for i, d in enumerate(dets):
+            if i in used_d:
+                continue
+            self.tracks[self.next_id] = {
+                "class_name": d["class_name"], "p": d["z"], "P": d["R"], "t": t, "size": d["size"],
+                "conf": d["conf"], "last_seen": stamp, "seen": {cam: t},
+                "camera": cam, "px": d["px"], "color": d["color"]}
+            used_d[i] = self.next_id
+            self.next_id += 1
+        return [used_d[i] for i in range(len(dets))]
 
-    def to_map(self, frame_id, stamp, x, y, z):
-        from geometry_msgs.msg import PointStamped
-        pt = PointStamped()
-        pt.header.frame_id = frame_id
-        pt.header.stamp = stamp
-        pt.point.x, pt.point.y, pt.point.z = x, y, z
-        try:
-            t = self.tf.lookup_transform("map", frame_id, rclpy.time.Time(),
-                                         timeout=rclpy.duration.Duration(seconds=0.2))
-            out = do_transform_point(pt, t)
-            return (out.point.x, out.point.y, out.point.z)
-        except Exception as e:  # noqa: BLE001
-            self.get_logger().warning(f"TF 실패: {e}", throttle_duration_sec=5.0)
+    def robot_body(self, stamp):
+        """그 시각 로봇 몸 (차체 원점, [팔 체인 링크 원점…]) — map 기준. 차체 TF가 없으면 None (필터 안 함)"""
+        base = self.lookup_tf(self.base_frame, stamp, quiet=True)
+        if base is None:
             return None
+        chain = [t[1] for t in (self.lookup_tf(link, stamp, quiet=True) for link in self.self_links) if t is not None]
+        return base[1], chain
+
+    def lookup_tf(self, frame_id, stamp, quiet=False):
+        """map ← 카메라 TF를 영상 시각으로 (팔이 움직이는 중에도 찍힌 순간의 자세). 그 시각이 버퍼에 없으면 최신으로 대신.
+        기다리지 않는다 (단일 스레드 실행기에서 기다리면 TF 수신도 같이 멈춤) → (회전 3×3, 이동 3) 또는 None"""
+        try:
+            t = self.tf.lookup_transform("map", frame_id, rclpy.time.Time.from_msg(stamp))
+        except Exception:  # noqa: BLE001
+            try:
+                t = self.tf.lookup_transform("map", frame_id, rclpy.time.Time())
+                if not quiet:
+                    with self.lock:
+                        self.tf_fallback += 1
+            except Exception as e:  # noqa: BLE001
+                if not quiet:
+                    self.get_logger().warning(f"TF 실패: {e}", throttle_duration_sec=5.0)
+                return None
+        tr = t.transform.translation
+        return quat_to_rot(t.transform.rotation), np.array([tr.x, tr.y, tr.z])
 
     # ---------- 발행 (10Hz)
     def on_publish(self):
@@ -293,22 +470,8 @@ class PerceptionNode(Node):
         out.header.stamp = self.get_clock().now().to_msg()
         out.header.frame_id = "map"
         with self.lock:
-            items = sorted(self.tracks.items())
-        for tid, tr in items:
-            o = TrackedObject()
-            o.id = tid
-            o.class_name = tr["class_name"]
-            o.confidence = float(tr.get("conf", 0.5))
-            o.pose.pose.position.x = tr["x"]
-            o.pose.pose.position.y = tr["y"]
-            o.pose.pose.position.z = tr["z"]
-            o.pose.pose.orientation.w = 1.0
-            o.size.x, o.size.y, o.size.z = tr["sx"], tr["sy"], tr["sz"]
-            o.last_seen = tr["last_seen"]
-            o.camera = tr.get("camera", "")
-            o.px = [int(v) for v in tr.get("px", (0, 0))]
-            o.color = tr.get("color", "")
-            out.objects.append(o)
+            items = [(tid, dict(tr)) for tid, tr in sorted(self.tracks.items())]
+        out.objects = [to_msg(tid, tr) for tid, tr in items]
         self.pub.publish(out)
         with self.lock:
             self.published += 1
@@ -354,8 +517,19 @@ class PerceptionNode(Node):
             s.message = "인지 중"
         with self.lock:
             n = len(self.tracks)
+            # 최근 TRACK_TIMEOUT_S 안에 두 카메라가 모두 본 트랙 = 실제로 융합 중인 물체
+            fused = sum(1 for tr in self.tracks.values()
+                        if len(tr["seen"]) > 1 and max(tr["seen"].values()) - min(tr["seen"].values()) < TRACK_TIMEOUT_S)
             pub = self.published
+            synced = dict(self.synced)
+            fallback = self.tf_fallback
+            dropped = self.self_dropped
         s.values = [KeyValue(key="추적 물체", value=str(n)),
+                    KeyValue(key="두 카메라 융합 물체", value=str(fused)),
+                    KeyValue(key="동기화 프레임",
+                             value=" · ".join(f"{c} {k}" for c, k in sorted(synced.items())) or "0"),
+                    KeyValue(key="TF 최신 대체", value=str(fallback)),
+                    KeyValue(key="자기 몸이라 버린 검출", value=str(dropped)),
                     KeyValue(key="발행한 /tracked_objects", value=str(pub)),
                     KeyValue(key="QR 문제", value=self.qr_text or "(아직 없음)")]
         msg = DiagnosticArray()

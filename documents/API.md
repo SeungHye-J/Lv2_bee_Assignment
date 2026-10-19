@@ -29,12 +29,30 @@ C++ 헤더는 타입명을 snake_case로: `TrackedObjectArray` → `perception/m
 uint32 id
 string class_name
 float32 confidence
-geometry_msgs/PoseWithCovariance pose   # map 기준
-geometry_msgs/Vector3 size              # m
-builtin_interfaces/Time last_seen
-string camera                           # 본 카메라 (pole_cam | gripper_cam) — VLM 이미지 마킹용
+geometry_msgs/PoseWithCovariance pose   # map 기준 — 두 카메라 융합 위치 + 위치 공분산 (필드 뜻: documents/API.md)
+geometry_msgs/Vector3 size              # m — x·y = 카메라 영상 박스 가로·세로 폭 환산 (map 축 아님), z = 클래스 기본값
+builtin_interfaces/Time last_seen       # 마지막 관측 영상 시각
+string camera                           # 마지막으로 본 카메라 (pole_cam | gripper_cam) — VLM 이미지 마킹용
 int32[2] px                             # 그 카메라 영상 속 박스 중심 픽셀 [u, v]
+string color                            # 퍽: red | orange | yellow | green | blue | purple | white | black | unknown · 신호등 상태: red | yellow | green | off · 그 외 빈 값 (박스 가운데 HSV)
 ```
+
+물체 하나 = 추적 트랙 하나. 카메라마다 YOLO 박스 → 박스 중심 픽셀 + 박스 안 정렬 depth 중앙값으로 3D 점 1개 → 영상 시각의 TF로 map 변환 →
+**자기 몸(팔 링크를 잇는 선분 6cm 안 · 차체 반경 0.2m 안 바닥 위)이면 버림** → 같은 클래스·0.4m 안의 트랙에 1:1로 붙여 **칼만 갱신(두 카메라 융합)**. 포인트 클라우드는 쓰지 않는다 (객체 단위 융합). 구현: [perception_node.py](../lv2_module6/ros2_ws/src/perception/scripts/perception_node.py), 파라미터: [perception.yaml](../lv2_module6/ros2_ws/src/perception/config/perception.yaml).
+
+| 필드 | 뜻 | 주의 |
+| --- | --- | --- |
+| `id` | 추적 번호 (1부터 증가) — VLM·coordinator·grasp_scorer가 같은 물체를 이 번호로 가리킴 (`SubGoal.target`) | 어느 카메라에도 **2초** 안 보이면 트랙 삭제 → 다시 보이면 **새 번호**. 번호는 재사용 안 함 |
+| `class_name` | `puck` · `puck_lying` · `goal_zone` · `station_zone` · `qr_board` · `obstacle` · `person` · `traffic_light` | YOLO 모델의 `names`를 따름 (학습 클래스가 바뀌면 같이 바뀜). 다른 클래스끼리는 가까워도 합치지 않음 |
+| `confidence` | 마지막 관측의 YOLO 신뢰도 (0~1, `confidence` 파라미터 이상만) | 평균 아님 |
+| `pose.pose.position` | map 좌표 [m] — 원점 = map 원점(시뮬레이터: 출발 칸 `spawn`), x 앞 · y 왼쪽 · z 위(바닥 ≈ 0). **로봇이 아는 자기 위치(TF map→odom→base_footprint) 기준** — 위치추정(EKF·RTAB-Map)이 틀리면 그만큼 통째로 어긋남 | 박스 중심 방향의 **카메라 쪽 앞면 점** — 실제 중심보다 카메라 쪽으로 물체 반지름쯤 당겨짐 (퍽 2~3cm). z도 앞면 점 높이. 두 카메라가 다른 방향에서 보면 일부 상쇄 |
+| `pose.pose.orientation` | 항상 `(0, 0, 0, 1)` | 방향은 추정하지 않음 |
+| `pose.covariance` | 6×6 행 우선. **위치 3×3 블록**(인덱스 0~2·6~8·12~14) = 융합 위치 불확실성 [m²], 회전 대각(21·28·35) = 1e3(모름) | 관측 잡음만 반영 — 위의 앞면 쏠림(바이어스)은 안 들어감. 관측 σ: depth 축 `depth_sigma0 + depth_sigma_k·z²`, 가로·세로 `pixel_sigma·z/f` |
+| `size` | [m] x = 박스 가로 폭 · y = 박스 세로 높이 (픽셀 × 거리 / 초점거리), z = 클래스 기본값(퍽 0.04 등) | **map 축 크기가 아님** (카메라 영상 기준). 관측마다 칼만 이득 비율로 갱신 |
+| `last_seen` | 마지막으로 관측된 **영상 시각** (카메라 header.stamp) | `TrackedObjectArray.header.stamp`(발행 시각)과 다름 |
+| `camera` | **마지막으로** 본 카메라 `pole_cam` · `gripper_cam` | 두 카메라가 융합한 물체여도 하나만 — 어느 카메라들이 봤는지는 `/perception/<cam>/detections`의 같은 `id`로 |
+| `px` | `camera` 영상(640×480) 속 박스 중심 픽셀 `[u, v]` — VLM이 그 영상에 표시할 때 씀 | 다른 카메라 영상의 좌표가 아님 |
+| `color` | 퍽: `red` · `orange` · `yellow` · `green` · `blue` · `purple` · `white` · `black` · `unknown` / 신호등: `red` · `yellow` · `green` · `off` / 그 외 `""` | 박스 가운데(가장자리 20%씩 뺌 — 바닥 안 섞이게) HSV 다수결, 채도 없는 화소가 대부분이면 흰색·검정. 마지막 관측 값 |
 
 <a id="api-msg-trackedobjectarray"></a>
 ### perception/msg/TrackedObjectArray ([파일](../lv2_module6/ros2_ws/src/perception/msg/TrackedObjectArray.msg))
@@ -45,6 +63,8 @@ TrackedObject[] objects
 ```
 
 - 냄새: perception → `/tracked_objects` (10Hz · reliable). 받는 쪽: vlm_task_planner · coordinator · grasp_scorer.
+- `header.stamp` = **발행 시각**(10Hz 타이머), `header.frame_id` = `map`. `objects` = 지금 살아 있는 트랙 전부 (id 오름차순, 없으면 빈 배열).
+- 같은 타입을 `/perception/<cam>/detections`로도 낸다 — **융합 전** 그 카메라 한 프레임 검출. `id` = 그 검출이 붙은 트랙 id, `pose.covariance` = 그 관측의 공분산, `header.stamp` = 영상 시각. 디버그·시뮬레이터 표시용 (받는 노드 없음).
 
 <a id="api-msg-subgoal"></a>
 ### plan/msg/SubGoal ([파일](../lv2_module6/ros2_ws/src/plan/msg/SubGoal.msg))
@@ -128,7 +148,8 @@ string message
 | `/gripper_cam/color/image_raw` | sensor_msgs/Image (rgb8) | realsense2_camera (gripper_cam) → perception | 15Hz · best_effort |
 | `/gripper_cam/aligned_depth_to_color/image_raw` | sensor_msgs/Image (16UC1, mm) | realsense2_camera (gripper_cam) → perception | pick 단계 위주 |
 | `/gripper_cam/depth/color/points` | sensor_msgs/PointCloud2 | realsense2_camera (gripper_cam) → grasp_scorer | 근접 파지용 |
-| `/tracked_objects` | perception/TrackedObjectArray | perception → vlm_task_planner, coordinator, grasp_scorer | 10Hz · reliable |
+| `/tracked_objects` | perception/TrackedObjectArray | perception → vlm_task_planner, coordinator, grasp_scorer | 10Hz · reliable — 두 카메라 융합 결과 ([필드 뜻](#api-msg-trackedobject)) |
+| `/perception/pole_cam/detections` · `/perception/gripper_cam/detections` | perception/TrackedObjectArray | perception → (시뮬레이터·디버그) | 추론마다(카메라당 ≤4Hz) · reliable — 융합 전 카메라별 검출, `id` = 붙은 트랙 |
 
 - depth 단위는 16UC1 = 밀리미터. D435 최소 측정 거리 약 0.2~0.3m — 그리퍼가 퍽에 바짝 붙으면 빈다.
 
@@ -188,7 +209,9 @@ string message
 | `/state/operation_mode` | std_msgs/String (transient_local) | state_manager → manual_control · coordinator · explorer | AUTO · MANUAL · EXPLORE (AUTO가 아니면 coordinator는 작업 멈춤, EXPLORE면 explorer가 탐사) |
 | `/explore/result` | std_msgs/String | explorer → state_manager | 탐사 끝: `DONE …`(프론티어 없음) · `FAILED …` → state_manager가 AUTO로 되돌림 |
 | `/state/map_list` | std_msgs/String (transient_local) | state_manager → 시뮬레이터 · 누구나 | 가진 지도 폴더 이름들 (줄바꿈 구분, `<map_dir>/<이름>/rtabmap.db` 있는 것) — 바뀔 때만 |
-| `/cmd/restart` | std_msgs/String | 시뮬레이터 [ROS 재시작] → 테스트베드 `test-faker 0` | ROS 전부 정상 종료 → 다시 띄움 (값 비움 = 같은 인자, 있으면 그 launch 인자). ROS 노드가 아니라 test-faker 스크립트가 `debug/input/topic/cmd/restart/message` 파일을 직접 봄 — ROS가 막혀도 동작 |
+| `/cmd/restart` | std_msgs/String | 시뮬레이터 [ROS 재시작] · `ros-faker-restart` · 운영자(`ros2 topic pub --once`) → state_manager | **`all [이름:=값 …]`** = 이 launch 전체를 정상 종료 → 같은 명령줄로 다시 (인자를 주면 그 인자만 바꿈, `map:=`을 바꾸면 `map_name:=` 버림 · 테스트베드는 그 사이 `build-ws`) · **`node <이름>`** = 그 노드 프로세스만 같은 명령줄·환경(파라미터 파일·리매핑 그대로)으로 다시 (Nav2 수명주기 노드는 다시 활성화 필요). 실기 bringup · 테스트베드 같은 길. 같은 요청이 두 번 오지 않게 하는 건 보내는 쪽 — 테스트베드 input_manager는 읽은 파일을 지움. 도는 중엔 새 요청 거절 |
+| `/state/restartable` | std_msgs/String (transient_local) | state_manager → 시뮬레이터 진단 칸 · 누구나 | `node`로 재시작할 수 있는 노드 `"이름 pid"` 줄들 (이 launch 아래 ROS 노드 프로세스 — 컨트롤러·costmap 하위·내부 노드는 프로세스가 아니라 없음). 2초마다 확인 · 바뀔 때만 |
+| `/state/restart` | std_msgs/String (transient_local) | state_manager → 시뮬레이터 상태판 · 누구나 | 마지막 재시작 요청 결과 — `all: 재시작 중 …` · `node perception: 재시작 (pid …)` · `거절: …` · 새로 뜨면 `시작 (pid …)` |
 | `/cmd/map_name` | std_msgs/String | 시뮬레이터 지도 목록 · 운영자 → state_manager | 지도 폴더 이름 — `<map_dir>/<이름>/rtabmap.db`를 RTAB-Map `/rtabmap/rtabmap/load_database`로 열고 위치추정 모드로 (결과 `/state/map_name` · `/state/map_mode`) |
 | `/cmd/map_mode` | std_msgs/String | 시뮬레이터 · 운영자 → state_manager | MAPPING(스캔) · LOCALIZATION(위치추정) — RTAB-Map 모드 전환 요청 |
 | `/state/map_mode` | std_msgs/String (transient_local) | state_manager → 시뮬레이터 · 누구나 | MAPPING · LOCALIZATION · COURSE(정지 지도, 바꿀 수 없음) — RTAB-Map 응답 뒤에만 바뀜 |

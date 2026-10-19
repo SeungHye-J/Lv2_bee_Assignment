@@ -2,7 +2,7 @@
 
 // 입력 매니저: monitor_manager의 반대 방향 — 호스트(통제실·시뮬레이션)가 쓴 파일을 토픽으로 발행한다.
 //   <debug_dir>/input/topic/<토픽명>/message 에 monitor_manager와 같은 형식 {"type": "...", "data": {...}} 을 쓰면
-//   파일이 바뀔 때(mtime)마다 한 번 발행. 토픽·타입을 코드에 적지 않는다 (rosx_introspection이 .msg 정의로 직렬화).
+//   파일이 생기거나 바뀔 때마다 한 번 발행 — 읽은 파일은 발행 전에 지움 (같은 요청이 두 번 안 감 · 시작 때 남은 지난 요청 파일은 발행 없이 지움). 토픽·타입을 코드에 적지 않는다 (rosx_introspection이 .msg 정의로 직렬화).
 //   예) 텍스트 명령 넣기 (호스트에서):
 //     mkdir -p lv2_module6/debug/input/topic/cmd/user_command
 //     echo '{"type": "std_msgs/msg/String", "data": {"data": "빨간 퍽을 목표 구역으로 옮겨"}}' > lv2_module6/debug/input/topic/cmd/user_command/message
@@ -19,6 +19,7 @@
 #include <memory>
 #include <sstream>
 #include <string>
+#include <vector>
 
 #include "rapidjson/document.h"
 #include "rapidjson/stringbuffer.h"
