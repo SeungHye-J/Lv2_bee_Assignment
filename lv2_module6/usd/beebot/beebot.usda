@@ -7,18 +7,18 @@
                 double radius = 5
             }
             dictionary Perspective = {
-                double3 position = (-0.18748329256233814, 0.5956069949268391, 0.5148877003809808)
-                double3 target = (-0.11184934855011673, -0.040489106417922915, 0.14562895636240253)
+                double3 position = (-0.0059621225072994605, 0.759548390436158, 0.25747150912933653)
+                double3 target = (0.049513811327852555, 0.046291756150766306, 0.25569371278276687)
             }
             dictionary Right = {
-                double3 position = (0, -5, 0)
-                double radius = 5
+                double3 position = (0.09619816219760281, -5, 0.31100147264013045)
+                double radius = 0.8294658660888672
             }
             dictionary Top = {
                 double3 position = (0, 0, 5)
                 double radius = 5
             }
-            string boundCamera = "/OmniverseKit_Persp"
+            string boundCamera = "/beebot/Geometry/base_footprint/base_link/arm_base_link/shoulder_link/upper_arm_link/forearm_link/wrist_link/gripper_link/gripper_cam_link/gripper_cam_color_optical_frame/gripper_cam_rgb"
         }
         string creator = "URDF USD Converter v0.3.2"
         dictionary omni_layer = {
@@ -56,10 +56,46 @@ def Xform "beebot" (
 
                 over "pole_cam_link"
                 {
+                    string isaac:nameOverride (
+                        displayName = "Name Override"
+                    )
+
+                    over "pole_cam_color_optical_frame"
+                    {
+                        string isaac:Description (
+                            displayName = "Reference Description"
+                        )
+                        uniform token isaac:forwardAxis (
+                            displayName = "Forward Axis"
+                        )
+
+                        def Camera "pole_cam_rgb" (
+                            prepend apiSchemas = ["OmniRtxCameraAutoExposureAPI_1", "OmniRtxCameraExposureAPI_1"]
+                        )
+                        {
+                            float2 clippingRange = (0.01, 20)
+                            float exposure:fStop = 5
+                            float exposure:responsivity = 1.1026709
+                            float exposure:time = 0.02
+                            float focalLength = 15.2449
+                            float focusDistance = 400
+                            float horizontalAperture = 20.955
+                            bool omni:kit:cameraLock = 1
+                            float verticalAperture = 15.7162
+                            quatd xformOp:orient = (6.123233995736766e-17, 1, 0, 0)
+                            double3 xformOp:scale = (1, 1, 1)
+                            double3 xformOp:translate = (0, 0, 0)
+                            uniform token[] xformOpOrder = ["xformOp:translate", "xformOp:orient", "xformOp:scale"]
+                        }
+                    }
                 }
 
                 over "arm_base_link"
                 {
+                    string isaac:nameOverride (
+                        displayName = "Name Override"
+                    )
+
                     over "shoulder_link"
                     {
                         over "upper_arm_link"
@@ -80,6 +116,34 @@ def Xform "beebot" (
 
                                         over "gripper_cam_link"
                                         {
+                                            over "gripper_cam_color_optical_frame"
+                                            {
+                                                string isaac:Description (
+                                                    displayName = "Reference Description"
+                                                )
+                                                uniform token isaac:forwardAxis (
+                                                    displayName = "Forward Axis"
+                                                )
+
+                                                def Camera "gripper_cam_rgb" (
+                                                    prepend apiSchemas = ["OmniRtxCameraAutoExposureAPI_1", "OmniRtxCameraExposureAPI_1"]
+                                                )
+                                                {
+                                                    float2 clippingRange = (0.01, 20)
+                                                    float exposure:fStop = 5
+                                                    float exposure:responsivity = 1.1026709
+                                                    float exposure:time = 0.02
+                                                    float focalLength = 15.2449
+                                                    float focusDistance = 400
+                                                    float horizontalAperture = 20.955
+                                                    bool omni:kit:cameraLock = 1
+                                                    float verticalAperture = 15.7162
+                                                    quatd xformOp:orient = (6.123233995736766e-17, 1, 0, 0)
+                                                    double3 xformOp:scale = (1, 1, 1)
+                                                    double3 xformOp:translate = (0, 0, 0)
+                                                    uniform token[] xformOpOrder = ["xformOp:translate", "xformOp:orient", "xformOp:scale"]
+                                                }
+                                            }
                                         }
                                     }
                                 }
@@ -147,6 +211,35 @@ def Xform "beebot" (
             float state:linear:physics:velocity = 0
         }
     }
+
+    def Xform "GroundPlane"
+    {
+        quatf xformOp:orient = (1, 0, 0, 0)
+        float3 xformOp:scale = (1, 1, 1)
+        double3 xformOp:translate = (0, 0, 0)
+        uniform token[] xformOpOrder = ["xformOp:translate", "xformOp:orient", "xformOp:scale"]
+
+        def Mesh "CollisionMesh"
+        {
+            uniform bool doubleSided = 0
+            int[] faceVertexCounts = [4]
+            int[] faceVertexIndices = [0, 1, 2, 3]
+            normal3f[] normals = [(0, 0, 1), (0, 0, 1), (0, 0, 1), (0, 0, 1)]
+            point3f[] points = [(-25, -25, 0), (25, -25, 0), (25, 25, 0), (-25, 25, 0)]
+            color3f[] primvars:displayColor = [(0.5, 0.5, 0.5)]
+            texCoord2f[] primvars:st = [(0, 0), (1, 0), (1, 1), (0, 1)] (
+                interpolation = "varying"
+            )
+        }
+
+        def Plane "CollisionPlane" (
+            prepend apiSchemas = ["PhysicsCollisionAPI"]
+        )
+        {
+            uniform token axis = "Z"
+            uniform token purpose = "guide"
+        }
+    }
     variantSet "Physics" = {
         "mujoco" (
             prepend payload = @./payloads/Physics/mujoco.usda@
@@ -187,7 +280,7 @@ def "Render" (
                 no_delete = true
             )
             {
-                rel camera = </OmniverseKit_Persp>
+                rel camera = </beebot/Geometry/base_footprint/base_link/arm_base_link/shoulder_link/upper_arm_link/forearm_link/wrist_link/gripper_link/gripper_cam_link/gripper_cam_color_optical_frame/gripper_cam_rgb>
                 token omni:rtx:ambientOcclusion:denoiserMode = "none"
                 token omni:rtx:background:source:texture:textureMode = "repeatMirrored"
                 token omni:rtx:background:source:type = "domeLight"
@@ -216,7 +309,7 @@ def "Render" (
                 bool omni:rtx:scene:hydra:mdlMaterialWarmup = 1
                 rel orderedVars = </Render/Vars/LdrColor>
                 custom bool overrideClipRange = 0
-                uniform int2 resolution = (949, 577)
+                uniform int2 resolution = (1285, 738)
             }
         }
     }
@@ -266,10 +359,10 @@ over "OmniverseKit_Persp" (
     float exposure:time = 0.02
     float focalLength = 18.147562
     float focusDistance = 400
-    custom uniform vector3d omni:kit:centerOfInterest = (0, 0, -0.7393853958978543)
-    float3 xformOp:rotateXYZ = (60.038822, -5.2876723e-14, -173.21918)
+    custom uniform vector3d omni:kit:centerOfInterest = (0, 0, -0.7154130038983475)
+    float3 xformOp:rotateXYZ = (89.85762, -1.3795655e-13, -175.55258)
     float3 xformOp:scale = (1, 1, 1)
-    double3 xformOp:translate = (-0.18748329256233814, 0.5956069949268391, 0.5148877003809808)
+    double3 xformOp:translate = (-0.0059621225072994605, 0.759548390436158, 0.25747150912933653)
     uniform token[] xformOpOrder = ["xformOp:translate", "xformOp:rotateXYZ", "xformOp:scale"]
 }
 
@@ -277,6 +370,35 @@ def PhysicsScene "PhysicsScene" (
     prepend apiSchemas = ["NewtonSceneAPI", "PhysxSceneAPI"]
 )
 {
+}
+
+over "OmniverseKit_Right" (
+    prepend apiSchemas = ["OmniRtxCameraAutoExposureAPI_1", "OmniRtxCameraExposureAPI_1"]
+    customData = {
+        dictionary omni = {
+            dictionary kit = {
+                bool hide_in_stage_window = 1
+                bool no_delete = 1
+            }
+        }
+    }
+    hide_in_stage_window = true
+    kind = "component"
+    no_delete = true
+)
+{
+    float2 clippingRange = (1, 10000000)
+    float exposure:fStop = 5
+    float exposure:responsivity = 1.1026709
+    float exposure:time = 0.02
+    float horizontalAperture = 8.294659
+    custom uniform vector3d omni:kit:centerOfInterest = (0, 0, -5)
+    token projection = "orthographic"
+    float verticalAperture = 8.294659
+    float3 xformOp:rotateXYZ = (90, -5.1684015e-15, 1.2722219e-14)
+    float3 xformOp:scale = (1, 1, 1)
+    double3 xformOp:translate = (0.09619816219760281, -5, 0.31100147264013045)
+    uniform token[] xformOpOrder = ["xformOp:translate", "xformOp:rotateXYZ", "xformOp:scale"]
 }
 
 over "OmniverseKit_Front" (
@@ -301,31 +423,6 @@ over "OmniverseKit_Front" (
     float3 xformOp:rotateXYZ = (90, -1.2722219e-14, 90)
     float3 xformOp:scale = (1, 1, 1)
     double3 xformOp:translate = (5, 0, 0)
-    uniform token[] xformOpOrder = ["xformOp:translate", "xformOp:rotateXYZ", "xformOp:scale"]
-}
-
-over "OmniverseKit_Right" (
-    customData = {
-        dictionary omni = {
-            dictionary kit = {
-                bool hide_in_stage_window = 1
-                bool no_delete = 1
-            }
-        }
-    }
-    hide_in_stage_window = true
-    kind = "component"
-    no_delete = true
-)
-{
-    float2 clippingRange = (1, 10000000)
-    float horizontalAperture = 50
-    custom uniform vector3d omni:kit:centerOfInterest = (0, 0, -5)
-    token projection = "orthographic"
-    float verticalAperture = 50
-    float3 xformOp:rotateXYZ = (90, -1.41245e-30, 1.2722219e-14)
-    float3 xformOp:scale = (1, 1, 1)
-    double3 xformOp:translate = (0, -5, 0)
     uniform token[] xformOpOrder = ["xformOp:translate", "xformOp:rotateXYZ", "xformOp:scale"]
 }
 

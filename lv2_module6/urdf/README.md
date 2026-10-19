@@ -51,6 +51,7 @@ base_footprint
    ├─ pole_cam_link                        뒤 카메라 (고정)
    │   └─ pole_cam_color_optical_frame
    ├─ imu_link                             (고정)
+   ├─ basket_slot_0 ~ 11                   바구니 칸 바닥 중심 (고정, 방향은 base_link와 같음)
    └─ arm_base_link                        팔 받침 (고정)
       └─ shoulder_link      joint1  z축  ±3.14 rad
          └─ upper_arm_link  joint2  ±1.92 rad
@@ -63,7 +64,9 @@ base_footprint
                      └─ end_effector_link
 ```
 
-팔은 `arm_mount_joint`로 `base_link`에 고정돼 있고, 위치는 (48.02, 0.01, 130.15) mm다. 팔 베이스 모터 바닥이 4층 받침판 윗면(`base_link` z 136.14 mm)에 맞닿는 값이다(2026-10-17 수정. 이전 값 (51.05, 0, 134.80)은 팔이 3 mm 앞·4.6 mm 위로 떠 있었다).
+팔은 `arm_mount_joint`로 `base_link`에 고정돼 있고, 위치는 (47.985, −0.23, 130.175) mm다. Fusion `rm-x52:1` 조인트 원점 (51.045, 0, 134.795) mm에 팔 메시 보정 (−3.06, −0.23, −4.62) mm를 더한 값이다. 2026-10-19 수정: 팔 링크 메시가 조인트째 그 양만큼 밀려 있어서(팔 받침 4.6 mm 틈, 손목 카메라 브라켓이 그리퍼에 박혀 보임) 메시와 조인트를 함께 옮겼다. 메시만 옮기면 joint1~5 축이 서보 회전 중심에서 3~5.5 mm 벗어난다. 손목 카메라(`gripper_cam_joint`)는 Fusion 위치에 그대로 있도록 그리퍼 기준값을 같이 보정했다. 집는 점(`end_effector_link`)은 영점에서 (431.94, −0.23, 340.93) mm다.
+
+바구니 칸 프레임 `basket_slot_k`는 칸(45 × 45 mm, 높이 35 mm) 바닥 중심이다. 3행 × 4열, 중심 간격은 x·y 모두 65 mm다. x는 −169.84 / −104.84 / −39.84 mm(기둥 → 팔), y는 −97.5 / −32.5 / 32.5 / 97.5 mm, z는 91.25 mm다. 번호는 `k = 행 × 4 + 열`이라 0번이 기둥 쪽 −y 끝, 11번이 팔 쪽 +y 끝이다. 값은 `storage_collision` 벽 위치와 맞춰 확인했다. 놓기·집기 목표 자세와 Isaac Sim 성공 판정의 기준으로 쓴다. 칸이 찼는지 같은 상태는 TF에 싣지 않고 노드가 가진다.
 
 구동 관절은 6개(joint1~5, gripper_left_joint)와 바퀴 2개다. 오른쪽 손가락은 왼쪽을 따라 움직이는 mimic이다. 그리퍼는 0이 닫힘, 0.0265가 열림이다.
 
