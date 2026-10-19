@@ -1134,18 +1134,29 @@ class MapView:
             cv2.line(img, c, (c[0], c[1] - 18), (0, 160, 0), 2)
             cv2.putText(img, 'goal', (c[0] + 6, c[1] - 10), cv2.FONT_HERSHEY_SIMPLEX, 0.4, (0, 130, 0), 1)
         if self.show_cloud:  # 점구름 — LiDAR 대신 깊이 카메라: 몸을 뺀 점(body_filter)을 바닥에 눌러 편 것 = 로봇이 보는 장애물
-            xyz, _, age = read_points('pole_cam/depth/color/points_filtered')
-            if xyz is None:
-                xyz, _, age = read_points('pole_cam/depth/color/points')
-            if xyz is not None and len(xyz) and age < ROS_FRESH_S:  # 지금 받은 것만
-                pts = xyz[(xyz[:, 2] > 0.02) & (xyz[:, 2] < 0.6)]  # 바닥은 빼고 부딪힐 높이만 (Nav2 costmap과 같은 생각)
-                rx, ry, ryaw = self.sim.robot_xy_yaw()[:3]  # base_footprint 기준 점 → 지금 그린 로봇 자리에 (실기면 /odom)
-                c, s_ = math.cos(ryaw), math.sin(ryaw)
+            # pole_cam = 빨강 (body_filter가 몸 뺀 것 — Nav2가 보는 것) · gripper_cam = 분홍 (원본 — 손가락·차체가 섞여 로봇 중심
+            # 0.22m 안은 뺌. 지도 만들 땐 스캔 자세로 왼쪽 뒤를 봄). 예전엔 pole_cam만 그려 gripper_cam 점이 안 보였음
+            sources = [(('pole_cam/depth/color/points_filtered', 'pole_cam/depth/color/points'), (0, 0, 230), 0.0),
+                       (('gripper_cam/depth/color/points',), CAM_COLORS['gripper_cam'], 0.22)]
+            rx, ry, ryaw = self.sim.robot_xy_yaw()[:3]  # base_footprint 기준 점 → 지금 그린 로봇 자리에 (실기면 /odom)
+            c, s_ = math.cos(ryaw), math.sin(ryaw)
+            h, w = img.shape[:2]
+            for topics, color, body_r in sources:
+                xyz, age = None, None
+                for t in topics:
+                    xyz, _, age = read_points(t)
+                    if xyz is not None:
+                        break
+                if xyz is None or not len(xyz) or age >= ROS_FRESH_S:  # 지금 받은 것만
+                    continue
+                keep = (xyz[:, 2] > 0.02) & (xyz[:, 2] < 0.6)  # 바닥은 빼고 부딪힐 높이만 (Nav2 costmap과 같은 생각)
+                if body_r > 0:
+                    keep &= np.hypot(xyz[:, 0], xyz[:, 1]) > body_r
+                pts = xyz[keep]
                 world = np.stack([rx + c * pts[:, 0] - s_ * pts[:, 1], ry + s_ * pts[:, 0] + c * pts[:, 1]], -1)
                 pp = self.px_array(world)
-                h, w = img.shape[:2]
                 ok = (pp[:, 0] >= 0) & (pp[:, 0] < w) & (pp[:, 1] >= 0) & (pp[:, 1] < h)
-                img[pp[ok, 1], pp[ok, 0]] = (0, 0, 230)
+                img[pp[ok, 1], pp[ok, 0]] = color
         cv2.putText(img, 'robot: fill=real(fake_opencr) ring=/odom green=base_footprint(/tf) path=/plan  purple=/tracked_objects(F=both cams)'
                     '  orange/pink x=pole/gripper det  grey=obstacle  blue=mover',
                     (MARGIN - 25, self.size[1] - 10), cv2.FONT_HERSHEY_SIMPLEX, 0.34, (80, 80, 80), 1)
@@ -1245,8 +1256,14 @@ def camera_tiles(sim, cam, view):
     ros.append(mark(seg, c_age, 'ROS RGB-SEG') if color is not None else blank(f'ROS RGB-SEG: {why(c_age)}'))
     xyz, _, p_age = read_points(f'{cam}/depth/color/points')
     if xyz is not None and len(xyz) and usable(p_age):
-        # base_footprint(x 앞 · y 왼 · z 위) → points_view 축(x 오른 · y 아래 · z 앞), 색 = 높이
-        pts = np.stack([-xyz[:, 1], -xyz[:, 2], xyz[:, 0]], -1)
+        # 점구름(base_footprint) → 그 카메라 자신의 시점(광학 프레임: x 오른 · y 아래 · z 앞 = points_view 축) — RGB 칸과 같은 방향.
+        # 예전엔 늘 로봇 앞을 보는 시점이라, 스캔 자세에서 뒤를 보는 gripper_cam 점은 시점 뒤로 가 안 보였음. 색 = 높이
+        if t_world_cam is not None:
+            rx, ry, ryaw, _ = sim.robot_xy_yaw()
+            T_cb = np.linalg.inv(np.asarray(t_world_cam, float)) @ scene.transform(scene.rpy_matrix(0, 0, ryaw), (rx, ry, 0))
+            pts = xyz @ T_cb[:3, :3].T + T_cb[:3, 3]
+        else:  # 카메라 자세를 모르면 로봇 앞 시점
+            pts = np.stack([-xyz[:, 1], -xyz[:, 2], xyz[:, 0]], -1)
         cols = cv2.applyColorMap((np.clip(xyz[:, 2] / 0.6, 0, 1) * 255).astype(np.uint8)[None], cv2.COLORMAP_TURBO)[0]
         ros.append(mark(scene.points_view(pts, cols, TILE, view[0], view[1]), p_age, f'ROS POINT {len(xyz)}'))
     else:
@@ -1470,7 +1487,7 @@ class App:
         self.map_label.bind('<Button-5>', lambda e: self.on_map_wheel_step(-1))
         mapctl = tk.Frame(mapbox)
         mapctl.pack(fill=tk.X, pady=2)
-        tk.Button(mapctl, text='지도 리셋', command=self.view.reset_view).pack(side=tk.LEFT)
+        tk.Button(mapctl, text='보기 리셋', command=self.view.reset_view).pack(side=tk.LEFT)  # 확대·이동만 처음으로 (지도 데이터는 그대로)
         self.coords_label = tk.Label(mapctl, justify=tk.LEFT, font=('Menlo', 9), anchor=tk.W)
         self.coords_label.pack(side=tk.LEFT, padx=(6, 0))
         self.scan_choice = tk.StringVar(value='선택없음')
@@ -1488,6 +1505,14 @@ class App:
 
         def _pick_scan(*_):
             name = self.scan_choice.get()
+            if not getattr(self, '_syncing_map', False):  # 사람이 고른 것 — '선택없음'이면 그 선택을 지킴 (로봇 지도 이름을 안 따라감)
+                self._map_none = name == '선택없음'
+            if name == '선택없음' and self._map_none:
+                self.navmap_on.set(False)
+                self.view.show_navmap = False
+                cur = (read_msg('state/map_name')[0] or {}).get('data')
+                self.sent.config(text='지도 선택없음 — Nav2 지도를 겹치지 않고, 로봇 지도 이름을 따라가지 않음'
+                                      + (f' (로봇은 지금 지도 {cur} 를 계속 씀 — ROS는 그대로)' if cur else ''))
             if name != '선택없음':
                 # 그 지도로 갈아끼움 → state_manager가 RTAB-Map load_database + 위치추정 (결과 /state/map_name · /state/map_mode)
                 # 화면엔 토픽 /map([Nav2 지도])으로만 — 호스트의 map.pgm 파일은 안 씀 (실기에 붙이면 의미 없음)
@@ -1580,6 +1605,8 @@ class App:
         tk.Button(row, text='자동 탐사', command=self.start_explore).pack(side=tk.LEFT, fill=tk.X, expand=True)
         tk.Button(row, text='탐사 멈춤', command=lambda: self.stop_explore()).pack(side=tk.LEFT, fill=tk.X, expand=True)
         tk.Button(slambox, text='지도 저장', command=self.save_map).pack(fill=tk.X)  # → ros2_ws/map/<지금 지도 폴더>/map.pgm·yaml
+        # 위치추정이 어긋났을 때 — 실제 위치를 /initialpose로 (위치추정 모드에서만. 지도 오른쪽 클릭 [여기가 로봇 위치]는 찍은 곳으로)
+        tk.Button(slambox, text='실제 위치로 맞추기 (/initialpose)', command=self.snap_to_real_pose).pack(fill=tk.X)
         self.save_pending = None  # 지도 저장 request_id — 응답 기다리는 중
         self.nav_goal_id = None  # [여기로 이동] goal_id — 진행 중
 
@@ -1787,8 +1814,48 @@ class App:
             else:
                 self.sent.config(text='위치추정 불가: 저장된 지도 없음 — 먼저 [스캔 시작]으로 매핑')
             return
+        if mode == 'MAPPING':
+            self.ask_scan_start()
+            return
         send('/cmd/map_mode', 'std_msgs/msg/String', {'data': mode})
         self.sent.config(text=f'요청: 지도 모드 {mode} (/cmd/map_mode → state_manager)')
+
+    def ask_scan_start(self):
+        """[스캔 시작] — 지금 지도를 어떻게 할지 고름:
+          이어서 스캔      지금 지도(같은 폴더 rtabmap.db)에 덧붙임 — /cmd/map_mode MAPPING (재시작 없음)
+          지우고 처음부터  같은 폴더를 비우고 다시 — 📞 /rtabmap/rtabmap/reset → /cmd/map_mode MAPPING (재시작 없음)
+          새 지도로        지금 지도는 그대로 두고 새 폴더 <날짜_시각>/ — /cmd/restart all map:=slam (ROS 재시작)
+        [지도 저장]은 그때 쓰는 지도 폴더(/state/map_name)에 씀"""
+        name = (read_msg('state/map_name')[0] or {}).get('data') or '(없음)'
+        mode = (read_msg('state/map_mode')[0] or {}).get('data') or '?'
+        win = tk.Toplevel(self.root)
+        win.title('스캔 시작')
+        win.transient(self.root)
+        tk.Label(win, justify=tk.LEFT, padx=12, pady=8,
+                 text=f'지금 지도: {name} (모드 {mode})\n스캔을 어떻게 시작할까요?').pack(anchor=tk.W)
+
+        def pick(choice):
+            win.destroy()
+            if choice == 'continue':
+                send('/cmd/map_mode', 'std_msgs/msg/String', {'data': 'MAPPING'})
+                self.sent.config(text=f'요청: 지도 {name} 에 이어서 스캔 (/cmd/map_mode MAPPING)')
+            elif choice == 'clear':
+                from tkinter import messagebox
+                if not messagebox.askyesno('지우고 처음부터', f'지도 {name} 의 내용(rtabmap.db)을 비우고 처음부터 스캔합니다.\n'
+                                                            '되돌릴 수 없습니다. 진행할까요?'):
+                    return
+                send_service_request('rtabmap/rtabmap/reset', {})
+                # 비운 뒤 매핑 모드로 (위치추정 중이었으면 바꿈) — 순서 보장 위해 조금 뒤에
+                self.root.after(1500, lambda: send('/cmd/map_mode', 'std_msgs/msg/String', {'data': 'MAPPING'}))
+                self.sent.config(text=f'요청: 지도 {name} 비우고 처음부터 스캔 (/rtabmap/rtabmap/reset → /cmd/map_mode MAPPING)')
+            elif choice == 'new':
+                self.restart_ros('map:=slam', f'지금 지도 {name} 는 그대로 두고, 새 지도 폴더(날짜_시각)로 ROS를 다시 띄워 스캔합니다.')
+        for text, choice in (('이어서 스캔 — 지금 지도에 덧붙임', 'continue'),
+                             ('지우고 처음부터 — 같은 지도 폴더를 비움', 'clear'),
+                             ('새 지도로 — 지금 지도는 그대로, 새 폴더 (ROS 재시작)', 'new'),
+                             ('취소', None)):
+            tk.Button(win, text=text, anchor=tk.W, command=(lambda c=choice: pick(c)) if choice else win.destroy).pack(
+                fill=tk.X, padx=12, pady=2)
 
     def save_map(self):
         name, _ = read_msg('state/map_name')  # state_manager 발행 — launch가 정한 RTAB-Map DB 폴더
@@ -1810,8 +1877,13 @@ class App:
         cur = (read_msg('state/map_name')[0] or {}).get('data')
         if cur and cur != getattr(self, '_map_name_seen', None):
             self._map_name_seen = cur
-            if cur in names and self.scan_choice.get() != cur:
-                self.scan_choice.set(cur)
+            # 사람이 '선택없음'을 고른 동안은 따라가지 않음 (명시적으로 안 고른 것 — 위치추정 모드에서도)
+            if cur in names and self.scan_choice.get() != cur and not getattr(self, '_map_none', False):
+                self._syncing_map = True
+                try:
+                    self.scan_choice.set(cur)
+                finally:
+                    self._syncing_map = False
 
     def refresh_scan_menu(self):
         """지도 목록을 다시 읽음 (/state/map_list) — 새 지도 폴더가 생기면 보이게"""
@@ -2015,11 +2087,15 @@ class App:
         dx, dy = x - tx, y - ty
         return math.cos(th) * dx + math.sin(th) * dy, -math.sin(th) * dx + math.cos(th) * dy, th
 
-    def set_initial_pose(self, x, y):
-        """[초기 위치 지정] → /initialpose (geometry_msgs/PoseWithCovarianceStamped, map) — 위치는 클릭한 곳,
-        방향은 지금 실제 로봇 방향 (시뮬레이터는 진짜를 앎 · 실기라면 사람이 보고 정함). 공분산 = 위치 0.05m² · 방향 0.07rad²"""
-        mx, my, th = self.to_map(x, y)
-        yaw = self.sim.robot_xy_yaw()[2] - th
+    def set_initial_pose(self, x, y, yaw=None):
+        """[초기 위치 지정] → /initialpose (geometry_msgs/PoseWithCovarianceStamped, map) — RTAB-Map이 위치추정 모드일 때만 받음
+        (매핑 중엔 'Initial pose can only be set in localization mode … ignoring it' — librtabmap_core).
+        map 좌표는 **고정 기준**으로: 지도는 출발 칸에서 시작해 만드므로 map 원점 = 출발 칸, 방향 0°.
+        예전엔 map_to_world(= 로봇이 믿는 자기 위치와 실제 위치를 맞댄 변환)로 바꿔서, 실제 자리를 찍어도 로봇이 믿던 위치가 그대로
+        나와 보정이 0이었음 (어긋난 만큼을 스스로 지움). 방향을 안 주면 지금 실제 로봇 방향. 공분산 = 위치 0.05m² · 방향 0.07rad²"""
+        mx, my = x - self.sim.spawn[0], y - self.sim.spawn[1]
+        if yaw is None:
+            yaw = self.sim.robot_xy_yaw()[2]
         cov = [0.0] * 36
         cov[0] = cov[7] = 0.05
         cov[35] = 0.07
@@ -2029,6 +2105,16 @@ class App:
                               'orientation': {'x': 0.0, 'y': 0.0, 'z': math.sin(yaw / 2), 'w': math.cos(yaw / 2)}},
                      'covariance': cov}})
         self.sent.config(text=f'요청: 초기 위치 (map {mx:+.2f}, {my:+.2f}, {math.degrees(yaw):+.0f}°) — /initialpose → RTAB-Map')
+
+    def snap_to_real_pose(self):
+        """[실제 위치로 맞추기] — 시뮬레이터는 진짜 위치를 앎(fake_opencr) → 그대로 /initialpose. 위치추정 모드에서만 (RTAB-Map이 그때만 받음)"""
+        mode = (read_msg('state/map_mode')[0] or {}).get('data')
+        if mode != 'LOCALIZATION':
+            self.sent.config(text=f'실제 위치로 맞추기: 위치추정 모드에서만 (지금 {mode}) — RTAB-Map이 매핑 중엔 초기 위치를 무시함. '
+                                  '[위치추정으로] 뒤에 다시')
+            return
+        x, y, yaw, _ = self.sim.robot_xy_yaw()
+        self.set_initial_pose(x, y, yaw)
 
     def current_urdf(self):
         """지금 돌고 있는 로봇 모델 폴더 — /robot_description 메시 경로 package://ros_system/urdf/<폴더>/meshes 에서.

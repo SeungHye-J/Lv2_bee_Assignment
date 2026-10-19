@@ -13,6 +13,19 @@ std::vector<std::pair<double, double>> tray_slots(const std::vector<double> & fl
   return out;
 }
 
+geometry_msgs::msg::Pose approach_pose(double ox, double oy, double rx, double ry, double standoff) {
+  double dx = ox - rx, dy = oy - ry;
+  const double d = std::hypot(dx, dy);
+  if (d < 1e-3) { dx = 1.0; dy = 0.0; } else { dx /= d; dy /= d; }  // 로봇 → 물체 방향
+  geometry_msgs::msg::Pose p;
+  p.position.x = ox - dx * standoff;
+  p.position.y = oy - dy * standoff;
+  const double yaw = std::atan2(dy, dx);  // 물체를 바라봄
+  p.orientation.z = std::sin(yaw / 2);
+  p.orientation.w = std::cos(yaw / 2);
+  return p;
+}
+
 std::pair<double, double> spread_offset(int n, double s) {
   static const int k[][2] = {{0, 0}, {0, 1}, {0, -1}, {1, 0}, {-1, 0}, {1, 1}, {1, -1}, {-1, 1}, {-1, -1}};
   const int i = n % 9, ring = n / 9 + 1;  // 9개 넘으면 한 칸 더 바깥으로
@@ -31,6 +44,13 @@ Coordinator::Coordinator()
   tray_grasp_z_ = declare_parameter<double>("tray_grasp_z", 0.17);
   tray_approach_m_ = declare_parameter<double>("tray_approach_m", 0.05);
   place_spacing_ = declare_parameter<double>("place_spacing", 0.08);
+  reach_m_ = declare_parameter<double>("reach_m", 0.30);
+  approach_m_ = declare_parameter<double>("approach_m", 0.24);
+  scan_joints_ = declare_parameter<std::vector<std::string>>("scan_pose_joints", {"joint1", "joint2", "joint3", "joint4", "joint5"});
+  scan_pose_ = declare_parameter<std::vector<double>>("scan_pose", {2.618, 0.681, -1.414, 1.082, 0.0});
+  scan_tol_ = declare_parameter<double>("scan_pose_tolerance", 0.05);
+  tf_buffer_ = std::make_unique<tf2_ros::Buffer>(get_clock());
+  tf_listener_ = std::make_shared<tf2_ros::TransformListener>(*tf_buffer_);
   const auto latched = rclcpp::QoS(10).reliable().transient_local();
   status_pub_ = create_publisher<TaskStatus>("/task_status", latched);
   say_pub_ = create_publisher<std_msgs::msg::String>("/robot_say", rclcpp::QoS(10).reliable());
@@ -65,6 +85,13 @@ Coordinator::Coordinator()
         status(plan_.goals.empty() ? 0 : plan_.goals[idx_].step, TaskStatus::FAILED, "estop");
       }
     });
+  map_mode_sub_ = create_subscription<std_msgs::msg::String>("/state/map_mode", rclcpp::QoS(1).reliable().transient_local(),
+    [this](std_msgs::msg::String::ConstSharedPtr m) { map_mode_ = m->data; check_scan_pose(); });
+  joints_sub_ = create_subscription<sensor_msgs::msg::JointState>("/joint_states", rclcpp::QoS(10),
+    [this](sensor_msgs::msg::JointState::ConstSharedPtr m) {
+      for (size_t i = 0; i < m->name.size() && i < m->position.size(); ++i) joints_[m->name[i]] = m->position[i];
+    });
+  scan_timer_ = create_wall_timer(std::chrono::seconds(2), [this]() { check_scan_pose(); });
   nav_ = rclcpp_action::create_client<NavigateToPose>(this, "/navigate_to_pose");
   motion_plan_ = create_client<GetMotionPlan>("/plan_kinematic_path");
   exec_ = rclcpp_action::create_client<ExecuteTrajectory>(this, "/execute_trajectory");
@@ -156,6 +183,7 @@ void Coordinator::on_plan(const SubGoalArray & plan) {
   if (running_) cancel_all();  // 진행 중 goal 전부 취소 — 옛 결과가 새 계획을 건드리지 않게
   plan_ = plan;
   idx_ = 0;
+  approached_ = static_cast<size_t>(-1);
   placed_.clear();
   running_ = true;
   run_step();
@@ -206,6 +234,7 @@ void Coordinator::run_step() {
       return;
     }
     if (!is_id(g.target) || !find(std::stoul(g.target))) { fail("place_no_target"); return; }
+    if (approach_if_far(g)) return;  // 내려놓을 곳이 팔 밖이면 먼저 다가감
     geometry_msgs::msg::PoseStamped target;
     target.header.frame_id = "map";
     target.header.stamp = now();
@@ -264,6 +293,72 @@ bool Coordinator::parse_point(const std::string & target, double & x, double & y
   return true;
 }
 
+bool Coordinator::at_scan_pose() const {
+  for (size_t i = 0; i < scan_joints_.size() && i < scan_pose_.size(); ++i) {
+    const auto it = joints_.find(scan_joints_[i]);
+    if (it == joints_.end()) return false;
+    const double d = std::remainder(it->second - scan_pose_[i], 2 * M_PI);  // joint1은 ±π가 같은 자리
+    if (std::abs(d) > scan_tol_) return false;
+  }
+  return true;
+}
+
+void Coordinator::check_scan_pose() {
+  // 지도를 만드는 중(스캔 · 자동 탐사)이고 작업이 없을 때 — 작업(pick 등)이 끝나면 다음 확인 때 돌아감.
+  // 수동 모드여도 (스캔은 보통 수동으로 몰고 다님 — 팔 수동 조작은 MAPPING 동안 manual_control·service_action_input이 막음)
+  if (map_mode_ != "MAPPING" && mode_ != "EXPLORE") return;
+  if (estop_ || running_ || scan_moving_ || joints_.empty() || at_scan_pose()) return;
+  if (!motion_plan_->service_is_ready() || !exec_->action_server_is_ready()) return;
+  std::map<std::string, double> target;
+  for (size_t i = 0; i < scan_joints_.size() && i < scan_pose_.size(); ++i) target[scan_joints_[i]] = scan_pose_[i];
+  scan_moving_ = true;
+  RCLCPP_INFO(get_logger(), "지도 만드는 중 — 팔을 스캔 자세로 (gripper_cam이 왼쪽 뒤를 봄)");
+  move_joints(target, [this](bool ok) {
+    scan_moving_ = false;
+    if (!ok) RCLCPP_WARN(get_logger(), "스캔 자세로 못 감 — 2초 뒤 다시");
+  });
+}
+
+void Coordinator::move_joints(const std::map<std::string, double> & target, std::function<void(bool)> done) {
+  auto req = std::make_shared<GetMotionPlan::Request>();
+  auto & r = req->motion_plan_request;
+  r.group_name = "arm";
+  r.start_state.is_diff = true;
+  r.num_planning_attempts = 3;
+  r.allowed_planning_time = 5.0;
+  r.max_velocity_scaling_factor = 0.3;
+  r.max_acceleration_scaling_factor = 0.3;
+  moveit_msgs::msg::Constraints c;
+  for (const auto & [name, pos] : target) {
+    moveit_msgs::msg::JointConstraint jc;
+    jc.joint_name = name;
+    jc.position = pos;
+    jc.tolerance_above = jc.tolerance_below = 0.01;
+    jc.weight = 1.0;
+    c.joint_constraints.push_back(jc);
+  }
+  r.goal_constraints.push_back(c);
+  // 작업 취소(gen_)와 상관없이 끝은 늘 알림 — scan_moving_이 걸린 채 남지 않게
+  motion_plan_->async_send_request(req, [this, done](rclcpp::Client<GetMotionPlan>::SharedFuture f) {
+    const auto res = f.get();
+    if (res->motion_plan_response.error_code.val != moveit_msgs::msg::MoveItErrorCodes::SUCCESS || running_) {
+      done(false);
+      return;
+    }
+    ExecuteTrajectory::Goal goal;
+    goal.trajectory = res->motion_plan_response.trajectory;
+    rclcpp_action::Client<ExecuteTrajectory>::SendGoalOptions opt;
+    opt.goal_response_callback = [done](const rclcpp_action::ClientGoalHandle<ExecuteTrajectory>::SharedPtr & h) {
+      if (!h) done(false);
+    };
+    opt.result_callback = [done](const rclcpp_action::ClientGoalHandle<ExecuteTrajectory>::WrappedResult & res2) {
+      done(res2.code == rclcpp_action::ResultCode::SUCCEEDED &&
+        res2.result->error_code.val == moveit_msgs::msg::MoveItErrorCodes::SUCCESS);
+    };
+    exec_->async_send_goal(goal, opt);
+  });
+}
+
 void Coordinator::cancel_all() {
   ++gen_;
   if (retry_) retry_->cancel();
@@ -272,33 +367,70 @@ void Coordinator::cancel_all() {
   gripper_->async_cancel_all_goals();
 }
 
+bool Coordinator::robot_xy(double & x, double & y) const {
+  try {
+    const auto t = tf_buffer_->lookupTransform("map", "base_footprint", tf2::TimePointZero);
+    x = t.transform.translation.x;
+    y = t.transform.translation.y;
+    return true;
+  } catch (const std::exception &) {
+    return false;
+  }
+}
+
+bool Coordinator::approach_if_far(const SubGoal & g) {
+  if (approached_ == idx_ || !is_id(g.target)) return false;  // 이 단계는 이미 다가감 → 그대로 실행 (안 닿으면 그 단계가 실패)
+  const auto * o = find(std::stoul(g.target));
+  double rx, ry;
+  if (!o || !robot_xy(rx, ry)) return false;  // 로봇 위치를 모르면 판단 못 함 — 그대로 실행
+  const double ox = o->pose.pose.position.x, oy = o->pose.pose.position.y;
+  const double d = std::hypot(ox - rx, oy - ry);
+  if (d <= reach_m_) return false;
+  if (!ready_or_retry(nav_->action_server_is_ready(), "nav_unavailable")) return true;
+  approached_ = idx_;
+  RCLCPP_INFO(get_logger(), "%s %s: 대상이 %.2fm — 팔이 닿게 %.2fm 앞까지 다가감", g.skill.c_str(), g.target.c_str(), d, approach_m_);
+  send_nav(approach_pose(ox, oy, rx, ry, approach_m_), [this](bool ok) {
+    if (ok) run_step();  // 같은 단계를 다시 (이번엔 다가가기를 건너뜀)
+    else fail("approach_failed");
+  });
+  return true;
+}
+
 void Coordinator::navigate(const SubGoal & g) {
   if (!ready_or_retry(nav_->action_server_is_ready(), "nav_unavailable")) return;
-  NavigateToPose::Goal goal;
-  goal.pose.header.frame_id = "map";
-  goal.pose.header.stamp = now();
-  goal.pose.pose.orientation.w = 1.0;
+  geometry_msgs::msg::Pose pose;
+  pose.orientation.w = 1.0;
   if (is_id(g.target)) {
-    // TODO: 대상 앞 offset + 로봇 반경만큼 떨어진 접근 자세 (통로 방향 고려 — 미로 벽에 붙지 않게)
+    // 대상 앞 (물체 반 크기 + offset + 0.1) — 로봇이 있는 쪽에서 물체를 바라봄. TODO: 통로 방향 고려 (미로 벽에 붙지 않게)
     const auto * o = find(std::stoul(g.target));
-    goal.pose.pose.position.x = o->pose.pose.position.x - o->size.x / 2 - g.offset_m - 0.1;
-    goal.pose.pose.position.y = o->pose.pose.position.y;
+    const double ox = o->pose.pose.position.x, oy = o->pose.pose.position.y;
+    double rx = ox - 1.0, ry = oy;  // 로봇 위치를 모르면 물체의 −x 쪽 (예전과 같게)
+    robot_xy(rx, ry);
+    pose = approach_pose(ox, oy, rx, ry, std::max(o->size.x, o->size.y) / 2 + g.offset_m + 0.1);
   } else {
     double x, y;
     if (parse_point(g.target, x, y)) {  // 직접 지정 "x,y" (시뮬레이터 지도 클릭)
-      goal.pose.pose.position.x = x;
-      goal.pose.pose.position.y = y;
+      pose.position.x = x;
+      pose.position.y = y;
     }
   }
+  send_nav(pose, [this](bool ok) { ok ? next() : fail("nav_failed"); });
+}
+
+void Coordinator::send_nav(const geometry_msgs::msg::Pose & pose, std::function<void(bool)> done) {
+  NavigateToPose::Goal goal;
+  goal.pose.header.frame_id = "map";
+  goal.pose.header.stamp = now();
+  goal.pose.pose = pose;
   const uint64_t gen = gen_;
   rclcpp_action::Client<NavigateToPose>::SendGoalOptions opt;
   opt.goal_response_callback =
     [this](const rclcpp_action::ClientGoalHandle<NavigateToPose>::SharedPtr & h) {
       if (h) nav_goal_ = h;
     };
-  opt.result_callback = [this, gen](const rclcpp_action::ClientGoalHandle<NavigateToPose>::WrappedResult & r) {
+  opt.result_callback = [this, gen, done](const rclcpp_action::ClientGoalHandle<NavigateToPose>::WrappedResult & r) {
     if (gen != gen_) return;  // 취소된 옛 goal의 늦은 결과
-    r.code == rclcpp_action::ResultCode::SUCCEEDED ? next() : fail("nav_failed");
+    done(r.code == rclcpp_action::ResultCode::SUCCEEDED);
   };
   nav_->async_send_goal(goal, opt);
 }
@@ -318,6 +450,7 @@ void Coordinator::pick(const SubGoal & g) {
   if (!ready_or_retry(clear_octomap_->service_is_ready() && apply_scene_->service_is_ready() &&
       score_->service_is_ready() && motion_plan_->service_is_ready() &&
       exec_->action_server_is_ready() && gripper_->action_server_is_ready(), "pick_unavailable")) return;
+  if (approach_if_far(g)) return;  // 집을 퍽이 팔 밖이면 먼저 다가감 (VLM이 navigate를 빼먹어도)
   const uint32_t object_id = std::stoul(g.target);
   clear_octomap_->async_send_request(std::make_shared<std_srvs::srv::Empty::Request>(),
     [this, object_id](rclcpp::Client<std_srvs::srv::Empty>::SharedFuture) {

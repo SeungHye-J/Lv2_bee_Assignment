@@ -83,11 +83,29 @@ def ai_conf():
     return ai if isinstance(ai, dict) else {}
 
 
+def system_text(ai):
+    """시스템 프롬프트 = system_file(기본 system_prompt.md — 상대 경로는 이 폴더 기준) 내용 + system(덧붙일 말).
+    요청마다 파일을 읽음 — 프롬프트를 고쳐도 서버를 다시 켤 필요 없음. 파일이 없으면 system만"""
+    parts = []
+    name = ai.get("system_file", "")
+    if isinstance(name, str) and name.strip():
+        p = Path(name)
+        p = p if p.is_absolute() else HERE / p
+        try:
+            parts.append(p.read_text(encoding="utf-8").strip())
+        except OSError:
+            pass
+    extra = ai.get("system", "")
+    if isinstance(extra, str) and extra.strip():
+        parts.append(extra.strip())
+    return "\n\n".join(parts)
+
+
 def dispatch(req, image_files=None):
     """image_files: begin_log이 저장한 PNG 절대경로 — opencode_cli만 --file로 쓴다."""
     ai = ai_conf()
     backend = ai.get("backend", "template")
-    system = ai.get("system", "")
+    system = system_text(ai)
     if backend == "claude_cli":
         from backends import claude_cli
         return claude_cli.plan(req, model=ai.get("model", "default"),
@@ -153,8 +171,7 @@ def log_plan(req, code, resp, t_arrive=None, raw="", t_dispatch=None, pre=None):
         call = t_dispatch if isinstance(t_dispatch, (int, float)) else arrive
         ai = ai_conf()
         try:
-            prompt_text = build_prompt(req if isinstance(req, dict) else {},
-                                       ai.get("system", ""))
+            prompt_text = build_prompt(req if isinstance(req, dict) else {}, system_text(ai))
         except Exception:  # noqa: BLE001
             prompt_text = ""
         suffix = ""

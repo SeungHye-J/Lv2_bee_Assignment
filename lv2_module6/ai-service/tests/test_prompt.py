@@ -75,3 +75,23 @@ class TestBuild(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class TestRobotAndColor(unittest.TestCase):
+    """컨테이너 vlm_task_planner가 보내는 형식 그대로 — robot · color · px{카메라: [u, v]}"""
+
+    def test_robot_distance_color(self):
+        req = {"command": "앞에 있는 gray 물체를 집어", "robot": {"x": 0.24, "y": 0.07, "yaw": 0.0},
+               "objects": [{"id": 13, "class_name": "puck", "position": [0.62, -0.117, 0.027], "size": [0.06, 0.07, 0.04],
+                            "confidence": 0.83, "color": "black", "camera": "pole_cam", "px": {"pole_cam": [485, 420]}}]}
+        text = prompt.build(req)
+        self.assertIn("로봇 위치(map): (0.24,0.07)", text)
+        self.assertIn("dist=0.42m", text)
+        self.assertIn("color=black", text)
+        self.assertIn("polepx=(485,420)", text)
+        self.assertIn("navigate <같은 id>", text)
+
+    def test_no_robot_no_dist(self):
+        text = prompt.build({"command": "x", "objects": [{"id": 1, "class_name": "puck", "position": [1, 2, 0]}]})
+        self.assertNotIn("dist=", text)
+        self.assertNotIn("로봇 위치", text)

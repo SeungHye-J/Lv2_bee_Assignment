@@ -140,3 +140,16 @@ class TestDispatch(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class TestSystemText(unittest.TestCase):
+    """시스템 프롬프트 = system_file 내용 + system (덧붙임)"""
+
+    def test_file_and_extra(self):
+        text = server.system_text({"system_file": "system_prompt.md", "system": "추가 지시"})
+        self.assertIn("작업 계획자", text)
+        self.assertTrue(text.endswith("추가 지시"))
+
+    def test_missing_file_falls_back(self):
+        self.assertEqual(server.system_text({"system_file": "없는파일.md", "system": "only"}), "only")
+        self.assertEqual(server.system_text({}), "")
