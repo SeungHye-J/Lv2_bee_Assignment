@@ -319,3 +319,34 @@ def camera_mesh(filename, scale):
     """카메라 렌더용 메시 로더 (scene.BodyModel load_mesh) — package:// 경로 → 간소화 삼각형 (N,3,3), 못 찾으면 None"""
     stl = resolve_mesh(filename)
     return None if stl is None else load_stl(stl, scale, CAMERA_MESH_CELL)
+
+
+def draw_wheel_spin(img, model, view, size, q, wheel_vel, radius=0.033):
+    """바퀴 회전 표시 — 바퀴 중심에서 림까지 스포크: 각도 = 바퀴 관절각(굴러간 만큼 돎), 색 = 회전 중 주황 · 정지 회색.
+    바퀴 메시는 원기둥이라 돌아도 안 보여서 따로 그림 (로봇 3D · 조작 창 3D 공용)"""
+    frames = model.joint_frames(q)
+    for i, (joint, w) in enumerate((('wheel_left_joint', wheel_vel[0]), ('wheel_right_joint', wheel_vel[1]))):
+        if joint not in frames or joint not in model.joints:
+            continue
+        origin, axis = frames[joint]
+        axis = np.asarray(axis, float)
+        axis = axis / max(np.linalg.norm(axis), 1e-9)
+        p0 = np.cross(axis, [0.0, 0.0, 1.0])
+        if np.linalg.norm(p0) < 1e-6:
+            p0 = np.array([1.0, 0.0, 0.0])
+        p0 = p0 / np.linalg.norm(p0)
+        p1 = np.cross(axis, p0)
+        ang = q.get(joint, 0.0)
+        col = (0, 140, 255) if abs(w) > 0.05 else (150, 150, 150)
+        rim = [origin + (math.cos(ang + k * math.pi / 2) * p0 + math.sin(ang + k * math.pi / 2) * p1) * radius
+               for k in range(4)]  # 스포크 4개 — 한 개보다 도는 게 잘 보임
+        uv, z = view.project([origin] + rim, size)
+        if (z < 0.02).any():
+            continue
+        c = tuple(uv[0].astype(int))
+        for k in range(4):
+            r_ = tuple(uv[1 + k].astype(int))
+            cv2.line(img, c, r_, col, 2 if k == 0 else 1, cv2.LINE_AA)
+        cv2.circle(img, tuple(uv[1].astype(int)), 3, col, -1, cv2.LINE_AA)  # 0번 스포크 끝 = 회전 기준점
+        cv2.putText(img, f'{"L" if i == 0 else "R"}{w:+.1f}', (c[0] + 8, c[1]),
+                    cv2.FONT_HERSHEY_SIMPLEX, 0.4, col, 1, cv2.LINE_AA)

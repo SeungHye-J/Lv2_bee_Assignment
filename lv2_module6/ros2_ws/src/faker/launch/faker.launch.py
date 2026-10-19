@@ -105,6 +105,9 @@ def generate_launch_description():
             'mock_hardware': LaunchConfiguration('mock_hardware'),
             'mock_effort': LaunchConfiguration('mock_effort'),
             'use_cameras': 'false',  # RealSense 대신 fake_camera (아래)
+            # /cmd/restart all (state_manager): 다시 띄우기 전에 빌드 (고친 코드 반영 — 예전 test-faker 0 재시작과 같게) · 출력은 test-faker 로그로
+            'restart_prepare': 'build-ws',
+            'restart_log': '/tmp/faker.log',
             'arm_correction_type': PythonExpression(
                 ["'ml/RlArmCorrection' if '", LaunchConfiguration('rl_arm_correction'), "' == 'real' else 'faker/FakeRlArmCorrection'"]),
             **{f'use_{n}': is_real(n) for n in ML_NODES},

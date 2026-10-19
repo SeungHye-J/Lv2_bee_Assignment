@@ -27,6 +27,21 @@
 //           (고른 지도는 고정해서 쓰는 것 — 위치추정. 두 응답 뒤에만 /state/map_name · /state/map_mode 바꿈)
 //     출력: ✉️ /state/map_name (std_msgs/String, transient_local) — 지금 쓰는 지도 폴더 이름 (파라미터 map_name = launch가 정한 RTAB-Map DB 폴더,
 //           빈 값 = 폴더 없음) → 시뮬레이터 [지도 저장]이 같은 폴더에 map.pgm·yaml
+//   재시작 (실기 bringup · 테스트베드 같은 길 — 예전엔 테스트베드 test-faker 0 셸만 받아서 실기엔 받는 쪽이 없었음)
+//     입력: ✉️ /cmd/restart (std_msgs/String)
+//           "node <이름>"         그 노드 프로세스만 — 명령줄·환경·작업 폴더를 /proc에서 그대로 읽어 끄고 같은 것으로 다시 (파라미터 유지)
+//                                 이름 = __node:= 리매핑, 없으면 실행 파일 이름(<이름> · <이름>_node). 이 노드를 띄운 launch 아래에서만 찾음
+//                                 (Nav2 수명주기 노드는 다시 떠도 unconfigured — lifecycle_manager가 다시 활성화해야 함)
+//           "all [이름:=값 …]"    이 노드를 띄운 ros2 launch 전체 — 그 launch 명령줄 그대로 (인자를 주면 그 인자만 바꿈, map:=을 바꾸면 map_name:= 버림)
+//           끄고 띄우는 건 분리된(setsid) 도우미 — 이 노드가 꺼져도 끝까지 (restart.hpp). 같은 요청이 두 번 안 오게 하는 건 보내는 쪽
+//           (테스트베드 input_manager는 읽은 요청 파일을 지움). 도는 중(restart_marker 있음)엔 새 요청 거절
+//     출력: ✉️ /state/restartable (std_msgs/String, transient_local) — node로 재시작할 수 있는 노드 "이름 pid" 줄들 (2초마다 · 바뀔 때만)
+//           → 시뮬레이터 진단 칸이 누를 수 있는 노드로 표시 (컨트롤러 · costmap 하위 · 내부 노드는 프로세스가 아니라 없음)
+//     출력: ✉️ /state/restart (std_msgs/String, transient_local) — 마지막 요청 결과 ("all: 재시작 중 …" · "node perception: 재시작 (pid …)" · "거절: …")
+//     파라미터 restart_prepare: all 때 다시 띄우기 전에 실행할 셸 명령 (테스트베드 faker = build-ws — 고친 코드 반영, 실기 = 없음)
+//             restart_log: all 때 다시 띄운 launch 출력 파일 · restart_marker: 도는 동안 있는 파일 (테스트베드 test-faker 0이 보고 기다림)
+//             restart_wait_s: 정상 종료를 기다리는 시간 (RTAB-Map이 rtabmap.db를 닫을 시간)
+//             restart_registry: node로 따로 다시 띄운 노드 기록 (launch 자식이 아니라 all이 놓치던 것 — all 때 같이 끄고 비움)
 //   ✉️ /diagnostics
 #include <string>
 
@@ -51,15 +66,21 @@ private:
   void request_map_name(const std::string & name);
   void publish_map_list();
   void publish(rclcpp::Publisher<std_msgs::msg::String>::SharedPtr pub, const std::string & value);
+  void request_restart(const std::string & text);
+  void publish_restartable();
 
   std::string operation_ = "AUTO", map_mode_, map_name_, map_dir_, map_list_, map_pending_, map_error_, explore_note_;
+  std::string restart_prepare_, restart_log_, restart_marker_, restart_registry_, restart_note_, restartable_;
+  bool restartable_published_ = false;
+  rclcpp::TimerBase::SharedPtr restartable_timer_;
+  double restart_wait_s_ = 25.0;
   bool map_list_published_ = false;
   bool estop_ = false;
-  rclcpp::Publisher<std_msgs::msg::String>::SharedPtr operation_pub_, map_pub_, map_name_pub_, map_list_pub_;
+  rclcpp::Publisher<std_msgs::msg::String>::SharedPtr operation_pub_, map_pub_, map_name_pub_, map_list_pub_, restart_pub_, restartable_pub_;
   rclcpp::TimerBase::SharedPtr map_list_timer_;
   rclcpp::Publisher<std_msgs::msg::Bool>::SharedPtr estop_pub_;
   rclcpp::Subscription<std_msgs::msg::Bool>::SharedPtr estop_sub_;
-  rclcpp::Subscription<std_msgs::msg::String>::SharedPtr op_req_sub_, map_req_sub_, map_name_sub_, explore_sub_;
+  rclcpp::Subscription<std_msgs::msg::String>::SharedPtr op_req_sub_, map_req_sub_, map_name_sub_, explore_sub_, restart_sub_;
   rclcpp::Client<std_srvs::srv::Empty>::SharedPtr mapping_cli_, localization_cli_;
   rclcpp::Client<rtabmap_msgs::srv::LoadDatabase>::SharedPtr load_db_cli_;
   diagnostic_updater::Updater diag_{this};

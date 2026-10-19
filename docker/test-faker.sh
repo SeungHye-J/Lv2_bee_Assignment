@@ -6,7 +6,7 @@
 #   초: SUCCEEDED 뒤 더 돌릴 시간 (기본 1). 0이면 Ctrl+C까지 띄워 둠 (판정 없음)
 #   예) test-faker                       정상 흐름
 #       test-faker 1                        파지까지 전체 흐름 (진짜 move_group)
-#       test-faker 0                      띄워 두고 다른 터미널에서 ros2 topic echo … (시뮬레이터 [ROS 재시작] = /cmd/restart 로 다시 띄움)
+#       test-faker 0                      띄워 두고 다른 터미널에서 ros2 topic echo … (시뮬레이터 [ROS 재시작] = /cmd/restart → state_manager가 다시 띄움)
 #       test-faker 1 mock_hardware:=true    OpenCR 없이 mock (물리 없음)
 # 배관(joint_states · odom · Nav2 · monitor)은 항상 본다. 작업 흐름(카메라 → 인지 → 작업 성공)은 사용자가 호스트 시뮬레이터를 켰을 때만.
 # 토픽·노드·패키지 기록은 monitor_manager가 debug/topic · node · pkg · output/topic 에 남긴다.
@@ -60,36 +60,18 @@ stop_all() {
 }
 
 if [ "$DUR" = 0 ]; then
-  # 띄워 두기 + 재시작 요청 받기: 시뮬레이터가 /cmd/restart 를 보내면 (= debug/input/topic/cmd/restart/message 파일)
-  # ROS 전부 정상 종료 → 다시 띄움. ROS가 막혀도 되게 ROS가 아니라 이 스크립트가 파일을 직접 본다.
-  # 값(data)이 비면 같은 인자, 있으면 그 인자만 바꾸고 나머지는 유지 (예: "map:=saved map_name:=20261017_163731" → urdf:= 등은 그대로,
-  # "urdf:=beebot_normal" → map:= 등은 그대로). 같은 이름이면 새 값, 없던 이름이면 추가
-  REQ=/debug/input/topic/cmd/restart/message
-  ARGS=("$@")
-  last=$(stat -c %Y "$REQ" 2>/dev/null || echo 0)
-  echo "실행 중 (로그 /tmp/faker.log)... 종료는 Ctrl+C · 재시작 = /cmd/restart"
+  # 띄워 두기. 재시작은 state_manager가 한다 (/cmd/restart "all [이름:=값 …]" · "node <이름>" — 실기 bringup과 같은 길):
+  #   all이면 state_manager의 도우미가 이 launch를 끄고 → build-ws(faker restart_prepare) → 같은 명령줄(바꾼 인자만 새 값)로 다시 띄움.
+  #   다시 뜬 launch는 이 스크립트의 자식이 아니므로, 도우미가 도는 동안(MARKER 있음)이나 faker launch가 하나라도 떠 있으면 기다린다.
+  #   시뮬레이터 [ROS 재시작] → 파일 debug/input/topic/cmd/restart → input_manager가 발행(읽은 파일은 지움 — 두 번 안 감) → state_manager
+  #   ROS가 통째로 막혀 state_manager가 못 받으면: 다른 터미널에서 ros-faker-restart (끄고 test-faker 0 새로)
+  MARKER=/tmp/beebot_restart.pending   # manager.yaml restart_marker와 같게
+  echo "실행 중 (로그 /tmp/faker.log)... 종료는 Ctrl+C · 재시작 = /cmd/restart (state_manager)"
   trap 'echo; stop_all; exit 0' INT
-  while kill -0 "$LAUNCH_PID" 2>/dev/null; do
-    m=$(stat -c %Y "$REQ" 2>/dev/null || echo 0)
-    if [ "$m" != "$last" ]; then
-      last=$m
-      new=$(python3 -c "import json,sys; print(json.load(open(sys.argv[1]))['data'].get('data', ''))" "$REQ" 2>/dev/null)
-      read -ra NEW <<< "$new"
-      # map:=을 바꾸면 예전 map_name:=은 버림 (안 주면 slam은 새 이름 · saved는 최근 — 예전 이름이 남으면 slam이 '있는 이름'으로 거부)
-      [[ " ${NEW[*]}" == *" map:="* ]] && for i in "${!ARGS[@]}"; do [ "${ARGS[$i]%%:=*}" = map_name ] && unset 'ARGS[i]'; done
-      for a in "${NEW[@]}"; do
-        k=${a%%:=*}
-        for i in "${!ARGS[@]}"; do [ "${ARGS[$i]%%:=*}" = "$k" ] && unset 'ARGS[i]'; done
-        ARGS+=("$a")
-      done
-      ARGS=("${ARGS[@]}")
-      echo "$(date +%T) 재시작 요청 (/cmd/restart): ${ARGS[*]:-기본}"
-      ros-kill   # ROS 전부 정상 종료 + 캐시(공유메모리 잔재·daemon) 삭제 — docker/ros-kill.sh
-      build-ws || echo "빌드 실패 — 이전 install 그대로 띄움"   # 고친 코드·설정도 반영 (실기 ros-restart와 같게)
-      ros2 launch faker faker.launch.py "${ARGS[@]}" > /tmp/faker.log 2>&1 & LAUNCH_PID=$!
-    fi
+  while kill -0 "$LAUNCH_PID" 2>/dev/null || pgrep -f "ros2 launch faker" >/dev/null || [ -e "$MARKER" ]; do
     sleep 1
   done
+  echo "$(date +%T) faker launch 끝남"
   trap '' INT
   stop_all
   exit 0

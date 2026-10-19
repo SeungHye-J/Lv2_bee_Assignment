@@ -11,6 +11,8 @@
   map_dir 기본 ~/.ros/beebot_maps (실기 start.sh는 ros2_ws/map, 테스트베드 faker는 /ws/map)
   map:=course 는 테스트베드 전용 (RTAB-Map 없이 faker의 코스 지도 map_server)
   실행 중 바꾸기(재시작 없음): 스캔 ↔ 위치추정 /cmd/map_mode · 지도 갈아끼우기 /cmd/map_name — state_manager
+재시작 (state_manager — 이 launch 명령줄 그대로 다시): ros2 topic pub --once /cmd/restart std_msgs/msg/String "{data: 'all'}"
+  'all map:=slam' (그 인자만 바꿔) · 'node perception' (그 노드만, 같은 파라미터)
 
 🛠 노드 (패키지 · 담당):
   perception: perception (전승혜)
@@ -105,6 +107,10 @@ def generate_launch_description():
                               description='호스트 ai-service 주소 (비면 템플릿 고정, 예: http://127.0.0.1:8000)'),
         DeclareLaunchArgument('command', default_value='',
                               description='user_input이 시작 후 한 번 보낼 텍스트 명령'),
+        DeclareLaunchArgument('restart_prepare', default_value='',
+                              description='/cmd/restart all 때 다시 띄우기 전 셸 명령 (state_manager — 테스트베드 faker = build-ws)'),
+        DeclareLaunchArgument('restart_log', default_value='/tmp/bringup.log',
+                              description='/cmd/restart all 때 다시 띄운 launch 출력 파일 (state_manager)'),
         DeclareLaunchArgument('map', default_value='saved',
                               description='slam = 새 폴더에 매핑 · saved = 저장 지도로 위치추정 (테스트베드 course = 코스 지도, RTAB-Map 없음)'),
         DeclareLaunchArgument('map_dir', default_value='',
@@ -144,7 +150,9 @@ def generate_launch_description():
         node('control', 'body_filter'),
         node('manager', 'state_manager', {'map_mode': LaunchConfiguration('map_mode'),
                                           'map_name': ParameterValue(LaunchConfiguration('map_name'), value_type=str),
-                                          'map_dir': ParameterValue(LaunchConfiguration('map_dir'), value_type=str)}),
+                                          'map_dir': ParameterValue(LaunchConfiguration('map_dir'), value_type=str),
+                                          'restart_prepare': ParameterValue(LaunchConfiguration('restart_prepare'), value_type=str),
+                                          'restart_log': ParameterValue(LaunchConfiguration('restart_log'), value_type=str)}),
         Node(package='diagnostic_aggregator', executable='aggregator_node', output='screen',
              parameters=[PathJoinSubstitution([FindPackageShare('bringup'), 'config', 'diagnostics.yaml'])]),
     ])
