@@ -55,12 +55,13 @@ private:
   std::string gripper_joint_;
   double arm_move_s_, cmd_timeout_s_;
   bool manual_ = false, moving_ = false;
-  size_t vel_count_ = 0, arm_count_ = 0;
+  std::string map_mode_;           // /state/map_mode — MAPPING이면 팔 관절 명령을 막음 (지도 만들 땐 팔이 스캔 자세에 고정)
+  size_t vel_count_ = 0, arm_count_ = 0, arm_blocked_ = 0;
   rclcpp::Time last_vel_{0, 0, RCL_ROS_TIME};
   rclcpp::Publisher<TwistStamped>::SharedPtr vel_pub_;
   rclcpp::Publisher<trajectory_msgs::msg::JointTrajectory>::SharedPtr traj_pub_;
   rclcpp_action::Client<GripperCommand>::SharedPtr gripper_;
-  rclcpp::Subscription<std_msgs::msg::String>::SharedPtr mode_sub_;
+  rclcpp::Subscription<std_msgs::msg::String>::SharedPtr mode_sub_, map_mode_sub_;
   rclcpp::Subscription<TwistStamped>::SharedPtr vel_sub_;
   rclcpp::Subscription<sensor_msgs::msg::JointState>::SharedPtr arm_sub_, js_sub_;
   std::map<std::string, double> current_;

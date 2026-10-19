@@ -14,6 +14,8 @@ ManualControl::ManualControl()
   gripper_ = rclcpp_action::create_client<GripperCommand>(this, "/gripper_controller/gripper_cmd");
   mode_sub_ = create_subscription<std_msgs::msg::String>("/state/operation_mode", rclcpp::QoS(1).reliable().transient_local(),
     [this](std_msgs::msg::String::ConstSharedPtr m) { set_manual(m->data == "MANUAL"); });
+  map_mode_sub_ = create_subscription<std_msgs::msg::String>("/state/map_mode", rclcpp::QoS(1).reliable().transient_local(),
+    [this](std_msgs::msg::String::ConstSharedPtr m) { map_mode_ = m->data; });
   vel_sub_ = create_subscription<TwistStamped>("/cmd/manual/cmd_vel", 10,
     [this](TwistStamped::ConstSharedPtr m) { on_cmd_vel(*m); });
   arm_sub_ = create_subscription<sensor_msgs::msg::JointState>("/cmd/manual/arm", 10,
@@ -30,6 +32,7 @@ ManualControl::ManualControl()
     s.add("모드", manual_ ? "MANUAL" : "AUTO");
     s.add("수동 바퀴 명령 수", vel_count_);
     s.add("수동 팔 명령 수", arm_count_);
+    s.add("지도 만드는 중 막은 팔 명령", arm_blocked_);
     s.add("마지막 바퀴 명령 [s 전]", vel_count_ ? (now() - last_vel_).seconds() : -1.0);
   });
 }
@@ -74,6 +77,11 @@ void ManualControl::on_arm(const sensor_msgs::msg::JointState & js) {
     else if (std::find(arm_joints_.begin(), arm_joints_.end(), js.name[i]) != arm_joints_.end()) target[js.name[i]] = js.position[i];
   }
   if (target.empty()) return;
+  if (map_mode_ == "MAPPING") {  // 지도 만드는 중엔 팔이 스캔 자세에 고정 (gripper_cam = 두 번째 지도 카메라) — 그리퍼만 받음
+    ++arm_blocked_;
+    RCLCPP_WARN_THROTTLE(get_logger(), *get_clock(), 3000, "지도 만드는 중(MAPPING) — 팔 수동 명령 거절 (스캔 자세 고정)");
+    return;
+  }
   trajectory_msgs::msg::JointTrajectory traj;
   trajectory_msgs::msg::JointTrajectoryPoint point;
   for (const auto & j : arm_joints_) {  // 목표에 없는 관절은 지금 각 그대로

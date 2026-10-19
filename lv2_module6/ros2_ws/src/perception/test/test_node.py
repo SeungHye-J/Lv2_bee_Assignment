@@ -33,7 +33,8 @@ def test_empty_without_model():
         # 파라미터 선언 확인 (test-bringup yaml 검사와 동일 항목)
         for p in ("rate_hz", "model_path", "confidence", "imgsz", "device", "sync_slop", "match_dist",
                   "pixel_sigma", "depth_sigma0", "depth_sigma_k", "process_noise", "process_noise_dynamic",
-                  "self_filter", "base_frame", "self_links", "self_radius", "body_radius", "body_height"):
+                  "self_filter", "base_frame", "self_links", "self_radius", "body_radius", "body_height", "track_frame",
+                  "self_arm_hits"):
             assert node.has_parameter(p), p
         end = node.get_clock().now() + rclpy.duration.Duration(seconds=6)
         while node.get_clock().now() < end and ("n" not in got or "names" not in diag):
@@ -73,7 +74,7 @@ def test_mission_qr():
         from geometry_msgs.msg import TransformStamped
         tfb = StaticTransformBroadcaster(node)
         t = TransformStamped()
-        t.header.frame_id, t.child_frame_id = "map", "pole_cam_color_optical_frame"
+        t.header.frame_id, t.child_frame_id = "odom", "pole_cam_color_optical_frame"  # 추적 좌표계 (track_frame)
         t.transform.rotation.w = 1.0
         tfb.sendTransform(t)
         got = []
@@ -143,7 +144,7 @@ def test_tf_at_image_stamp():
     try:
         node = PerceptionNode()
         for sec, x in ((100, 1.0), (101, 2.0), (102, 3.0)):  # 팔이 움직여 카메라가 1m → 3m
-            node.tf.set_transform(_tf("map", "gripper_cam_color_optical_frame", sec, x), "test")
+            node.tf.set_transform(_tf("odom", "gripper_cam_color_optical_frame", sec, x), "test")
         rot, trans = node.lookup_tf("gripper_cam_color_optical_frame", Time(sec=101))
         assert abs(trans[0] - 2.0) < 1e-6  # 찍힌 순간(101초) 자세 — 최신(3m)이 아님
         assert node.tf_fallback == 0
@@ -215,3 +216,45 @@ def test_self_filter():
     assert not is_self("puck", np.array([2.54, 0.0, 0.02]), body, *args)        # 범퍼 바로 앞 바닥 퍽 (차체 반경 안이지만 바닥)
     assert not is_self("obstacle", np.array([3.20, 0.0, 0.10]), body, *args)    # 앞 장애물
 
+
+
+def test_track_in_odom_publish_in_map():
+    """추적은 odom, 발행은 그 순간의 map ← odom: RTAB-Map이 map→odom을 고치면 저장된 물체도 같이 옮겨짐 (로봇과 같은 보정)"""
+    import numpy as np
+    from builtin_interfaces.msg import Time
+
+    os.environ.setdefault("ROS_DOMAIN_ID", "101")
+    rclpy.init()
+    try:
+        node = PerceptionNode()
+        node.tracks[1] = {"class_name": "puck", "p": np.array([1.0, 0.0, 0.02]), "P": np.diag([1e-4, 4e-4, 1e-4]),
+                          "t": 0.0, "size": np.array([0.06, 0.06, 0.04]), "conf": 0.9, "last_seen": Time(),
+                          "seen": {"pole_cam": 0.0}, "camera": "pole_cam", "px": (1, 1), "color": "red"}
+        # map ← odom: 0.2m 옆 · 90° 회전 (RTAB-Map 보정)
+        node.tf.set_transform(_tf("map", "odom", 0, 0.2, (0.0, 0.0, 0.7071068, 0.7071068)), "test")
+        m = node.to_map(node.tracks[1])
+        assert np.allclose(m["p"], [0.2, 1.0, 0.02], atol=1e-6)            # odom (1,0) → 90° 돌려 (0,1) + 0.2 옆
+        assert np.allclose(np.diag(m["P"])[:2], [4e-4, 1e-4], atol=1e-9)    # 공분산 축도 같이 돔
+        assert np.allclose(node.tracks[1]["p"], [1.0, 0.0, 0.02])           # 추적값(odom)은 그대로
+        # 보정이 바뀌면 다음 발행에 그대로 반영
+        node.tf.set_transform(_tf("map", "odom", 1, 0.0), "test")
+        assert np.allclose(node.to_map(node.tracks[1])["p"], [1.0, 0.0, 0.02], atol=1e-6)
+    finally:
+        rclpy.shutdown()
+
+
+def test_arm_in_box():
+    """팔을 화면에 투영해 박스 안에 있으면 자기 팔 — 박스 일부만 팔이라 depth가 뒤 바닥을 가리켜도"""
+    import numpy as np
+    from perception_node import arm_pixels, box_has_arm
+
+    # 카메라 = 원점, 광축 +z (rot = I) · 팔이 카메라 앞 1m에서 왼쪽→오른쪽으로 0.4m
+    chain = [np.array([-0.2, 0.1, 1.0]), np.array([0.2, 0.1, 1.0])]
+    px = arm_pixels(chain, np.eye(3), np.zeros(3), 500.0, 500.0, 320.0, 240.0)
+    assert len(px) == 10 and np.allclose(px[0], [220.0, 290.0, 20.0]) and np.allclose(px[-1], [420.0, 290.0, 20.0])  # 두께 0.04m → 20px
+    assert box_has_arm((200, 270, 300, 310), px, 3)        # 팔 왼쪽 일부를 덮은 박스
+    assert box_has_arm((200, 240, 300, 275), px, 3)        # 중심선(v 290)은 밖이지만 팔 두께(±20px) 안 — 화면에 보이는 몸통
+    assert not box_has_arm((200, 100, 300, 200), px, 3)    # 팔 위쪽 — 다른 물체
+    assert not box_has_arm((435, 280, 460, 300), px, 3)    # 끝 한 점만 — 기준 미만
+    behind = arm_pixels([np.array([0, 0, -1.0]), np.array([0.1, 0, -1.0])], np.eye(3), np.zeros(3), 500, 500, 320, 240)
+    assert len(behind) == 0                                # 카메라 뒤는 안 찍힘

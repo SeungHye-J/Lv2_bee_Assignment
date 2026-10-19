@@ -6,8 +6,11 @@
         /perception/<cam>/detections (같은 타입) — 융합 전 카메라별 한 프레임 검출 (id = 붙은 트랙 id, covariance = 관측 공분산)
           → 시뮬레이터가 카메라별 검출과 융합 결과를 나란히 그림 (디버그용 — 소비 노드 없음)
 
+  추적은 odom 기준(track_frame), 발행만 map 기준 — RTAB-Map이 map→odom을 고칠 때마다(잘못 고쳐도) map에 저장해 둔 물체가
+  옛 보정에 남아 로봇 기준으로 엉뚱한 곳에 보였고, 보정 전후 관측이 다른 기준으로 섞여 합쳐졌음 (실측: 제자리 여러 바퀴 뒤 puck이 수십 cm 밀림).
+  odom은 끊김 없이 이어짐 → 추적·융합은 거기서, /tracked_objects는 발행 순간의 map→odom으로 바꿔 냄 (로봇과 같은 보정으로 같이 움직임).
   컬러·정렬 depth를 시각 동기화(ApproximateTime)해 한 쌍으로 받고, camera_info 내부 파라미터로 3D 역투영
-  → 영상 시각(header.stamp)의 TF로 map 기준 변환 (gripper_cam처럼 팔과 함께 움직여도 찍힌 순간의 자세로) → 추적.
+  → 영상 시각(header.stamp)의 TF로 odom 기준 변환 (gripper_cam처럼 팔과 함께 움직여도 찍힌 순간의 자세로) → 추적.
   두 카메라 융합: 같은 물체를 pole_cam·gripper_cam이 보면 한 트랙에 칼만 갱신으로 합친다.
     관측 공분산은 카메라 좌표에서 depth 축 σz = depth_sigma0 + depth_sigma_k·z² (RealSense 오차는 거리² 비례),
     가로·세로 σ = pixel_sigma·z/f → 그 시각 TF 회전으로 map에 돌려 넣는다 → 가까이서 본 gripper_cam이 자연히 더 무겁고,
@@ -72,6 +75,30 @@ def is_self(cls, p, body, body_radius, body_height, self_radius):
     if cls in PUCK_CLASSES:
         segs = segs[:-1]
     return any(seg_dist(p, a, b) < self_radius for a, b in segs)
+
+
+def arm_pixels(chain, rot, trans, fx, fy, cx, cy, radius=0.04, per_seg=10):
+    """팔 체인(추적 좌표 링크 원점들)을 그 카메라 화면에 투영 → [[u, v, r], …] (r = 팔 두께 radius의 픽셀 반경).
+    이웃 링크 사이를 per_seg개로 나눠 찍음. 링크 원점은 팔 중심선이라 화면에 보이는 팔 몸통보다 안쪽(아래 끝 밖)에 떨어짐
+    (실측: 스캔 자세 팔이 pole_cam 왼쪽 아래 구석에 보이는데 중심선은 v 477~554) → 두께만큼 넓혀 판정.
+    rot·trans = 카메라 → 추적 좌표 (lookup_tf). 카메라 뒤 점은 뺌"""
+    if len(chain) < 2:
+        return np.zeros((0, 3))
+    pts = np.concatenate([a + (b - a) * t[:, None] for a, b in zip(chain[:-1], chain[1:])
+                          for t in [np.linspace(0.0, 1.0, per_seg)]])
+    cam = (pts - trans) @ rot  # = rot.T @ (p − trans)
+    cam = cam[cam[:, 2] > 0.05]
+    return np.stack([fx * cam[:, 0] / cam[:, 2] + cx, fy * cam[:, 1] / cam[:, 2] + cy, fx * radius / cam[:, 2]], -1)
+
+
+def box_has_arm(box, arm_px, min_hits):
+    """검출 박스와 팔(투영점 ± 두께)이 겹치는 점이 min_hits개 이상 — 영상에서 팔을 잡은 것"""
+    if not len(arm_px):
+        return False
+    x0, y0, x1, y1 = box
+    u, v, r = arm_px[:, 0], arm_px[:, 1], arm_px[:, 2]
+    inside = (u + r >= x0) & (u - r <= x1) & (v + r >= y0) & (v - r <= y1)
+    return int(inside.sum()) >= min_hits
 
 
 def stamp_s(stamp):
@@ -197,6 +224,9 @@ class PerceptionNode(Node):
         self.declare_parameter("depth_sigma_k", 0.01)
         self.declare_parameter("process_noise", 0.01)
         self.declare_parameter("process_noise_dynamic", 1.0)
+        self.declare_parameter("track_frame", "odom")  # 추적·융합 좌표계 (끊김 없음) — 발행은 map
+        self.track_frame = str(self.get_parameter("track_frame").value)
+        self._out_tf = None  # 마지막으로 성공한 map ← track_frame (회전, 이동) — TF가 잠깐 끊겨도 이걸로
         self.declare_parameter("self_filter", True)
         self.declare_parameter("base_frame", "base_footprint")
         self.declare_parameter("self_links", ["shoulder_link", "upper_arm_link", "forearm_link", "wrist_link",
@@ -204,10 +234,12 @@ class PerceptionNode(Node):
         self.declare_parameter("self_radius", 0.06)
         self.declare_parameter("body_radius", 0.2)
         self.declare_parameter("body_height", 0.6)
+        self.declare_parameter("self_arm_hits", 3)  # 퍽이 아닌 검출 박스 안에 팔 투영점이 이만큼 있으면 자기 팔 (0 = 안 봄)
         self.self_filter = bool(self.get_parameter("self_filter").value)
         self.base_frame = str(self.get_parameter("base_frame").value)
         self.self_links = [str(v) for v in self.get_parameter("self_links").value]
         self.self_radius = float(self.get_parameter("self_radius").value)
+        self.self_arm_hits = int(self.get_parameter("self_arm_hits").value)
         self.body_radius = float(self.get_parameter("body_radius").value)
         self.body_height = float(self.get_parameter("body_height").value)
         self.match_dist = float(self.get_parameter("match_dist").value)
@@ -341,10 +373,18 @@ class PerceptionNode(Node):
         depth_m = s["depth_mm"].astype(np.float32) / 1000.0
         now_stamp = s["stamp"]
         tf = self.lookup_tf(s["frame_id"], now_stamp)
-        if tf is None:
+        if tf is None:  # 위치는 못 구해도 QR 판 박스는 남김 — QR은 위치 없이 읽힘 (TF·지도가 아직 없을 때도)
+            boxes = [tuple(max(0, int(v)) for v in b.xyxy[0].tolist()) for b in res.boxes
+                     if self.names.get(int(b.cls[0])) == "qr_board"]
+            with self.lock:
+                self.frames[cam]["qr_boxes"] = boxes
             return
         rot, trans = tf
         body = self.robot_body(now_stamp) if self.self_filter and len(res.boxes) else None
+        # 영상에서 팔 판정: 박스 일부만 팔이면 depth 중앙값이 팔 뒤 바닥·벽까지라 3D 판정(is_self)을 빠져나갔음
+        # (실측: 스캔 자세 팔을 obstacle 0.5~0.7로 잡고 위치는 팔 뒤 바닥 (0.42, 0.20, −0.03)) → 팔을 화면에 투영해 박스 안에 있으면 버림
+        arm_px = (arm_pixels(body[1], rot, trans, s["fx"], s["fy"], s["cx"], s["cy"])
+                  if body is not None and self.self_arm_hits > 0 else np.zeros((0, 2)))
         dets = []
         qr_boxes = []
         for b in res.boxes:
@@ -367,7 +407,8 @@ class PerceptionNode(Node):
             if cls == "qr_board":
                 qr_boxes.append((x0, y0, x1, y1))
             z_map = rot @ np.array([px, py, zm]) + trans
-            if body is not None and is_self(cls, z_map, body, self.body_radius, self.body_height, self.self_radius):
+            arm_in_box = cls not in PUCK_CLASSES and box_has_arm((x0, y0, x1, y1), arm_px, self.self_arm_hits)  # 퍽은 그리퍼 밑에서 집으므로 뺌
+            if body is not None and (arm_in_box or is_self(cls, z_map, body, self.body_radius, self.body_height, self.self_radius)):
                 with self.lock:
                     self.self_dropped += 1
                 continue
@@ -391,7 +432,7 @@ class PerceptionNode(Node):
         out = TrackedObjectArray()
         out.header.stamp = now_stamp
         out.header.frame_id = "map"
-        out.objects = [to_msg(tid, {**d, "p": d["z"], "P": d["R"], "last_seen": now_stamp, "camera": cam})
+        out.objects = [to_msg(tid, self.to_map({**d, "p": d["z"], "P": d["R"], "last_seen": now_stamp, "camera": cam}))
                        for tid, d in zip(tids, dets)]
         self.det_pubs[cam].publish(out)
 
@@ -446,14 +487,27 @@ class PerceptionNode(Node):
         chain = [t[1] for t in (self.lookup_tf(link, stamp, quiet=True) for link in self.self_links) if t is not None]
         return base[1], chain
 
+    def to_map(self, tr):
+        """추적 좌표(odom) 트랙·검출 dict → map 기준 사본 (위치·공분산 회전) — 지금의 map ← odom (RTAB-Map 보정 최신값)"""
+        try:
+            t = self.tf.lookup_transform("map", self.track_frame, rclpy.time.Time())
+            tt = t.transform.translation
+            self._out_tf = (quat_to_rot(t.transform.rotation), np.array([tt.x, tt.y, tt.z]))
+        except Exception as e:  # noqa: BLE001
+            if self._out_tf is None:  # 아직 map이 없음 (RTAB-Map 기동 전) — odom 그대로 (map 원점 = odom 원점으로 시작)
+                self.get_logger().warning(f"map ← {self.track_frame} TF 없음 — 그대로 발행: {e}", throttle_duration_sec=5.0)
+                return tr
+        rot, trans = self._out_tf
+        return {**tr, "p": rot @ np.asarray(tr["p"]) + trans, "P": rot @ np.asarray(tr["P"]) @ rot.T}
+
     def lookup_tf(self, frame_id, stamp, quiet=False):
-        """map ← 카메라 TF를 영상 시각으로 (팔이 움직이는 중에도 찍힌 순간의 자세). 그 시각이 버퍼에 없으면 최신으로 대신.
+        """track_frame(odom) ← 카메라 TF를 영상 시각으로 (팔이 움직이는 중에도 찍힌 순간의 자세). 그 시각이 버퍼에 없으면 최신으로 대신.
         기다리지 않는다 (단일 스레드 실행기에서 기다리면 TF 수신도 같이 멈춤) → (회전 3×3, 이동 3) 또는 None"""
         try:
-            t = self.tf.lookup_transform("map", frame_id, rclpy.time.Time.from_msg(stamp))
+            t = self.tf.lookup_transform(self.track_frame, frame_id, rclpy.time.Time.from_msg(stamp))
         except Exception:  # noqa: BLE001
             try:
-                t = self.tf.lookup_transform("map", frame_id, rclpy.time.Time())
+                t = self.tf.lookup_transform(self.track_frame, frame_id, rclpy.time.Time())
                 if not quiet:
                     with self.lock:
                         self.tf_fallback += 1
@@ -471,7 +525,7 @@ class PerceptionNode(Node):
         out.header.frame_id = "map"
         with self.lock:
             items = [(tid, dict(tr)) for tid, tr in sorted(self.tracks.items())]
-        out.objects = [to_msg(tid, tr) for tid, tr in items]
+        out.objects = [to_msg(tid, self.to_map(tr)) for tid, tr in items]  # 추적은 odom — 발행 순간의 map ← odom으로
         self.pub.publish(out)
         with self.lock:
             self.published += 1

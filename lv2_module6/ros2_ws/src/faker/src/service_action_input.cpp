@@ -11,7 +11,7 @@ namespace {
 
 const char * kServices[] = {"score_grasps", "clear_octomap", "apply_planning_scene",
   "diff_drive_controller/set_odometry", "reset", "fake_opencr/set_parameters",
-  "map_saver/save_map"};
+  "map_saver/save_map", "rtabmap/rtabmap/reset"};
 const char * kActions[] = {"navigate_to_pose", "execute_task_solution", "move_action"};
 
 bool get_double(const rapidjson::Value & v, const char * key, double & out) {
@@ -53,6 +53,7 @@ ServiceActionInput::ServiceActionInput()
   score_cli_ = create_client<ml::srv::ScoreGrasps>("/score_grasps");
   clear_cli_ = create_client<std_srvs::srv::Empty>("/clear_octomap");
   reset_cli_ = create_client<std_srvs::srv::Empty>("/reset");  // EKF 리셋
+  map_reset_cli_ = create_client<std_srvs::srv::Empty>("/rtabmap/rtabmap/reset");  // RTAB-Map 지도 비우기
   scene_cli_ = create_client<moveit_msgs::srv::ApplyPlanningScene>("/apply_planning_scene");
   odom_cli_ = create_client<control_msgs::srv::SetOdometry>("/diff_drive_controller/set_odometry");
   opencr_params_cli_ = create_client<rcl_interfaces::srv::SetParameters>("/fake_opencr/set_parameters");
@@ -61,6 +62,8 @@ ServiceActionInput::ServiceActionInput()
   mtc_cli_ = rclcpp_action::create_client<moveit_task_constructor_msgs::action::ExecuteTaskSolution>(
       this, "/execute_task_solution");
   move_cli_ = rclcpp_action::create_client<moveit_msgs::action::MoveGroup>(this, "/move_action");
+  map_mode_sub_ = create_subscription<std_msgs::msg::String>("/state/map_mode", rclcpp::QoS(1).reliable().transient_local(),
+    [this](std_msgs::msg::String::ConstSharedPtr m) { map_mode_ = m->data; });
   RCLCPP_INFO(get_logger(), "시작 | 요청: debug/input/service/*/message · input/action/*/goal|cancel → 응답 debug/output/service|action/ · 기록 input/*/*/history");
   timer_ = create_wall_timer(std::chrono::duration<double>(period), [this]() { poll(); });
   dirs_timer_ = create_wall_timer(std::chrono::seconds(2), [this]() { make_dirs(); });  // 떠 있는 서비스·액션마다 input 폴더
@@ -257,6 +260,14 @@ void ServiceActionInput::poll_service(const std::string & name) {
       return;
     }
     reset_fut_ = reset_cli_->async_send_request(std::make_shared<std_srvs::srv::Empty::Request>()).future;
+  } else if (name == "rtabmap/rtabmap/reset") {
+    if (!map_reset_cli_->wait_for_service(std::chrono::seconds(0))) {
+      reply("service", name, "response", "{\"request_id\": \"" + escape_json(st.request_id) +
+          "\", \"ok\": false, \"error\": \"server 없음 (RTAB-Map 꺼짐? 코스 지도면 없음)\"}");
+      st.busy = false;
+      return;
+    }
+    map_reset_fut_ = map_reset_cli_->async_send_request(std::make_shared<std_srvs::srv::Empty::Request>()).future;
   } else if (name == "apply_planning_scene") {
     if (!scene_cli_->wait_for_service(std::chrono::seconds(0))) {
       reply("service", name, "response", "{\"request_id\": \"" + escape_json(st.request_id) +
@@ -372,6 +383,12 @@ void ServiceActionInput::check_service(const std::string & name) {
       body = "{\"request_id\": \"" + escape_json(st.request_id) + "\", \"ok\": true, \"data\": {}}";
       done = true;
     }
+  } else if (name == "rtabmap/rtabmap/reset") {
+    if (map_reset_fut_.wait_for(std::chrono::seconds(0)) == std::future_status::ready) {
+      map_reset_fut_.get();
+      body = "{\"request_id\": \"" + escape_json(st.request_id) + "\", \"ok\": true, \"data\": {}}";
+      done = true;
+    }
   } else {
     if (scene_fut_.wait_for(std::chrono::seconds(0)) == std::future_status::ready) {
       auto res = scene_fut_.get();
@@ -452,6 +469,12 @@ void ServiceActionInput::poll_goal(const std::string & name) {
     };
     nav_goal_fut_ = nav_cli_->async_send_goal(g, opt);
   } else if (name == "move_action") {
+    if (map_mode_ == "MAPPING") {  // 시뮬레이터 팔 조작(손끝 목표·관절 슬라이더·퍽 집기)은 지도 만드는 동안 막음 — 팔은 스캔 자세 고정
+      reply("action", name, "accept", "{\"goal_id\": \"" + escape_json(st.goal_id) +
+          "\", \"accepted\": false, \"error\": \"지도 만드는 중(MAPPING) — 팔은 스캔 자세로 고정 (gripper_cam = 지도 카메라). [위치추정으로] 뒤에 조작\"}");
+      st.waiting_goal = false;
+      return;
+    }
     if (!move_cli_->wait_for_action_server(std::chrono::seconds(0))) {
       reply("action", name, "accept", "{\"goal_id\": \"" + escape_json(st.goal_id) +
           "\", \"accepted\": false, \"error\": \"server 없음 (move_group)\"}");

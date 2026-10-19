@@ -55,6 +55,7 @@
 #include "rapidjson/writer.h"
 #include "rclcpp/rclcpp.hpp"
 #include "rclcpp_action/rclcpp_action.hpp"
+#include "std_msgs/msg/string.hpp"
 #include "std_srvs/srv/empty.hpp"
 
 namespace faker {
@@ -104,6 +105,8 @@ private:
       const typename rclcpp_action::Client<moveit_msgs::action::MoveGroup>::WrappedResult & wr);
 
   std::string debug_dir_;
+  std::string map_mode_;  // /state/map_mode — MAPPING이면 /move_action(팔) 거절: 지도 만들 땐 팔이 스캔 자세에 고정
+  rclcpp::Subscription<std_msgs::msg::String>::SharedPtr map_mode_sub_;
   double timeout_s_;
   rclcpp::TimerBase::SharedPtr timer_, dirs_timer_;
   std::map<std::string, fs::file_time_type> unsupported_;  // "service:<이름>" · "action:<이름>" → 요청 파일 mtime (타입 미등록)
@@ -138,6 +141,8 @@ private:
   std::shared_future<std_srvs::srv::Empty::Response::SharedPtr> clear_fut_;
   rclcpp::Client<std_srvs::srv::Empty>::SharedPtr reset_cli_;
   std::shared_future<std_srvs::srv::Empty::Response::SharedPtr> reset_fut_;
+  rclcpp::Client<std_srvs::srv::Empty>::SharedPtr map_reset_cli_;  // /rtabmap/rtabmap/reset — 지금 지도를 비우고 처음부터 (시뮬레이터 [스캔 시작] → 지우고 처음부터)
+  std::shared_future<std_srvs::srv::Empty::Response::SharedPtr> map_reset_fut_;
   rclcpp::Client<moveit_msgs::srv::ApplyPlanningScene>::SharedPtr scene_cli_;
   std::shared_future<moveit_msgs::srv::ApplyPlanningScene::Response::SharedPtr> scene_fut_;
   rclcpp::Client<control_msgs::srv::SetOdometry>::SharedPtr odom_cli_;

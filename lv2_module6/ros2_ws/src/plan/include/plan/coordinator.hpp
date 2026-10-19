@@ -12,6 +12,12 @@
 //   적재함 (MISSION ③ MOVE_TO_B — 퍽을 실어 운반): target "tray"
 //     place tray = 다음 빈 칸에 싣기 · pick tray = 마지막에 실은 것부터 꺼내기 (칸 = tray_slots, base_footprint 기준 — MoveIt 실측으로
 //     손끝 아래 방향이 닿는 곳). 몇 개 실렸는지 tray_count로 센다 (노드가 다시 뜨면 0). 꽉 차면 tray_full · 비면 tray_empty로 실패
+//   팔이 닿게 다가가기: pick · place <물체 id> 차례에 대상이 로봇(base_footprint, TF)에서 reach_m 넘게 떨어져 있으면
+//     먼저 그 물체를 바라보며 approach_m 떨어진 자리로 navigate한 뒤 그 단계를 실행 (단계마다 한 번 — VLM이 navigate를 빼먹어도).
+//     navigate <물체 id>도 같은 접근 자세 — 로봇이 있는 쪽에서 물체를 바라봄 (예전: 늘 물체의 −x 쪽 · yaw 0)
+//   스캔 자세: 지도를 만들 때(/state/map_mode MAPPING · 자동 탐사 EXPLORE) 작업이 없으면 팔을 scan_pose로 (2초마다 확인, MoveIt 관절 목표)
+//     — gripper_cam이 왼쪽 뒤를 보는 두 번째 고정 카메라가 됨 (ros_system/config/scan_pose.yaml · scan_cam_gate). 수동 모드여도
+//     (스캔은 보통 수동 주행) — MAPPING 동안 팔 수동 조작은 manual_control(/cmd/manual/arm)·service_action_input(/move_action)이 거절
 //   같은 물체(구역) 위에 여러 번 place하면 겹치지 않게 place_spacing 간격으로 비켜 놓는다 (B 지역 판에 퍽 여러 개)
 //   AUTO가 아닌 모드(/state/operation_mode = MANUAL 수동 · EXPLORE 자동 탐사): 진행 중 이동·팔 goal을 취소하고 FAILED(manual_override · explore_override),
 //     그동안 새 계획은 받지 않는다 (VLM은 manual_* · explore_* 실패에는 재계획하지 않음). AUTO로 돌아오면 새 명령을 기다린다.
@@ -41,14 +47,19 @@
 #include "plan/msg/sub_goal_array.hpp"
 #include "plan/msg/task_status.hpp"
 #include "rclcpp/rclcpp.hpp"
+#include "sensor_msgs/msg/joint_state.hpp"
 #include "rclcpp_action/rclcpp_action.hpp"
 #include "std_msgs/msg/string.hpp"
 #include "std_srvs/srv/empty.hpp"
+#include "tf2_ros/buffer.h"
+#include "tf2_ros/transform_listener.h"
 
 namespace plan {
 
 // 적재함 칸 — tray_slots 파라미터 [x0, y0, x1, y1, …] (base_footprint) → 칸 목록 (홀수 개면 마지막 값 버림)
 std::vector<std::pair<double, double>> tray_slots(const std::vector<double> & flat);
+// 물체를 바라보며 standoff 떨어진 로봇 자세 (map) — 로봇이 있는 쪽에서. 로봇이 물체와 거의 같은 자리면 물체의 −x 쪽
+geometry_msgs::msg::Pose approach_pose(double ox, double oy, double rx, double ry, double standoff);
 // 같은 곳에 n번째(0부터)로 내려놓을 때 중심에서 비킬 (dx, dy) — 가운데 · 좌 · 우 · 앞 · 뒤 · 대각선 순, spacing 간격
 std::pair<double, double> spread_offset(int n, double spacing);
 
@@ -98,6 +109,11 @@ private:
 
   // ---------- navigate: 🎬 NavigateToPose
   void navigate(const SubGoal & g);
+  void send_nav(const geometry_msgs::msg::Pose & pose, std::function<void(bool)> done);
+  // 로봇 위치 (map → base_footprint TF). 없으면 false
+  bool robot_xy(double & x, double & y) const;
+  // pick·place <물체 id> 전에: 대상이 reach_m 밖이면 다가가는 navigate를 시작하고 true (끝나면 같은 단계를 다시) · 아니면 false
+  bool approach_if_far(const SubGoal & g);
 
   // ---------- pick: octomap 지우기 → 장면 등록 → 📞 /score_grasps → 후보 순서대로 move_group (규칙 4)
   void pick(const SubGoal & g);
@@ -117,6 +133,11 @@ private:
   //     계획이 실패하면 같은 목표로 arm_plan_tries번까지 (tries_left −1 = 처음)
   void move_arm(const geometry_msgs::msg::PoseStamped & target, std::function<void(bool)> done, int tries_left = -1);
 
+  // ---------- 스캔 자세 — 지도 만드는 중이고 작업이 없으면 팔을 scan_pose로
+  void check_scan_pose();
+  bool at_scan_pose() const;
+  void move_joints(const std::map<std::string, double> & target, std::function<void(bool)> done);
+
   // ---------- 🎬 /gripper_controller/gripper_cmd (m)
   void set_gripper(double width_m, std::function<void(bool)> done);
 
@@ -132,6 +153,19 @@ private:
   void say(const std::string & text);
 
   int max_grasp_tries_, max_step_failures_, arm_plan_tries_;
+  double reach_m_, approach_m_;
+  std::vector<std::string> scan_joints_;
+  std::vector<double> scan_pose_;
+  double scan_tol_ = 0.05;
+  bool scan_moving_ = false;
+  std::string map_mode_;
+  std::map<std::string, double> joints_;
+  rclcpp::Subscription<std_msgs::msg::String>::SharedPtr map_mode_sub_;
+  rclcpp::Subscription<sensor_msgs::msg::JointState>::SharedPtr joints_sub_;
+  rclcpp::TimerBase::SharedPtr scan_timer_;
+  size_t approached_ = static_cast<size_t>(-1);  // 다가가기를 이미 한 단계 (idx_) — 단계마다 한 번만
+  std::unique_ptr<tf2_ros::Buffer> tf_buffer_;
+  std::shared_ptr<tf2_ros::TransformListener> tf_listener_;
   std::vector<std::pair<double, double>> tray_slots_;
   double tray_release_z_, tray_grasp_z_, tray_approach_m_, place_spacing_;
   int tray_count_ = 0;                 // 적재함에 실린 퍽 수 (칸 0부터 차례로)

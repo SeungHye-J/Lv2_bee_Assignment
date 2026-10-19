@@ -142,7 +142,10 @@ def generate_launch_description():
         node('plan', 'user_input', {'command': ParameterValue(LaunchConfiguration('command'), value_type=str)}),  # 공백·빈 값도 문자열로
         node('plan', 'vlm_task_planner',
              {'vlm_endpoint': ParameterValue(LaunchConfiguration('vlm_endpoint'), value_type=str)}),
-        node('plan', 'coordinator'),
+        # coordinator: 지도 만들 때 팔을 스캔 자세로 — 자세는 ros_system/config/scan_pose.yaml 하나 (RTAB-Map scan_cam_gate와 같은 값)
+        Node(package='plan', executable='coordinator', output='screen',
+             parameters=[PathJoinSubstitution([FindPackageShare('plan'), 'config', 'plan.yaml']),
+                         PathJoinSubstitution([FindPackageShare('ros_system'), 'config', 'scan_pose.yaml'])]),
         node('plan', 'explorer'),
         *[node('ml', n, learning, condition=IfCondition(LaunchConfiguration(f'use_{n}'))) for n in ML_NODES],
         node('control', 'arm_safety_monitor'),

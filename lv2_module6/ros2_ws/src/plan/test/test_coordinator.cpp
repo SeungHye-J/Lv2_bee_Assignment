@@ -1,4 +1,5 @@
 // plan 기본 테스트: coordinator는 허용 동작(navigate·pick·place·say)이 아닌 계획을 거부하고 FAILED를 보낸다 (규칙 1)
+#include <cmath>
 #include <gtest/gtest.h>
 
 #include <chrono>
@@ -134,4 +135,21 @@ TEST(Tray, MoveToBTemplate) {
   EXPECT_EQ(g[13].target, "tray");   // 꺼내기
   EXPECT_EQ(g[14].target, "7");      // 구역에 내려놓기
   for (size_t i = 0; i < g.size(); ++i) EXPECT_EQ(g[i].step, i + 1);
+}
+
+TEST(Coordinator, ApproachPose) {
+  // 로봇 (0,0) · 물체 (0.6, 0) → 물체 앞 0.24 = (0.36, 0), 물체를 바라봄 (yaw 0)
+  auto p = plan::approach_pose(0.6, 0.0, 0.0, 0.0, 0.24);
+  EXPECT_NEAR(p.position.x, 0.36, 1e-9);
+  EXPECT_NEAR(p.position.y, 0.0, 1e-9);
+  EXPECT_NEAR(2 * std::atan2(p.orientation.z, p.orientation.w), 0.0, 1e-9);
+  // 로봇이 물체의 +y 쪽 → 그쪽에서 다가가 −y를 바라봄 (예전엔 늘 물체 −x 쪽 · yaw 0)
+  p = plan::approach_pose(1.0, 0.0, 1.0, 1.0, 0.24);
+  EXPECT_NEAR(p.position.x, 1.0, 1e-9);
+  EXPECT_NEAR(p.position.y, 0.24, 1e-9);
+  EXPECT_NEAR(2 * std::atan2(p.orientation.z, p.orientation.w), -M_PI / 2, 1e-9);
+  // 로봇이 물체 바로 위면 −x 쪽에서
+  p = plan::approach_pose(1.0, 2.0, 1.0, 2.0, 0.3);
+  EXPECT_NEAR(p.position.x, 0.7, 1e-9);
+  EXPECT_NEAR(p.position.y, 2.0, 1e-9);
 }
