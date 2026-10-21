@@ -45,3 +45,80 @@ test-firmware
 
 업로드 중에는 ROS(`start.sh`, controller_manager)를 끈다 — 같은 포트를 잡으면 업로드가 깨진다.
 안 되면 OpenCR의 SW2를 누른 채 RESET → 부트로더 모드에서 다시. 자세한 업로더 설명은 [upload.sh](upload.sh) 머리 주석.
+
+## 실기 시리얼 테스트
+
+업로드 후 ROS 없이 OpenCR의 `S` 상태와 `C` 명령을 확인한다.  
+스크립트는 `test-firmware`이다.
+
+### 사용법
+
+```bash
+cd lv2_module6/firmware
+
+chmod +x test-firmware          # 최초 1회 (Permission denied 방지)
+
+./test-firmware                  # S 상태만 읽음 — 로봇 안 움직임
+./test-firmware --raw            # 받은 S 줄 원문 출력
+./test-firmware --port /dev/ttyACM0
+
+./test-firmware --hold --yes     # 현재 자세 유지 명령
+./test-firmware --arm joint1 0.05 --yes
+./test-firmware --gripper 0.005 --yes
+./test-firmware --send 'C,0,0,0,0,0,0,0,0' --yes
+```
+
+`sh ./test-firmware`로 실행하면 Ubuntu의 `/bin/sh`(dash)가 되어
+`set: Illegal option -o pipefail` 오류가 난다. 반드시 `./` 또는 `bash`로 실행한다.
+
+```bash
+./test-firmware
+# 또는
+bash ./test-firmware
+```
+
+### 옵션
+
+| 옵션 | 의미 |
+| --- | --- |
+| `--port <포트>` | 기본 `/dev/opencr`, 없으면 `/dev/ttyACM0` |
+| `--raw` | `S` 줄 원문 출력 |
+| `--lines <n>` | `--raw`에서 보여줄 줄 수 (기본 3) |
+| `--hold` | 현재 자세를 유지하는 `C` 명령 전송 |
+| `--arm <joint> <rad>` | 현재 자세에서 해당 관절만 delta만큼 이동 |
+| `--gripper <m>` | 그리퍼 폭을 m로 이동 |
+| `--send 'C,...'` | `C` 명령을 직접 전송 |
+| `--yes` | 확인 프롬프트 없이 실행 |
+
+- `--arm`, `--gripper`, `--send`는 실제로 모터를 움직인다. 주변을 비우고 작은 값부터 사용한다.
+- `--send 'C,0,0,...'`은 **현재 자세 유지가 아니다.** 팔을 0 rad(중앙)으로 보내는 명령이므로, 현재 자세 유지는 `--hold`를 쓴다.
+- 모터 8개(바퀴 1·2, 팔 11~15, 그리퍼 16)가 모두 1 Mbps / Protocol 2.0으로 연결되어 있지 않으면 `C`가 무시된다.
+- 그리퍼는 Current-based Position의 Goal Current가 0이면 움직이지 않을 수 있다. (`setGoalCurrent()` 확인)
+
+### 결과 해석
+
+```text
+S 32개 필드                 → beebot_opencr 정상
+S 필드가 9개/8개            → 다른 펌웨어이거나, 시리얼 timeout으로 마지막 줄이 잘린 경우
+S가 안 나옴                 → 포트·업로드·권한 문제
+S만 나오고 C가 무시됨       → 모터 일부 미연결 또는 ID/baud 오류
+```
+
+> 시리얼을 timeout으로 끊으면 마지막 `S` 줄이 중간에서 잘릴 수 있다.
+> `test-firmware`는 **32개 필드가 모두 있는 완전한 줄만** 사용하므로, 중간에 잘린 줄은 무시한다.
+
+`S` 필드가 8~9개로 나오는 경우:
+
+```bash
+./test-firmware --raw
+# 또는
+stty -F /dev/ttyACM0 raw -echo 115200
+timeout 2 cat /dev/ttyACM0 | head -3
+```
+
+`S,` 뒤 값이 8개뿐이면 `beebot_opencr`의 32값 프로토콜이 아니다.  
+OpenCR에 올라간 펌웨어를 확인하고 `beebot_opencr`을 다시 업로드한다.
+
+```bash
+./upload.sh /dev/ttyACM0 beebot_opencr
+```

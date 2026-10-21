@@ -9,27 +9,43 @@ on:
 jobs:
   testbed:
     # 로컬 게이트(test-all)와 동일한 검사를 그대로 실행 — 검사 로직은 docker/test-*.sh 한 곳에만.
-    # x86_64(PC)·aarch64(Raspberry Pi) 두 러너에서 각각 빌드·검사 → 아키텍처별 배포 패키지.
-    #   install/의 실행 파일은 빌드한 CPU에서만 돈다 (x86 빌드를 Pi에서 실행하면 Exec format error).
-    #   aarch64는 GitHub ARM 러너(ubuntu-24.04-arm, 공개 저장소 무료)에서 네이티브로 빌드.
+    # x86_64(PC)·aarch64(Raspberry Pi/Orin) 러너에서 각각 빌드·검사 → 실행 환경별 배포 패키지.
+    #   install/의 실행 파일은 빌드한 CPU·OS에서만 돈다 (x86 빌드를 Pi에서 실행하면 Exec format error).
+    #   aarch64는 GitHub ARM 러너에서 네이티브로 빌드.
+    #   · resolute(26.04): 기존 PC·Raspberry Pi용
+    #   · noble(24.04): Jetson Orin Nano(JetPack 7 / Ubuntu 24.04, NVIDIA Isaac ROS Lyrical)용
     strategy:
       fail-fast: false
       matrix:
         include:
           - arch: x86_64
             runner: ubuntu-26.04
+            dockerfile: docker/Dockerfile
+            label: x86_64
+            target: ubuntu-26.04-x86_64
+            package: ros2_ws-deploy-x86_64.tar.gz
           - arch: aarch64
             runner: ubuntu-26.04-arm
+            dockerfile: docker/Dockerfile
+            label: aarch64
+            target: ubuntu-26.04-aarch64
+            package: ros2_ws-deploy-aarch64.tar.gz
+          - arch: aarch64
+            runner: ubuntu-24.04-arm
+            dockerfile: docker/Dockerfile.noble
+            label: aarch64-noble
+            target: ubuntu-24.04-aarch64
+            package: ros2_ws-deploy-aarch64-noble.tar.gz
     runs-on: ${{ matrix.runner }}
-    name: testbed (${{ matrix.arch }})
+    name: testbed (${{ matrix.label }})
     permissions:
       contents: write   # 배포 패키지를 Release(run-<RUN ID>)에 올리기 위함
     env:
-      PACKAGE: ros2_ws-deploy-${{ matrix.arch }}.tar.gz   # download-artifact.sh가 uname -m으로 고름
+      PACKAGE: ${{ matrix.package }}   # download-artifact.sh가 장치 OS·uname -m으로 고름
     steps:
       - uses: actions/checkout@v4
       - name: Build testbed image
-        run: docker build -f docker/Dockerfile -t lv2-module6:testbed .
+        run: docker build -f ${{ matrix.dockerfile }} -t lv2-module6:testbed .
       - name: test-all (serial → firmware → packages → hardware → bringup → faker)
         # 평소 11~13분. 어딘가 멈추면 6시간 한도까지 러너를 잡아먹으므로 30분에서 끊는다 (실패 → debug 수집은 돈다)
         timeout-minutes: 30
@@ -56,6 +72,7 @@ jobs:
         #   firmware/build/<스케치>/*.bin  test-firmware가 컴파일한 결과 (/debug/firmware에서 복사 — OpenCR용이라 아키텍처 무관)
         #   *.sh                           lv2_module6/ros2_ws의 실행 스크립트 전부 + docker/*.sh (entrypoint.sh 제외)
         #   ARCH                           이 패키지의 아키텍처 (start.sh가 확인)
+        #   TARGET                         이 패키지의 OS·아키텍처 (예: ubuntu-24.04-aarch64)
         # - install: test-bringup이 --symlink-install로 빌드 → cp -L로 링크 대상 실제 파일을 담음.
         # tar로 묶어 실행 권한 보존 (zip은 권한을 잃음).
         # upload-artifact v7 archive: false → zip으로 한 번 더 감싸지 않고 tar.gz를 그대로 올림.
@@ -71,8 +88,9 @@ jobs:
           cp docker/*.sh ros2_ws/   # test-*.sh · build-ws.sh · ros-kill.sh · ros-restart.sh (entrypoint.sh 제외 — 컨테이너 전용)
           rm -f ros2_ws/entrypoint.sh
           echo "${{ matrix.arch }}" > ros2_ws/ARCH
+          echo "${{ matrix.target }}" > ros2_ws/TARGET
           tar -czf "$PACKAGE" -C ros2_ws .
-          ls -lh "$PACKAGE" && tar -tzf "$PACKAGE" | grep -E "^\./(ARCH|firmware/build/)|\.sh$"
+          ls -lh "$PACKAGE" && tar -tzf "$PACKAGE" | grep -E "^\./(ARCH|TARGET|firmware/build/)|\.sh$"
       - uses: actions/upload-artifact@v7
         with:
           path: ${{ env.PACKAGE }}   # archive: false면 파일 이름이 artifact 이름
@@ -91,7 +109,7 @@ jobs:
           tag="run-${{ github.run_id }}"
           gh release create "$tag" --repo "${{ github.repository }}" --target "${{ github.sha }}" \
             --title "CI run ${{ github.run_id }} (${{ github.ref_name }} ${GITHUB_SHA::7})" \
-            --notes "CI 배포 패키지 — install(아키텍처별) · firmware(.bin) · 실행 스크립트. 실행: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}" \
+            --notes "CI 배포 패키지 — install(아키텍처·OS별) · firmware(.bin) · 실행 스크립트. Jetson Ubuntu 24.04는 ros2_ws-deploy-aarch64-noble.tar.gz. 실행: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}" \
             || echo "Release $tag 이미 있음 → 파일만 첨부"
           gh release upload "$tag" "$PACKAGE" --repo "${{ github.repository }}" --clobber
       - name: 제출 태그 lv2-module6-submit
@@ -112,5 +130,5 @@ jobs:
       - uses: actions/upload-artifact@v7
         if: failure()
         with:
-          name: debug-${{ matrix.arch }}
+          name: debug-${{ matrix.label }}
           path: debug

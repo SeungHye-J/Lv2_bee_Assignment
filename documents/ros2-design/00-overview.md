@@ -8,7 +8,7 @@
 
 | 항목 | 가정 |
 | --- | --- |
-| 배포판 | ROS 2 Lyrical (Ubuntu 26.04) — 속도 명령은 체인 전체 **TwistStamped** |
+| 배포판 | ROS 2 Lyrical (Ubuntu 26.04, Jetson은 24.04 + NVIDIA Isaac ROS) — 속도 명령은 체인 전체 **TwistStamped** |
 | 베이스 | TurtleBot3 Waffle Pi, 차동 구동, 바퀴 반경 0.033m · 간격 0.287m, 최대 0.26m/s, **LiDAR 미사용** (거리 센서는 RealSense 2대뿐) |
 | 팔 | OpenMANIPULATOR-X **RM-X52-TNM** (4축 + 그리퍼, XM430-W350-T) **+ 손목 roll 1축** — 차체 앞쪽 절반 상판 위, 도달 거리 약 0.38m+, 가반하중 약 0.5kg |
 | 제어보드 | OpenCR 1개가 바퀴 2 · 팔 5축 · 그리퍼 · IMU를 모두 연결 — 직접 작성한 펌웨어(beebot_opencr) ↔ 하드웨어 플러그인(BeebotSystemHardware) |

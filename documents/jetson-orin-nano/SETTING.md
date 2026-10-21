@@ -186,6 +186,13 @@ sudo apt-get install -y --no-install-recommends \
 ```
 
 ```bash
+# realsense
+sudo apt update
+sudo apt install ros-$ROS_DISTRO-realsense2-camera
+```
+
+
+```bash
 sudo apt-get install -y --no-install-recommends \
     ros-lyrical-rtabmap-msgs \
     ros-lyrical-rtabmap-slam \
@@ -217,3 +224,147 @@ sudo apt-get install -y --no-install-recommends \
     && pip install --break-system-packages --ignore-installed --no-cache-dir ultralytics pytest
 
 ```
+
+
+# 1. Arduino CLI 설치
+```bash
+mkdir -p "$HOME/bin"
+curl -fsSL https://raw.githubusercontent.com/arduino/arduino-cli/master/install.sh \
+| BINDIR="$HOME/bin" sh
+
+export PATH="$HOME/bin:$PATH"
+arduino-cli version
+
+# PATH 영구 등록
+grep -q 'export PATH="$HOME/bin:$PATH"' ~/.bashrc || \
+echo 'export PATH="$HOME/bin:$PATH"' >> ~/.bashrc
+# 2. OpenCR 설정값
+export OPENCR_VERSION=1.5.3
+export OPENCR_SHA256=418656e5e6d99d45d187ffdb28dece0f450c6707da3f6db56769f3ecafdc413c
+
+CLI="$HOME/bin/arduino-cli"
+FQBN="OpenCR:OpenCR:OpenCR"
+# 3. Arduino CLI 설정 — sudo 금지
+"$CLI" config init --overwrite
+"$CLI" config add board_manager.additional_urls \
+https://raw.githubusercontent.com/ROBOTIS-GIT/OpenCR/master/arduino/opencr_release/package_opencr_index.json
+"$CLI" core update-index
+# 4. 시스템 컴파일러 (여기만 sudo)
+sudo apt-get update
+sudo apt-get install -y --no-install-recommends \
+gcc-arm-none-eabi libnewlib-arm-none-eabi libstdc++-arm-none-eabi-newlib
+sudo rm -rf /var/lib/apt/lists/*
+# 5. Jetson arm64용 OpenCR 코어 수동 설치
+#    ROBOTIS 기본 툴체인은 x86용이라 시스템 arm-none-eabi를 링크해서 씁니다.
+curl -fsSL \
+"https://github.com/ROBOTIS-GIT/OpenCR/releases/download/${OPENCR_VERSION}/opencr.tar.bz2" \
+-o /tmp/opencr.tar.bz2
+
+echo "${OPENCR_SHA256}  /tmp/opencr.tar.bz2" | sha256sum -c -
+
+mkdir -p "$HOME/.arduino15/packages/OpenCR/hardware/OpenCR/${OPENCR_VERSION}" \
+"$HOME/.arduino15/packages/OpenCR/tools/opencr_gcc/5.4.0-2016q2/bin"
+
+rm -rf /tmp/opencr
+tar xzf /tmp/opencr.tar.bz2 -C /tmp
+cp -a /tmp/opencr/. "$HOME/.arduino15/packages/OpenCR/hardware/OpenCR/${OPENCR_VERSION}/"
+
+rm -rf /tmp/opencr /tmp/opencr.tar.bz2
+
+for f in /usr/bin/arm-none-eabi-*; do
+ln -sf "$f" "$HOME/.arduino15/packages/OpenCR/tools/opencr_gcc/5.4.0-2016q2/bin/"
+done
+# 6. Dynamixel 라이브러리
+"$CLI" lib install Dynamixel2Arduino
+
+# 7. 확인
+"$CLI" board listall | grep -i opencr
+```
+```text
+정상이면:
+OpenCR Board    OpenCR:OpenCR:OpenCR
+가 보입니다.  
+수동 설치라 core list에는 안 보일 수 있는데, board listall에 OpenCR이 보이면 컴파일은 됩니다.
+Jetson에서는 업로드가 안 됩니다
+OpenCR 업로더 opencr_ld는 x86_64용만 제공됩니다.  
+그래서 Jetson에서는:
+컴파일   ✅
+업로드   ❌
+입니다.
+Jetson에서 컴파일만:
+"$CLI" compile --fqbn "$FQBN" \
+/home/bee/.../lv2_module6/firmware/beebot_opencr
+.bin 파일은 여기에 생깁니다.
+find "$HOME/.cache/arduino/sketches" -name '*.ino.bin'
+이 .bin을 OpenCR이 연결된 x86 PC로 복사해서 업로드하거나,  
+업로드는 지금처럼 x86 PC에서 Arduino CLI로 하는 것이 안전합니다.
+정리
+Jetson에서 Arduino CLI 설치       ✅
+OpenCR 코어/컴파일                 ✅ (시스템 gcc 사용)
+Jetson에서 OpenCR 업로드          ❌ (opencr_ld arm64 없음)
+업로드                            x86 PC에서
+sudo arduino-cli는 절대 쓰지 말고, $HOME/bin/arduino-cli를 일반 사용자로 실행하세요.
+```
+
+
+```
+# CI 배포 패키지 (Ubuntu 24.04 / Jetson)
+
+CI가 `aarch64`용을 두 가지로 만든다.
+
+| 패키지 | 대상 |
+| --- | --- |
+| `ros2_ws-deploy-aarch64.tar.gz` | Ubuntu 26.04 ARM |
+| `ros2_ws-deploy-aarch64-noble.tar.gz` | **Ubuntu 24.04 / Jetson Orin Nano** |
+
+Jetson에서는 RUN ID로 받으면 `/etc/os-release`와 `uname -m`을 보고 noble 패키지를 자동 선택한다.
+
+```bash
+cd ~/Lv2_bee_Assignment/lv2_module6/ros2_ws
+./download-artifact.sh <RUN ID>
+```
+
+패키지에는 `TARGET` 파일이 들어 있고, `start.sh`가 장치 OS와 다르면 실행을 막는다.
+
+```bash
+cat TARGET
+# ubuntu-24.04-aarch64
+
+./start.sh
+```
+
+> Ubuntu 24.04용 패키지는 ROS 2 Lyrical이 `/opt/ros/lyrical`에 설치되어 있어야 한다.
+> 위 “ROS 2 Lyrical 설치 가이드”를 먼저 따른다.
+
+
+
+
+
+
+# gz error
+```bash
+
+sudo apt update
+sudo apt install ros-$ROS_DISTRO-gz-gui
+# 또는 Gazebo 시뮬레이션 관련 메타 패키지 전체 설치
+sudo apt install ros-$ROS_DISTRO-ros-gz
+
+
+
+sudo apt update
+sudo apt install libgz-gui-dev  # 혹은 버전에 따라 libgz-gui8-dev 등
+```
+
+
+
+# opencr 고정하기
+```bash
+lsusb
+udevadm info -a -n /dev/ttyACM0
+```
+## editor
+```
+sudo vi /etc/udev/rules.d/99-opencr.rules
+```
+내용[99-opencr.rules](../../lv2_module6/ros2_ws/99-opencr.rules): SUBSYSTEM=="tty", ATTRS{idVendor}=="0483", ATTRS{idProduct}=="5740", SYMLINK+="opencr", MODE="0666", ENV{ID_MM_DEVICE_IGNORE}="1"
+

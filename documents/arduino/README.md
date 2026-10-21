@@ -344,3 +344,85 @@ lsusb | grep -i -E 'OpenCR|STM'
 - `usb_to_dxl`이 실제로 올라갔는지 확인
 - 한 모터만 연결해 먼저 ping 확인
 - 모터가 57600bps이면 Wizard에서 baud를 바꿔 검색
+
+---
+
+## 6. Jetson(arm64)에서 펌웨어 업로드
+
+ROBOTIS가 제공하는 Arduino OpenCR 패키지에는 **arm64용 `opencr_ld` 업로더가 없습니다.**  
+패키지 안의 `linux/opencr_ld`, `linux64/opencr_ld`는 **x86_64 ELF**라서 Jetson에서 실행하면 `Exec format error`가 납니다.
+
+하지만 `opencr_ld`는 소스가 공개되어 있고 POSIX C로 되어 있어서 Jetson에서 직접 빌드할 수 있습니다.
+
+### 6-1. 빌드
+
+```bash
+sudo apt-get update
+sudo apt-get install -y git build-essential
+
+git clone --depth 1 https://github.com/ROBOTIS-GIT/OpenCR.git "$HOME/OpenCR"
+cd "$HOME/OpenCR/arduino/opencr_develop/opencr_ld"
+make
+
+file opencr_ld
+# ELF 64-bit LSB ... ARM aarch64
+```
+
+### 6-2. 펌웨어 컴파일
+
+Jetson의 Arduino CLI로 `.bin`을 만듭니다.
+
+```bash
+"$HOME/bin/arduino-cli" compile \
+  --fqbn OpenCR:OpenCR:OpenCR \
+  "$HOME/workspaces/pa/source/Lv2_bee_Assignment/lv2_module6/firmware/beebot_opencr"
+
+find "$HOME/.cache/arduino/sketches" -name '*.ino.bin' -printf '%T@ %p\n' | sort -nr | head
+```
+
+### 6-3. 직접 업로드
+
+Arduino CLI의 upload 명령 대신, Jetson에서 빌드한 `opencr_ld`를 직접 실행합니다.
+
+```bash
+# 포트 권한이 없으면: sudo usermod -aG dialout "$USER" 후 재로그인
+ls -l /dev/ttyACM0
+
+"$HOME/OpenCR/arduino/opencr_develop/opencr_ld/opencr_ld" \
+  /dev/ttyACM0 115200 "$HOME/.cache/arduino/sketches/<해시>/beebot_opencr.ino.bin" 1
+```
+
+정상 출력 예:
+
+```text
+Board Name : OpenCR R1.0
+CRC OK ...
+[OK] Download
+jump_to_fw
+```
+
+> OpenCR에 12V 전원이 들어와 있어야 합니다.  
+> 업로드 중에는 ROS 제어 노드와 시리얼 모니터를 모두 종료하세요.
+
+### 6-4. Arduino CLI upload에 연결하려면
+
+`opencr_ld`를 Arduino CLI의 업로더 자리에 복사할 수도 있습니다.
+
+```bash
+TOOLS="$HOME/.arduino15/packages/OpenCR/tools/opencr_tools/1.0.0/linux"
+mkdir -p "$TOOLS"
+cp "$HOME/OpenCR/arduino/opencr_develop/opencr_ld/opencr_ld" "$TOOLS/opencr_ld"
+chmod +x "$TOOLS/opencr_ld"
+```
+
+그 다음:
+
+```bash
+"$HOME/bin/arduino-cli" upload \
+  -p /dev/ttyACM0 \
+  --fqbn OpenCR:OpenCR:OpenCR \
+  "$HOME/workspaces/pa/source/Lv2_bee_Assignment/lv2_module6/firmware/beebot_opencr"
+```
+
+이 방법은 `opencr_tools`가 Arduino CLI에 등록되어 있을 때 동작합니다.  
+등록되지 않았다면 **6-3의 직접 실행**이 더 확실합니다.
