@@ -29,9 +29,9 @@
   </joint>
   <link name="base_link">
     <inertial>
-      <origin rpy="0 0 0" xyz="-0.085631 -0.000202 0.080552"/>
+      <origin rpy="0 0 0" xyz="-0.085426 -0.000171 0.080461"/>
       <mass value="2.400600"/>
-      <inertia ixx="2.8115e-02" ixy="-1.1729e-05" ixz="6.3963e-03" iyy="3.2571e-02" iyz="-7.6014e-06" izz="2.7719e-02"/>
+      <inertia ixx="2.8130e-02" ixy="-2.1613e-05" ixz="6.4439e-03" iyy="3.2644e-02" iyz="-1.4858e-06" izz="2.7766e-02"/>
     </inertial>
     <visual>
       <origin rpy="0 0 0" xyz="0 0 0"/>
@@ -77,6 +77,20 @@
     </collision>
     <collision>
       <origin rpy="0 0 0" xyz="-0.177000 -0.064000 -0.005237"/>
+      <geometry>
+        <sphere radius="0.004763"/>
+      </geometry>
+    </collision>
+    <!-- front caster (v01) -->
+    <collision>
+      <origin rpy="0 0 0" xyz="0.049600 0.064000 -0.005237"/>
+      <geometry>
+        <sphere radius="0.004763"/>
+      </geometry>
+    </collision>
+    <!-- front caster (v01) -->
+    <collision>
+      <origin rpy="0 0 0" xyz="0.049600 -0.064000 -0.005237"/>
       <geometry>
         <sphere radius="0.004763"/>
       </geometry>
@@ -191,7 +205,7 @@
   <joint name="front_pole_cam_joint" type="fixed">
     <parent link="base_link"/>
     <child link="front_pole_cam_link"/>
-    <origin rpy="0.000000 0.314159 0.000000" xyz="-0.137869 0.000185 0.434932"/>
+    <origin rpy="0.000000 0.314159 0.000000" xyz="-0.137869 0.000185 0.417108"/>
   </joint>
   <link name="front_pole_cam_link">
     <inertial>

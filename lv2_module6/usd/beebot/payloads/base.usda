@@ -22,7 +22,7 @@ def Xform "beebot" (
     kind = "component"
 )
 {
-    float3[] extentsHint = [(-0.24419683, -0.153, -0.000001649378), (0.38858503, 0.153, 0.4674636), (3.4028235e38, 3.4028235e38, 3.4028235e38), (-3.4028235e38, -3.4028235e38, -3.4028235e38), (3.4028235e38, 3.4028235e38, 3.4028235e38), (-3.4028235e38, -3.4028235e38, -3.4028235e38), (-0.2325, -0.15300001, -2.5779958e-9), (0.38858503, 0.15300001, 0.46745)]
+    float3[] extentsHint = [(-0.24419683, -0.153, -0.0002060237), (0.38858503, 0.153, 0.4674636), (3.4028235e38, 3.4028235e38, 3.4028235e38), (-3.4028235e38, -3.4028235e38, -3.4028235e38), (3.4028235e38, 3.4028235e38, 3.4028235e38), (-3.4028235e38, -3.4028235e38, -3.4028235e38), (-0.2325, -0.15300001, -2.5779958e-9), (0.38858503, 0.15300001, 0.46745)]
 
     def Scope "Geometry"
     {
@@ -139,6 +139,34 @@ def Xform "beebot" (
                     quatf xformOp:orient = (1, 0, 0, 0)
                     float3 xformOp:scale = (1, 1, 1)
                     double3 xformOp:translate = (-0.177, -0.064, -0.005237)
+                    uniform token[] xformOpOrder = ["xformOp:translate", "xformOp:orient", "xformOp:scale"]
+                }
+
+                def Sphere "sphere_2" (
+                    prepend apiSchemas = ["PhysicsCollisionAPI"]
+                    displayName = "sphere"
+                )
+                {
+                    float3[] extent = [(-0.004763, -0.004763, -0.004763), (0.004763, 0.004763, 0.004763)]
+                    uniform token purpose = "guide"
+                    double radius = 0.004763
+                    quatf xformOp:orient = (1, 0, 0, 0)
+                    float3 xformOp:scale = (1, 1, 1)
+                    double3 xformOp:translate = (0.0496, 0.064, -0.005237)
+                    uniform token[] xformOpOrder = ["xformOp:translate", "xformOp:orient", "xformOp:scale"]
+                }
+
+                def Sphere "sphere_3" (
+                    prepend apiSchemas = ["PhysicsCollisionAPI"]
+                    displayName = "sphere"
+                )
+                {
+                    float3[] extent = [(-0.004763, -0.004763, -0.004763), (0.004763, 0.004763, 0.004763)]
+                    uniform token purpose = "guide"
+                    double radius = 0.004763
+                    quatf xformOp:orient = (1, 0, 0, 0)
+                    float3 xformOp:scale = (1, 1, 1)
+                    double3 xformOp:translate = (0.0496, -0.064, -0.005237)
                     uniform token[] xformOpOrder = ["xformOp:translate", "xformOp:orient", "xformOp:scale"]
                 }
 
@@ -313,7 +341,7 @@ def Xform "beebot" (
                 {
                     quatf xformOp:orient = (0.98768836, 0, 0.15643433, 0)
                     float3 xformOp:scale = (1, 1, 1)
-                    double3 xformOp:translate = (-0.137869, 0.000185, 0.434932)
+                    double3 xformOp:translate = (-0.137869, 0.000185, 0.417108)
                     uniform token[] xformOpOrder = ["xformOp:translate", "xformOp:orient", "xformOp:scale"]
 
                     def Xform "camera_rear_link" (
