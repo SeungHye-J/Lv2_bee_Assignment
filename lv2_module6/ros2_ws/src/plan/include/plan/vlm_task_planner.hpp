@@ -40,7 +40,7 @@ struct ReplanInfo {
   bool active = false;
 };
 
-// 카메라 최신 프레임 1장 (ai-service images[]용 — pole_cam·gripper_cam)
+// 카메라 최신 프레임 1장 (ai-service images[]용 — pole_front_cam·gripper_cam)
 struct ImageFrame {
   std::string camera;
   sensor_msgs::msg::Image::ConstSharedPtr msg;

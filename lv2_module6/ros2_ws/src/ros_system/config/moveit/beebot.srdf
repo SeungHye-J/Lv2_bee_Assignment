@@ -36,14 +36,14 @@
   <disable_collisions link1="base_link" link2="arm_base_link" reason="Adjacent" />
   <disable_collisions link1="base_link" link2="wheel_left_link" reason="Adjacent" />
   <disable_collisions link1="base_link" link2="wheel_right_link" reason="Adjacent" />
-  <disable_collisions link1="base_link" link2="pole_cam_link" reason="Adjacent" />
+  <disable_collisions link1="base_link" link2="pole_front_cam_link" reason="Adjacent" />
   <!-- 차체에 고정된 것끼리 (서로 움직이지 않아 닿을 일이 없음) -->
   <disable_collisions link1="arm_base_link" link2="wheel_left_link" reason="Never" />
   <disable_collisions link1="arm_base_link" link2="wheel_right_link" reason="Never" />
-  <disable_collisions link1="arm_base_link" link2="pole_cam_link" reason="Never" />
+  <disable_collisions link1="arm_base_link" link2="pole_front_cam_link" reason="Never" />
   <disable_collisions link1="wheel_left_link" link2="wheel_right_link" reason="Never" />
-  <disable_collisions link1="wheel_left_link" link2="pole_cam_link" reason="Never" />
-  <disable_collisions link1="wheel_right_link" link2="pole_cam_link" reason="Never" />
+  <disable_collisions link1="wheel_left_link" link2="pole_front_cam_link" reason="Never" />
+  <disable_collisions link1="wheel_right_link" link2="pole_front_cam_link" reason="Never" />
   <!-- base_link 충돌에는 바구니(적재함)·기둥이 있다 (feature/isaac-setup storage_collision) — 팔 링크와 base_link는 검사한다 -->
   <!-- TODO: 실기 치수 확정 후 MoveIt Setup Assistant 충돌 샘플링으로 다시 생성 (Never 쌍 자동 산출) -->
 </robot>

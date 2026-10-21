@@ -34,5 +34,5 @@ explorer:                    # 자동 탐사 — /state/operation_mode EXPLORE�
     blacklist_radius: 0.4    # [m] 도착·실패·시간 초과한 프론티어 근처는 다시 안 감
     goal_timeout_s: 60.0     # [s] 목표 하나에 이보다 오래 걸리면 포기
     empty_checks: 3          # 프론티어 없음이 1초 간격으로 이만큼 이어지면 탐사 끝 (지도 갱신 중일 수 있어서)
-    min_goal_dist: 0.4       # [m] 로봇에서 이보다 가까운 프론티어는 안 고름 — pole_cam이 로봇 바로 앞·아래(약 0.3m)를 못 봐 계속 '모름'으로 남음
+    min_goal_dist: 0.4       # [m] 로봇에서 이보다 가까운 프론티어는 안 고름 — pole_front_cam이 로봇 바로 앞·아래(약 0.3m)를 못 봐 계속 '모름'으로 남음
     goal_search_radius: 0.3  # [m] 프론티어에서 이 안의 '갈 수 있는 칸'(코스트맵에서 로봇과 이어짐)을 목표 자리로 · 로봇 칸이 막혔을 때 시작 칸 찾는 반경

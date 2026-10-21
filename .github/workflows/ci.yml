@@ -36,7 +36,7 @@ jobs:
         # 소스·스케치는 이미지에 없고 compose 볼륨으로만 연결되므로 마운트 필수 (docker-compose.yml과 같은 경로 — 빌드 산출물은 컨테이너 안).
         run: |
           docker run -d --name testbed --shm-size=4g \
-            -e ROS_DOMAIN_ID=8 -e ROS_AUTOMATIC_DISCOVERY_RANGE=SUBNET -e FASTDDS_DEFAULT_PROFILES_FILE=/ws/src/ros_system/config/fastdds.xml \
+            -e ROS_DOMAIN_ID=88 -e ROS_AUTOMATIC_DISCOVERY_RANGE=SUBNET -e FASTDDS_DEFAULT_PROFILES_FILE=/ws/src/ros_system/config/fastdds.xml \
             -v ${{ github.workspace }}/lv2_module6/ros2_ws/src:/ws/src \
             -v ${{ github.workspace }}/lv2_module6/ros2_ws/model:/ws/model \
             -v ${{ github.workspace }}/lv2_module6/urdf:/ws/urdf \

@@ -31,7 +31,16 @@ export FASTDDS_DEFAULT_PROFILES_FILE=${FASTDDS_DEFAULT_PROFILES_FILE:-$WS/src/ro
 cd "$WS" || { echo "FAIL: $WS 없음"; exit 2; }
 
 KILL_PAT="($WS/install|/opt/ros/lyrical)/[^ ]*lib/|ros2 launch"   # ROS 노드 전부 + launch (패키지를 적으면 새 패키지가 빠져 고아로 남음)
-pkill -f "$KILL_PAT" 2>/dev/null || true   # 빌드 전에 — 이전 실행의 노드가 남아 돌면 빌드도 느려짐
+kill_pat() {  # $1 = 시그널. ros_gz_bridge(개발 Gazebo 브리지)는 살림 — test-faker 재시작과 무관하게 유지
+  local pids bp b
+  pids=$(pgrep -f "$KILL_PAT" 2>/dev/null) || return 0
+  bp=$(pgrep -f "paramete[r]_bridge" 2>/dev/null) || bp=""
+  for b in $bp; do pids=$(echo "$pids" | grep -vx "$b" || true); done
+  # shellcheck disable=SC2086
+  [ -n "$pids" ] && kill "-$1" $pids 2>/dev/null
+  return 0
+}
+kill_pat TERM   # 빌드 전에 — 이전 실행의 노드가 남아 돌면 빌드도 느려짐
 "$(bin_of build-ws)" || exit 1   # 빌드 + install → /debug/install (docker/build-ws.sh)
 # shellcheck disable=SC1091
 source install/setup.bash
@@ -47,6 +56,14 @@ case " $* " in
   *\ debug_dir:=*) : ;;   # 사용자가 직접 지정하면 그대로
   *) set -- "$@" "debug_dir:=$DEBUG_DIR" ;;
 esac
+case " $* " in
+  *\ mock_hardware:=*) : ;;   # 사용자가 직접 지정하면 그대로
+  *) [ -e /dev/opencr ] || set -- "$@" "mock_hardware:=true" ;;   # 호스트엔 가상 시리얼이 없어서 mock으로 (컨테이너는 entrypoint가 만듦)
+esac
+case " $* " in
+  *\ use_monitor:=false*) MONITOR=0 ;;   # 호스트 가벼운 실행용 (도커·CI는 기본 true)
+  *) MONITOR=1 ;;
+esac
 set -m
 ros2 launch faker faker.launch.py "$@" > /tmp/faker.log 2>&1 & LAUNCH_PID=$!
 JS=$(timeout 60 ros2 topic echo --once /joint_states sensor_msgs/msg/JointState 2>/dev/null)
@@ -61,7 +78,7 @@ done
 
 # 카메라 = 사용자가 호스트에서 켠 시뮬레이터 (테스트가 띄우지 않음). 켜져 있으면 /robot_description을 받은 뒤 렌더 시작 → 최대 20초 기다림
 # 꺼져 있으면 카메라 → 인지 → 작업 흐름 검사는 건너뛰고 배관(joint_states · odom · Nav2 · monitor)만 본다
-META=$DEBUG_DIR/input/hardware/camera/pole_cam.json
+META=$DEBUG_DIR/input/hardware/camera/pole_front_cam.json
 for _ in $(seq 20); do
   [ -f "$META" ] && [ $(( $(date +%s) - $(stat -c %Y "$META") )) -lt 3 ] && break
   sleep 1
@@ -79,7 +96,7 @@ done
 stop_all() {
   kill -INT "$LAUNCH_PID" 2>/dev/null
   timeout 15 tail --pid="$LAUNCH_PID" -f /dev/null
-  pkill -9 -f "$KILL_PAT" 2>/dev/null || true
+  kill_pat KILL
 }
 
 if [ "$DUR" = 0 ]; then
@@ -114,8 +131,10 @@ grep -E '\] \[(user_input|vlm_task_planner|coordinator|grasp_scorer|rl_nav_tuner
 [ "$(echo "$NAV2" | grep -o 'active \[3\]' | wc -l)" = 2 ] || { echo "FAIL: Nav2 서버가 active 아님 (collision_monitor / bt_navigator: ${NAV2:-응답 없음})"; grep -E "lifecycle_manager|ERROR" /tmp/faker.log | tail -20; exit 1; }
 echo "$JS" | grep -q gripper_left_joint || { echo "FAIL: /joint_states에 gripper_left_joint 없음 (controller_manager·BeebotSystemHardware)"; grep -E "controller_manager|spawner|ros2_control" /tmp/faker.log | tail -20; exit 1; }
 [ -n "$ODOM" ] || { echo "FAIL: /odometry/filtered 없음 (EKF ← /odom·/imu)"; exit 1; }
-[ -s "$DEBUG_DIR/output/topic/joint_states/message" ] || { echo "FAIL: monitor_manager 파일 없음 ($DEBUG_DIR/output/topic/joint_states/message)"; exit 1; }
-echo "기록 (monitor_manager): $DEBUG_DIR/topic · $DEBUG_DIR/node · $DEBUG_DIR/pkg (그래프) · $DEBUG_DIR/output/topic (message·image)"
+if [ "$MONITOR" = 1 ]; then
+  [ -s "$DEBUG_DIR/output/topic/joint_states/message" ] || { echo "FAIL: monitor_manager 파일 없음 ($DEBUG_DIR/output/topic/joint_states/message)"; exit 1; }
+  echo "기록 (monitor_manager): $DEBUG_DIR/topic · $DEBUG_DIR/node · $DEBUG_DIR/pkg (그래프) · $DEBUG_DIR/output/topic (message·image)"
+fi
 if [ "$CAM_OK" = 1 ]; then
   [ -n "$DONE" ] || { echo "FAIL: /task_status SUCCEEDED 없음 (60초)"; tail -n 40 /tmp/faker.log; exit 1; }
   grep -q '🔊' /tmp/faker.log || { echo "FAIL: /robot_say 없음"; exit 1; }
@@ -123,4 +142,8 @@ if [ "$CAM_OK" = 1 ]; then
 else
   echo "건너뜀: 작업 흐름 — 시뮬레이터 꺼짐 ($META 갱신 없음). 흐름까지 보려면 호스트에서 시뮬레이터를 켜고 다시: cd lv2_module6/simulator && .venv/bin/python main.py"
 fi
-echo "PASS: faker 배관 (controller_manager ↔ fake_opencr → /joint_states · EKF /odometry/filtered · Nav2 active · monitor_manager)"
+if [ "$MONITOR" = 1 ]; then
+  echo "PASS: faker 배관 (controller_manager ↔ fake_opencr → /joint_states · EKF /odometry/filtered · Nav2 active · monitor_manager)"
+else
+  echo "PASS: faker 배관 (controller_manager ↔ fake_opencr → /joint_states · EKF /odometry/filtered · Nav2 active — monitor 끔)"
+fi

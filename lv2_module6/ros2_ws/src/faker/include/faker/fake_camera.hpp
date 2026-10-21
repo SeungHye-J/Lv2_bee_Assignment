@@ -10,7 +10,7 @@
 // 메타의 seq가 바뀔 때만 그 컬러·깊이 쌍을 한 번 발행한다 (같은 순간의 쌍 · 같은 프레임 반복 없음 · 시각 = 촬영 시각).
 // 메타가 없으면(시뮬레이터 꺼짐 · 카메라 송출 끔) 아무것도 안 낸다 = 카메라 끊김.
 // 내부 파라미터는 메타의 hfov_deg로 정한다 (시뮬레이터 렌더와 한 곳에서). 출력 크기는 width×height (깊이는 보간 없이 확대).
-// launch에서 노드 이름을 pole_cam / gripper_cam 으로 띄운다 (~/ 토픽이 /pole_cam/... 이 됨).
+// launch에서 노드 이름을 pole_front_cam / gripper_cam 으로 띄운다 (~/ 토픽이 /pole_front_cam/... 이 됨).
 #include <chrono>
 #include <cmath>
 #include <cstring>

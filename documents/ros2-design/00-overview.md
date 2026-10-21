@@ -13,7 +13,7 @@
 | 팔 | OpenMANIPULATOR-X **RM-X52-TNM** (4축 + 그리퍼, XM430-W350-T) **+ 손목 roll 1축** — 차체 앞쪽 절반 상판 위, 도달 거리 약 0.38m+, 가반하중 약 0.5kg |
 | 제어보드 | OpenCR 1개가 바퀴 2 · 팔 5축 · 그리퍼 · IMU를 모두 연결 — 직접 작성한 펌웨어(beebot_opencr) ↔ 하드웨어 플러그인(BeebotSystemHardware) |
 | gripper_cam | 그리퍼 위에 얹은 **Intel RealSense 깊이 카메라**(RGB-D), 팔과 함께 움직임 — 근접 파지용 |
-| pole_cam | 뒤쪽 전원선 가이드 폴 위 **Intel RealSense 깊이 카메라**(RGB-D), 전방 하향 — **인지·SLAM·장애물·octomap 전부 담당** |
+| pole_front_cam | 뒤쪽 전원선 가이드 폴 위 **Intel RealSense 깊이 카메라**(RGB-D), 전방 하향 — **인지·SLAM·장애물·octomap 전부 담당** |
 | 연산 | 로봇 탑재 PC 1대 + 학습용 GPU PC 1대 (Isaac Sim / Isaac Lab) |
 | 환경 | 미로 코스 4.46 × 6.36m (벽 높이 0.39m, 통로 약 0.73m) — lv2_module6/course, 미끄러운 바닥 구간 가정 |
 | 대표 작업 | 미로 바닥의 **퍽**(지름 약 5cm)을 찾아 집어 **목표 구역**에 내려놓기, 가는 길의 장애물·사람 회피 |

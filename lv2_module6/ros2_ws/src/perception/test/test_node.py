@@ -67,20 +67,20 @@ def test_mission_qr():
         from sensor_msgs.msg import CameraInfo
         info = CameraInfo(width=640, height=480,
                           k=[500.0, 0.0, 320.0, 0.0, 500.0, 240.0, 0.0, 0.0, 1.0])
-        node.on_info("pole_cam", info)
+        node.on_info("pole_front_cam", info)
         depth = np.full((480, 640), 1000, np.uint16)  # 1m 평면 [mm]
         depth_msg = Image(height=480, width=640, encoding="mono16", step=640 * 2, data=depth.tobytes())
         from tf2_ros.static_transform_broadcaster import StaticTransformBroadcaster
         from geometry_msgs.msg import TransformStamped
         tfb = StaticTransformBroadcaster(node)
         t = TransformStamped()
-        t.header.frame_id, t.child_frame_id = "odom", "pole_cam_color_optical_frame"  # 추적 좌표계 (track_frame)
+        t.header.frame_id, t.child_frame_id = "odom", "pole_front_cam_color_optical_frame"  # 추적 좌표계 (track_frame)
         t.transform.rotation.w = 1.0
         tfb.sendTransform(t)
         got = []
         node.create_subscription(String, "/mission_qr", lambda m: got.append(m.data),
                                  node.qr_pub.qos_profile)
-        node.on_frame("pole_cam", msg, depth_msg)  # 동기화된 컬러·depth 쌍
+        node.on_frame("pole_front_cam", msg, depth_msg)  # 동기화된 컬러·depth 쌍
         end = node.get_clock().now() + rclpy.duration.Duration(seconds=4)
         while node.get_clock().now() < end and not got:
             rclpy.spin_once(node, timeout_sec=0.2)
@@ -166,7 +166,7 @@ def test_fuse_two_cameras():
     try:
         node = PerceptionNode()
         r_cam = meas_cov_cam(2.0, 500.0, 500.0, node.pixel_sigma, node.depth_sigma0, node.depth_sigma_k)
-        # pole_cam: depth 축 = map x · gripper_cam: depth 축 = map y (카메라→map 회전)
+        # pole_front_cam: depth 축 = map x · gripper_cam: depth 축 = map y (카메라→map 회전)
         rot_pole = np.array([[0, 0, 1], [1, 0, 0], [0, 1, 0]], float)
         rot_grip = np.array([[1, 0, 0], [0, 0, 1], [0, -1, 0]], float)
         truth = np.array([1.0, 1.0, 0.02])
@@ -175,31 +175,31 @@ def test_fuse_two_cameras():
             return {"class_name": "puck", "z": np.asarray(z, float), "R": rot @ r_cam @ rot.T,
                     "size": np.array([0.06, 0.06, 0.04]), "conf": 0.9, "px": (320, 240), "color": "red"}
 
-        a = node.fuse("pole_cam", Time(sec=10), [det(truth + [0.05, 0.0, 0.0], rot_pole)])     # depth 축(x)으로 5cm 틀림
+        a = node.fuse("pole_front_cam", Time(sec=10), [det(truth + [0.05, 0.0, 0.0], rot_pole)])     # depth 축(x)으로 5cm 틀림
         b = node.fuse("gripper_cam", Time(sec=10), [det(truth + [0.0, -0.05, 0.0], rot_grip)])  # 같은 순간 · depth 축(y)으로 5cm 틀림
         assert a == b and len(a) == 1  # 두 카메라 검출이 같은 트랙 id로 (/perception/<cam>/detections의 id)
         assert len(node.tracks) == 1
         tr = next(iter(node.tracks.values()))
-        assert set(tr["seen"]) == {"pole_cam", "gripper_cam"} and tr["camera"] == "gripper_cam"
+        assert set(tr["seen"]) == {"pole_front_cam", "gripper_cam"} and tr["camera"] == "gripper_cam"
         # 한 카메라만 믿었으면 5cm — 융합하면 상대 카메라의 정확한 가로 방향이 depth 축 오차를 잡아 준다
         assert np.linalg.norm(tr["p"] - truth) < 0.02, tr["p"]
         sz_one = r_cam[2, 2]
         assert tr["P"][0, 0] < sz_one * 0.2 and tr["P"][1, 1] < sz_one * 0.2
 
         # 같은 프레임에서 0.2m 떨어진 두 퍽 → 둘 다 남는다 (기존 트랙 하나에 둘 다 붙지 않음)
-        ids = node.fuse("pole_cam", Time(sec=11), [det(truth, rot_pole), det(truth + [0.0, 0.2, 0.0], rot_pole)])
+        ids = node.fuse("pole_front_cam", Time(sec=11), [det(truth, rot_pole), det(truth + [0.0, 0.2, 0.0], rot_pole)])
         assert len(node.tracks) == 2 and ids[0] == a[0] and ids[1] != a[0]
         # 다른 클래스는 가까워도 합치지 않음
         d = det(truth, rot_pole)
         d["class_name"] = "obstacle"
-        node.fuse("pole_cam", Time(sec=11), [d])
+        node.fuse("pole_front_cam", Time(sec=11), [d])
         assert len(node.tracks) == 3
     finally:
         rclpy.shutdown()
 
 
 def test_self_filter():
-    """pole_cam이 앞으로 뻗은 팔을 obstacle로 잡아도 버린다 · 차체 위도 버린다 · 손끝 바로 아래 퍽은 남긴다 · 떨어진 물체는 남긴다"""
+    """pole_front_cam이 앞으로 뻗은 팔을 obstacle로 잡아도 버린다 · 차체 위도 버린다 · 손끝 바로 아래 퍽은 남긴다 · 떨어진 물체는 남긴다"""
     import numpy as np
     from perception_node import is_self
 
@@ -229,7 +229,7 @@ def test_track_in_odom_publish_in_map():
         node = PerceptionNode()
         node.tracks[1] = {"class_name": "puck", "p": np.array([1.0, 0.0, 0.02]), "P": np.diag([1e-4, 4e-4, 1e-4]),
                           "t": 0.0, "size": np.array([0.06, 0.06, 0.04]), "conf": 0.9, "last_seen": Time(),
-                          "seen": {"pole_cam": 0.0}, "camera": "pole_cam", "px": (1, 1), "color": "red"}
+                          "seen": {"pole_front_cam": 0.0}, "camera": "pole_front_cam", "px": (1, 1), "color": "red"}
         # map ← odom: 0.2m 옆 · 90° 회전 (RTAB-Map 보정)
         node.tf.set_transform(_tf("map", "odom", 0, 0.2, (0.0, 0.0, 0.7071068, 0.7071068)), "test")
         m = node.to_map(node.tracks[1])

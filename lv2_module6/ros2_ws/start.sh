@@ -92,9 +92,9 @@ if [ "$use_cameras" = true ]; then
     devices=$(rs-enumerate-devices -s 2>/dev/null || true)
     count=$(grep -c "Intel RealSense" <<<"$devices" || true)
     if [ "$count" -ge 2 ]; then
-      echo "ok: RealSense ${count}대 (pole_cam · gripper_cam)"
+      echo "ok: RealSense ${count}대 (pole_front_cam · gripper_cam)"
     else
-      echo "WARN: RealSense ${count}대 — 2대(pole_cam · gripper_cam) 필요 (USB 3 포트·udev 규칙 확인)"
+      echo "WARN: RealSense ${count}대 — 2대(pole_front_cam · gripper_cam) 필요 (USB 3 포트·udev 규칙 확인)"
     fi
   else
     echo "WARN: rs-enumerate-devices 없음 — RealSense 연결 확인 생략"

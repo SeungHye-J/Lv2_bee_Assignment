@@ -16,7 +16,7 @@ perception:
     depth_sigma_k: 0.01     #   → 0.3m 0.6cm · 1m 1.5cm · 2m 4.5cm · 4m 17cm
     process_noise: 0.01     # 트랙 예측 공정 잡음 [m²/s] — 퍽·구역·장애물처럼 거의 안 움직이는 물체
     process_noise_dynamic: 1.0  # person (스스로 움직임) — 크면 새 관측을 바로 따라감
-    # 자기 몸 필터 — pole_cam이 앞으로 뻗은 팔·그리퍼를 obstacle로 잡던 것 (영상 시각 TF로 그 순간 팔 자세)
+    # 자기 몸 필터 — pole_front_cam이 앞으로 뻗은 팔·그리퍼를 obstacle로 잡던 것 (영상 시각 TF로 그 순간 팔 자세)
     self_filter: true
     base_frame: "base_footprint"
     self_links: ["shoulder_link", "upper_arm_link", "forearm_link", "wrist_link", "gripper_link", "end_effector_link"]

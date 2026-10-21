@@ -6,7 +6,7 @@
   프레임을 버리지 않고 비운 depth로 넘기는 이유: RTAB-Map이 두 카메라를 함께 동기화해 받으므로(rgbd_cameras 2) 한쪽이 끊기면 둘 다 멈춤.
   입력: depth_in (gripper_cam 정렬 depth) · /joint_states · 출력: depth_out (같은 시각·프레임·크기)
   점구름도 같은 규칙: cloud_in → cloud_out — 스캔 자세면 카메라에서 min_range 안 점(손가락 ~0.1m · 폴대 ~0.17m · 적재함 ~0.3m)을 빼고,
-  아니면 빈 점구름 (같은 시각). pole_cam 점구름과 합쳐(point_cloud_aggregator) RTAB-Map 격자·ICP에 들어감
+  아니면 빈 점구름 (같은 시각). pole_front_cam 점구름과 합쳐(point_cloud_aggregator) RTAB-Map 격자·ICP에 들어감
 """
 import numpy as np
 import rclpy

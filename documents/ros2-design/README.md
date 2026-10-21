@@ -1,6 +1,6 @@
 # 퍽 이송 로봇(beebot) — ROS 2 실전 노드 설계
 
-미로 코스에서 퍽을 찾아 목표 구역으로 옮기고 장애물을 피하는(자율주행 기반 물류 이송 및 장애물 회피) TurtleBot3 Waffle Pi + OpenMANIPULATOR-X(+손목) + pole_cam·gripper_cam(RealSense) 모바일 매니퓰레이터의 아키텍처·노드 설계 문서입니다. 구현: [lv2_module6](../../lv2_module6/README.md).
+미로 코스에서 퍽을 찾아 목표 구역으로 옮기고 장애물을 피하는(자율주행 기반 물류 이송 및 장애물 회피) TurtleBot3 Waffle Pi + OpenMANIPULATOR-X(+손목) + pole_front_cam·gripper_cam(RealSense) 모바일 매니퓰레이터의 아키텍처·노드 설계 문서입니다. 구현: [lv2_module6](../../lv2_module6/README.md).
 VLM이 계획하고, Nav2·MoveIt이 확정 실행하고, 학습 모델은 앞에서 자문·뒤에서 보정만 합니다.
 
 - 원본(인터랙티브: 노드 클릭·흐름 강조): <https://dooboostore.github.io/ros2?concept=design&sec=arch> — 원본은 "컵 가져오기" 예시 버전이고, 이 문서는 우리 미션(퍽 이송·장애물 회피)과 실제 구현(lv2_module6)에 맞게 고쳤다
