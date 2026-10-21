@@ -22,8 +22,8 @@ test-all                               # 빌드 + 전체 검사. ALL PASS면 셋
 ```
 
 컨테이너는 워크스페이스 전체(`lv2_module6/ros2_ws` → `/ws`)를 마운트합니다. 빌드 결과·로그도 호스트에서 바로 봅니다.
-같은 LAN의 다른 팀 스택과 DDS 토픽이 섞이지 않게 `ROS_DOMAIN_ID=8` (docker-compose.yml · `~/.bashrc`) — 컨테이너 안 명령은 compose가 자동 적용, 호스트는 셸 설정.
-DDS 환경 (docker-compose · CI 공통): `ROS_AUTOMATIC_DISCOVERY_RANGE=SUBNET` (ROS 기본값 — LOCALHOST면 Fast DDS가 localhost 참가자 번호 몇 개에만 유니캐스트로 discovery를 보내 노드 40여 개 중 일부가 서로 안 보였음: Nav2 관리자 멈춤 · `/map` 발행자 0 · CLI가 노드 못 찾음. 다른 팀과는 `ROS_DOMAIN_ID=8`로 분리) · `FASTDDS_DEFAULT_PROFILES_FILE=…/ros_system/config/fastdds.xml` (Fast DDS TypeLookup 끔 — 없으면 노드 40개에서 UDP 폭주로 컨트롤러가 못 뜸).
+같은 LAN의 다른 팀 스택과 DDS 토픽이 섞이지 않게 `ROS_DOMAIN_ID=88` (docker-compose.yml · `~/.bashrc`) — 컨테이너 안 명령은 compose가 자동 적용, 호스트는 셸 설정.
+DDS 환경 (docker-compose · CI 공통): `ROS_AUTOMATIC_DISCOVERY_RANGE=SUBNET` (ROS 기본값 — LOCALHOST면 Fast DDS가 localhost 참가자 번호 몇 개에만 유니캐스트로 discovery를 보내 노드 40여 개 중 일부가 서로 안 보였음: Nav2 관리자 멈춤 · `/map` 발행자 0 · CLI가 노드 못 찾음. 다른 팀과는 `ROS_DOMAIN_ID=88`로 분리) · `FASTDDS_DEFAULT_PROFILES_FILE=…/ros_system/config/fastdds.xml` (Fast DDS TypeLookup 끔 — 없으면 노드 40개에서 UDP 폭주로 컨트롤러가 못 뜸).
 
 | 호스트 | 컨테이너 | 용도 |
 | --- | --- | --- |
@@ -91,24 +91,79 @@ ROS 2 Lyrical이 깔린 리눅스면 `docker/*.sh`를 그대로 씁니다. 경�
 
 ```bash
 source /opt/ros/lyrical/setup.bash
-export ROS_DOMAIN_ID=8   # 같은 LAN 다른 팀과 분리 (컨테이너 compose·~/.bashrc와 같은 값)
+export ROS_DOMAIN_ID=88  # 같은 LAN 다른 팀과 분리 (컨테이너 compose·~/.bashrc와 같은 값)
 ./lv2_module6/ros2_ws/rebuild.sh              # 최초 1회 풀빌드 (build/·install/·log 재생성)
 docker/test-faker.sh 0                        # 띄워 두기 — 이후 셸에선 source lv2_module6/ros2_ws/install/setup.bash
 ```
 
-자주 쓰는 건 `lv2_module6/develop/`에 묶어뒀습니다 (어디서 실행해도 됨):
+자주 쓰는 건 `lv2_module6/develop/` 아래 **주제별 디렉토리**에 묶었습니다 (어디서 실행해도 됨):
 
-```bash
-lv2_module6/develop/faker.sh                  # = docker/test-faker.sh 0 (인자 그대로 전달)
-lv2_module6/develop/rviz.sh                   # RViz2 + 기본 구성(URDF·TF·Map, develop/rviz_default.rviz)
-lv2_module6/develop/gazebo.sh                 # Gazebo + 코스 월드(course/worlds/twin_closed_maze.sdf)
-lv2_module6/develop/teleop.sh [twist토픽]          # 키보드 조종 (기본 /gz/cmd_vel — testbed 안 건드림)
+```text
+develop/
+├── bringup/faker.sh        # = docker/test-faker.sh 0 (use_gz_cameras:=true)
+├── gazebo/                 # start·kill·restart·reset + 월드/태그/신호등/동적 장애물
+│   ├── generate_world.py / generate_tags.py
+│   ├── traffic_lights.py / dynamic_obstacles.py
+│   ├── gui_plugin/          # Gazebo 수동 액터 버튼 (사람/박스/삭제)
+│   └── bridge.yaml / relay.py / publish_poses.py
+├── moveit/                 # start·kill·restart·setup + moveit.rviz
+├── rviz/                   # start·kill·restart + default.rviz
+├── teleop/                 # start·kill·restart
+├── arm/arm.sh              # rqt 팔 슬라이더
+└── DEVELOP.md
 ```
 
+```bash
+lv2_module6/develop/bringup/faker.sh                  # = docker/test-faker.sh 0 (인자 그대로 전달)
+lv2_module6/develop/rviz/start.sh                     # RViz2 + 기본 구성(URDF·TF·Map, rviz/default.rviz)
+lv2_module6/develop/rviz/kill.sh                      # RViz 종료
+lv2_module6/develop/rviz/restart.sh                   # kill → start
+lv2_module6/develop/moveit/start.sh                   # MoveIt RViz (매니플레이터 Plan → Execute — move_group은 faker가 띄운 것)
+lv2_module6/develop/moveit/kill.sh                    # MoveIt RViz만 종료 (기본 RViz는 유지)
+lv2_module6/develop/moveit/restart.sh                 # kill → start
+lv2_module6/develop/moveit/setup.sh                   # 최초 1회: MoveIt RViz 플러그인 + pick_ik 설치 (sudo)
+lv2_module6/develop/gazebo/start.sh                   # Gazebo 클린 스타트 (분산 미션+장애물+도로형 신호등+동적 장애물+스폰+브릿지, Ctrl-C로 종료)
+lv2_module6/develop/gazebo/reset.sh [x y z yaw]       # 로봇 원위치 (기본 -1.835 2.757 0.05 0) — 끼임·전복 시
+lv2_module6/develop/gazebo/kill.sh                    # Gazebo 전체 종료 (서버·GUI·브릿지·릴레이·씬 마커·신호등·동적 장애물)
+lv2_module6/develop/gazebo/restart.sh                 # kill → start (장애물·퍽도 새로 무작위 배치)
+lv2_module6/develop/teleop/start.sh [twist토픽]       # 키보드 조종 (기본 /gz/cmd_vel — testbed 안 건드림)
+lv2_module6/develop/teleop/kill.sh                    # 텔레옵 종료
+lv2_module6/develop/teleop/restart.sh                 # kill → start
+lv2_module6/develop/arm/arm.sh [컨트롤러]              # rqt 팔 슬라이더 (기본 arm_controller)
+```
+
+- **Gazebo 월드**: `gazebo/start.sh`·`gazebo/restart.sh`가 시작할 때마다 `gazebo/generate_world.py`로 ① 30×30×60 mm 중성색 장애물 박스 6개 + 지름 30 mm × 높이 60 mm 실린더 6개를 미로 빈 공간에 무작위 배치하고, ② 퍽 9개를 **네 미션에 3/2/2/2로 나눠 지도 위·중간·아래에 분산**합니다. 각 미션은 자기 구역 근처 벽에 미션 태그를 하나씩 가집니다. 장애물은 미션 앞쪽·태그·신호등 갠트리을 비웁니다.
+- **퍽과 태그**: 퍽은 30×30×60 mm 상자이고 4옆면 + 위/아래 = 6면에 AprilTag가 붙습니다. 각 면의 태그 앞면은 바깥을 향하고, 같은 색 퍽은 6면 모두 같은 ID입니다 — **red=1, orange=2, green=3**. 미션 태그는 **SORT_COLOR=10, MOVE_TO_B=11, STAND_UP=12, LAY_DOWN=13**이고, 네 태그가 서로 다른 미션 구역 벽에 분산됩니다(활성 미션은 RViz에서 초록색·`*ACTIVE*`). B 구역 표지는 **20**입니다. 태그 PNG/OBJ/MTL은 `gazebo/assets/apriltags/`에 생성됩니다 (`gazebo/generate_tags.py`; 필요하면 `--force`로 재생성).
+- **미션 분산**: 기본은 `GZ_MISSION_SITES=all`이고, 네 미션의 실제 퍽/구역이 지도에 함께 있습니다. `GZ_MISSION`은 그중 **활성 미션 표시**를 정합니다(기본 random). 위치는 SORT `(0.35,2.75)` 상단, MOVE `(-1.45,1.97)` 중간 위, STAND `(1.45,1.18)` 중간 아래, LAY `(0.0,-2.75)` 하단입니다. `GZ_MISSION_SITES=single`이면 활성 미션만 `GZ_MISSION_CENTER` 한 곳에 만듭니다. SORT는 색별 구역 3개, MOVE는 B 구역 1개를 바닥에 만듭니다. STAND는 분배된 퍽이 눕고, LAY는 모두 서서 시작합니다.
+- **도로형 신호등**: 상단 방의 동서 통행로 위에 **갠트리(상부 빔 + 양쪽 기둥)**를 세우고, 차량 신호등처럼 하우징을 매달았습니다. 렌즈는 로봇이 지나오는 서쪽을 향해 도로를 따라 보입니다. `gazebo/traffic_lights.py`가 `GZ_TRAFFIC_INTERVAL`(기본 3초)마다 **빨강→초록→주황**으로 바꾸고, 색별 발광 구는 미리 만든 뒤 켜진 색만 렌즈 앞으로 옮깁니다. 두 신호등은 위상이 엇갈립니다. `/gz_traffic/markers`, `/gz_traffic/info` 발행.
+- **동적 장애물**: `gazebo/dynamic_obstacles.py`는 로봇이 **실제로 이동 중일 때만** 빈 후보 지점에서 **퍽과 구분되는 사람 형상**을 소환해 천천히 움직입니다. `/gz/cmd_vel` 속도 명령이 살아 있을 때만 이동 중으로 보고, 정지하거나 미션 수행 자세로 멈추면 active를 모두 `remove`합니다. `GZ_DYNAMIC_LIFETIME`(기본 12초) 뒤에도 제거하며, 미션 앞쪽/신호등 갠트리 주변은 후보에서 제외하므로 맵에 누적되지 않습니다. `/gz_dynamic/markers`, `/gz_dynamic/info` 발행. `GZ_DYNAMIC_COUNT=0`이면 꺼집니다.
+- **수동 액터 GUI**: `gazebo/gui_plugin/`이 Gazebo GUI에 **사람/박스/퍽/신호등 소환**과 **수동 모델 삭제** 버튼을 붙입니다. 같은 패널의 **환경** 탭에서 바닥·벽·파노라마를 골라 현재 월드 모델을 즉시 교체할 수 있고, 최초 기본값은 `none`입니다. `start.sh`가 플러그인을 자동 빌드하고 `gui.config`를 `gz sim --gui-config`로 넘깁니다. 소환 버튼은 `/tmp/beebot_scene.json`의 빈 후보 지점에 바로 생성하고, 임의 위치에 직접 놓고 싶으면 Gazebo 기본 **Spawn/드래그 앤 드롭**을 쓰면 됩니다. 수동 모델은 `dynamic_obstacles.py`의 자동 수명 관리 대상이 아니므로 삭제 버튼으로 정리합니다. QML만 수정했으면 `gazebo/gui_plugin/build.sh`를 다시 실행하세요.
+- **카메라/점구름 성능**: Gazebo RGBD는 RealSense D435 운용 모드인 **640×360 @ 15 Hz**로 낮췄습니다. 추가로 `control/body_filter`의 `stride: 2`가 원본 점구름에서 2점당 1점만 남겨 Nav2·collision_monitor로 보냅니다. 필요하면 `ros2_ws/src/control/config/control.yaml`의 `stride`를 조정하고, 카메라 해상도/레이트는 `urdf/default/urdf.xacro`의 RGBD 센서에서 바꾼 뒤 `colcon build`로 `ros_system`을 다시 설치하세요.
+- **미션/물체 환경변수**: `GZ_MISSION`, `GZ_MISSION_SITES=all|single`, `GZ_PUCK_COUNT`(총량, 기본 9), `GZ_PUCK_MM`, `GZ_TAG_SIZE_MM`, `GZ_MISSION_TAG_MM`, `GZ_MISSION_CENTER="0.35 2.75"`(single 전용), `GZ_MISSION_WALL=north|south|east|west`, `GZ_MISSION_SEED`, `GZ_OBSTACLE_BOXES`, `GZ_OBSTACLE_CYLINDERS`, `GZ_OBSTACLE_BOX_MM="300 300 600"`(cm로 키울 때), `GZ_OBSTACLE_CYLINDER_MM`, `GZ_OBSTACLE_STATIC=1`, `GZ_OBSTACLE_SEED`, `GZ_TRAFFIC_INTERVAL=3.0`, `GZ_DYNAMIC_COUNT=3`, `GZ_DYNAMIC_LIFETIME=12`, `GZ_DYNAMIC_RESPAWN=1`, `GZ_DYNAMIC_SPEED=0.16`, `GZ_DYNAMIC_MM="220 220 600"`.
+- **진짜 위치**: `gazebo/publish_poses.py`가 `/world/default/pose/info`의 실제 모델 pose를 읽어 `/gz_obstacles/markers`(MarkerArray)와 `/gz_obstacles/poses`(PoseArray)로 발행합니다 (frame `world`). 퍽·장애물·벽 태그·목표 구역·신호등 하우징이 들어 있고, 동적 퍽이 밀리면 마커도 실제 pose를 따라갑니다. `base_footprint→world` TF도 같이 내므로 `rviz/default.rviz`의 `Gazebo Obstacles` display에서 기본 fixed frame으로 보입니다. 동적 장애물/신호등은 각각 `Dynamic Obstacles`·`Traffic Lights` display로 분리됩니다. 월드 좌표를 고정해서 보려면 RViz Fixed Frame을 `world`로 두십시오. `rviz/restart.sh`로 새 display를 읽습니다.
+- **미션 정보**: `/gz_mission/info` (`std_msgs/String`, JSON, transient_local)에 활성 미션 이름·설명·태그 ID, **분산된 stations 목록**(위치/퍽/태그/구역), 목표 구역, 태그 매핑이 들어 있습니다. 예: `ros2 topic echo --once /gz_mission/info`.
+- 로봇 스폰 높이는 0.05 m입니다. 기존 0.3 m는 낙하하며 전복될 수 있어 낮췄습니다 (`gazebo/reset.sh` 기본값도 동일).
 - 컨테이너와 같은 셸 스크립트라 같은 검사 (`test-packages`, `test-bringup`, `test-faker`)가 돕니다. `sh script`로 실행해도 bash로 재실행됩니다.
 - 빌드 산출물 소유자가 본인이라 `chown` 문제 없음. 단 `build/`·`install/`·`log/`는 컨테이너와 이름이 같고 CMakeCache에 절대경로가 박히므로 **컨테이너와 호스트에서 동시 빌드 금지** — 한 번에 한 곳에서만.
 - 호스트 apt 목록은 §3 참고 (`ros-lyrical-rtabmap-msgs` 포함). rosdep는 lyrical을 몰라서 그냥 apt.
 - 가상 시리얼(`/dev/opencr`)이 필요한 검사(`test-serial`, `test-hardware`, 펌웨어 업로드)는 컨테이너(entrypoint의 socat 브릿지)에서만 됩니다. 호스트는 mock 모드(`mock_hardware:=true`, 기본값) 위주로 씁니다. push 전 전체 게이트(`test-all`)·CI 정본은 그대로 컨테이너입니다.
+
+### MoveIt으로 팔 계획·실행
+
+`develop/bringup/faker.sh`가 이미 진짜 `move_group`과 `arm_controller`(JTC)를 띄웁니다. `develop/moveit/start.sh`는 그 `move_group`에 붙는 RViz MotionPlanning 화면만 엽니다 (`develop/moveit/moveit.rviz`, Planning Group `arm`).
+
+```bash
+lv2_module6/develop/gazebo/start.sh   # 터미널 1: 월드 + 브릿지 + relay
+lv2_module6/develop/bringup/faker.sh  # 터미널 2: move_group + arm_controller (+ Gazebo 카메라)
+lv2_module6/develop/moveit/start.sh   # 터미널 3: RViz — Interactive Marker/Goal State → Plan → Execute
+```
+
+- 실행 경로: `/arm_controller/follow_joint_trajectory` → mock 관절 상태 → `/joint_states` → `gazebo/relay.py` → `/gz_arm/<joint>/cmd` → Gazebo 관절별 JPC. **Gazebo도 같이 움직입니다** — joint2 0.3 rad MoveIt 계획·실행 검증: RViz TF `(0.290, 0.001, 0.277)` vs Gazebo `(0.290, 0.001, 0.276)`, 오차 ≤1 mm.
+- 전제: `gazebo/relay.py`가 살아 있어야 Gazebo 미러링이 됩니다. 없으면 `moveit/start.sh`가 경고합니다.
+- `moveit/start.sh`는 기존 RViz를 건드리지 않고 MoveIt RViz를 추가로 엽니다. 하나만 쓰려면 `rviz/kill.sh` 후 `moveit/start.sh`; MoveIt RViz만 닫으려면 `moveit/kill.sh`.
+- 최초 1회 `lv2_module6/develop/moveit/setup.sh` — `ros-lyrical-moveit-ros-visualization`(RViz 플러그인)과 `pick_ik`(5축 팔 IK, 소스 빌드)를 설치합니다. `pick_ik` 없이 KDL로는 포즈 목표(특히 위→아래 방향)를 못 풉니다. 설치 후 `faker.sh`를 재시작해야 `move_group`이 새 플러그인을 로드합니다.
+- RViz `Planned Path` → `Loop Animation: false` (기본) — 계획 궤적 고스트는 애니메이션이 끝나면 사라집니다. `true`면 마지막 자세가 계속 남습니다. `Show Trail`도 `false`입니다. 단, 이 애니메이션은 실제 컨트롤러 실행 완료와 동기화되지 않습니다(계획 궤적 미리보기).
+- 5축 팔은 `Approx IK Solutions` + `pick_ik` `rotation_scale: 0.0`(위치 우선)로 좌우 목표를 계획합니다. 자세(orientation)는 보장되지 않으므로 자세가 중요하면 `Goal State`를 `Joint`로 두고 관절값으로 계획하십시오.
 
 ## 3. 빌드
 
@@ -138,15 +193,13 @@ source install/setup.bash                                   # 빌드 후 새 셸
     ros-lyrical-nav2-dwb-controller ros-lyrical-nav2-behaviors ros-lyrical-nav2-costmap-2d \
     ros-lyrical-nav2-velocity-smoother ros-lyrical-nav2-collision-monitor ros-lyrical-nav2-map-server \
     ros-lyrical-moveit-ros-move-group ros-lyrical-moveit-kinematics ros-lyrical-moveit-planners-ompl \
-    ros-lyrical-moveit-simple-controller-manager ros-lyrical-rtabmap-msgs ros-lyrical-rtabmap-ros ros-lyrical-ament-cmake-pytest
+    ros-lyrical-moveit-simple-controller-manager ros-lyrical-moveit-ros-visualization \
+    ros-lyrical-rtabmap-msgs ros-lyrical-rtabmap-ros ros-lyrical-ament-cmake-pytest
   ```
   위 목록 = `docker/Dockerfile`의 apt 목록 (그게 컨테이너 정본 — Dockerfile에 추가하면 여기도 같이 고친다).
-  pick_ik(MoveIt IK)는 Lyrical apt에 없어 소스 빌드 (Dockerfile과 같은 커밋):
+  pick_ik(MoveIt IK)는 Lyrical apt에 없어 소스 빌드 (Dockerfile과 같은 커밋 `7c97fe2`). 아래 스크립트가 apt 의존성·빌드·`/opt/ros/lyrical` 복사를 한 번에 합니다:
   ```bash
-  sudo apt install -y ros-lyrical-rsl ros-lyrical-generate-parameter-library ros-lyrical-moveit-core ros-lyrical-tf2-kdl librange-v3-dev libfmt-dev libexpected-dev
-  mkdir -p /tmp/pick_ik_ws/src && cd /tmp/pick_ik_ws/src && git clone https://github.com/PickNikRobotics/pick_ik.git && (cd pick_ik && git checkout 7c97fe2)
-  cd /tmp/pick_ik_ws && source /opt/ros/lyrical/setup.bash && colcon build --cmake-args -DCMAKE_BUILD_TYPE=Release -DBUILD_TESTING=OFF
-  sudo cp -r install/pick_ik/. /opt/ros/lyrical/
+  lv2_module6/develop/moveit/setup.sh
   ```
   YOLO perception은 pip `torch`(CPU) · `ultralytics`도 필요 (Dockerfile 참고). 호스트 빌드는 참고용, CI·테스트베드 정본은 컨테이너 빌드.
 
@@ -223,7 +276,7 @@ perception::msg::TrackedObjectArray msg;
 | `manager/config/manager.yaml` | state_manager (지도 모드 시작 값 — faker가 `map:=`에 맞춰 덮어씀) |
 | `ml/config/ml.yaml` | grasp_scorer · rl_nav_tuner · rl_nav_correction |
 | `plan/config/plan.yaml` | user_input · vlm_task_planner · coordinator · explorer(자동 탐사) |
-| `faker/config/faker.yaml` | pole_cam · gripper_cam · move_group · fake_opencr · monitor_manager · input_manager (더미) |
+| `faker/config/faker.yaml` | pole_front_cam · gripper_cam · move_group · fake_opencr · monitor_manager · input_manager (더미) |
 | `ros_system/config/moveit/*.yaml` + `beebot.srdf` | 진짜 move_group 설정 (arm 그룹 · IK pick_ik · OMPL · arm_controller) — 팔이 5축이라 KDL은 '위치 + 위→아래' 목표를 못 풀어 pick_ik (소스 빌드, §3) — `use_moveit:=true` |
 | `ros_system/config/controllers.yaml` | ros2_control 컨트롤러 (rl_arm_correction 포함) |
 | `ros_system/config/ekf.yaml` | robot_localization EKF |
@@ -285,7 +338,7 @@ target_link_libraries(test_foo <노드가 쓰는 타깃들>)
 
 모델 하나 = 폴더 하나 `urdf/<이름>/urdf.xacro` (+ 그 폴더 `meshes/`) — launch 인자 `urdf:=<이름>`으로 고른다 (기본 `beebot_mesh`, ros_system · bringup · faker 공통. 메시 경로는 launch가 `mesh_uri:=package://ros_system/urdf/<이름>/meshes`로 넘김). 시뮬레이터 [로봇 모델]에서 폴더를 고르면 확인 후 `/cmd/restart urdf:=<이름>`으로 다시 띄운다 (URDF는 기동 때만 읽힘). 빌드가 `urdf/` 전체를 설치하므로 새 폴더·수정은 `build-ws` 뒤에 반영.
 
-`urdf/beebot_mesh/urdf.xacro` — TurtleBot3 Waffle Pi + 앞쪽 상판 위 OpenMANIPULATOR-X(RM-X52) + 손목 roll + 그리퍼(위에 gripper_cam) + 뒤쪽 전원선 가이드 폴(pole_cam) + 바구니(적재함) 충돌체. Fusion 모델에서 뽑은 메시·질량 — 만들기·검수 스크립트와 Isaac Sim용 `beebot.urdf`는 [urdf/README.md](urdf/README.md). 컨테이너에는 `/ws/urdf`로 마운트된다.
+`urdf/beebot_mesh/urdf.xacro` — TurtleBot3 Waffle Pi + 앞쪽 상판 위 OpenMANIPULATOR-X(RM-X52) + 손목 roll + 그리퍼(위에 gripper_cam) + 뒤쪽 전원선 가이드 폴(pole_front_cam) + 바구니(적재함) 충돌체. Fusion 모델에서 뽑은 메시·질량 — 만들기·검수 스크립트와 Isaac Sim용 `beebot.urdf`는 [urdf/README.md](urdf/README.md). 컨테이너에는 `/ws/urdf`로 마운트된다.
 
 ```bash
 xacro /ws/urdf/beebot_mesh/urdf.xacro mock_hardware:=true > /tmp/beebot.urdf && check_urdf /tmp/beebot.urdf   # 트리 확인
@@ -306,7 +359,7 @@ xacro /ws/urdf/beebot_mesh/urdf.xacro mock_hardware:=true > /tmp/beebot.urdf && 
 - 호스트에서 `cd lv2_module6/simulator && .venv/bin/python main.py` (컨테이너 셸에서는 `test-faker 0`으로 띄워 두기 — 컨테이너 접속은 §1 참조)
 - **시뮬레이터는 사람이 호스트에서** 켠다 (컨테이너·테스트·CI는 띄우지 않음 — 컨테이너는 `debug/` 파일만 받음). `test-faker`·`test-all`은 시뮬레이터 없이도 배관(joint_states · odom · Nav2 · monitor)을 검사하고, **시뮬레이터가 켜져 있으면** 카메라 → 인지 → 작업 성공 흐름까지 본다 (창 없이 켜려면 `.venv/bin/python main.py --headless --pucks 6`).
 - 컨테이너와는 `lv2_module6/debug/` 파일로만 주고받는다 (호스트에 ROS 불필요)
-- **지도 만들기 (스캔)**: 컨테이너 `test-faker 0 map:=slam` → 시뮬레이터 [수동 조작] 탭으로 미로를 몰고 다님 (RTAB-Map이 pole_cam 컬러+깊이로 작성. 지도 한 벌 = 폴더 하나 `ros2_ws/map/<날짜_시각>/` — rtabmap.db · map.pgm · map.yaml, 새 스캔은 새 폴더라 덮어쓰지 않음)
+- **지도 만들기 (스캔)**: 컨테이너 `test-faker 0 map:=slam` → 시뮬레이터 [수동 조작] 탭으로 미로를 몰고 다님 (RTAB-Map이 pole_front_cam 컬러+깊이로 작성. 지도 한 벌 = 폴더 하나 `ros2_ws/map/<날짜_시각>/` — rtabmap.db · map.pgm · map.yaml, 새 스캔은 새 폴더라 덮어쓰지 않음)
   → '지도 (SLAM)' 칸 [지도 저장] (같은 폴더에 `map.pgm`·`map.yaml` — 미리보기용, 폴더 이름은 `/state/map_name`) → 다음부터 `test-faker 0 map:=saved` (default 폴더, 없으면 가장 최근) 또는 `map:=saved map_name:=<폴더>` (rtabmap.db로 위치추정). 실행 중에도 시뮬레이터 지도 목록에서 폴더를 고르면 그 지도로 갈아끼움 (`/cmd/map_name`).
   [스캔 시작]·[위치추정으로]는 `/cmd/map_mode` → state_manager가 RTAB-Map 모드를 재시작 없이 바꿈
 
@@ -323,9 +376,9 @@ xacro /ws/urdf/beebot_mesh/urdf.xacro mock_hardware:=true > /tmp/beebot.urdf && 
   시뮬레이터에서 코스 모드일 때 [스캔 시작]·[위치추정으로]·지도 고르기를 누르면 확인 창 → `/cmd/restart`(`map:=slam` / `map:=saved [map_name:=…]`).
 - 상태: `/state/map_mode` · `/state/map_name`(지금 지도 폴더) · `/state/map_list`(가진 지도 폴더) — 전부 state_manager.
 - **카메라 두 대로 지도** (RTAB-Map — `ros_system.launch.py` `rtabmap_nodes()`): 지도를 만들 때(MAPPING · 자동 탐사) coordinator가 팔을
-  **스캔 자세**(`ros_system/config/scan_pose.yaml` — 팔을 낮춰 왼쪽 뒤로, gripper_cam이 왼쪽 뒤를 20° 내려다봄 · pole_cam 앞 시야를 안 가림)로
+  **스캔 자세**(`ros_system/config/scan_pose.yaml` — 팔을 낮춰 왼쪽 뒤로, gripper_cam이 왼쪽 뒤를 20° 내려다봄 · pole_front_cam 앞 시야를 안 가림)로
   보내고, `scan_cam_gate`가 팔이 그 자세에 멈춰 있을 때만 gripper_cam depth를 넘김(아니면 0 — 지도를 안 망치고 동기화도 안 끊김).
-  pole_cam · gripper_cam → `rgbd_sync` ×2 → `rgbdx_sync` → rtabmap(`rgbd_images`). 점구름도 둘 다: 몸 뺀 pole_cam +
+  pole_front_cam · gripper_cam → `rgbd_sync` ×2 → `rgbdx_sync` → rtabmap(`rgbd_images`). 점구름도 둘 다: 몸 뺀 pole_front_cam +
   gripper_cam(게이트 — 스캔 자세일 때만, 카메라 0.5m 안 = 손가락·폴대·적재함은 뺌) → `point_cloud_aggregator` → `/rtabmap/scan_cloud` (격자 `/map` · ICP).
   **MAPPING 동안 팔 수동 조작 금지**: coordinator가 수동 모드여도 스캔 자세로 보냄(스캔은 보통 수동 주행) · `/cmd/manual/arm` 팔 관절(manual_control)과
   시뮬레이터 MoveIt 팔 목표(service_action_input `/move_action`)는 거절 — 그리퍼만 됨. [위치추정으로] 뒤에 조작.
@@ -377,7 +430,7 @@ cd ros2_ws-<RUN ID>
 ./ros2_ws/stop.sh                           # 떠 있는 ROS 전부 끄기
 ```
 
-- 실기 PC에 필요한 apt: 위 §3 목록 + `ros-lyrical-{realsense2-camera,controller-manager,joint-state-broadcaster,imu-sensor-broadcaster,diff-drive-controller,joint-trajectory-controller,parallel-gripper-controller,robot-state-publisher,xacro,moveit-ros-move-group,moveit-kinematics,moveit-planners-ompl,moveit-simple-controller-manager}` + pick_ik 소스 빌드(§3) (MoveIt 설정은 `ros_system/config/moveit/` — SA 재생성 시 이 폴더에 덮음)
+- 실기 PC에 필요한 apt: 위 §3 목록 + `ros-lyrical-{realsense2-camera,controller-manager,joint-state-broadcaster,imu-sensor-broadcaster,diff-drive-controller,joint-trajectory-controller,parallel-gripper-controller,robot-state-publisher,xacro,moveit-ros-move-group,moveit-kinematics,moveit-planners-ompl,moveit-simple-controller-manager,moveit-ros-visualization}` + pick_ik 소스 빌드(`develop/moveit/setup.sh`, §3) (MoveIt 설정은 `ros_system/config/moveit/` — SA 재생성 시 이 폴더에 덮음)
 - OpenCR 포트 기본 `/dev/opencr` (`port:=` 로 변경) — ACM 번호는 꽂는 순서로 바뀌니 udev 고정 이름을 쓴다. 최초 1회:
   `sudo cp ros2_ws/99-opencr.rules /etc/udev/rules.d/ && sudo udevadm control --reload && sudo udevadm trigger` (OpenCR VID:PID 0483:5740 → `/dev/opencr`). 업로드 중에는 ROS를 끈다 (같은 포트).
 
@@ -385,7 +438,7 @@ cd ros2_ws-<RUN ID>
 
 시뮬레이터는 ROS 정보를 전부 토픽으로 주고받으므로(`debug/` 파일 ↔ monitor_manager · input_manager · service_action_input) 실기에도 같은 화면·버튼을 쓴다:
 
-1. 로봇(SBC)과 PC를 **같은 네트워크 · 같은 `ROS_DOMAIN_ID=8`** 에 둔다. 로봇은 `ROS_AUTOMATIC_DISCOVERY_RANGE`를 LOCALHOST로 두지 않는다 (기본 SUBNET).
+1. 로봇(SBC)과 PC를 **같은 네트워크 · 같은 `ROS_DOMAIN_ID=88`** 에 둔다. 로봇은 `ROS_AUTOMATIC_DISCOVERY_RANGE`를 LOCALHOST로 두지 않는다 (기본 SUBNET).
 2. PC에서 파일 연동 노드만 띄운다: `monitor_manager` · `input_manager` · `service_action_input` · `service_action_monitor` (`debug_dir` = 시뮬레이터의 `lv2_module6/debug`).
    카메라 원본(무압축 영상)은 네트워크가 무거우니 `monitor_manager raw_images:=false`.
 3. 로봇은 `./start.sh` — 버튼은 테스트베드와 같다: [스캔 시작]·[위치추정으로](`/cmd/map_mode`) · 지도 목록(`/cmd/map_name`) · [지도 저장] · 오른쪽 클릭 [여기로 이동](Nav2) · [여기가 로봇 위치](`/initialpose` → RTAB-Map — launch가 `/rtabmap/initialpose`를 `/initialpose`로 리매핑).

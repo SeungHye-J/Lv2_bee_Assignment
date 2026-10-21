@@ -94,9 +94,11 @@ std::vector<BodyBox> parse_collision_boxes(const std::string & urdf_xml) {
 
 BodyFilter::BodyFilter(const rclcpp::NodeOptions & options)
 : rclcpp::Node("body_filter", options) {
-  const auto in = declare_parameter<std::string>("input_topic", "/pole_cam/depth/color/points");
-  const auto out = declare_parameter<std::string>("output_topic", "/pole_cam/depth/color/points_filtered");
+  const auto in = declare_parameter<std::string>("input_topic", "/pole_front_cam/depth/color/points");
+  const auto out = declare_parameter<std::string>("output_topic", "/pole_front_cam/depth/color/points_filtered");
   padding_ = declare_parameter<double>("padding", 0.03);
+  stride_ = declare_parameter<int>("stride", 1);
+  if (stride_ < 1) stride_ = 1;
   tf_ = std::make_shared<tf2_ros::Buffer>(get_clock());
   tf_listener_ = std::make_shared<tf2_ros::TransformListener>(*tf_);
   urdf_sub_ = create_subscription<std_msgs::msg::String>(
@@ -117,7 +119,7 @@ BodyFilter::BodyFilter(const rclcpp::NodeOptions & options)
     s.add("처리한 점구름", clouds_);
     s.add("뺀 점 (누적)", removed_);
   });
-  RCLCPP_INFO(get_logger(), "%s → %s (padding %.2fm)", in.c_str(), out.c_str(), padding_);
+  RCLCPP_INFO(get_logger(), "%s → %s (padding %.2fm, stride %d)", in.c_str(), out.c_str(), padding_, stride_);
 }
 
 void BodyFilter::on_cloud(const PointCloud2 & in) {
@@ -162,10 +164,12 @@ void BodyFilter::on_cloud(const PointCloud2 & in) {
   out.is_bigendian = in.is_bigendian;
   out.point_step = in.point_step;
   out.is_dense = in.is_dense;
-  out.data.reserve(in.data.size());
+  out.data.reserve(in.data.size() / static_cast<size_t>(stride_));
   const size_t n = static_cast<size_t>(in.width) * in.height;
   size_t kept = 0;
-  for (size_t i = 0; i < n; ++i) {
+  // Gazebo RGBD는 depth 픽셀마다 점을 만든다. Nav2/collision_monitor에는
+  // 조밀한 원본이 필요 없으므로 stride로 솎아 대역폭과 voxel 비용을 줄인다.
+  for (size_t i = 0; i < n; i += static_cast<size_t>(stride_)) {
     const uint8_t * p = &in.data[i * in.point_step];
     float x, y, z;
     std::memcpy(&x, p + ox, 4);

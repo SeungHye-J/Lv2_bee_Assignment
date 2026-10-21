@@ -1,5 +1,5 @@
 # faker 패키지 파라미터 — faker.launch.py가 노드에 넘긴다. fail_count·debug_dir은 launch 인자가 덮어쓴다
-pole_cam:                    # fake_camera (realsense2_camera 대역) — 시뮬레이터가 live_dir에 쓴 프레임만 낸다 (없으면 아무것도 안 냄)
+pole_front_cam:                    # fake_camera (realsense2_camera 대역) — 시뮬레이터가 live_dir에 쓴 프레임만 낸다 (없으면 아무것도 안 냄)
   ros__parameters:
     width: 640               # 출력 크기 (렌더가 더 작으면 확대 — 깊이는 보간 없이)
     height: 480

@@ -1,10 +1,10 @@
 #pragma once
 
 // body_filter (🛠 직접 작성, 담당: 김현하) — 카메라 점구름에서 로봇 자기 몸(팔·차체·바구니)에 찍힌 점을 뺀다
-//   pole_cam은 차체 뒤 폴 위에서 앞을 내려다봐서 팔이 화면에 들어온다 → 빼지 않으면 Nav2 장애물 지도·collision_monitor가
+//   pole_front_cam은 차체 뒤 폴 위에서 앞을 내려다봐서 팔이 화면에 들어온다 → 빼지 않으면 Nav2 장애물 지도·collision_monitor가
 //   자기 팔을 장애물로 보고 멈춘다. Lyrical에는 robot_body_filter가 없고 pcl_ros CropBox는 고정 상자 하나뿐이라 직접 작성.
-//   입력: input_topic (기본 /pole_cam/depth/color/points) · /robot_description (URDF, transient_local) · TF
-//   출력: output_topic (기본 /pole_cam/depth/color/points_filtered) — Nav2 costmap·collision_monitor가 이걸 본다
+//   입력: input_topic (기본 /pole_front_cam/depth/color/points) · /robot_description (URDF, transient_local) · TF
+//   출력: output_topic (기본 /pole_front_cam/depth/color/points_filtered) — Nav2 costmap·collision_monitor가 이걸 본다
 // 판단: URDF <collision> 모양을 링크마다 TF로 카메라 프레임에 옮겨, 그 상자(+ padding) 안의 점을 뺀다.
 //   box는 그대로 · cylinder·sphere는 맞춤 상자 · mesh는 STL 경계 상자 (package:// → share 경로).
 #include <memory>
@@ -41,6 +41,7 @@ private:
   void on_cloud(const PointCloud2 & in);
 
   double padding_;
+  int stride_{1};
   std::vector<BodyBox> boxes_;
   size_t removed_ = 0, clouds_ = 0;
   std::string last_error_;

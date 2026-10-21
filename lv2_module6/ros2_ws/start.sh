@@ -26,6 +26,20 @@ case "${1:-}" in
   -h | --help) sed -n '2,10p' "$0"; exit 0 ;;
 esac
 
+# --- 패키지 대상 OS 확인 (CI 배포 패키지에만 TARGET 파일이 있음)
+# Ubuntu 26.04용 install/을 Ubuntu 24.04 Jetson에서 실행하면 glibc/Python/ROS가 달라
+# 아키텍처가 같아도 죽는다. start.sh가 먼저 명확히 막는다.
+if [ -f "$HERE/TARGET" ]; then
+  pkg_target=$(cat "$HERE/TARGET")
+  host_target="$(. /etc/os-release 2>/dev/null; echo "${ID:-linux}-${VERSION_ID:-unknown}-$(uname -m)")"
+  if [ "$pkg_target" != "$host_target" ]; then
+    echo "FAIL: 이 패키지는 $pkg_target용인데 이 장치는 $host_target — 실행 불가"
+    echo "      Jetson(Ubuntu 24.04)은 ros2_ws-deploy-aarch64-noble.tar.gz를 받아야 함"
+    echo "      다시 받기: ./download-artifact.sh <RUN ID>  (장치 OS·아키텍처를 자동 선택)"
+    exit 1
+  fi
+fi
+
 # --- ROS 환경
 ros_setup="/opt/ros/$ROS_DISTRO_NAME/setup.bash"
 [ -f "$ros_setup" ] || { echo "FAIL: ROS 2 $ROS_DISTRO_NAME 없음 ($ros_setup)"; exit 1; }
@@ -92,9 +106,9 @@ if [ "$use_cameras" = true ]; then
     devices=$(rs-enumerate-devices -s 2>/dev/null || true)
     count=$(grep -c "Intel RealSense" <<<"$devices" || true)
     if [ "$count" -ge 2 ]; then
-      echo "ok: RealSense ${count}대 (pole_cam · gripper_cam)"
+      echo "ok: RealSense ${count}대 (pole_front_cam · gripper_cam)"
     else
-      echo "WARN: RealSense ${count}대 — 2대(pole_cam · gripper_cam) 필요 (USB 3 포트·udev 규칙 확인)"
+      echo "WARN: RealSense ${count}대 — 2대(pole_front_cam · gripper_cam) 필요 (USB 3 포트·udev 규칙 확인)"
     fi
   else
     echo "WARN: rs-enumerate-devices 없음 — RealSense 연결 확인 생략"

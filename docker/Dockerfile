@@ -73,6 +73,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     ros-lyrical-moveit-kinematics \
     ros-lyrical-moveit-planners-ompl \
     ros-lyrical-moveit-simple-controller-manager \
+    ros-lyrical-moveit-ros-visualization \
     && rm -rf /var/lib/apt/lists/*
 
 # pick_ik — MoveIt IK 플러그인 (config/moveit/kinematics.yaml). Lyrical apt에 없어 소스로 빌드해 /opt/ros/lyrical에 설치.
@@ -90,7 +91,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     && rm -rf /tmp/pick_ik_ws
 # (colcon --install-base /opt/ros/lyrical 는 ROS의 setup.bash를 덮어써서 안 씀 — 패키지 폴더만 복사: lib · share · ament_index)
 
-# RTAB-Map (faker map:=slam · saved — pole_cam으로 지도 작성·위치추정. RealSense 본체는 faker 대역)
+# RTAB-Map (faker map:=slam · saved — pole_front_cam으로 지도 작성·위치추정. RealSense 본체는 faker 대역)
 RUN apt-get update && apt-get install -y --no-install-recommends \
     ros-lyrical-rtabmap-msgs \
     ros-lyrical-rtabmap-ros \

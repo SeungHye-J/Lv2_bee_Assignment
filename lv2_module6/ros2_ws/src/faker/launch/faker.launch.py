@@ -10,7 +10,7 @@
   ros2 launch faker faker.launch.py                         # course (기본): 코스 지도를 외운 상태 (map_server + map→odom 항등)
   지도 한 벌 = 폴더 하나: /ws/map/<map_name>/ rtabmap.db (위치추정용 정본) · map.pgm · map.yaml (사람이 보는 미리보기)
   ros2 launch faker faker.launch.py map:=slam               # ① 매핑: 새 폴더 /ws/map/<날짜_시각>/ (map_name:=으로 이름 지정 가능, 있는 이름이면 거부)
-                                                             #    시뮬레이터 수동 조작으로 몰고 다니면 RTAB-Map이 pole_cam(컬러+깊이)으로 → rtabmap.db
+                                                             #    시뮬레이터 수동 조작으로 몰고 다니면 RTAB-Map이 pole_front_cam(컬러+깊이)으로 → rtabmap.db
                                                              #    다 돌았으면 시뮬레이터 [지도 저장] (/map_saver/save_map → 같은 폴더 map.pgm · map.yaml)
                                                              #    시뮬레이터 [스캔 시작]·[위치추정으로] → /cmd/map_mode → state_manager가 RTAB-Map 모드 전환
                                                              #    (재시작 없이) → /state/map_mode 발행
@@ -31,7 +31,7 @@ map:=course일 때만 — 실기에서 RTAB-Map이 하는 일의 대신 (시뮬�
     fake_rl_nav_tuner       → 노드 rl_nav_tuner
     fake_rl_nav_correction  → 노드 rl_nav_correction
     FakeRlArmCorrection     → 컨트롤러 rl_arm_correction 자리 (플러그인, Δ=0)
-  fake_camera ×2   realsense2_camera (pole_cam, gripper_cam) — 시뮬레이터가 debug/input/hardware/camera/에 쓴 프레임만 (없으면 안 냄)
+  fake_camera ×2   realsense2_camera (pole_front_cam, gripper_cam) — 시뮬레이터가 debug/input/hardware/camera/에 쓴 프레임만 (없으면 안 냄)
   fake_opencr      OpenCR (기본. mock_hardware:=true면 안 뜸 — 유일한 OpenCR, 미끄럼·충돌·통신 끊김, 진짜 위치 ~/ground_truth 발행 · 환경은 파라미터 · /cmd/fake_opencr/set_pose)
   move_group       진짜 (bringup use_moveit:=true 기본 — 실기와 같음, MTC 대역 fake_moveit 삭제됨)
 호스트 파일 연동 (통제실·시뮬레이션):
@@ -101,6 +101,7 @@ def generate_launch_description():
         arg('map', 'course', 'course = 코스 지도 외움 · slam = RTAB-Map 매핑(rtabmap.db 새로) · saved = 저장한 rtabmap.db로 위치추정'),
         arg('map_dir', '/ws/map', '지도 폴더 (호스트 ros2_ws/map 바인드) — 지도마다 <map_name>/ rtabmap.db · map.pgm · map.yaml'),
         arg('map_name', '', '지도 폴더 이름 — slam: 비우면 날짜_시각으로 새로 · saved: 비우면 default (rtabmap.db 없으면 가장 최근 — bringup이 정함)'),
+        arg('use_monitor', 'true', 'false = monitor_manager 끔 (호스트 가벼운 실행용 — PASS 판정에서 기록 검사 제외)'),
         arg('mock_hardware', 'false', 'false(기본) = controller_manager가 가상 시리얼(/dev/opencr)로 fake_opencr와 통신 · true = OpenCR 없이 mock (물리 없음)'),
         arg('mock_effort', '0.0', '팔 관절 전류 [A] (mock_hardware:=true일 때만 — fake_opencr면 시뮬레이터 [팔 붙잡기])'),
         arg('urdf', 'default', '로봇 모델 = lv2_module6/urdf/<이 이름>/urdf.xacro (폴더 하나 = 모델 하나, 메시는 그 폴더 meshes/) — 시뮬레이터 [로봇 모델]이 재시작 인자로 바꿈'),
@@ -127,7 +128,7 @@ def generate_launch_description():
             **{f'use_{n}': is_real(n) for n in ML_NODES},
         }),
 
-        fake('fake_camera', 'pole_cam', respawn=True,
+        fake('fake_camera', 'pole_front_cam', respawn=True,
              condition=IfCondition(PythonExpression(["'", LaunchConfiguration('use_gz_cameras'), "' == 'false'"]))),
         fake('fake_camera', 'gripper_cam', respawn=True,
              condition=IfCondition(PythonExpression(["'", LaunchConfiguration('use_gz_cameras'), "' == 'false'"]))),
@@ -147,7 +148,8 @@ def generate_launch_description():
         Node(package='tf2_ros', executable='static_transform_publisher', name='map_to_odom', output='screen',
              condition=IfCondition(COURSE_MAP),
              arguments=['--frame-id', 'map', '--child-frame-id', 'odom']),
-        fake('monitor_manager', 'monitor_manager', {'debug_dir': LaunchConfiguration('debug_dir')}, respawn=True),  # 죽으면 시뮬레이터가 다 멈춰 보임 → 다시 띄움
+        fake('monitor_manager', 'monitor_manager', {'debug_dir': LaunchConfiguration('debug_dir')}, respawn=True,  # 죽으면 시뮬레이터가 다 멈춰 보임 → 다시 띄움
+             condition=IfCondition(PythonExpression(["'", LaunchConfiguration('use_monitor'), "' == 'true'"]))),
         fake('input_manager', 'input_manager', {'debug_dir': LaunchConfiguration('debug_dir')}),
         fake('service_action_monitor', 'service_action_monitor', {'debug_dir': LaunchConfiguration('debug_dir')}),
         fake('service_action_input', 'service_action_input', {'debug_dir': LaunchConfiguration('debug_dir')}),

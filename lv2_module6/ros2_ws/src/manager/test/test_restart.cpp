@@ -52,7 +52,7 @@ TEST(Restart, FindNode) {
     {22, 20, {"/usr/bin/python3", "/ws/install/perception/lib/perception/perception_node", "--ros-args"}},
     {23, 20, {"/ws/install/faker/lib/faker/fake_grasp_scorer", "--ros-args", "-r", "__node:=grasp_scorer"}},
     {24, 20, {"/opt/ros/lyrical/lib/nav2_planner/planner_server", "--ros-args", "-r", "__node:=planner_server"}},
-    {25, 20, {"/ws/install/faker/lib/faker/fake_camera", "--ros-args", "-r", "__node:=pole_cam"}},
+    {25, 20, {"/ws/install/faker/lib/faker/fake_camera", "--ros-args", "-r", "__node:=pole_front_cam"}},
     {26, 20, {"/ws/install/faker/lib/faker/fake_camera", "--ros-args", "-r", "__node:=gripper_cam"}},
     {30, 1, {"/ws/install/perception/lib/perception/perception_node", "--ros-args"}},  // launch 밖 — extra로 줄 때만
   };
@@ -72,7 +72,7 @@ TEST(Restart, FindNode) {
   EXPECT_EQ(node_name(rcn), "controller_manager");  // 실행 파일 기본 이름이 다른 것
   EXPECT_EQ(node_name({41, 20, {"/bin/sleep", "3"}}), "");  // ROS 노드가 아님
   auto r = restartable(procs, 20, {30});
-  ASSERT_EQ(r.size(), 7u);  // state_manager · perception · grasp_scorer · planner_server · pole_cam · gripper_cam + 밖의 perception
+  ASSERT_EQ(r.size(), 7u);  // state_manager · perception · grasp_scorer · planner_server · pole_front_cam · gripper_cam + 밖의 perception
   EXPECT_EQ(r.front().first, "grasp_scorer");
   auto d = descendants(procs, 20);
   EXPECT_EQ(d.size(), 6u);

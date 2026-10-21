@@ -33,7 +33,7 @@ bt_navigator:
       # NavigateToPose 액션을 처리하는 Nav2 플러그인 (이름 고정).
       plugin: "nav2_bt_navigator::NavigateToPoseNavigator"
     # 행동 트리 default_nav_to_pose_bt_xml = config/navigate_to_pose.xml — 파일 경로라 ros_system.launch.py가 넘긴다.
-    #   기본 BT 복사본에서 복구 후진만 0.30m → 0.10m (pole_cam이 뒤를 못 봐서 벽에 박힘, 15-changes #23)
+    #   기본 BT 복사본에서 복구 후진만 0.30m → 0.10m (pole_front_cam이 뒤를 못 봐서 벽에 박힘, 15-changes #23)
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -94,7 +94,7 @@ controller_server:
       plugin: "dwb_core::DWBLocalPlanner"
 
       # ── 속도 한계 [m/s · rad/s] — ml.yaml rl_nav_correction(max_vel_x · max_vel_theta)과 같은 값
-      # 전진 최소 속도. 0이면 경로 추종 중 후진하지 않는다 (pole_cam이 뒤를 못 봄).
+      # 전진 최소 속도. 0이면 경로 추종 중 후진하지 않는다 (pole_front_cam이 뒤를 못 봄).
       min_vel_x: 0.0
       # 전진 최대 속도. Waffle Pi 최대 0.26. /speed_limit 백분율의 기준.
       max_vel_x: 0.26
@@ -179,7 +179,7 @@ controller_server:
 # ros_system.launch.py가 서버를 직접 띄우고 관리자 둘이 올린다 (맨 아래):
 #   lifecycle_manager_base: velocity_smoother · collision_monitor (바퀴 명령 체인 — 지도 없이도)
 #   lifecycle_manager_navigation: planner_server · controller_server · behavior_server · bt_navigator (map 필요)
-# 센서: pole_cam 점구름(/pole_cam/depth/color/points, 하향 RealSense → body_filter가 자기 몸 점을 뺀 points_filtered) 하나 — LiDAR 없음
+# 센서: pole_front_cam 점구름(/pole_front_cam/depth/color/points, 하향 RealSense → body_filter가 자기 몸 점을 뺀 points_filtered) 하나 — LiDAR 없음
 # ═════════════════════════════════════════════════════════════════════════════
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -228,7 +228,7 @@ behavior_server:
 
 # ─────────────────────────────────────────────────────────────────────────────
 # local_costmap — 로봇 주변 3×3m (odom 기준, 굴러감). controller(DWB)가 장애물 회피에 씀.
-#   VoxelLayer: pole_cam 점구름에서 바닥(0.03m 아래)은 버리고 0.6m까지를 장애물로 — 퍽(높이 3~5cm)도 장애물로 잡힘
+#   VoxelLayer: pole_front_cam 점구름에서 바닥(0.03m 아래)은 버리고 0.6m까지를 장애물로 — 퍽(높이 3~5cm)도 장애물로 잡힘
 # ─────────────────────────────────────────────────────────────────────────────
 local_costmap:
   local_costmap:
@@ -257,9 +257,9 @@ local_costmap:
         z_voxels: 16
         max_obstacle_height: 0.6
         mark_threshold: 0
-        observation_sources: pole_cam
-        pole_cam:
-          topic: /pole_cam/depth/color/points_filtered   # control/body_filter가 자기 몸(팔·차체) 점을 뺀 것
+        observation_sources: pole_front_cam
+        pole_front_cam:
+          topic: /pole_front_cam/depth/color/points_filtered   # control/body_filter가 자기 몸(팔·차체) 점을 뺀 것
           data_type: "PointCloud2"
           min_obstacle_height: 0.03
           max_obstacle_height: 0.6
@@ -277,7 +277,7 @@ local_costmap:
 
 
 # ─────────────────────────────────────────────────────────────────────────────
-# global_costmap — map 전체. 정지 지도(/map: 실기 RTAB-Map · 시뮬레이터 map_server) + pole_cam 장애물
+# global_costmap — map 전체. 정지 지도(/map: 실기 RTAB-Map · 시뮬레이터 map_server) + pole_front_cam 장애물
 # ─────────────────────────────────────────────────────────────────────────────
 global_costmap:
   global_costmap:
@@ -300,9 +300,9 @@ global_costmap:
       obstacle_layer:
         plugin: "nav2_costmap_2d::ObstacleLayer"
         enabled: true
-        observation_sources: pole_cam
-        pole_cam:
-          topic: /pole_cam/depth/color/points_filtered   # control/body_filter가 자기 몸(팔·차체) 점을 뺀 것
+        observation_sources: pole_front_cam
+        pole_front_cam:
+          topic: /pole_front_cam/depth/color/points_filtered   # control/body_filter가 자기 몸(팔·차체) 점을 뺀 것
           data_type: "PointCloud2"
           min_obstacle_height: 0.03
           max_obstacle_height: 0.6
@@ -340,7 +340,7 @@ velocity_smoother:
 
 
 # ─────────────────────────────────────────────────────────────────────────────
-# collision_monitor — 맨 마지막 안전장치: /cmd_vel_smoothed → /cmd_vel. pole_cam 점구름 기준 부딪힐 방향만 멈춤(approach) · 가까우면 감속.
+# collision_monitor — 맨 마지막 안전장치: /cmd_vel_smoothed → /cmd_vel. pole_front_cam 점구름 기준 부딪힐 방향만 멈춤(approach) · 가까우면 감속.
 #   학습 보정(rl_nav_correction)까지 다 거친 최종 명령을 거른다 (00-overview "안전장치는 학습 노드보다 뒤")
 #   source_timeout: 점구름이 이만큼 안 오면 정지 — 카메라 끊김 = 멈춤
 # ─────────────────────────────────────────────────────────────────────────────
@@ -380,10 +380,10 @@ collision_monitor:
       visualize: true
       polygon_pub_topic: polygon_slowdown
       enabled: true
-    observation_sources: ["pole_cam"]
-    pole_cam:
+    observation_sources: ["pole_front_cam"]
+    pole_front_cam:
       type: "pointcloud"
-      topic: /pole_cam/depth/color/points_filtered   # control/body_filter가 자기 몸(팔·차체) 점을 뺀 것
+      topic: /pole_front_cam/depth/color/points_filtered   # control/body_filter가 자기 몸(팔·차체) 점을 뺀 것
       min_height: 0.05
       max_height: 0.6
       enabled: true

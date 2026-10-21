@@ -32,7 +32,7 @@ float32 confidence
 geometry_msgs/PoseWithCovariance pose   # map 기준 — 두 카메라 융합 위치 + 위치 공분산 (필드 뜻: documents/API.md)
 geometry_msgs/Vector3 size              # m — x·y = 카메라 영상 박스 가로·세로 폭 환산 (map 축 아님), z = 클래스 기본값
 builtin_interfaces/Time last_seen       # 마지막 관측 영상 시각
-string camera                           # 마지막으로 본 카메라 (pole_cam | gripper_cam) — VLM 이미지 마킹용
+string camera                           # 마지막으로 본 카메라 (pole_front_cam | gripper_cam) — VLM 이미지 마킹용
 int32[2] px                             # 그 카메라 영상 속 박스 중심 픽셀 [u, v]
 string color                            # 퍽: red | orange | yellow | green | blue | purple | white | black | unknown · 신호등 상태: red | yellow | green | off · 그 외 빈 값 (박스 가운데 HSV)
 ```
@@ -50,7 +50,7 @@ string color                            # 퍽: red | orange | yellow | green | b
 | `pose.covariance` | 6×6 행 우선. **위치 3×3 블록**(인덱스 0~2·6~8·12~14) = 융합 위치 불확실성 [m²], 회전 대각(21·28·35) = 1e3(모름) | 관측 잡음만 반영 — 위의 앞면 쏠림(바이어스)은 안 들어감. 관측 σ: depth 축 `depth_sigma0 + depth_sigma_k·z²`, 가로·세로 `pixel_sigma·z/f` |
 | `size` | [m] x = 박스 가로 폭 · y = 박스 세로 높이 (픽셀 × 거리 / 초점거리), z = 클래스 기본값(퍽 0.04 등) | **map 축 크기가 아님** (카메라 영상 기준). 관측마다 칼만 이득 비율로 갱신 |
 | `last_seen` | 마지막으로 관측된 **영상 시각** (카메라 header.stamp) | `TrackedObjectArray.header.stamp`(발행 시각)과 다름 |
-| `camera` | **마지막으로** 본 카메라 `pole_cam` · `gripper_cam` | 두 카메라가 융합한 물체여도 하나만 — 어느 카메라들이 봤는지는 `/perception/<cam>/detections`의 같은 `id`로 |
+| `camera` | **마지막으로** 본 카메라 `pole_front_cam` · `gripper_cam` | 두 카메라가 융합한 물체여도 하나만 — 어느 카메라들이 봤는지는 `/perception/<cam>/detections`의 같은 `id`로 |
 | `px` | `camera` 영상(640×480) 속 박스 중심 픽셀 `[u, v]` — VLM이 그 영상에 표시할 때 씀 | 다른 카메라 영상의 좌표가 아님 |
 | `color` | 퍽: `red` · `orange` · `yellow` · `green` · `blue` · `purple` · `white` · `black` · `unknown` / 신호등: `red` · `yellow` · `green` · `off` / 그 외 `""` | 박스 가운데(가장자리 20%씩 뺌 — 바닥 안 섞이게) HSV 다수결, 채도 없는 화소가 대부분이면 흰색·검정. 마지막 관측 값 |
 
@@ -139,21 +139,21 @@ string message
 
 | 이름 | 타입 | 보내는 쪽 → 받는 쪽 | 주기 · QoS |
 | --- | --- | --- | --- |
-| `/pole_cam/color/image_raw` | sensor_msgs/Image (rgb8) | realsense2_camera (pole_cam) → perception, rtabmap | 30Hz · best_effort |
-| `/pole_cam/color/camera_info` | sensor_msgs/CameraInfo | realsense2_camera (pole_cam) → perception, rtabmap | 내부 파라미터 |
-| `/pole_cam/depth/camera_info` | sensor_msgs/CameraInfo | realsense2_camera (pole_cam) → (예비) | 정렬 depth와 동일 해상도·프레임 |
-| `/pole_cam/aligned_depth_to_color/image_raw` | sensor_msgs/Image (16UC1, mm) | realsense2_camera (pole_cam) → perception, rtabmap | 컬러와 1:1 정렬 |
-| `/pole_cam/depth/color/points` | sensor_msgs/PointCloud2 | realsense2_camera (pole_cam) → body_filter, move_group | 10~15Hz 다운샘플 권장 |
-| `/pole_cam/depth/color/points_filtered` | sensor_msgs/PointCloud2 | body_filter → costmap_2d, collision_monitor | 자기 몸(URDF collision + padding) 점을 뺀 것 |
+| `/pole_front_cam/color/image_raw` | sensor_msgs/Image (rgb8) | realsense2_camera (pole_front_cam) → perception, rtabmap | 30Hz · best_effort |
+| `/pole_front_cam/color/camera_info` | sensor_msgs/CameraInfo | realsense2_camera (pole_front_cam) → perception, rtabmap | 내부 파라미터 |
+| `/pole_front_cam/depth/camera_info` | sensor_msgs/CameraInfo | realsense2_camera (pole_front_cam) → (예비) | 정렬 depth와 동일 해상도·프레임 |
+| `/pole_front_cam/aligned_depth_to_color/image_raw` | sensor_msgs/Image (16UC1, mm) | realsense2_camera (pole_front_cam) → perception, rtabmap | 컬러와 1:1 정렬 |
+| `/pole_front_cam/depth/color/points` | sensor_msgs/PointCloud2 | realsense2_camera (pole_front_cam) → body_filter, move_group | 10~15Hz 다운샘플 권장 |
+| `/pole_front_cam/depth/color/points_filtered` | sensor_msgs/PointCloud2 | body_filter → costmap_2d, collision_monitor | 자기 몸(URDF collision + padding) 점을 뺀 것 |
 | `/gripper_cam/color/image_raw` | sensor_msgs/Image (rgb8) | realsense2_camera (gripper_cam) → perception | 15Hz · best_effort |
 | `/gripper_cam/aligned_depth_to_color/image_raw` | sensor_msgs/Image (16UC1, mm) | realsense2_camera (gripper_cam) → perception | pick 단계 위주 |
 | `/gripper_cam/aligned_depth_to_color/image_scan` | sensor_msgs/Image (16UC1, mm) | scan_cam_gate → rtabmap_sync(gripper) | gripper_cam depth — 팔이 스캔 자세(`scan_pose.yaml`)에 멈춰 있을 때만 그대로, 아니면 0 (지도 만들 때 두 번째 카메라) |
 | `/gripper_cam/depth/color/points_scan` | sensor_msgs/PointCloud2 | scan_cam_gate → point_cloud_aggregator | gripper_cam 점구름 — 스캔 자세일 때만(카메라 0.5m 안 = 자기 몸은 뺌), 아니면 빈 점구름 |
-| `/rtabmap/scan_cloud` | sensor_msgs/PointCloud2 (base_footprint) | point_cloud_aggregator → rtabmap | 몸 뺀 pole_cam 점구름 + 위 gripper_cam 점구름 — RTAB-Map 격자(`/map`)·ICP |
-| `/rtabmap/rgbd_image0` · `/rtabmap/rgbd_image1` · `/rtabmap/rgbd_images` | rtabmap_msgs/RGBDImage · RGBDImages | rgbd_sync ×2 → rgbdx_sync → rtabmap | pole_cam · gripper_cam(게이트 거친 depth)을 묶어 RTAB-Map에 |
+| `/rtabmap/scan_cloud` | sensor_msgs/PointCloud2 (base_footprint) | point_cloud_aggregator → rtabmap | 몸 뺀 pole_front_cam 점구름 + 위 gripper_cam 점구름 — RTAB-Map 격자(`/map`)·ICP |
+| `/rtabmap/rgbd_image0` · `/rtabmap/rgbd_image1` · `/rtabmap/rgbd_images` | rtabmap_msgs/RGBDImage · RGBDImages | rgbd_sync ×2 → rgbdx_sync → rtabmap | pole_front_cam · gripper_cam(게이트 거친 depth)을 묶어 RTAB-Map에 |
 | `/gripper_cam/depth/color/points` | sensor_msgs/PointCloud2 | realsense2_camera (gripper_cam) → grasp_scorer | 근접 파지용 |
 | `/tracked_objects` | perception/TrackedObjectArray | perception → vlm_task_planner, coordinator, grasp_scorer | 10Hz · reliable — 두 카메라 융합 결과 ([필드 뜻](#api-msg-trackedobject)) |
-| `/perception/pole_cam/detections` · `/perception/gripper_cam/detections` | perception/TrackedObjectArray | perception → (시뮬레이터·디버그) | 추론마다(카메라당 ≤4Hz) · reliable — 융합 전 카메라별 검출, `id` = 붙은 트랙 |
+| `/perception/pole_front_cam/detections` · `/perception/gripper_cam/detections` | perception/TrackedObjectArray | perception → (시뮬레이터·디버그) | 추론마다(카메라당 ≤4Hz) · reliable — 융합 전 카메라별 검출, `id` = 붙은 트랙 |
 
 - depth 단위는 16UC1 = 밀리미터. D435 최소 측정 거리 약 0.2~0.3m — 그리퍼가 퍽에 바짝 붙으면 빈다.
 

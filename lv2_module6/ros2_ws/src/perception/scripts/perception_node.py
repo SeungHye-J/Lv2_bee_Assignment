@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """🛠 perception (YOLO nano, 담당: 전승혜) — 설계: documents/ros2-design/02-sense.md
 
-  입력: pole_cam·gripper_cam 컬러·정렬 depth·camera_info (best_effort)
+  입력: pole_front_cam·gripper_cam 컬러·정렬 depth·camera_info (best_effort)
   출력: /tracked_objects (perception/TrackedObjectArray, reliable) — 두 카메라 융합 결과 · vlm_task_planner · coordinator · grasp_scorer
         /perception/<cam>/detections (같은 타입) — 융합 전 카메라별 한 프레임 검출 (id = 붙은 트랙 id, covariance = 관측 공분산)
           → 시뮬레이터가 카메라별 검출과 융합 결과를 나란히 그림 (디버그용 — 소비 노드 없음)
@@ -11,7 +11,7 @@
   odom은 끊김 없이 이어짐 → 추적·융합은 거기서, /tracked_objects는 발행 순간의 map→odom으로 바꿔 냄 (로봇과 같은 보정으로 같이 움직임).
   컬러·정렬 depth를 시각 동기화(ApproximateTime)해 한 쌍으로 받고, camera_info 내부 파라미터로 3D 역투영
   → 영상 시각(header.stamp)의 TF로 odom 기준 변환 (gripper_cam처럼 팔과 함께 움직여도 찍힌 순간의 자세로) → 추적.
-  두 카메라 융합: 같은 물체를 pole_cam·gripper_cam이 보면 한 트랙에 칼만 갱신으로 합친다.
+  두 카메라 융합: 같은 물체를 pole_front_cam·gripper_cam이 보면 한 트랙에 칼만 갱신으로 합친다.
     관측 공분산은 카메라 좌표에서 depth 축 σz = depth_sigma0 + depth_sigma_k·z² (RealSense 오차는 거리² 비례),
     가로·세로 σ = pixel_sigma·z/f → 그 시각 TF 회전으로 map에 돌려 넣는다 → 가까이서 본 gripper_cam이 자연히 더 무겁고,
     두 카메라가 다른 방향에서 보면 서로의 depth 축 오차를 줄여 준다. 결과 공분산은 pose.covariance(위치 3×3)로 발행.
@@ -80,7 +80,7 @@ def is_self(cls, p, body, body_radius, body_height, self_radius):
 def arm_pixels(chain, rot, trans, fx, fy, cx, cy, radius=0.04, per_seg=10):
     """팔 체인(추적 좌표 링크 원점들)을 그 카메라 화면에 투영 → [[u, v, r], …] (r = 팔 두께 radius의 픽셀 반경).
     이웃 링크 사이를 per_seg개로 나눠 찍음. 링크 원점은 팔 중심선이라 화면에 보이는 팔 몸통보다 안쪽(아래 끝 밖)에 떨어짐
-    (실측: 스캔 자세 팔이 pole_cam 왼쪽 아래 구석에 보이는데 중심선은 v 477~554) → 두께만큼 넓혀 판정.
+    (실측: 스캔 자세 팔이 pole_front_cam 왼쪽 아래 구석에 보이는데 중심선은 v 477~554) → 두께만큼 넓혀 판정.
     rot·trans = 카메라 → 추적 좌표 (lookup_tf). 카메라 뒤 점은 뺌"""
     if len(chain) < 2:
         return np.zeros((0, 3))
@@ -305,7 +305,7 @@ class PerceptionNode(Node):
         # 컬러·정렬 depth는 시각을 맞춘 쌍으로만 받는다 (다른 순간의 컬러·depth를 섞지 않게) — camera_info는 고정값이라 따로
         slop = float(self.get_parameter("sync_slop").value)
         self._syncs = []
-        for cam in ("pole_cam", "gripper_cam"):
+        for cam in ("pole_front_cam", "gripper_cam"):
             color_sub = message_filters.Subscriber(self, Image, f"/{cam}/color/image_raw", qos_profile=sensor_qos())
             depth_sub = message_filters.Subscriber(self, Image, f"/{cam}/aligned_depth_to_color/image_raw",
                                                    qos_profile=sensor_qos())
@@ -316,7 +316,7 @@ class PerceptionNode(Node):
                                      lambda m, c=cam: self.on_info(c, m), sensor_qos())
         self.pub = self.create_publisher(TrackedObjectArray, "/tracked_objects", 5)
         self.det_pubs = {cam: self.create_publisher(TrackedObjectArray, f"/perception/{cam}/detections", 5)
-                         for cam in ("pole_cam", "gripper_cam")}
+                         for cam in ("pole_front_cam", "gripper_cam")}
         self.diag_pub = self.create_publisher(DiagnosticArray, "/diagnostics", 1)
         self.create_timer(1.0 / max(self.rate_hz, 0.1), self.on_publish)
         self.create_timer(0.25, self.on_infer)  # 카메라당 최대 4Hz 추론

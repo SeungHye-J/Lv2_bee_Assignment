@@ -400,7 +400,7 @@ VlmTaskPlanner::VlmTaskPlanner()
   status_sub_ = create_subscription<TaskStatus>("/task_status", rclcpp::QoS(10).reliable().transient_local(),
     [this](TaskStatus::ConstSharedPtr m) { on_status(*m); });
   const auto sensor_qos = rclcpp::SensorDataQoS();
-  for (const std::string cam : {"pole_cam", "gripper_cam"}) {
+  for (const std::string cam : {"pole_front_cam", "gripper_cam"}) {
     image_subs_.push_back(create_subscription<sensor_msgs::msg::Image>(
       "/" + cam + "/color/image_raw", sensor_qos,
       [this, cam](sensor_msgs::msg::Image::ConstSharedPtr m) {
@@ -517,7 +517,7 @@ void VlmTaskPlanner::try_vlm_async() {
     cmd = cmd_;
     if (objects_) objs = *objects_;
     rp = replan_;
-    for (const auto & cam : {"pole_cam", "gripper_cam"}) {
+    for (const auto & cam : {"pole_front_cam", "gripper_cam"}) {
       auto it = images_.find(cam);
       if (it != images_.end() && it->second) imgs.push_back({cam, it->second});
     }

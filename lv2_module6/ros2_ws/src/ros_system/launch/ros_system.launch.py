@@ -1,20 +1,20 @@
 """📦 제공 패키지 기동 (실기용). 설계: documents/ros2-design/09-nodes.md "직접 작성 노드와 제공 노드"
 
   ros2 launch ros_system ros_system.launch.py
-  ros2 launch ros_system ros_system.launch.py use_rtabmap:=false pole_cam_serial:=123456
+  ros2 launch ros_system ros_system.launch.py use_rtabmap:=false pole_front_cam_serial:=123456
   ros2 launch ros_system ros_system.launch.py use_nav2:=true            # config/nav2_params.yaml
 
   ros2 launch ros_system ros_system.launch.py mock_hardware:=true   # 실기 없이 controller_manager (명령 → 상태 되돌림)
 
 기본으로 켜는 것: robot_state_publisher(URDF) + ros2_control(controller_manager + 컨트롤러),
-                  RealSense ×2(pole_cam·gripper_cam), robot_localization EKF, RTAB-Map(위치추정 모드)
+                  RealSense ×2(pole_front_cam·gripper_cam), robot_localization EKF, RTAB-Map(위치추정 모드)
   - Nav2 (use_nav2:=true, config/nav2_params.yaml): 서버를 직접 띄운다 — nav2_bringup navigation_launch는
           velocity_smoother 입력을 /cmd_vel_nav로 고정해 rl_nav_correction·twist_mux를 건너뛰므로 안 씀.
           속도 체인: controller·behavior → /cmd_vel_nav → rl_nav_correction → /cmd_vel_corrected → twist_mux
                      → /cmd_vel_mux → velocity_smoother → /cmd_vel_smoothed → collision_monitor → /cmd_vel
           map→odom·/map은 RTAB-Map (faker는 map_server + 항등 TF)
 TODO(권형중) 아직 자리만 있는 것 — 설정 패키지가 필요:
-  - move_group (+ MTC capability): config/moveit 으로 해소 (use_moveit:=true) — pick_ik·octomap 센서(pole_cam 점구름)는 아직
+  - move_group (+ MTC capability): config/moveit 으로 해소 (use_moveit:=true) — pick_ik·octomap 센서(pole_front_cam 점구름)는 아직
 테스트베드에서는 faker가 이 패키지들 대신 같은 토픽·액션을 낸다 (ros2 launch faker faker.launch.py).
 """
 
@@ -49,7 +49,7 @@ def urdf_xacro(*args):
 
 
 def camera(name, serial_arg, fps):
-    # camera_namespace:='' + camera_name → /pole_cam/color/image_raw 처럼 설계의 토픽 이름에 맞춘다
+    # camera_namespace:='' + camera_name → /pole_front_cam/color/image_raw 처럼 설계의 토픽 이름에 맞춘다
     return Node(
         package='realsense2_camera', executable='realsense2_camera_node',
         namespace='', name=name, output='screen',
@@ -135,8 +135,8 @@ def generate_launch_description():
         flag('port', '/dev/opencr', 'OpenCR 포트 (udev 고정 이름)'),
         flag('arm_correction_type', 'ml/RlArmCorrection', 'rl_arm_correction 컨트롤러 플러그인 (테스트베드 ML 대역: faker/FakeRlArmCorrection)'),
         flag('use_twist_mux', 'true', '바퀴 속도 명령 고르기 (자동 · 수동 · 비상정지 잠금)'),
-        flag('use_cameras', 'true', 'RealSense 2대 (pole_cam·gripper_cam)'),
-        flag('pole_cam_serial', "''", 'pole_cam serial_no (빈 값이면 첫 장치)'),
+        flag('use_cameras', 'true', 'RealSense 2대 (pole_front_cam·gripper_cam)'),
+        flag('pole_front_cam_serial', "''", 'pole_front_cam serial_no (빈 값이면 첫 장치)'),
         flag('gripper_cam_serial', "''", 'gripper_cam serial_no'),
         flag('use_ekf', 'true', 'robot_localization EKF'),
         flag('use_rtabmap', 'true', 'RTAB-Map'),
@@ -168,7 +168,7 @@ def generate_launch_description():
             parameters=[share('config', 'twist_mux.yaml')],
             remappings=[('cmd_vel_out', '/cmd_vel_mux')]),
 
-        camera('pole_cam', 'pole_cam_serial', 30),
+        camera('pole_front_cam', 'pole_front_cam_serial', 30),
         camera('gripper_cam', 'gripper_cam_serial', 15),
 
         Node(
@@ -178,13 +178,13 @@ def generate_launch_description():
 
         # 설계 3-1: 하향 카메라라 시각 오도메트리 끔, x·y·yaw만 (Reg/Force3DoF)
         # 격자(/map)는 body_filter가 자기 몸을 뺀 점구름으로 (Grid/Sensor 0 = scan_cloud). depth 영상(Grid/Sensor 1)으로 만들면
-        # pole_cam에 찍힌 팔이 로봇 둘레 벽으로 남아 출발점이 늘 장애물 → planner가 매번 실패, 자동 탐사가 한 곳도 못 감 (실측)
+        # pole_front_cam에 찍힌 팔이 로봇 둘레 벽으로 남아 출발점이 늘 장애물 → planner가 매번 실패, 자동 탐사가 한 곳도 못 감 (실측)
         # 초기 위치: RTAB-Map은 이름공간 안 /rtabmap/initialpose를 구독 → 표준 /initialpose로 (RViz '2D Pose Estimate' · 시뮬레이터 지도
         # 우클릭 '초기 위치 지정'). 위치추정 모드에서 위치를 잃었을 때 "여기쯤"이라고 알려 줌
-        # 카메라 두 대: pole_cam(앞 · 늘) + gripper_cam(지도 만들 때 팔을 스캔 자세에 고정 — 왼쪽 뒤를 봄, config/scan_pose.yaml)
-        #   pole_cam      rgb · depth · info → rgbd_sync → rgbd_image0
+        # 카메라 두 대: pole_front_cam(앞 · 늘) + gripper_cam(지도 만들 때 팔을 스캔 자세에 고정 — 왼쪽 뒤를 봄, config/scan_pose.yaml)
+        #   pole_front_cam      rgb · depth · info → rgbd_sync → rgbd_image0
         #   gripper_cam   rgb · depth(scan_cam_gate: 스캔 자세에 멈춰 있을 때만 그대로, 아니면 0) · info → rgbd_sync → rgbd_image1
-        #   rgbdx_sync    둘을 묶어 rgbd_images → rtabmap (rgbd_cameras 0 = 묶음 메시지) + scan_cloud (몸 뺀 pole_cam 점구름)
+        #   rgbdx_sync    둘을 묶어 rgbd_images → rtabmap (rgbd_cameras 0 = 묶음 메시지) + scan_cloud (몸 뺀 pole_front_cam 점구름)
         # rtabmap_launch는 카메라 두 대 인자가 없어 노드를 직접 띄움 — 파라미터·리매핑은 rtabmap_launch와 같게 (이름공간 rtabmap · 노드 rtabmap:
         #   state_manager가 /rtabmap/rtabmap/set_mode_* · load_database를 부름)
         *rtabmap_nodes(),
@@ -224,14 +224,14 @@ def rtabmap_nodes():
     on = IfCondition(LaunchConfiguration('use_rtabmap'))
     loc = PythonExpression(["'", LaunchConfiguration('localization'), "'.lower() == 'true'"])
     # 매핑 모드면 DB를 새로 (--delete_db_on_start). localization 값은 'true'·'True' 둘 다 올 수 있어 lower()
-    # 클로저(루프·근접)를 엄격하게 — 제자리 회전 때 아래를 보는 pole_cam이 같은 모양 미로 벽만 보며 잘못 맞춘 클로저를
+    # 클로저(루프·근접)를 엄격하게 — 제자리 회전 때 아래를 보는 pole_front_cam이 같은 모양 미로 벽만 보며 잘못 맞춘 클로저를
     # 받아들여, odom은 맞는데(실제와 2cm·0.7°) map→odom이 0.21m·−7.9° 틀어져 지도가 깨졌음 (실측 2026-10-19):
     #   Vis/MinInliers 20→30→50→35 (특징점 대응 더 요구 — 아래) · RGBD/OptimizeMaxError 3→1.5 (odom과 많이 어긋나는 클로저 거부)
-    #   Reg/Strategy 0→2 (시각으로 찾고 점구름 ICP로 다시 맞춤 — scan_cloud = 몸 뺀 pole_cam 점구름)
+    #   Reg/Strategy 0→2 (시각으로 찾고 점구름 ICP로 다시 맞춤 — scan_cloud = 몸 뺀 pole_front_cam 점구름)
     #   RGBD/AngularUpdate 0.1→0.3 rad (제자리 회전 중 비슷한 노드가 줄줄이 쌓이지 않게)
     #   RGBD/ProximityPathMaxNeighbors 0 — Reg/Strategy 2면 RTAB-Map이 1로 켜는 '점구름만으로 근접 검출'을 끔:
     #     통로에선 양쪽 벽 점구름이 옆으로는 맞아도 통로 방향으로는 미끄러져, 통로 방향으로 0.18m 튄 보정을 받아들였음 (실측)
-    #   Vis/MinDepth · Kp/MinDepth 0.5 — pole_cam 화면 가운데에 로봇 자기 팔이 찍힘(카메라에서 0.2~0.35m). 팔은 로봇과 같이 돌아
+    #   Vis/MinDepth · Kp/MinDepth 0.5 — pole_front_cam 화면 가운데에 로봇 자기 팔이 찍힘(카메라에서 0.2~0.35m). 팔은 로봇과 같이 돌아
     #     그 특징점은 영상에서 안 움직임 → 클로저가 회전을 덜 잡음 (실측: 위치 1~2cm는 맞는데 회전 평균 2~6°, 늘 실제보다 작게).
     #     바닥·벽은 화면 맨 아래도 0.59m 이상 (카메라 높이 0.42 · 18° 하향 · 세로 화각 ~54°) → 0.5m 안 특징점만 버림
     #   Grid 바닥 판정을 법선 → 높이로: 바닥(base_footprint) 위 3cm까지 바닥 · 3~60cm 장애물 (Nav2 costmap과 같은 기준 — 경기장 바닥은 평평)
@@ -259,15 +259,15 @@ def rtabmap_nodes():
                           'depth_out': '/gripper_cam/aligned_depth_to_color/image_scan',
                           'cloud_in': '/gripper_cam/depth/color/points', 'cloud_out': '/gripper_cam/depth/color/points_scan',
                           'min_range': 0.5}]),
-        # 점구름 둘(몸 뺀 pole_cam · 스캔 자세일 때만 gripper_cam)을 base_footprint 하나로 → RTAB-Map scan_cloud (격자 /map · ICP)
+        # 점구름 둘(몸 뺀 pole_front_cam · 스캔 자세일 때만 gripper_cam)을 base_footprint 하나로 → RTAB-Map scan_cloud (격자 /map · ICP)
         Node(package='rtabmap_util', executable='point_cloud_aggregator', name='scan_cloud_merge', namespace='rtabmap', output='screen',
              condition=on,
              parameters=[{'count': 2, 'frame_id': 'base_footprint', 'approx_sync': True, 'topic_queue_size': 10,
                           'sync_queue_size': 10, 'qos': 2}],
-             remappings=[('cloud1', '/pole_cam/depth/color/points_filtered'), ('cloud2', '/gripper_cam/depth/color/points_scan'),
+             remappings=[('cloud1', '/pole_front_cam/depth/color/points_filtered'), ('cloud2', '/gripper_cam/depth/color/points_scan'),
                          ('combined_cloud', '/rtabmap/scan_cloud')]),
-        rgbd_sync('pole_rgbd_sync', '/pole_cam/color/image_raw', '/pole_cam/aligned_depth_to_color/image_raw',
-                  '/pole_cam/color/camera_info', '/rtabmap/rgbd_image0'),
+        rgbd_sync('pole_rgbd_sync', '/pole_front_cam/color/image_raw', '/pole_front_cam/aligned_depth_to_color/image_raw',
+                  '/pole_front_cam/color/camera_info', '/rtabmap/rgbd_image0'),
         rgbd_sync('gripper_rgbd_sync', '/gripper_cam/color/image_raw', '/gripper_cam/aligned_depth_to_color/image_scan',
                   '/gripper_cam/color/camera_info', '/rtabmap/rgbd_image1'),
         Node(package='rtabmap_sync', executable='rgbdx_sync', name='rgbdx_sync', namespace='rtabmap', output='screen', condition=on,

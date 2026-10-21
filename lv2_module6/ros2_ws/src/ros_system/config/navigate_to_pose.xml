@@ -1,7 +1,7 @@
 
 <!--
   bt_navigator 행동 트리 — Nav2 기본 navigate_to_pose_w_replanning_and_recovery.xml(Lyrical) 복사본, 바꾼 곳은 BackUp 한 줄:
-    후진 0.30m → 0.10m. pole_cam이 앞·아래만 봐서 뒤는 장애물을 모른 채 물러난다 (15-changes #23).
+    후진 0.30m → 0.10m. pole_front_cam이 앞·아래만 봐서 뒤는 장애물을 모른 채 물러난다 (15-changes #23).
     0.30m면 벽에 박히고, 막힌 채 바퀴가 돌아 odom이 밀림 → 위치추정이 벽 안으로 → planner가 출발점부터 실패 → 또 후진… 반복을 실측.
   ros_system.launch.py가 bt_navigator의 default_nav_to_pose_bt_xml 로 넘긴다.
 -->
