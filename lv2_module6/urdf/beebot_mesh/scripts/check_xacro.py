@@ -84,7 +84,7 @@ Tr = fk(e, {'joint5': math.pi / 2})
 check(np.linalg.norm(Tr['end_effector_link'][:3, 3] - Te['end_effector_link'][:3, 3]) < 0.002, 'joint5 롤 90°에 end_effector 위치 유지 (롤 축 위, 2 mm 이내)')
 
 # optical frame
-for cam in ('front_pole_cam', 'gripper_cam'):
+for cam in ('pole_front_cam', 'gripper_cam'):
     Tl, To = Te[f'{cam}_link'], Te[f'{cam}_color_optical_frame']
     check(np.allclose(To[:3, 2], Tl[:3, 0], atol=1e-6) and np.allclose(To[:3, 0], -Tl[:3, 1], atol=1e-6), f'{cam}_color_optical_frame: z=렌즈, x=오른쪽')
 

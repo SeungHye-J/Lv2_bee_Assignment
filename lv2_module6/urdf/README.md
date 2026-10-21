@@ -82,8 +82,8 @@ xacro beebot_mesh/urdf.xacro mock_hardware:=true > /tmp/beebot.urdf && check_urd
 base_footprint
 └─ base_link                      바퀴 축 아래 10 mm. x 앞, y 왼쪽, z 위
    ├─ wheel_left_link / wheel_right_link   continuous, 축 y
-   ├─ front_pole_cam_link                  폴 앞쪽 카메라 (고정)
-   │   └─ front_pole_cam_color_optical_frame
+   ├─ pole_front_cam_link                  폴 앞쪽 카메라 (고정)
+   │   └─ pole_front_cam_color_optical_frame
    ├─ imu_link                             (고정)
    ├─ basket_slot_0 ~ 11                   바구니 칸 바닥 중심 (고정, 방향은 base_link와 같음)
    └─ arm_base_link                        팔 받침 (고정)
@@ -110,7 +110,7 @@ base_footprint
 | --- | --- | --- |
 | `base_link.stl` | base_link | 와플 판, 바구니, 기둥 등 베이스 전체를 한 덩어리로 합친 메시. 55만 삼각형을 3 mm 격자로 간략화한 것 (약 6 MB) |
 | `wheel_left_link.stl`, `wheel_right_link.stl` | wheel_left/right_link | 바퀴 |
-| `camera_rear_link.stl` | front_pole_cam_link | 폴 앞쪽 카메라 |
+| `camera_rear_link.stl` | pole_front_cam_link | 폴 앞쪽 카메라 |
 | `arm_base_1.stl` | arm_base_link | 팔 받침 |
 | `shoulder_1.stl` | shoulder_link | 어깨 |
 | `link1_1.stl` | upper_arm_link | 위팔 |
@@ -130,7 +130,7 @@ base_footprint
 | --- | --- |
 | base_link | 2400.6 |
 | wheel_left/right_link | 28.5 × 2 |
-| front_pole_cam_link | 72.0 |
+| pole_front_cam_link | 72.0 |
 | arm_base_link | 81.1 |
 | shoulder_link | 85.8 |
 | upper_arm_link | 128.9 |

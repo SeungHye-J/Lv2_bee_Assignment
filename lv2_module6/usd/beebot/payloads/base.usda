@@ -337,7 +337,7 @@ def Xform "beebot" (
                     }
                 }
 
-                def Xform "front_pole_cam_link"
+                def Xform "pole_front_cam_link"
                 {
                     quatf xformOp:orient = (0.98768836, 0, 0.15643433, 0)
                     float3 xformOp:scale = (1, 1, 1)
@@ -368,7 +368,7 @@ def Xform "beebot" (
                         uniform token[] xformOpOrder = ["xformOp:translate", "xformOp:orient", "xformOp:scale"]
                     }
 
-                    def Xform "front_pole_cam_color_optical_frame"
+                    def Xform "pole_front_cam_color_optical_frame"
                     {
                         quatf xformOp:orient = (0.5000002, -0.5, 0.49999985, -0.5)
                         float3 xformOp:scale = (1, 1, 1)
