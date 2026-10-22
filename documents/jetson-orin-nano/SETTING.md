@@ -765,3 +765,8 @@ ros2 topic echo /state/devices/gripper_cam --once \
   --qos-reliability reliable --qos-durability transient_local \
   --field data
 ```
+
+## 원격 접속
+
+Jetson SSH 키 등록, `operator_tool` 원격 실행, x11vnc · GNOME RDP · NoMachine
+설정은 [REMOTE.md](REMOTE.md)에 분리해 두었다.
