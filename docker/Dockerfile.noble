@@ -122,7 +122,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     libgl1 libglib2.0-0 python3-pip ros-lyrical-ament-cmake-pytest \
     && rm -rf /var/lib/apt/lists/* \
     && pip install --break-system-packages --ignore-installed --no-cache-dir torch --index-url https://download.pytorch.org/whl/cpu \
-    && pip install --break-system-packages --ignore-installed --no-cache-dir ultralytics pytest
+    && pip install --break-system-packages --ignore-installed --no-cache-dir "numpy<2" ultralytics pytest
 
 # Arduino CLI (OpenCR 펌웨어 빌드·업로드용, Linux ARM64/x86_64 지원)
 # 근거: https://docs.arduino.cc/arduino-cli/installation (install.sh + BINDIR)

@@ -21,12 +21,12 @@ over "beebot"
                 prepend apiSchemas = ["PhysicsRigidBodyAPI", "PhysicsArticulationRootAPI", "NewtonArticulationRootAPI", "PhysicsMassAPI", "NewtonMassAPI"]
             )
             {
-                double[] newton:inertia = [0.028115, 0.032571, 0.027719, -0.000011729, 0.0063963, -0.0000076014]
+                double[] newton:inertia = [0.02813, 0.032644, 0.027766, -0.000021613, 0.0064439, -0.0000014858]
                 bool newton:selfCollisionEnabled = 0
-                point3f physics:centerOfMass = (-0.085631, -0.000202, 0.080552)
-                float3 physics:diagonalInertia = (0.021517636, 0.03257089, 0.034316473)
+                point3f physics:centerOfMass = (-0.085426, -0.000171, 0.080461)
+                float3 physics:diagonalInertia = (0.021501513, 0.032643862, 0.034394626)
                 float physics:mass = 2.4006
-                quatf physics:principalAxes = (-0.3898167, 0.0014183915, 0.9208841, 0.0036648444)
+                quatf physics:principalAxes = (-0.38919315, 0.0012590096, 0.92114383, 0.004594014)
 
                 over "box" (
                     prepend apiSchemas = ["NewtonCollisionAPI"]
@@ -76,6 +76,24 @@ over "beebot"
                     )
                 }
 
+                over "sphere_2" (
+                    prepend apiSchemas = ["NewtonCollisionAPI", "MaterialBindingAPI"]
+                )
+                {
+                    rel material:binding:physics = </beebot/PhysicsMaterials/caster_ball> (
+                        bindMaterialAs = "strongerThanDescendants"
+                    )
+                }
+
+                over "sphere_3" (
+                    prepend apiSchemas = ["NewtonCollisionAPI", "MaterialBindingAPI"]
+                )
+                {
+                    rel material:binding:physics = </beebot/PhysicsMaterials/caster_ball> (
+                        bindMaterialAs = "strongerThanDescendants"
+                    )
+                }
+
                 over "wheel_left_link" (
                     prepend apiSchemas = ["PhysicsRigidBodyAPI", "PhysicsMassAPI", "NewtonMassAPI"]
                 )
@@ -116,7 +134,7 @@ over "beebot"
                     }
                 }
 
-                over "front_pole_cam_link" (
+                over "pole_front_cam_link" (
                     prepend apiSchemas = ["PhysicsRigidBodyAPI", "PhysicsMassAPI", "NewtonMassAPI"]
                 )
                 {
@@ -459,13 +477,13 @@ over "beebot"
             quatf physics:localRot1 = (1, 0, 0, 0)
         }
 
-        def PhysicsFixedJoint "front_pole_cam_joint"
+        def PhysicsFixedJoint "pole_front_cam_joint"
         {
             custom rel physics:body0
             append rel physics:body0 = </beebot/Geometry/base_footprint/base_link>
             custom rel physics:body1
-            append rel physics:body1 = </beebot/Geometry/base_footprint/base_link/front_pole_cam_link>
-            point3f physics:localPos0 = (-0.137869, 0.000185, 0.434932)
+            append rel physics:body1 = </beebot/Geometry/base_footprint/base_link/pole_front_cam_link>
+            point3f physics:localPos0 = (-0.137869, 0.000185, 0.417108)
             point3f physics:localPos1 = (0, 0, 0)
             quatf physics:localRot0 = (0.98768836, 0, 0.15643433, 0)
             quatf physics:localRot1 = (1, 0, 0, 0)

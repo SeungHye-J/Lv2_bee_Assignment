@@ -6,7 +6,7 @@
 <!--
   beebot — 실측 CAD(bee.urdf, SolidWorks 내보내기)에서 만든 모델. bee.urdf를 새로 받으면 이 파일을 다시 만든다:
     · 메시 경로: meshes/x.stl → meshes/x.stl
-    · 이름 맞춤(제어·시뮬레이터가 쓰는 이름): camera_rear → front_pole_cam, camera_wrist → gripper_cam,
+    · 이름 맞춤(제어·시뮬레이터가 쓰는 이름): camera_rear → pole_front_cam, camera_wrist → gripper_cam,
       gripper_joint → gripper_left_joint, gripper_mimic_joint → gripper_right_joint, tcp → end_effector
     · 추가: imu_link · <ros2_control> 블록(BeebotSystemHardware) · xacro 인자
   설계: documents/ros2-design/07-tf.md (TF 트리), 08-ctrl.md (ros2_control)
@@ -29,9 +29,9 @@
   </joint>
   <link name="base_link">
     <inertial>
-      <origin rpy="0 0 0" xyz="-0.085631 -0.000202 0.080552"/>
+      <origin rpy="0 0 0" xyz="-0.085426 -0.000171 0.080461"/>
       <mass value="2.400600"/>
-      <inertia ixx="2.8115e-02" ixy="-1.1729e-05" ixz="6.3963e-03" iyy="3.2571e-02" iyz="-7.6014e-06" izz="2.7719e-02"/>
+      <inertia ixx="2.8130e-02" ixy="-2.1613e-05" ixz="6.4439e-03" iyy="3.2644e-02" iyz="-1.4858e-06" izz="2.7766e-02"/>
     </inertial>
     <visual>
       <origin rpy="0 0 0" xyz="0 0 0"/>
@@ -77,6 +77,20 @@
     </collision>
     <collision>
       <origin rpy="0 0 0" xyz="-0.177000 -0.064000 -0.005237"/>
+      <geometry>
+        <sphere radius="0.004763"/>
+      </geometry>
+    </collision>
+    <!-- front caster (v01) -->
+    <collision>
+      <origin rpy="0 0 0" xyz="0.049600 0.064000 -0.005237"/>
+      <geometry>
+        <sphere radius="0.004763"/>
+      </geometry>
+    </collision>
+    <!-- front caster (v01) -->
+    <collision>
+      <origin rpy="0 0 0" xyz="0.049600 -0.064000 -0.005237"/>
       <geometry>
         <sphere radius="0.004763"/>
       </geometry>
@@ -188,12 +202,12 @@
       </geometry>
     </collision>
   </link>
-  <joint name="front_pole_cam_joint" type="fixed">
+  <joint name="pole_front_cam_joint" type="fixed">
     <parent link="base_link"/>
-    <child link="front_pole_cam_link"/>
-    <origin rpy="0.000000 0.314159 0.000000" xyz="-0.137869 0.000185 0.434932"/>
+    <child link="pole_front_cam_link"/>
+    <origin rpy="0.000000 0.314159 0.000000" xyz="-0.137869 0.000185 0.417108"/>
   </joint>
-  <link name="front_pole_cam_link">
+  <link name="pole_front_cam_link">
     <inertial>
       <origin rpy="0 0 0" xyz="-0.013393 0.001408 -0.000023"/>
       <mass value="0.072000"/>
@@ -449,13 +463,13 @@
     <origin rpy="-0.000000 0.000000 1.570796" xyz="-0.000000 0.000000 0.109055"/>
   </joint>
   <link name="end_effector_link"/>
-  <joint name="front_pole_cam_optical_joint" type="fixed">
-    <parent link="front_pole_cam_link"/>
-    <child link="front_pole_cam_color_optical_frame"/>
+  <joint name="pole_front_cam_optical_joint" type="fixed">
+    <parent link="pole_front_cam_link"/>
+    <child link="pole_front_cam_color_optical_frame"/>
     <!-- D435 RGB lens: +32.5 mm left of body center, 4.3 mm behind front glass (realsense-ros _d435.urdf.xacro) -->
     <origin rpy="-1.570796 0.000000 -1.570796" xyz="-0.004300 0.032500 0.000000"/>
   </joint>
-  <link name="front_pole_cam_color_optical_frame"/>
+  <link name="pole_front_cam_color_optical_frame"/>
   <joint name="gripper_cam_optical_joint" type="fixed">
     <parent link="gripper_cam_link"/>
     <child link="gripper_cam_color_optical_frame"/>

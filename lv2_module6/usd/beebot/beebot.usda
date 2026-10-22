@@ -74,13 +74,13 @@ def Xform "beebot" (
                     }
                 }
 
-                over "front_pole_cam_link"
+                over "pole_front_cam_link"
                 {
                     string isaac:nameOverride (
                         displayName = "Name Override"
                     )
 
-                    over "front_pole_cam_color_optical_frame"
+                    over "pole_front_cam_color_optical_frame"
                     {
                         string isaac:Description (
                             displayName = "Reference Description"
@@ -89,7 +89,7 @@ def Xform "beebot" (
                             displayName = "Forward Axis"
                         )
 
-                        def Camera "front_pole_cam_rgb" (
+                        def Camera "pole_front_cam_rgb" (
                             prepend apiSchemas = ["OmniRtxCameraAutoExposureAPI_1", "OmniRtxCameraExposureAPI_1"]
                         )
                         {
