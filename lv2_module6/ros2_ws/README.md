@@ -102,7 +102,9 @@ serial을 하나도 지정하지 않으면 두 카메라 노드가 같은 첫 �
 
 ### 카메라 해상도·FPS
 
-기본값은 **640×360 @ 15 fps**이고, RGB/depth에 같은 프로파일을 씁니다.
+기본 카메라 프로파일은 **640×360 @ 15 fps**이고, RGB/depth에 같은 프로파일을 씁니다.
+다만 점군 부하를 줄이기 위해 depth에는 **decimation filter 2배**를 적용해서
+PointCloud2 밀도를 320×180 수준으로 낮춥니다. RGB 영상은 640×360 그대로입니다.
 
 ```bash
 ./start.sh \
@@ -110,8 +112,18 @@ serial을 하나도 지정하지 않으면 두 카메라 노드가 같은 첫 �
   gripper_cam_profile:=640x360x15
 ```
 
+decimation도 launch 인자로 조절한다.
+
+```bash
+./start.sh camera_decimation_enable:=false   # 원본 depth/점군
+./start.sh camera_decimation_magnitude:=3    # 점 수 약 1/9 (기본 2 = 1/4)
+```
+
+- `camera_decimation_enable`: 기본 `true`.
+- `camera_decimation_magnitude`: 기본 `2` (2배 decimation, 3이면 3배).
+
 지원 프로파일은 D435/D435i 기준입니다. 예: `424x240x15`, `640x480x15`.
-네트워크가 버티지 못하면 먼저 해상도/FPS를 낮추고 point cloud를 끕니다.
+더 줄여야 하면 해상도/FPS를 낮추고 point cloud를 끕니다.
 
 해상도를 바꾸면 카메라 내부 파라미터(fx·fy·cx·cy)도 달라집니다. 고정 표를 쓰지 말고
 실제 `/pole_front_cam/color/camera_info`·`/gripper_cam/color/camera_info` 값을 쓰세요.
@@ -119,12 +131,12 @@ serial을 하나도 지정하지 않으면 두 카메라 노드가 같은 첫 �
 ```bash
 ./start.sh \
   pole_front_cam_profile:=424x240x15 \
-  gripper_cam_profile:=424x240x15 \
-  gripper_cam_pointcloud:=false
+  gripper_cam_profile:=424x240x15
 ```
 
-- `pole_front_cam_pointcloud`: `body_filter`·Nav2용. 보통 켜 둠.
-- `gripper_cam_pointcloud`: `grasp_scorer`용. 네트워크 절약 시 끌 수 있음.
+- `pole_front_cam_pointcloud`: `body_filter`·Nav2용. 기본 `true`.
+- `gripper_cam_pointcloud`: `grasp_scorer`용. 기본 `false` — 그리퍼 작업을 할 때만
+  `gripper_cam_pointcloud:=true`로 켭니다.
 
 관련 토픽:
 

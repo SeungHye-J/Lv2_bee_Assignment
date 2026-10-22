@@ -76,6 +76,10 @@ def camera(name, serial_arg, profile_arg, pointcloud_arg, use_arg):
             'color_qos': 'SENSOR_DATA',
             'depth_qos': 'SENSOR_DATA',
             f'{POINTCLOUD_PARAM}.pointcloud_qos': 'SENSOR_DATA',
+            # 점군 밀도를 1/4로 줄인다 (depth 640x360 -> 320x180). RGB 해상도는 유지.
+            'decimation_filter.enable': LaunchConfiguration('camera_decimation_enable'),
+            'decimation_filter.filter_magnitude': ParameterValue(
+                LaunchConfiguration('camera_decimation_magnitude'), value_type=int),
             'align_depth.enable': True,
             f'{POINTCLOUD_PARAM}.enable': LaunchConfiguration(pointcloud_arg),
             # 적외선 스트림은 쓰지 않는다. 두 카메라를 같은 USB 버스에 물리면
@@ -163,8 +167,10 @@ def generate_launch_description():
         flag('gripper_cam_serial', "''", 'gripper_cam serial_no'),
         flag('pole_front_cam_profile', '640x360x15', 'pole_front_cam RGB/depth 프로파일 (WxHxFPS)'),
         flag('gripper_cam_profile', '640x360x15', 'gripper_cam RGB/depth 프로파일 (WxHxFPS)'),
+        flag('camera_decimation_enable', 'true', 'RealSense depth decimation 필터 (점군 밀도 감소)'),
+        flag('camera_decimation_magnitude', '2', 'decimation 배율 (2=1/4 점, 3=1/9 점)'),
         flag('pole_front_cam_pointcloud', 'true', 'pole_front_cam PointCloud2 발행 (body_filter/Nav2용)'),
-        flag('gripper_cam_pointcloud', 'true', 'gripper_cam PointCloud2 발행 (grasp_scorer용, 네트워크 절약 시 false)'),
+        flag('gripper_cam_pointcloud', 'false', 'gripper_cam PointCloud2 발행 (grasp_scorer용, 필요할 때만 true)'),
         flag('use_ekf', 'true', 'robot_localization EKF'),
         flag('use_rtabmap', 'true', 'RTAB-Map'),
         flag('localization', 'true', 'true=위치추정 모드(운영, rtabmap_db 지도로), false=매핑 모드(rtabmap_db를 새로 만듦)'),
