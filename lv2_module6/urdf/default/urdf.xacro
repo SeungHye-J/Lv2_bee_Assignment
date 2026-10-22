@@ -33,9 +33,9 @@
   </joint>
   <link name="base_link">
     <inertial>
-      <origin rpy="0 0 0" xyz="-0.085631 -0.000202 0.080552"/>
+      <origin rpy="0 0 0" xyz="-0.085426 -0.000171 0.080461"/>
       <mass value="2.400600"/>
-      <inertia ixx="2.8115e-02" ixy="-1.1729e-05" ixz="6.3963e-03" iyy="3.2571e-02" iyz="-7.6014e-06" izz="2.7719e-02"/>
+      <inertia ixx="2.8130e-02" ixy="-2.1613e-05" ixz="6.4439e-03" iyy="3.2644e-02" iyz="-1.4858e-06" izz="2.7766e-02"/>
     </inertial>
     <visual>
       <origin rpy="0 0 0" xyz="0 0 0"/>
@@ -82,6 +82,20 @@
     </collision>
     <collision>
       <origin rpy="0 0 0" xyz="-0.177000 -0.064000 -0.005237"/>
+      <geometry>
+        <sphere radius="0.004763"/>
+      </geometry>
+    </collision>
+    <!-- front caster (v01) -->
+    <collision>
+      <origin rpy="0 0 0" xyz="0.049600 0.064000 -0.005237"/>
+      <geometry>
+        <sphere radius="0.004763"/>
+      </geometry>
+    </collision>
+    <!-- front caster (v01) -->
+    <collision>
+      <origin rpy="0 0 0" xyz="0.049600 -0.064000 -0.005237"/>
       <geometry>
         <sphere radius="0.004763"/>
       </geometry>
@@ -486,7 +500,8 @@
   <joint name="pole_front_cam_optical_joint" type="fixed">
     <parent link="pole_front_cam_link"/>
     <child link="pole_front_cam_color_optical_frame"/>
-    <origin rpy="-1.570796 0.000000 -1.570796" xyz="0.000000 0.000000 0.000000"/>
+    <!-- D435 RGB lens: +32.5 mm left of body center, 4.3 mm behind front glass (realsense-ros _d435.urdf.xacro) -->
+    <origin rpy="-1.570796 0.000000 -1.570796" xyz="-0.004300 0.032500 0.000000"/>
   </joint>
   <link name="pole_front_cam_color_optical_frame"/>
   <joint name="gripper_cam_optical_joint" type="fixed">
@@ -572,10 +587,9 @@
     </sensor>
   </ros2_control>
 
-  <!-- Gazebo (gz-sim): RGBD 카메라 2대.
-       gz 카메라는 센서 프레임의 +X를 본다 → 링크에 identity로 붙여야 정면.
-       (optical 프레임 회전을 센서 pose에 넣으면 카메라가 오른쪽/-Y를 봄) -->
-  <gazebo reference="pole_front_cam_link">
+  <!-- Gazebo (gz-sim): RGBD 카메라 2대. 센서는 optical 프레임 링크에 identity로 — 렌즈가 보는 방향 = optical +Z.
+       방향이 뒤집혀 보이면 sensor 안 <pose>에 rpy를 얹어 맞춘다 (URDF optical joint와 같은 값부터). -->
+  <gazebo reference="pole_front_cam_color_optical_frame">
     <sensor name="pole_rgbd" type="rgbd_camera">
       <pose>0 0 0 0 0 0</pose>
       <always_on>true</always_on>

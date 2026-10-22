@@ -29,9 +29,9 @@
   </joint>
   <link name="base_link">
     <inertial>
-      <origin rpy="0 0 0" xyz="-0.085631 -0.000202 0.080552"/>
+      <origin rpy="0 0 0" xyz="-0.085426 -0.000171 0.080461"/>
       <mass value="2.400600"/>
-      <inertia ixx="2.8115e-02" ixy="-1.1729e-05" ixz="6.3963e-03" iyy="3.2571e-02" iyz="-7.6014e-06" izz="2.7719e-02"/>
+      <inertia ixx="2.8130e-02" ixy="-2.1613e-05" ixz="6.4439e-03" iyy="3.2644e-02" iyz="-1.4858e-06" izz="2.7766e-02"/>
     </inertial>
     <visual>
       <origin rpy="0 0 0" xyz="0 0 0"/>
@@ -77,6 +77,20 @@
     </collision>
     <collision>
       <origin rpy="0 0 0" xyz="-0.177000 -0.064000 -0.005237"/>
+      <geometry>
+        <sphere radius="0.004763"/>
+      </geometry>
+    </collision>
+    <!-- front caster (v01) -->
+    <collision>
+      <origin rpy="0 0 0" xyz="0.049600 0.064000 -0.005237"/>
+      <geometry>
+        <sphere radius="0.004763"/>
+      </geometry>
+    </collision>
+    <!-- front caster (v01) -->
+    <collision>
+      <origin rpy="0 0 0" xyz="0.049600 -0.064000 -0.005237"/>
       <geometry>
         <sphere radius="0.004763"/>
       </geometry>
@@ -452,7 +466,8 @@
   <joint name="pole_front_cam_optical_joint" type="fixed">
     <parent link="pole_front_cam_link"/>
     <child link="pole_front_cam_color_optical_frame"/>
-    <origin rpy="-1.570796 0.000000 -1.570796" xyz="0.000000 0.000000 0.000000"/>
+    <!-- D435 RGB lens: +32.5 mm left of body center, 4.3 mm behind front glass (realsense-ros _d435.urdf.xacro) -->
+    <origin rpy="-1.570796 0.000000 -1.570796" xyz="-0.004300 0.032500 0.000000"/>
   </joint>
   <link name="pole_front_cam_color_optical_frame"/>
   <joint name="gripper_cam_optical_joint" type="fixed">
