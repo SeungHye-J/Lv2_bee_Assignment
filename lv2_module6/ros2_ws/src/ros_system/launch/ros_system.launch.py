@@ -54,6 +54,7 @@ def camera(name, serial_arg, fps):
         package='realsense2_camera', executable='realsense2_camera_node',
         namespace='', name=name, output='screen',
         condition=IfCondition(LaunchConfiguration('use_cameras')),
+        respawn=True, respawn_delay=2.0,  # 카메라를 나중에 꽂아도 다시 잡도록
         parameters=[{
             'serial_no': LaunchConfiguration(serial_arg),
             'camera_name': name,

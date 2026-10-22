@@ -22,7 +22,7 @@
 | manual_control | 직접 | control · ROS 2 노드 | 수동 모드(/state/operation_mode), 원격 조종 → twist_mux, 팔·그리퍼 직접 명령 |
 | BeebotSystemHardware | 직접 | control · ros2_control SystemInterface 플러그인 | OpenCR와 USB 시리얼(C 명령 · S 상태), mock 모드 |
 | body_filter | 직접 | control · ROS 2 노드 | pole_front_cam 점구름에서 자기 몸(URDF collision) 점 제거 + `stride: 2`로 솎아 Nav2 |
-| state_manager | 직접 | manager · ROS 2 노드 | 로봇 상태의 주인 — 판단해서 /state/<이름>만 발행 (조작 모드 · 지도 모드, RTAB-Map 모드 전환) |
+| state_manager | 직접 | manager · ROS 2 노드 | 로봇 상태의 주인 — /state/<이름>만 발행 (조작·지도 모드, RTAB-Map 전환) · `/state/devices`(장치 이름 목록) + `/state/devices/<이름>`(active/disconnected 상세) + `/state/topics`(전체 그래프) |
 | (OpenCR 펌웨어) beebot_opencr | 직접 | lv2_module6/firmware · Arduino | 다이나믹셀 8개 + IMU, 단위 변환, watchdog |
 | realsense2_camera ×2 (pole_front_cam, gripper_cam) | 제공 | Intel RealSense ROS 2 래퍼 | 장치를 USB 3로 열고 토픽 발행 — serial_no, camera_name, 해상도·fps, align_depth, pointcloud 켜기 |
 | robot_state_publisher | 제공 | ROS 2 기본 | URDF(urdf/<이름>/urdf.xacro — launch `urdf:=`, 기본 beebot_mesh) |

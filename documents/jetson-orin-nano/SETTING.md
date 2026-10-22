@@ -368,3 +368,132 @@ sudo vi /etc/udev/rules.d/99-opencr.rules
 ```
 내용[99-opencr.rules](../../lv2_module6/ros2_ws/99-opencr.rules): SUBSYSTEM=="tty", ATTRS{idVendor}=="0483", ATTRS{idProduct}=="5740", SYMLINK+="opencr", MODE="0666", ENV{ID_MM_DEVICE_IGNORE}="1"
 
+
+# RealSense 2대 고정
+
+OpenCR은 `/dev/ttyACM*` 번호가 꽂는 순서로 바뀌어서 udev로 `/dev/opencr`을 고정한다.  
+RealSense도 **2대를 구분해야 한다.** 다만 RealSense ROS 드라이버는 `/dev/video*` 경로가 아니라
+**카메라 serial_no**로 장치를 고르므로, udev symlink보다 launch 인자에 serial을 넣는 것이 정석이다.
+
+## 1. serial 번호 확인
+
+두 카메라를 꽂은 상태에서:
+
+```bash
+source /opt/ros/lyrical/setup.bash
+rs-enumerate-devices -s
+```
+
+`rs-enumerate-devices: 명령을 찾을 수 없습니다`가 나오면
+`ros-lyrical-librealsense2` 패키지의 도구가 PATH에 없는 것이다.
+
+```bash
+sudo apt install -y ros-lyrical-librealsense2
+source /opt/ros/lyrical/setup.bash
+
+# PATH에 안 잡히면 직접 실행
+/opt/ros/lyrical/bin/rs-enumerate-devices -s
+```
+
+패키지를 설치하기 어렵다면 USB sysfs에서 serial만 확인할 수도 있다.
+
+```bash
+for d in /sys/bus/usb/devices/*; do
+  [ "$(cat "$d/idVendor" 2>/dev/null)" = "8086" ] || continue
+  printf '%s  %s  serial=%s\n' \
+    "$d" "$(cat "$d/product" 2>/dev/null)" "$(cat "$d/serial" 2>/dev/null)"
+done
+```
+
+출력의 `Serial Number`를 확인한다.
+
+```text
+Intel RealSense D435i
+  Serial Number : 123456789012
+Intel RealSense D435i
+  Serial Number : 987654321098
+```
+
+어느 쪽이 `pole_front_cam`인지 `gripper_cam`인지 정한다.  
+헷갈리면 한 대를 뺐다 꽂아서 `rs-enumerate-devices -s` 목록에서 사라지는 serial을 확인하면 된다.
+
+## 2. `/dev` 이름 고정 + `start.sh` 자동 인식
+
+`/dev/opencr`처럼 **매번 serial 인자를 치지 않고** 쓰려면 udev symlink를 만든다.
+
+`99-realsense.rules` 예시는 저장소에 있다.
+
+```bash
+vi lv2_module6/ros2_ws/99-realsense.rules
+# <FRONT_SERIAL>, <GRIPPER_SERIAL>을 실제 serial로 교체
+
+sudo cp lv2_module6/ros2_ws/99-realsense.rules /etc/udev/rules.d/
+sudo udevadm control --reload-rules
+sudo udevadm trigger
+
+ls -l /dev/realsense_pole_front /dev/realsense_gripper
+```
+
+규칙 내용:
+
+```udev
+SUBSYSTEM=="usb", ATTRS{idVendor}=="8086", ATTRS{serial}=="<FRONT_SERIAL>", SYMLINK+="realsense_pole_front", MODE="0666"
+SUBSYSTEM=="usb", ATTRS{idVendor}=="8086", ATTRS{serial}=="<GRIPPER_SERIAL>", SYMLINK+="realsense_gripper", MODE="0666"
+```
+
+이제 `start.sh`가 symlink에서 `ID_SERIAL_SHORT`를 읽어  
+`pole_front_cam_serial` / `gripper_cam_serial`을 **자동으로 넣는다.**
+
+```bash
+cd lv2_module6/ros2_ws
+./start.sh
+```
+
+정상이면 실행 로그에 이렇게 나온다.
+
+```text
+ok: pole_front_cam_serial=123456789012 (/dev/realsense_pole_front)
+ok: gripper_cam_serial=987654321098 (/dev/realsense_gripper)
+```
+
+serial 인자를 직접 주는 방식도 여전히 가능하다.
+
+```bash
+./start.sh \
+  pole_front_cam_serial:=123456789012 \
+  gripper_cam_serial:=987654321098
+```
+
+- udev symlink가 없으면 자동 인식하지 않는다. 이때는 위처럼 직접 지정한다.
+- RealSense ROS 드라이버는 `/dev` 경로가 아니라 **`serial_no`**를 받으므로, `start.sh`가 symlink를 serial로 변환하는 것이다.
+- 2대를 쓸 때 serial을 비워 두면 두 노드가 같은 첫 장치를 잡으려 할 수 있다.
+
+## 3. 확인
+
+```bash
+ros2 topic echo /pole_front_cam/color/camera_info --once
+ros2 topic echo /gripper_cam/color/camera_info --once
+```
+
+또는:
+
+```bash
+ros2 topic echo /state/devices --once \
+  --qos-reliability reliable --qos-durability transient_local \
+  --field data
+# pole_front_cam,gripper_cam,opencr,imu,wheels,arm,gripper
+```
+
+장치별 상태:
+
+```bash
+ros2 topic echo /state/devices/pole_front_cam --once \
+  --qos-reliability reliable --qos-durability transient_local \
+  --field data
+```
+
+```bash
+ros2 topic echo /state/devices/gripper_cam --once \
+  --qos-reliability reliable --qos-durability transient_local \
+  --field data
+```

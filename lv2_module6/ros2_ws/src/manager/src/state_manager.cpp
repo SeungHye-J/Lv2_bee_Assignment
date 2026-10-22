@@ -5,6 +5,7 @@
 
 #include <algorithm>
 #include <filesystem>
+#include <sstream>
 #include <vector>
 
 #include "manager/restart.hpp"
@@ -12,6 +13,30 @@
 namespace manager {
 
 using diagnostic_msgs::msg::DiagnosticStatus;
+
+namespace {
+struct DeviceSpec {
+  const char * name;
+  const char * kind;
+  std::vector<std::string> topics;
+};
+
+// 상태 판단의 기준이 되는 대표 장치들. 실제 세부 토픽 목록은 /state/topics가 전체 그래프를 따로 낸다.
+const std::vector<DeviceSpec> DEVICE_SPECS = {
+  {"pole_front_cam", "camera", {
+    "/pole_front_cam/color/image_raw",
+    "/pole_front_cam/color/camera_info",
+    "/pole_front_cam/aligned_depth_to_color/image_raw",
+    "/pole_front_cam/depth/color/points"}},
+  {"gripper_cam", "camera", {
+    "/gripper_cam/color/image_raw",
+    "/gripper_cam/color/camera_info",
+    "/gripper_cam/aligned_depth_to_color/image_raw",
+    "/gripper_cam/depth/color/points"}},
+  {"opencr", "controller", {"/joint_states", "/odom", "/imu"}},
+  {"imu", "sensor", {"/imu"}},
+};
+}  // namespace
 
 StateManager::StateManager(const rclcpp::NodeOptions & options)
 : rclcpp::Node("state_manager", options) {
@@ -32,6 +57,37 @@ StateManager::StateManager(const rclcpp::NodeOptions & options)
   restartable_pub_ = create_publisher<std_msgs::msg::String>("/state/restartable", latched);
   restartable_timer_ = create_wall_timer(std::chrono::seconds(2), [this]() { publish_restartable(); });
   map_list_timer_ = create_wall_timer(std::chrono::seconds(2), [this]() { publish_map_list(); });
+  // 연결된 장치·토픽 상태 — 장치가 없어도 state_manager는 계속 뜨고, 없는 장치는 offline로 보인다.
+  devices_pub_ = create_publisher<std_msgs::msg::String>("/state/devices", latched);
+  topics_pub_ = create_publisher<std_msgs::msg::String>("/state/topics", latched);
+  joint_state_sub_ = create_subscription<sensor_msgs::msg::JointState>("/joint_states",
+    rclcpp::QoS(10),
+    [this](sensor_msgs::msg::JointState::ConstSharedPtr m) {
+      joint_names_.clear();
+      for (const auto & name : m->name) joint_names_.insert(name);
+      last_joint_time_ = std::chrono::steady_clock::now();
+    });
+  // 카메라/IMU는 "publisher가 있다"가 아니라 실제 메시지가 최근에 왔는지로 본다.
+  // 카메라 영상(Image)은 state_manager가 받지 않고, 같은 주기로 작은 camera_info만 받는다.
+  front_cam_info_sub_ = create_subscription<sensor_msgs::msg::CameraInfo>(
+    "/pole_front_cam/color/camera_info", rclcpp::SensorDataQoS(),
+    [this](sensor_msgs::msg::CameraInfo::ConstSharedPtr) {
+      last_seen_["pole_front_cam"] = std::chrono::steady_clock::now();
+    });
+  gripper_cam_info_sub_ = create_subscription<sensor_msgs::msg::CameraInfo>(
+    "/gripper_cam/color/camera_info", rclcpp::SensorDataQoS(),
+    [this](sensor_msgs::msg::CameraInfo::ConstSharedPtr) {
+      last_seen_["gripper_cam"] = std::chrono::steady_clock::now();
+    });
+  imu_sub_ = create_subscription<sensor_msgs::msg::Imu>(
+    "/imu", rclcpp::SensorDataQoS(),
+    [this](sensor_msgs::msg::Imu::ConstSharedPtr) {
+      last_seen_["imu"] = std::chrono::steady_clock::now();
+    });
+  device_timer_ = create_wall_timer(std::chrono::seconds(2), [this]() {
+    publish_devices();
+    publish_topics();
+  });
   estop_pub_ = create_publisher<std_msgs::msg::Bool>("/state/emergency", latched);
   mapping_cli_ = create_client<std_srvs::srv::Empty>("/rtabmap/rtabmap/set_mode_mapping");
   localization_cli_ = create_client<std_srvs::srv::Empty>("/rtabmap/rtabmap/set_mode_localization");
@@ -58,6 +114,8 @@ StateManager::StateManager(const rclcpp::NodeOptions & options)
   restart_note_ = "시작 (pid " + std::to_string(getpid()) + ")";
   publish(restart_pub_, restart_note_);
   publish_restartable();
+  publish_devices();
+  publish_topics();
   { std_msgs::msg::Bool m; m.data = estop_; estop_pub_->publish(m); }
   diag_.setHardwareID("beebot");
   diag_.add("상태", [this](diagnostic_updater::DiagnosticStatusWrapper & s) {
@@ -218,6 +276,96 @@ void StateManager::publish_restartable() {
   restartable_ = list;
   restartable_published_ = true;
   publish(restartable_pub_, restartable_);
+}
+
+bool StateManager::joints_fresh() const {
+  if (last_joint_time_ == std::chrono::steady_clock::time_point{}) return false;
+  return std::chrono::steady_clock::now() - last_joint_time_ < std::chrono::seconds(1);
+}
+
+bool StateManager::recent(const std::string & key) const {
+  const auto it = last_seen_.find(key);
+  if (it == last_seen_.end()) return false;
+  return std::chrono::steady_clock::now() - it->second < std::chrono::seconds(1);
+}
+
+void StateManager::publish_devices() {
+  const bool fresh = joints_fresh();
+  std::vector<std::string> names;
+  std::map<std::string, std::string> statuses;
+  auto add = [&names, &statuses](const std::string & name, const std::string & kind, bool active,
+                                 const std::vector<std::string> & details) {
+    std::ostringstream d;
+    d << kind << '|' << (active ? "active" : "disconnected") << '|';
+    for (size_t i = 0; i < details.size(); ++i) d << (i ? "," : "") << details[i];
+    names.push_back(name);
+    statuses[name] = d.str();
+  };
+
+  for (const auto & spec : DEVICE_SPECS) {
+    const std::string name(spec.name);
+    bool active = false;
+    if (name == "pole_front_cam" || name == "gripper_cam") {
+      active = recent(name);
+    } else if (name == "opencr") {
+      active = fresh;  // joint_states가 실제로 흐르는지로 판단
+    } else if (name == "imu") {
+      active = recent("imu");
+    }
+    add(name, spec.kind, active, spec.topics);
+  }
+
+  auto joint_active = [&](const std::vector<std::string> & required) {
+    if (!fresh) return false;
+    for (const auto & name : required) {
+      if (joint_names_.count(name) == 0) return false;
+    }
+    return true;
+  };
+  add("wheels", "joint", joint_active({"wheel_left_joint", "wheel_right_joint"}),
+      {"wheel_left_joint", "wheel_right_joint"});
+  add("arm", "joint", joint_active({"joint1", "joint2", "joint3", "joint4", "joint5"}),
+      {"joint1", "joint2", "joint3", "joint4", "joint5"});
+  add("gripper", "joint", joint_active({"gripper_left_joint"}), {"gripper_left_joint"});
+
+  // 1) 이름 목록 — std_msgs/String 하나에 쉼표로 구분해 넣는다.
+  std::string list;
+  for (size_t i = 0; i < names.size(); ++i) list += (i ? "," : "") + names[i];
+  if (!devices_published_ || list != devices_) {
+    publish(devices_pub_, list);
+    devices_ = list;
+    devices_published_ = true;
+  }
+
+  // 2) 장치별 상태 상세 — 활성 여부·세부 토픽/관절
+  const auto qos = rclcpp::QoS(1).reliable().transient_local();
+  for (const auto & name : names) {
+    auto & pub = device_pubs_[name];
+    if (!pub) {
+      pub = create_publisher<std_msgs::msg::String>("/state/devices/" + name, qos);
+    }
+    const auto & status = statuses[name];
+    if (device_status_[name] == status) continue;
+    std_msgs::msg::String msg;
+    msg.data = status;
+    pub->publish(msg);
+    device_status_[name] = status;
+  }
+}
+
+void StateManager::publish_topics() {
+  const auto topics = get_topic_names_and_types();
+  std::ostringstream out;
+  for (const auto & [topic, types] : topics) {
+    out << topic << '|';
+    for (size_t i = 0; i < types.size(); ++i) out << (i ? "," : "") << types[i];
+    out << '|' << count_publishers(topic) << '\n';
+  }
+  const std::string value = out.str();
+  if (topics_published_ && value == topics_) return;
+  topics_ = value;
+  topics_published_ = true;
+  publish(topics_pub_, topics_);
 }
 
 void StateManager::request_restart(const std::string & text) {

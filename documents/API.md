@@ -211,6 +211,9 @@ string message
 | `/cmd/manual/cmd_vel` | geometry_msgs/TwistStamped | teleop_twist_keyboard · 시뮬레이터 → manual_control | 수동일 때만 넘김, 0.5초 끊기면 0 |
 | `/cmd/manual/arm` | sensor_msgs/JointState | 시뮬레이터 · 운영자 → manual_control | joint1~5 rad · gripper_left_joint m |
 | `/state/operation_mode` | std_msgs/String (transient_local) | state_manager → manual_control · coordinator · explorer | AUTO · MANUAL · EXPLORE (AUTO가 아니면 coordinator는 작업 멈춤, EXPLORE면 explorer가 탐사) |
+| `/state/devices` | std_msgs/String (transient_local) | state_manager → 시뮬레이터 · 누구나 | **장치 이름만 쉼표 구분** — `pole_front_cam,gripper_cam,opencr,imu,wheels,arm,gripper` · 상태가 아니라 목록 (2초마다 확인, 바뀔 때만) |
+| `/state/devices/<이름>` | std_msgs/String (transient_local) | state_manager → 시뮬레이터 · 누구나 | 장치별 상세 — `종류\|active 또는 disconnected\|세부 토픽·관절` (예: `camera\|disconnected\|/pole_front_cam/...`) · 장치마다 동적 토픽 |
+| `/state/topics` | std_msgs/String (transient_local) | state_manager → 시뮬레이터 · 누구나 | 전체 ROS 그래프 — `토픽\|타입\|publisher 수` 줄들. `/state/devices`에 없는 새 센서도 여기서 찾음 |
 | `/explore/result` | std_msgs/String | explorer → state_manager | 탐사 끝: `DONE …`(프론티어 없음) · `FAILED …` → state_manager가 AUTO로 되돌림 |
 | `/state/map_list` | std_msgs/String (transient_local) | state_manager → 시뮬레이터 · 누구나 | 가진 지도 폴더 이름들 (줄바꿈 구분, `<map_dir>/<이름>/rtabmap.db` 있는 것) — 바뀔 때만 |
 | `/cmd/restart` | std_msgs/String | 시뮬레이터 [ROS 재시작] · `ros-faker-restart` · 운영자(`ros2 topic pub --once`) → state_manager | **`all [이름:=값 …]`** = 이 launch 전체를 정상 종료 → 같은 명령줄로 다시 (인자를 주면 그 인자만 바꿈, `map:=`을 바꾸면 `map_name:=` 버림 · 테스트베드는 그 사이 `build-ws`) · **`node <이름>`** = 그 노드 프로세스만 같은 명령줄·환경(파라미터 파일·리매핑 그대로)으로 다시 (Nav2 수명주기 노드는 다시 활성화 필요). 실기 bringup · 테스트베드 같은 길. 같은 요청이 두 번 오지 않게 하는 건 보내는 쪽 — 테스트베드 input_manager는 읽은 파일을 지움. 도는 중엔 새 요청 거절 |
@@ -220,6 +223,12 @@ string message
 | `/cmd/map_mode` | std_msgs/String | 시뮬레이터 · 운영자 → state_manager | MAPPING(스캔) · LOCALIZATION(위치추정) — RTAB-Map 모드 전환 요청 |
 | `/state/map_mode` | std_msgs/String (transient_local) | state_manager → 시뮬레이터 · 누구나 | MAPPING · LOCALIZATION · COURSE(정지 지도, 바꿀 수 없음) — RTAB-Map 응답 뒤에만 바뀜 |
 | `/state/map_name` | std_msgs/String (transient_local) | state_manager → 시뮬레이터 · 누구나 | 지금 쓰는 지도 폴더 이름 (`<map_dir>/<이름>/` rtabmap.db · map.pgm · map.yaml, 빈 값 = 폴더 없음) — 시뮬레이터 [지도 저장]이 같은 폴더에 씀 |
+
+- `/state/devices`는 **이름 목록만** 낸다. 장치별 `active/disconnected`와 세부 토픽은 `/state/devices/<이름>`에서 본다.
+  - `active`: 카메라 `camera_info`, 로봇 `/joint_states`, IMU `/imu`가 **최근 1초 안에 실제로 왔는지**
+  - `disconnected`: 해당 데이터가 1초 넘게 없거나 장치가 연결되지 않은 상태
+- `/state/topics`는 `get_topic_names_and_types()` + publisher 수를 그대로 내는 **전체 그래프 덤프**다.
+  장치 목록에 없는 새 센서/토픽은 여기서 먼저 찾고, 필요하면 `state_manager`의 장치 카탈로그에 추가한다.
 | `/cmd_vel_manual` | geometry_msgs/TwistStamped | manual_control → twist_mux | 위 체인 참조 |
 | `/arm_controller/joint_trajectory` | trajectory_msgs/JointTrajectory | manual_control → arm_controller (JTC) | 5축 전체 한 점 |
 
