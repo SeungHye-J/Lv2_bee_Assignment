@@ -180,6 +180,32 @@ ros2 topic info -v /pole_front_cam/color/image_raw
 ros2 topic info -v /pole_front_cam/depth/color/points
 ```
 
+### 다른 PC의 RViz로 볼 때
+
+RViz Image Display에서 다음을 맞춥니다.
+
+```text
+Reliability Policy : Best Effort
+Durability Policy  : Volatile
+Queue Size         : 1
+```
+
+RealSense 드라이버의 `*_qos` 프로파일은 발행 큐를 5로 고정한다.
+발행 큐를 1로 바꾸는 파라미터는 없으므로, **수신하는 RViz 쪽 큐를 1로**
+두는 것이 맞습니다.
+
+네트워크 대역폭이 원인이면 raw Image 대신 compressed transport를 씁니다.
+RealSense가 `compressed` 토픽을 발행하는지 확인하고, RViz의 Transport Hint를
+`compressed`로 바꿉니다.
+
+```bash
+ros2 topic list | grep -E 'image_raw(/(compressed|theora))?$'
+ros2 topic bw /pole_front_cam/color/image_raw
+```
+
+그래도 느리면 640×360@15에서 424×240@15로 낮추거나 유선 Ethernet을 쓰세요.
+큐 1은 **밀린 프레임을 버리는** 설정이지, 네트워크 전송량을 줄이는 설정은 아닙니다.
+
 ## 3. 지도·모드
 
 기본은 `map:=saved`입니다. `ros2_ws/map/<이름>/rtabmap.db`가 없으면

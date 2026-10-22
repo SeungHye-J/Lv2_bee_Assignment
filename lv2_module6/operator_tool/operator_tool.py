@@ -4,7 +4,8 @@
 bringup이 떠 있는 상태에서 상태 확인, 자동/수동 전환, 비상정지, 바퀴·팔·그리퍼
 수동 명령, 지도 모드/지도 전환을 한 곳에서 실행한다.
 
-  ./operator_tool/run.sh status
+  ./operator_tool/run.sh              # 대화형 메뉴
+  ./operator_tool/run.sh status       # 한 번만 출력 (자동화용)
   ./operator_tool/run.sh mode manual
   ./operator_tool/run.sh teleop
   ./operator_tool/run.sh arm set joint1=0.0 joint2=0.4
@@ -20,6 +21,7 @@ import argparse
 import math
 import os
 import select
+import subprocess
 import sys
 import termios
 import time
@@ -64,9 +66,25 @@ STATE_TOPICS = {
     'devices': '/state/devices',
     'topics': '/state/topics',
     'restartable': '/state/restartable',
+    'restart': '/state/restart',
 }
 
 DIAG_LEVELS = {0: 'OK', 1: 'WARN', 2: 'ERROR', 3: 'STALE'}
+
+# 대화형 메뉴 반환값
+BACK = 'back'
+MAIN = 'main'
+QUIT = 'quit'
+STAY = 'stay'
+REFRESH = 'refresh'
+
+RESET = '\033[0m'
+BOLD = '\033[1m'
+DIM = '\033[2m'
+RED = '\033[31m'
+GREEN = '\033[32m'
+YELLOW = '\033[33m'
+CYAN = '\033[36m'
 
 
 class OperatorTool(Node):
@@ -81,6 +99,12 @@ class OperatorTool(Node):
         self._diagnostics = {}
         self._joints = {}
         self._last_joint_time = 0.0
+
+        # 대화형 메뉴 설정값
+        self._ui_linear = 0.15
+        self._ui_angular = 0.8
+        self._ui_duration = 1.0
+        self._ui_color = sys.stdout.isatty() and os.environ.get('NO_COLOR') is None
 
         self._cmd_operation = self.create_publisher(String, '/cmd/operation_mode', 10)
         self._cmd_estop = self.create_publisher(Bool, '/cmd/e_stop', 10)
@@ -606,6 +630,848 @@ class OperatorTool(Node):
         print(f'재시작 요청: {data}')
         return 0
 
+    # ------------------------------------------------------------------- menu
+    def cmd_menu(self, args) -> int:
+        if not sys.stdin.isatty():
+            print('거부: 대화형 메뉴는 터미널(TTY)에서 실행해야 합니다. '
+                  '`./run.sh status`처럼 명령을 직접 쓰세요.', file=sys.stderr)
+            return 2
+        return self.run_menu()
+
+    def _ui_paint(self, text: str, color: str) -> str:
+        return f'{color}{text}{RESET}' if self._ui_color else text
+
+    @staticmethod
+    def _ui_clear():
+        if sys.stdout.isatty():
+            print('\033[2J\033[H', end='', flush=True)
+
+    def _ui_header(self, title: str):
+        self._poll(0.35)
+        self._ui_clear()
+        bold = BOLD if self._ui_color else ''
+        reset = RESET if self._ui_color else ''
+        print(f'{bold}{"=" * 64}{reset}')
+        print(f'{bold}  BeeBot Operator Console  ·  {title}{reset}')
+        print(f'{bold}{"=" * 64}{reset}')
+
+        op = self.operation or '?'
+        mode = self.map_mode or '?'
+        estop = self._ui_paint('ON', RED + BOLD) if self._emergency else 'OFF'
+        active = 0
+        for name in self._devices:
+            _, state, _ = self._device_info(name)
+            if state == 'active':
+                active += 1
+        print(f'  조작 {op:9s} | 지도 {mode:12s} | E-STOP {estop:3s} | '
+              f'장치 {active}/{len(self._devices)}')
+        if not self._values and not self._devices and not self._joints:
+            print(f'  {self._ui_paint("상태 없음 — bringup이 떠 있는지 확인", YELLOW)}')
+        print('-' * 64)
+
+    def _ui_footer(self, back: bool = True, main: bool = True):
+        print('-' * 64)
+        hints = []
+        if back:
+            hints.append('b) 뒤로')
+        if main:
+            hints.append('m) 메인 메뉴')
+        hints.append('q) 종료')
+        print('  ' + '   '.join(hints))
+
+    @staticmethod
+    def _ui_prompt() -> str:
+        try:
+            return input('선택> ').strip().lower()
+        except EOFError:
+            return 'q'
+
+    def _ui_pause(self, back_label: str | None = None, refresh: bool = False) -> str:
+        """결과 화면에서 Enter/r/b/m/q를 받는다."""
+        hints = []
+        if refresh:
+            hints.append('r) 새로고침')
+        if back_label:
+            hints.append(f'b) {back_label}')
+        hints += ['m) 메인 메뉴', 'q) 종료']
+        try:
+            raw = input('Enter 계속 · ' + ' · '.join(hints) + ' > ').strip().lower()
+        except EOFError:
+            return QUIT
+        if raw in ('q', 'quit', 'exit'):
+            return QUIT
+        if raw in ('m', 'main', 'menu'):
+            return MAIN
+        if raw in ('b', 'back') and back_label:
+            return BACK
+        if raw in ('r', 'refresh') and refresh:
+            return REFRESH
+        return STAY
+
+    def _ui_yes_no(self, prompt: str, default: bool = False) -> bool:
+        suffix = 'Y/n' if default else 'y/N'
+        while True:
+            try:
+                raw = input(f'{prompt} [{suffix}] ').strip().lower()
+            except EOFError:
+                return False
+            if not raw:
+                return default
+            if raw in ('y', 'yes', '예', 'ㅇ'):
+                return True
+            if raw in ('n', 'no', '아니오', 'ㄴ'):
+                return False
+            if raw in ('q', 'quit', 'exit'):
+                return False
+            print('y 또는 n으로 답하세요.')
+
+    def _ui_read_float(self, prompt: str, current: float,
+                       positive: bool = False) -> tuple[float, bool]:
+        try:
+            raw = input(f'{prompt} [{current:g}] (Enter=유지): ').strip()
+        except EOFError:
+            return current, False
+        if not raw:
+            return current, True
+        try:
+            value = float(raw)
+        except ValueError:
+            print(f'거부: 숫자가 아님: {raw}')
+            return current, False
+        if not math.isfinite(value):
+            print('거부: 유한한 숫자가 아님')
+            return current, False
+        if positive and value <= 0.0:
+            print('거부: 0보다 커야 합니다')
+            return current, False
+        if not positive and value < 0.0:
+            print('거부: 0 이상이어야 합니다')
+            return current, False
+        return value, True
+
+    def _ui_invalid(self, choice: str):
+        print(self._ui_paint(f'알 수 없는 선택: {choice}', RED))
+        time.sleep(0.45)
+
+    def _device_info(self, name: str) -> tuple[str, str, list[str]]:
+        """state_manager의 `종류|active/disconnected|토픽,토픽`을 푼다."""
+        raw = (self._device_details.get(name) or '').strip()
+        if not raw:
+            return '-', '', []
+        parts = raw.split('|', 2)
+        kind = parts[0].strip() if parts else '-'
+        state = parts[1].strip().lower() if len(parts) > 1 else ''
+        topics = [t for t in parts[2].split(',') if t] if len(parts) > 2 else []
+        return kind or '-', state, topics
+
+    @staticmethod
+    def _status_args(diagnostics: bool = False, topics: bool = False):
+        return argparse.Namespace(diagnostics=diagnostics, topics=topics)
+
+    def run_menu(self) -> int:
+        """번호 선택 + b/m/q 내비게이션을 쓰는 대화형 운영 콘솔."""
+        self._poll(0.6)
+        aliases = {
+            'status': '1', 'state': '1',
+            'devices': '2', 'device': '2',
+            'mode': '3',
+            'manual': '4', 'teleop': '4', 'drive': '4',
+            'arm': '5', 'gripper': '6', 'map': '7',
+            'estop': '8', 'e-stop': '8', 'restart': '9', 'rviz': '10',
+        }
+        while rclpy.ok():
+            self._ui_header('메인 메뉴')
+            print('  1) 상태')
+            print('  2) 장치')
+            print('  3) 조작 모드')
+            print('  4) 수동 주행 / 텔레오퍼')
+            print('  5) 팔')
+            print('  6) 그리퍼')
+            print('  7) 지도')
+            print('  8) 비상정지')
+            print('  9) 재시작')
+            print(' 10) RViz 열기 (Best Effort QoS)')
+            print()
+            print('  번호를 고르거나 명령 이름(status, devices, teleop …)을 입력하세요.')
+            self._ui_footer(back=False, main=False)
+            choice = self._ui_prompt()
+            choice = aliases.get(choice, choice)
+            if choice in ('q', 'quit', 'exit'):
+                break
+            if choice == '1':
+                result = self._menu_status()
+            elif choice == '2':
+                result = self._menu_devices()
+            elif choice == '3':
+                result = self._menu_mode()
+            elif choice == '4':
+                result = self._menu_manual()
+            elif choice == '5':
+                result = self._menu_arm()
+            elif choice == '6':
+                result = self._menu_gripper()
+            elif choice == '7':
+                result = self._menu_map()
+            elif choice == '8':
+                result = self._menu_estop()
+            elif choice == '9':
+                result = self._menu_restart()
+            elif choice in ('10', 'rviz'):
+                result = self._menu_rviz()
+            else:
+                self._ui_invalid(choice)
+                continue
+            if result == QUIT:
+                break
+            # BACK은 하위 메뉴에서 메인으로 돌아온 것이다. MAIN과 같이 메인을 다시 그린다.
+        self._ui_clear()
+        print('operator_tool 종료')
+        return 0
+
+    def _menu_rviz(self) -> str:
+        self._ui_header('RViz')
+        if not (os.environ.get('DISPLAY') or os.environ.get('WAYLAND_DISPLAY')):
+            print('거부: DISPLAY/WAYLAND_DISPLAY가 없습니다 — GUI가 있는 터미널에서 실행하세요.')
+            result = self._ui_pause(back_label='메인 메뉴')
+            return result if result in (MAIN, QUIT) else STAY
+        script = Path(__file__).resolve().with_name('run_rviz.sh')
+        print('  카메라/점구름은 Best Effort, queue 1로 구독합니다.')
+        print(f'  실행: {script}')
+        if not script.is_file():
+            print(f'거부: 실행 파일 없음: {script}')
+            result = self._ui_pause(back_label='메인 메뉴')
+            return result if result in (MAIN, QUIT) else STAY
+        if not self._ui_yes_no('RViz를 새 창으로 열까요?', default=True):
+            return STAY
+        log = Path('/tmp/operator_tool_rviz.log')
+        try:
+            with log.open('ab') as out:
+                proc = subprocess.Popen(
+                    [str(script)], cwd=str(script.parent),
+                    stdout=out, stderr=out, start_new_session=True)
+        except OSError as exc:
+            print(f'거부: RViz 실행 실패: {exc}')
+            result = self._ui_pause(back_label='메인 메뉴')
+            return result if result in (MAIN, QUIT) else STAY
+        print(f'RViz 시작: pid {proc.pid} · 로그 {log}')
+        result = self._ui_pause(back_label='메인 메뉴')
+        return result if result in (MAIN, QUIT) else STAY
+
+    def _menu_status(self) -> str:
+        while rclpy.ok():
+            self._ui_header('상태')
+            print('  1) 전체 요약')
+            print('  2) 조작·지도 상태')
+            print('  3) 장치 상태 / 상세')
+            print('  4) 관절 상태')
+            print('  5) 진단 (/diagnostics_agg)')
+            print('  6) 토픽 (/state/topics)')
+            self._ui_footer()
+            choice = self._ui_prompt()
+            if choice in ('b', 'back'):
+                return BACK
+            if choice in ('m', 'main', 'menu'):
+                return MAIN
+            if choice in ('q', 'quit', 'exit'):
+                return QUIT
+
+            if choice == '1':
+                self.cmd_status(self._status_args())
+                result = self._ui_pause(back_label='상태 메뉴')
+            elif choice == '2':
+                self._show_operation_state()
+                result = self._ui_pause(back_label='상태 메뉴')
+            elif choice == '3':
+                result = self._menu_devices()
+            elif choice == '4':
+                self._show_joints()
+                result = self._ui_pause(back_label='상태 메뉴')
+            elif choice == '5':
+                self.cmd_status(self._status_args(diagnostics=True))
+                result = self._ui_pause(back_label='상태 메뉴')
+            elif choice == '6':
+                self.cmd_status(self._status_args(topics=True))
+                result = self._ui_pause(back_label='상태 메뉴')
+            else:
+                self._ui_invalid(choice)
+                continue
+            if result in (MAIN, QUIT):
+                return result
+
+    def _show_operation_state(self):
+        self._poll(0.5)
+        print(f'조작 모드 : {self.operation or "-"}')
+        print(f'지도 모드 : {self.map_mode or "-"}')
+        print(f'지도 이름 : {self._values.get("map_name") or "-"}')
+        print(f'비상정지  : {"ON" if self._emergency else "OFF"}')
+        maps = [n for n in (self._values.get('map_list') or '').splitlines() if n]
+        if maps:
+            print('지도 목록 : ' + ', '.join(maps))
+        else:
+            print('지도 목록 : -')
+
+    def _show_joints(self):
+        self._poll(0.5)
+        found = False
+        for name in (*ARM_JOINTS, GRIPPER_JOINT):
+            if name in self._joints:
+                print(f'  {name:18s} {self._joints[name]: .4f} rad')
+                found = True
+        if not found:
+            print('/joint_states에 팔 관절이 없습니다 — bringup/OpenCR 확인', file=sys.stderr)
+
+    def _menu_devices(self) -> str:
+        while rclpy.ok():
+            self._poll(0.6)
+            self._ui_header('장치')
+            if not self._devices:
+                print('  장치 목록 없음 — /state/devices 대기 중')
+            else:
+                for index, name in enumerate(self._devices, 1):
+                    kind, state, topics = self._device_info(name)
+                    if state == 'active':
+                        mark = self._ui_paint('● active', GREEN)
+                    elif state:
+                        mark = self._ui_paint(f'○ {state}', RED)
+                    else:
+                        mark = self._ui_paint('? 상세 없음', YELLOW)
+                    print(f'  {index:2d}) {name:20s} {kind:8s} {mark}  ({len(topics)} topics)')
+            self._ui_footer()
+            choice = self._ui_prompt()
+            if choice in ('b', 'back'):
+                return BACK
+            if choice in ('m', 'main', 'menu'):
+                return MAIN
+            if choice in ('q', 'quit', 'exit'):
+                return QUIT
+            if not choice.isdigit():
+                self._ui_invalid(choice)
+                continue
+            index = int(choice) - 1
+            if not 0 <= index < len(self._devices):
+                self._ui_invalid(choice)
+                continue
+            result = self._device_detail_menu(self._devices[index])
+            if result in (MAIN, QUIT):
+                return result
+
+    def _device_detail_menu(self, name: str) -> str:
+        while rclpy.ok():
+            self._poll(0.45)
+            kind, state, topics = self._device_info(name)
+            self._ui_header(f'장치 · {name}')
+            print(f'  종류   : {kind}')
+            if state == 'active':
+                print(f'  상태   : {self._ui_paint("● active", GREEN)}')
+            elif state:
+                print(f'  상태   : {self._ui_paint(f"○ {state}", RED)}')
+            else:
+                print(f'  상태   : {self._ui_paint("? 상세 정보 없음", YELLOW)}')
+            print('  세부 토픽/관절:')
+            if topics:
+                for topic in topics:
+                    print(f'    - {topic}')
+            else:
+                print('    -')
+
+            related = []
+            for diag_name, (level, message) in self._diagnostics.items():
+                if name in diag_name or any(topic in diag_name for topic in topics):
+                    related.append((diag_name, level, message))
+            if related:
+                print('  관련 진단:')
+                for diag_name, level, message in sorted(related):
+                    print(f'    - {diag_name}: {DIAG_LEVELS.get(level, level)} {message}')
+            else:
+                print('  관련 진단: -')
+
+            action = self._ui_pause(back_label='장치 목록', refresh=True)
+            if action == BACK:
+                return BACK
+            if action == MAIN:
+                return MAIN
+            if action == QUIT:
+                return QUIT
+
+    def _menu_mode(self) -> str:
+        targets = {'1': 'AUTO', '2': 'MANUAL', '3': 'EXPLORE'}
+        while rclpy.ok():
+            self._ui_header('조작 모드')
+            print(f'  현재: {self.operation or "-"}   비상정지: {"ON" if self._emergency else "OFF"}')
+            print('  1) AUTO      — 자동 주행')
+            print('  2) MANUAL    — 수동 주행/팔/그리퍼')
+            print('  3) EXPLORE   — MAPPING 중 탐사')
+            self._ui_footer()
+            choice = self._ui_prompt()
+            if choice in ('b', 'back'):
+                return BACK
+            if choice in ('m', 'main', 'menu'):
+                return MAIN
+            if choice in ('q', 'quit', 'exit'):
+                return QUIT
+            target = targets.get(choice)
+            if target is None:
+                self._ui_invalid(choice)
+                continue
+            if target == 'AUTO' and not self._ui_yes_no(
+                    'AUTO로 바꾸면 자동 주행이 시작될 수 있습니다. 전환할까요?'):
+                continue
+            if target == 'EXPLORE' and self.map_mode != 'MAPPING':
+                print('WARN: EXPLORE는 지도 모드 MAPPING에서만 허용됩니다.')
+                if not self._ui_yes_no('그래도 EXPLORE로 전환할까요?'):
+                    continue
+            self.cmd_mode(argparse.Namespace(mode=target.lower()))
+            result = self._ui_pause(back_label='조작 모드')
+            if result in (MAIN, QUIT):
+                return result
+
+    def _menu_estop(self) -> str:
+        while rclpy.ok():
+            self._ui_header('비상정지')
+            state = self._ui_paint('ON', RED + BOLD) if self._emergency else 'OFF'
+            print(f'  현재 비상정지: {state}')
+            print('  1) 상태 새로고침')
+            print('  2) 비상정지 ON')
+            print('  3) 비상정지 OFF')
+            self._ui_footer()
+            choice = self._ui_prompt()
+            if choice in ('b', 'back'):
+                return BACK
+            if choice in ('m', 'main', 'menu'):
+                return MAIN
+            if choice in ('q', 'quit', 'exit'):
+                return QUIT
+            if choice == '1':
+                self.cmd_estop(argparse.Namespace(state='status'))
+                result = self._ui_pause(back_label='비상정지')
+            elif choice == '2':
+                if self._emergency:
+                    print('이미 비상정지 ON입니다.')
+                    result = self._ui_pause(back_label='비상정지')
+                elif self._ui_yes_no('비상정지를 ON 할까요?', default=False):
+                    self.cmd_estop(argparse.Namespace(state='on'))
+                    result = self._ui_pause(back_label='비상정지')
+                else:
+                    continue
+            elif choice == '3':
+                if not self._emergency:
+                    print('이미 비상정지 OFF입니다.')
+                    result = self._ui_pause(back_label='비상정지')
+                elif self._ui_yes_no('주변 안전을 확인했습니다. 비상정지를 해제할까요?', default=False):
+                    self.cmd_estop(argparse.Namespace(state='off'))
+                    result = self._ui_pause(back_label='비상정지')
+                else:
+                    continue
+            else:
+                self._ui_invalid(choice)
+                continue
+            if result in (MAIN, QUIT):
+                return result
+
+    def _prepare_manual(self) -> bool:
+        self._poll(0.5)
+        if self._emergency:
+            print('거부: 비상정지 중입니다 — 먼저 비상정지를 해제하세요.')
+            return False
+        if self.operation == 'MANUAL':
+            return True
+        print(f'현재 조작 모드: {self.operation or "알 수 없음"}')
+        if not self._ui_yes_no('MANUAL 모드로 전환할까요?', default=True):
+            return False
+        self.cmd_mode(argparse.Namespace(mode='manual'))
+        return self.operation == 'MANUAL'
+
+    def _menu_manual(self) -> str:
+        while rclpy.ok():
+            self._ui_header('수동 주행 / 텔레오퍼')
+            print(f'  현재 모드: {self.operation or "-"}   '
+                  f'비상정지: {"ON" if self._emergency else "OFF"}')
+            print(f'  설정: 선속도 {self._ui_linear:.2f} m/s · '
+                  f'각속도 {self._ui_angular:.2f} rad/s · 시간 {self._ui_duration:.2f}s')
+            print('  1) 텔레오퍼 시작 (w/s/a/d · space 정지 · q 종료)')
+            print('  2) 전진')
+            print('  3) 후진')
+            print('  4) 좌회전')
+            print('  5) 우회전')
+            print('  6) 정지')
+            print('  7) 속도/시간 설정')
+            self._ui_footer()
+            choice = self._ui_prompt()
+            if choice in ('b', 'back'):
+                return BACK
+            if choice in ('m', 'main', 'menu'):
+                return MAIN
+            if choice in ('q', 'quit', 'exit'):
+                return QUIT
+            if choice == '7':
+                result = self._menu_drive_settings()
+                if result in (MAIN, QUIT):
+                    return result
+                continue
+            if choice == '1':
+                if not self._prepare_manual():
+                    self._ui_pause(back_label='수동 메뉴')
+                    continue
+                self.cmd_teleop(argparse.Namespace(
+                    linear=self._ui_linear, angular=self._ui_angular, force=False))
+                result = self._ui_pause(back_label='수동 메뉴')
+            elif choice in ('2', '3', '4', '5', '6'):
+                if choice != '6' and not self._prepare_manual():
+                    self._ui_pause(back_label='수동 메뉴')
+                    continue
+                direction = {'2': 'forward', '3': 'back', '4': 'left',
+                             '5': 'right', '6': 'stop'}[choice]
+                self.cmd_drive(argparse.Namespace(
+                    direction=direction, speed=self._ui_linear,
+                    angular=self._ui_angular, duration=self._ui_duration, force=False))
+                result = self._ui_pause(back_label='수동 메뉴')
+            else:
+                self._ui_invalid(choice)
+                continue
+            if result in (MAIN, QUIT):
+                return result
+
+    def _menu_drive_settings(self) -> str:
+        while rclpy.ok():
+            self._ui_header('수동 주행 설정')
+            print(f'  1) 선속도   : {self._ui_linear:.2f} m/s')
+            print(f'  2) 각속도   : {self._ui_angular:.2f} rad/s')
+            print(f'  3) 주행시간 : {self._ui_duration:.2f} s')
+            self._ui_footer()
+            choice = self._ui_prompt()
+            if choice in ('b', 'back'):
+                return BACK
+            if choice in ('m', 'main', 'menu'):
+                return MAIN
+            if choice in ('q', 'quit', 'exit'):
+                return QUIT
+            if choice == '1':
+                value, ok = self._ui_read_float('선속도 [m/s]', self._ui_linear)
+                if ok:
+                    self._ui_linear = value
+                else:
+                    self._ui_pause(back_label='설정')
+            elif choice == '2':
+                value, ok = self._ui_read_float('각속도 [rad/s]', self._ui_angular)
+                if ok:
+                    self._ui_angular = value
+                else:
+                    self._ui_pause(back_label='설정')
+            elif choice == '3':
+                value, ok = self._ui_read_float('주행시간 [s]', self._ui_duration, positive=True)
+                if ok:
+                    self._ui_duration = value
+                else:
+                    self._ui_pause(back_label='설정')
+            else:
+                self._ui_invalid(choice)
+
+    def _menu_arm(self) -> str:
+        while rclpy.ok():
+            self._ui_header('팔')
+            values = [f'{name}={self._joints[name]:.3f}' for name in ARM_JOINTS
+                      if name in self._joints]
+            print('  현재: ' + ('  '.join(values) if values else '(joint_states 없음)'))
+            if self.operation != 'MANUAL':
+                print(f'  {self._ui_paint("MANUAL 모드가 아닙니다", YELLOW)}')
+            if self.map_mode == 'MAPPING':
+                print(f'  {self._ui_paint("MAPPING 중에는 팔 명령이 거절됩니다", YELLOW)}')
+            print('  1) 관절 상태')
+            print('  2) 관절 목표 설정')
+            print('  3) 관절 델타 이동')
+            print('  4) 홈 (모든 팔 관절 0)')
+            self._ui_footer()
+            choice = self._ui_prompt()
+            if choice in ('b', 'back'):
+                return BACK
+            if choice in ('m', 'main', 'menu'):
+                return MAIN
+            if choice in ('q', 'quit', 'exit'):
+                return QUIT
+            if choice == '1':
+                self.cmd_arm(argparse.Namespace(action='show', targets=[], force=False))
+                result = self._ui_pause(back_label='팔 메뉴')
+            elif choice in ('2', '3'):
+                if not any(name in self._joints for name in ARM_JOINTS):
+                    print('/joint_states에 팔 관절이 없습니다 — bringup/OpenCR 확인', file=sys.stderr)
+                    self._ui_pause(back_label='팔 메뉴')
+                    continue
+                if not self._prepare_manual():
+                    self._ui_pause(back_label='팔 메뉴')
+                    continue
+                if self._arm_change(delta=(choice == '3')):
+                    result = self._ui_pause(back_label='팔 메뉴')
+                else:
+                    continue
+            elif choice == '4':
+                print('WARN: 현재 자세와 주변을 확인하세요. joint2가 URDF 한계 밖이면 홈 이동이 위험합니다.')
+                if not self._prepare_manual():
+                    self._ui_pause(back_label='팔 메뉴')
+                    continue
+                if not self._ui_yes_no('모든 팔 관절을 0으로 이동할까요?', default=False):
+                    continue
+                self.cmd_arm(argparse.Namespace(action='home', targets=[], force=False))
+                result = self._ui_pause(back_label='팔 메뉴')
+            else:
+                self._ui_invalid(choice)
+                continue
+            if result in (MAIN, QUIT):
+                return result
+
+    def _arm_change(self, delta: bool) -> bool:
+        self._poll(0.5)
+        if not any(name in self._joints for name in ARM_JOINTS):
+            print('/joint_states에 팔 관절이 없습니다 — bringup/OpenCR 확인', file=sys.stderr)
+            return False
+        print('  ' + '  '.join(f'{i}) {name}' for i, name in enumerate(ARM_JOINTS, 1)))
+        try:
+            raw = input('관절 [1-5 또는 이름] (b=뒤로): ').strip().lower()
+        except EOFError:
+            return False
+        if raw in ('b', 'back', ''):
+            return False
+        if raw.isdigit() and 1 <= int(raw) <= len(ARM_JOINTS):
+            name = ARM_JOINTS[int(raw) - 1]
+        elif raw in ARM_JOINTS:
+            name = raw
+        else:
+            print(f'거부: 모르는 관절: {raw}')
+            return False
+        label = '변화량 [rad]' if delta else '목표 [rad]'
+        try:
+            raw_value = input(f'{name} {label}: ').strip()
+        except EOFError:
+            return False
+        try:
+            value = float(raw_value)
+        except ValueError:
+            print(f'거부: 숫자가 아님: {raw_value!r}')
+            return False
+        if not math.isfinite(value):
+            print('거부: 유한한 숫자가 아님')
+            return False
+        action = 'delta' if delta else 'set'
+        self.cmd_arm(argparse.Namespace(
+            action=action, targets=[f'{name}={value:g}'], force=False))
+        return True
+
+    def _menu_gripper(self) -> str:
+        while rclpy.ok():
+            self._ui_header('그리퍼')
+            if GRIPPER_JOINT in self._joints:
+                print(f'  현재: {GRIPPER_JOINT}={self._joints[GRIPPER_JOINT]:.4f} m')
+            else:
+                print('  현재: (joint_states 없음)')
+            print('  1) 상태')
+            print('  2) 열기')
+            print('  3) 닫기')
+            print('  4) 위치 지정')
+            self._ui_footer()
+            choice = self._ui_prompt()
+            if choice in ('b', 'back'):
+                return BACK
+            if choice in ('m', 'main', 'menu'):
+                return MAIN
+            if choice in ('q', 'quit', 'exit'):
+                return QUIT
+            if choice == '1':
+                self.cmd_gripper(argparse.Namespace(action='show', value=None, force=False))
+                result = self._ui_pause(back_label='그리퍼 메뉴')
+            elif choice in ('2', '3'):
+                if not self._prepare_manual():
+                    self._ui_pause(back_label='그리퍼 메뉴')
+                    continue
+                action = 'open' if choice == '2' else 'close'
+                self.cmd_gripper(argparse.Namespace(action=action, value=None, force=False))
+                result = self._ui_pause(back_label='그리퍼 메뉴')
+            elif choice == '4':
+                try:
+                    raw = input(f'위치 [m] (0=닫힘, {GRIPPER_OPEN}=열림, b=뒤로): ').strip()
+                except EOFError:
+                    return QUIT
+                if raw.lower() in ('b', 'back', ''):
+                    continue
+                if not self._prepare_manual():
+                    self._ui_pause(back_label='그리퍼 메뉴')
+                    continue
+                self.cmd_gripper(argparse.Namespace(action='position', value=raw, force=False))
+                result = self._ui_pause(back_label='그리퍼 메뉴')
+            else:
+                self._ui_invalid(choice)
+                continue
+            if result in (MAIN, QUIT):
+                return result
+
+    def _map_names(self) -> list[str]:
+        self._poll(0.5)
+        maps = [n for n in (self._values.get('map_list') or '').splitlines() if n]
+        if not maps:
+            maps = self._local_maps(self._default_map_dir())
+        return maps
+
+    @staticmethod
+    def _map_args(action: str, name: str | None = None, file: str | None = None):
+        return argparse.Namespace(
+            action=action, name=name, file=file, map_dir=None,
+            format='pgm', topic='/map')
+
+    def _menu_map(self) -> str:
+        while rclpy.ok():
+            self._ui_header('지도')
+            maps = self._map_names()
+            print(f'  모드: {self.map_mode or "-"}   이름: {self._values.get("map_name") or "-"}')
+            print(f'  지도 목록: {len(maps)}개')
+            print('  1) 지도 상태')
+            print('  2) 지도 목록')
+            print('  3) MAPPING 모드')
+            print('  4) LOCALIZATION 모드')
+            print('  5) 지도 전환')
+            print('  6) 지도 저장')
+            self._ui_footer()
+            choice = self._ui_prompt()
+            if choice in ('b', 'back'):
+                return BACK
+            if choice in ('m', 'main', 'menu'):
+                return MAIN
+            if choice in ('q', 'quit', 'exit'):
+                return QUIT
+            if choice == '1':
+                self.cmd_map(self._map_args('status'))
+                result = self._ui_pause(back_label='지도 메뉴')
+            elif choice == '2':
+                self.cmd_map(self._map_args('list'))
+                result = self._ui_pause(back_label='지도 메뉴')
+            elif choice == '3':
+                self.cmd_map(self._map_args('mode', name='mapping'))
+                result = self._ui_pause(back_label='지도 메뉴')
+            elif choice == '4':
+                self.cmd_map(self._map_args('mode', name='localization'))
+                result = self._ui_pause(back_label='지도 메뉴')
+            elif choice == '5':
+                result = self._menu_map_switch()
+            elif choice == '6':
+                result = self._menu_map_save()
+            else:
+                self._ui_invalid(choice)
+                continue
+            if result in (MAIN, QUIT):
+                return result
+
+    def _menu_map_switch(self) -> str:
+        while rclpy.ok():
+            maps = self._map_names()
+            self._ui_header('지도 전환')
+            if maps:
+                for index, name in enumerate(maps, 1):
+                    print(f'  {index:2d}) {name}')
+            else:
+                print('  지도 목록 없음 — 이름을 직접 입력하세요.')
+            print('   n) 이름 직접 입력')
+            self._ui_footer()
+            choice = self._ui_prompt()
+            if choice in ('b', 'back'):
+                return BACK
+            if choice in ('m', 'main', 'menu'):
+                return MAIN
+            if choice in ('q', 'quit', 'exit'):
+                return QUIT
+            name = None
+            if choice.isdigit():
+                index = int(choice) - 1
+                if 0 <= index < len(maps):
+                    name = maps[index]
+            elif choice in ('n', 'name'):
+                try:
+                    name = input('지도 이름: ').strip()
+                except EOFError:
+                    return QUIT
+            if not name:
+                self._ui_invalid(choice)
+                continue
+            self.cmd_map(self._map_args('switch', name=name))
+            result = self._ui_pause(back_label='지도 전환')
+            if result in (MAIN, QUIT):
+                return result
+
+    def _menu_map_save(self) -> str:
+        self._ui_header('지도 저장')
+        name = self._values.get('map_name') or ''
+        default = self._default_map_dir() / (name or '<지도이름>') / 'map'
+        print(f'  현재 지도: {name or "-"}')
+        print(f'  기본 경로: {default}')
+        if not self._ui_yes_no('현재 /map을 저장할까요?', default=False):
+            return STAY
+        try:
+            raw = input('저장 경로 (Enter=기본, b=뒤로): ').strip()
+        except EOFError:
+            return QUIT
+        if raw.lower() in ('b', 'back'):
+            return BACK
+        if not name and not raw:
+            print('거부: 현재 지도 이름이 없습니다 — 저장 경로를 입력하세요.')
+            self._ui_pause(back_label='지도 메뉴')
+            return STAY
+        self.cmd_map(self._map_args('save', file=(raw or None)))
+        result = self._ui_pause(back_label='지도 메뉴')
+        return result
+
+    def _menu_restart(self) -> str:
+        while rclpy.ok():
+            self._poll(0.6)
+            self._ui_header('재시작')
+            note = self._values.get('restart') or '-'
+            print(f'  최근 요청: {note}')
+            restartable = [line.split()[0] for line in
+                           (self._values.get('restartable') or '').splitlines() if line.split()]
+            if restartable:
+                for index, name in enumerate(restartable, 1):
+                    print(f'  {index:2d}) {name}')
+            else:
+                print('  재시작 가능한 노드 목록 없음')
+            print('   a) 전체 스택 재시작')
+            print('   n) 노드 이름 직접 입력')
+            self._ui_footer()
+            choice = self._ui_prompt()
+            if choice in ('b', 'back'):
+                return BACK
+            if choice in ('m', 'main', 'menu'):
+                return MAIN
+            if choice in ('q', 'quit', 'exit'):
+                return QUIT
+            target = None
+            if choice.isdigit():
+                index = int(choice) - 1
+                if 0 <= index < len(restartable):
+                    target = restartable[index]
+            elif choice == 'a':
+                target = 'all'
+            elif choice in ('n', 'name'):
+                try:
+                    target = input('노드 이름 (all=전체): ').strip()
+                except EOFError:
+                    return QUIT
+            if not target:
+                self._ui_invalid(choice)
+                continue
+            if target == 'all':
+                print('WARN: 전체 스택이 재시작됩니다. 운영 중인 로봇에서는 주의하세요.')
+                if not self._ui_yes_no('정말 전체 스택을 재시작할까요?', default=False):
+                    continue
+                try:
+                    confirm = input('확인을 위해 RESTART를 입력하세요: ').strip()
+                except EOFError:
+                    return QUIT
+                if confirm != 'RESTART':
+                    print('취소: 입력이 일치하지 않습니다.')
+                    self._ui_pause(back_label='재시작 메뉴')
+                    continue
+            elif not self._ui_yes_no(f'{target} 노드를 재시작할까요?', default=False):
+                continue
+            self.cmd_restart(argparse.Namespace(target=target, yes=True))
+            result = self._ui_pause(back_label='재시작 메뉴')
+            if result in (MAIN, QUIT):
+                return result
+
 
 def _positive_float(value: str) -> float:
     number = float(value)
@@ -627,6 +1493,8 @@ def build_parser() -> argparse.ArgumentParser:
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog='''예시:
   ./operator_tool/run.sh status
+  ./operator_tool/run.sh menu
+  ./operator_tool/run.sh
   ./operator_tool/run.sh mode manual
   ./operator_tool/run.sh drive forward --speed 0.15 --duration 1
   ./operator_tool/run.sh teleop
@@ -636,6 +1504,8 @@ def build_parser() -> argparse.ArgumentParser:
   ./operator_tool/run.sh map save
 ''')
     sub = parser.add_subparsers(dest='command', required=True)
+
+    sub.add_parser('menu', help='대화형 메뉴 (인자 없이 실행했을 때 기본값)')
 
     status = sub.add_parser('status', help='조작·지도·장치 상태')
     status.add_argument('--diagnostics', action='store_true', help='/diagnostics_agg 요약')
@@ -687,8 +1557,8 @@ def build_parser() -> argparse.ArgumentParser:
 
 def main(argv=None) -> int:
     argv = list(sys.argv[1:] if argv is None else argv)
-    if not argv:  # 인자 없이 실행하면 상태부터 보여 준다
-        argv = ['status']
+    if not argv:  # 인자 없이 터미널에서 실행하면 대화형 메뉴
+        argv = ['menu'] if sys.stdin.isatty() else ['status']
     parser = build_parser()
     args = parser.parse_args(argv)
     rclpy.init(args=[])

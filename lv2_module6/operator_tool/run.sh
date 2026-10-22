@@ -21,4 +21,4 @@ else
   echo "WARN: ros2_ws/install/setup.bash 없음 — 먼저 ros2_ws에서 colcon build" >&2
 fi
 
-exec python3 "$HERE/operator_tool.py" "$@"
+exec python3 -u "$HERE/operator_tool.py" "$@"

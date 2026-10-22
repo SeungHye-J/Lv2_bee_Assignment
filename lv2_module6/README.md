@@ -246,7 +246,9 @@ test-faker 0 mock_hardware:=true          # OpenCR 없이 mock (물리 없음)
 ./ros2_ws/firmware-upload.sh              # OpenCR 펌웨어 올리기 (내부에서 firmware/ 스크립트 호출)
 ./ros2_ws/start.sh                        # 장치 확인 → bringup
 ./ros2_ws/start.sh mock_hardware:=true    # OpenCR 없이
-./operator_tool/run.sh status             # 운영 중 상태·수동 조작
+./operator_tool/run.sh                      # 대화형 운영 메뉴
+./operator_tool/run.sh status             # 상태만 한 번 출력
+./operator_tool/run_rviz.sh               # 카메라·지도 RViz (Best Effort QoS)
 ./ros2_ws/stop.sh                         # 떠 있는 ROS 전부 끄기
 ```
 

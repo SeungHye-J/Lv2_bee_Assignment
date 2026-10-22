@@ -7,7 +7,10 @@
 operator_tool/
 ├── README.md
 ├── run.sh
-└── operator_tool.py
+├── run_rviz.sh
+├── operator_tool.py
+└── rviz/
+    └── operator.rviz
 ```
 
 전체 로봇은 먼저 띄워 둡니다.
@@ -21,11 +24,43 @@ cd ../ros2_ws
 
 ```bash
 cd operator_tool
-./run.sh status
+./run.sh
 ```
 
 `run.sh`가 `/opt/ros/lyrical`과 `../ros2_ws/install/setup.bash`를 source합니다.
 다른 워크스페이스를 쓰면 `ROS_DISTRO_NAME` 또는 `BEEBOT_MAP_DIR`를 지정합니다.
+
+터미널에서 인자 없이 실행하면 **대화형 메뉴**가 열립니다.
+
+```text
+  1) 상태
+  2) 장치
+  3) 조작 모드
+  4) 수동 주행 / 텔레오퍼
+  5) 팔
+  6) 그리퍼
+  7) 지도
+  8) 비상정지
+  9) 재시작
+ 10) RViz 열기 (Best Effort QoS)
+  q) 종료
+```
+
+- 번호를 고르고 Enter
+- `status`, `devices`, `teleop`처럼 명령 이름을 입력해도 됩니다
+- 하위 화면의 `b`는 이전 메뉴, `m`은 메인 메뉴, `q`는 종료
+- `상태 → 3) 장치 상태 / 상세`에서 장치를 고르면 종류·활성 여부·토픽·관련 진단을 봅니다
+- 장치 상세에서 `r`은 새로고침입니다
+- `4) 수동 주행`에서 `텔레오퍼`를 고르면 `w/s/a/d`, `space`, `q`로 바로 주행합니다
+
+인자 없이 실행했는데 TTY가 아니면 자동화를 위해 `status`만 출력합니다.
+
+한 번만 실행하는 기존 명령도 그대로 사용할 수 있습니다.
+
+```bash
+./run.sh status
+./run.sh status --diagnostics
+```
 
 ## 명령
 
@@ -119,6 +154,40 @@ cd operator_tool
 ```
 
 `--yes` 없이는 실행되지 않습니다. 전체 스택이 재시작되므로 주의합니다.
+
+## RViz
+
+```bash
+./run_rviz.sh
+```
+
+`rviz/operator.rviz`는 카메라·점구름을 **Best Effort, queue 1**로 구독합니다.
+이 설정이 없으면 RealSense의 best effort 발행자와 RViz의 reliable 구독자가
+충돌해 `incompatible QoS` 경고가 나고 영상이 보이지 않습니다.
+
+기본 표시:
+
+| 표시 | 토픽 | QoS |
+| --- | --- | --- |
+| Front Camera | `/pole_front_cam/color/image_raw` | Best Effort, 1 |
+| Gripper Camera | `/gripper_cam/color/image_raw` | Best Effort, 1 (기본 꺼짐) |
+| Front Points | `/pole_front_cam/depth/color/points_filtered` | Best Effort, 1 (기본 꺼짐) |
+| Gripper Points | `/gripper_cam/depth/color/points` | Best Effort, 1 (기본 꺼짐) |
+| Map | `/map` | Reliable, Transient Local, 1 |
+
+점구름과 gripper 영상은 네트워크를 많이 쓰므로 기본으로 꺼 두었습니다.
+필요할 때 RViz Displays에서 켜세요.
+
+Jetson에서 로컬로 실행하면 네트워크를 타지 않습니다. PC에서 원격으로 볼 때는
+Jetson과 PC의 `ROS_DOMAIN_ID`를 맞추고, `ROS_LOCALHOST_ONLY`는 끄세요.
+
+```bash
+# Jetson과 PC 모두 같은 값
+export ROS_DOMAIN_ID=42
+```
+
+느리면 RViz Image Display의 **Transport Hint**를 `compressed`로 바꾸거나
+Jetson에서 `./run_rviz.sh`를 실행하세요.
 
 ## 안전 규칙
 
