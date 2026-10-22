@@ -48,20 +48,25 @@ def urdf_xacro(*args):
             ' mesh_uri:=package://ros_system/urdf/', name, '/meshes', *args]
 
 
-def camera(name, serial_arg, fps):
+def camera(name, serial_arg, profile_arg, pointcloud_arg, use_arg):
     # camera_namespace:='' + camera_name → /pole_front_cam/color/image_raw 처럼 설계의 토픽 이름에 맞춘다
+    # use_cameras는 전체 스위치, use_arg는 카메라별 스위치 (한 대만 연결한 상태에서 나머지를 끌 수 있다).
+    enabled = PythonExpression([
+        "'", LaunchConfiguration('use_cameras'), "'.lower() == 'true' and '",
+        LaunchConfiguration(use_arg), "'.lower() == 'true'"])
     return Node(
         package='realsense2_camera', executable='realsense2_camera_node',
         namespace='', name=name, output='screen',
-        condition=IfCondition(LaunchConfiguration('use_cameras')),
+        condition=IfCondition(enabled),
         respawn=True, respawn_delay=2.0,  # 카메라를 나중에 꽂아도 다시 잡도록
         parameters=[{
             'serial_no': LaunchConfiguration(serial_arg),
             'camera_name': name,
-            'rgb_camera.color_profile': f'640x480x{fps}',
-            'depth_module.depth_profile': f'640x480x{fps}',
+            # 네트워크가 터지지 않게 낮춘 기본값. 640x360x15는 D435/D435i 지원 프로파일.
+            'rgb_camera.color_profile': LaunchConfiguration(profile_arg),
+            'depth_module.depth_profile': LaunchConfiguration(profile_arg),
             'align_depth.enable': True,
-            'pointcloud.enable': True,
+            'pointcloud.enable': LaunchConfiguration(pointcloud_arg),
             'publish_tf': False,  # 카메라 프레임은 URDF(robot_state_publisher)가 낸다 — 하나만 남김
         }])
 
@@ -136,9 +141,15 @@ def generate_launch_description():
         flag('port', '/dev/opencr', 'OpenCR 포트 (udev 고정 이름)'),
         flag('arm_correction_type', 'ml/RlArmCorrection', 'rl_arm_correction 컨트롤러 플러그인 (테스트베드 ML 대역: faker/FakeRlArmCorrection)'),
         flag('use_twist_mux', 'true', '바퀴 속도 명령 고르기 (자동 · 수동 · 비상정지 잠금)'),
-        flag('use_cameras', 'true', 'RealSense 2대 (pole_front_cam·gripper_cam)'),
+        flag('use_cameras', 'true', 'RealSense 2대 (pole_front_cam·gripper_cam) 전체 스위치'),
+        flag('use_pole_front_cam', 'true', 'pole_front_cam 개별 스위치 (use_cameras와 AND)'),
+        flag('use_gripper_cam', 'true', 'gripper_cam 개별 스위치 (use_cameras와 AND)'),
         flag('pole_front_cam_serial', "''", 'pole_front_cam serial_no (빈 값이면 첫 장치)'),
         flag('gripper_cam_serial', "''", 'gripper_cam serial_no'),
+        flag('pole_front_cam_profile', '640x360x15', 'pole_front_cam RGB/depth 프로파일 (WxHxFPS)'),
+        flag('gripper_cam_profile', '640x360x15', 'gripper_cam RGB/depth 프로파일 (WxHxFPS)'),
+        flag('pole_front_cam_pointcloud', 'true', 'pole_front_cam PointCloud2 발행 (body_filter/Nav2용)'),
+        flag('gripper_cam_pointcloud', 'true', 'gripper_cam PointCloud2 발행 (grasp_scorer용, 네트워크 절약 시 false)'),
         flag('use_ekf', 'true', 'robot_localization EKF'),
         flag('use_rtabmap', 'true', 'RTAB-Map'),
         flag('localization', 'true', 'true=위치추정 모드(운영, rtabmap_db 지도로), false=매핑 모드(rtabmap_db를 새로 만듦)'),
@@ -169,8 +180,10 @@ def generate_launch_description():
             parameters=[share('config', 'twist_mux.yaml')],
             remappings=[('cmd_vel_out', '/cmd_vel_mux')]),
 
-        camera('pole_front_cam', 'pole_front_cam_serial', 30),
-        camera('gripper_cam', 'gripper_cam_serial', 15),
+        camera('pole_front_cam', 'pole_front_cam_serial', 'pole_front_cam_profile',
+               'pole_front_cam_pointcloud', 'use_pole_front_cam'),
+        camera('gripper_cam', 'gripper_cam_serial', 'gripper_cam_profile',
+               'gripper_cam_pointcloud', 'use_gripper_cam'),
 
         Node(
             package='robot_localization', executable='ekf_node', name='ekf_filter_node', output='screen',

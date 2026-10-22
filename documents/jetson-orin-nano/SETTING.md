@@ -372,8 +372,18 @@ sudo vi /etc/udev/rules.d/99-opencr.rules
 # RealSense 2대 고정
 
 OpenCR은 `/dev/ttyACM*` 번호가 꽂는 순서로 바뀌어서 udev로 `/dev/opencr`을 고정한다.  
-RealSense도 **2대를 구분해야 한다.** 다만 RealSense ROS 드라이버는 `/dev/video*` 경로가 아니라
-**카메라 serial_no**로 장치를 고르므로, udev symlink보다 launch 인자에 serial을 넣는 것이 정석이다.
+RealSense는 다르다. **드라이버가 serial_no로 장치를 고르므로**, 카메라를 고정하는 데
+`/dev/realsense_*` symlink가 **필수는 아니다.** Intel 기본 방식도 serial_no다.
+
+- **2대 구분**: `pole_front_cam_serial` / `gripper_cam_serial`만 지정하면 된다.
+- **udev**: USB 접근 권한을 주는 용도다. `/dev` 이름 고정 symlink는 사용하지 않는다.
+- **한 대만 연결**: serial 없이도 첫 장치를 잡을 수 있지만, 반대쪽 카메라 노드는 꺼야 한다.
+
+공식/일반적인 RealSense 권한 규칙 예:
+
+```udev
+SUBSYSTEM=="usb", ATTRS{idVendor}=="8086", MODE="0666", GROUP="plugdev"
+```
 
 ## 1. serial 번호 확인
 
@@ -417,56 +427,58 @@ Intel RealSense D435i
 어느 쪽이 `pole_front_cam`인지 `gripper_cam`인지 정한다.  
 헷갈리면 한 대를 뺐다 꽂아서 `rs-enumerate-devices -s` 목록에서 사라지는 serial을 확인하면 된다.
 
-## 2. `/dev` 이름 고정 + `start.sh` 자동 인식
+## 2. 환경변수로 serial 지정 (권장)
 
-`/dev/opencr`처럼 **매번 serial 인자를 치지 않고** 쓰려면 udev symlink를 만든다.
-
-`99-realsense.rules` 예시는 저장소에 있다.
+`start.sh`는 아래 환경변수를 읽어서 `ros_system`의 `serial_no`로 자동 전달한다.
 
 ```bash
-vi lv2_module6/ros2_ws/99-realsense.rules
-# <FRONT_SERIAL>, <GRIPPER_SERIAL>을 실제 serial로 교체
+export POLE_FRONT_CAM_SERIAL=123456789012
+export GRIPPER_CAM_SERIAL=987654321098
 
-sudo cp lv2_module6/ros2_ws/99-realsense.rules /etc/udev/rules.d/
-sudo udevadm control --reload-rules
-sudo udevadm trigger
-
-ls -l /dev/realsense_pole_front /dev/realsense_gripper
-```
-
-규칙 내용:
-
-```udev
-SUBSYSTEM=="usb", ATTRS{idVendor}=="8086", ATTRS{serial}=="<FRONT_SERIAL>", SYMLINK+="realsense_pole_front", MODE="0666"
-SUBSYSTEM=="usb", ATTRS{idVendor}=="8086", ATTRS{serial}=="<GRIPPER_SERIAL>", SYMLINK+="realsense_gripper", MODE="0666"
-```
-
-이제 `start.sh`가 symlink에서 `ID_SERIAL_SHORT`를 읽어  
-`pole_front_cam_serial` / `gripper_cam_serial`을 **자동으로 넣는다.**
-
-```bash
 cd lv2_module6/ros2_ws
 ./start.sh
 ```
 
-정상이면 실행 로그에 이렇게 나온다.
+영구 설정은 `~/.bashrc`에 넣는다.
 
-```text
-ok: pole_front_cam_serial=123456789012 (/dev/realsense_pole_front)
-ok: gripper_cam_serial=987654321098 (/dev/realsense_gripper)
+```bash
+echo 'export POLE_FRONT_CAM_SERIAL=123456789012' >> ~/.bashrc
+echo 'export GRIPPER_CAM_SERIAL=987654321098' >> ~/.bashrc
+source ~/.bashrc
 ```
 
-serial 인자를 직접 주는 방식도 여전히 가능하다.
+우선순위:
+
+```text
+명령줄 인자 (pole_front_cam_serial:=...)
+  > 환경변수 (POLE_FRONT_CAM_SERIAL / GRIPPER_CAM_SERIAL)
+```
+
+한 대만 연결한 경우에는 **그 카메라 serial만 설정**하면 `start.sh`가 반대쪽을 자동으로 끈다.
+
+```bash
+# front만 연결
+export POLE_FRONT_CAM_SERIAL=261822074109
+./start.sh
+# WARN: gripper_cam serial 없음 → use_gripper_cam:=false
+```
+
+```bash
+# gripper만 연결
+export GRIPPER_CAM_SERIAL=987654321098
+./start.sh
+# WARN: pole_front_cam serial 없음 → use_pole_front_cam:=false
+```
+
+직접 launch 인자로 넘기는 방식도 그대로 된다.
 
 ```bash
 ./start.sh \
-  pole_front_cam_serial:=123456789012 \
-  gripper_cam_serial:=987654321098
+  pole_front_cam_serial:=<FRONT_SERIAL> \
+  gripper_cam_serial:=<GRIPPER_SERIAL>
 ```
 
-- udev symlink가 없으면 자동 인식하지 않는다. 이때는 위처럼 직접 지정한다.
-- RealSense ROS 드라이버는 `/dev` 경로가 아니라 **`serial_no`**를 받으므로, `start.sh`가 symlink를 serial로 변환하는 것이다.
-- 2대를 쓸 때 serial을 비워 두면 두 노드가 같은 첫 장치를 잡으려 할 수 있다.
+> `use_cameras:=false`는 카메라 두 대를 모두 끄는 스위치다. 한 대만 쓸 때 쓰면 안 된다.
 
 ## 3. 확인
 

@@ -4,7 +4,7 @@
 #   ./start.sh                              # 📦(카메라·EKF·RTAB-Map·controller_manager) + 🛠 노드 전부, OpenCR 실기
 #   ./start.sh mock_hardware:=true          # OpenCR 없이 (명령을 상태로 되돌림 — launch 인자는 그대로 전달)
 #   ./start.sh port:=/dev/ttyACM1           # OpenCR 포트 지정 (기본 /dev/opencr — udev 규칙 99-opencr.rules)
-#   ./start.sh pole_front_cam_serial:=... gripper_cam_serial:=...  # RealSense 2대 serial 고정 (2대면 필수)
+#   POLE_FRONT_CAM_SERIAL=... GRIPPER_CAM_SERIAL=... ./start.sh  # RealSense serial 고정 (권장)
 #   ./start.sh learning_enabled:=false      # 학습 노드 끄고 (비교 기준)
 #   ./start.sh map:=slam                    # 지도 매핑 (새 폴더 map/<날짜_시각>/) — 기본 map:=saved = 저장 지도로 위치추정
 #   ./start.sh --build [launch 인자]        # 저장소에서 실행할 때 colcon build 후 실행
@@ -116,31 +116,44 @@ if [ "$use_cameras" = true ]; then
   fi
 fi
 
-# udev symlink가 있으면 serial_no를 자동으로 넘긴다.
-#   /dev/realsense_pole_front · /dev/realsense_gripper
-# RealSense ROS 드라이버는 /dev 경로가 아니라 serial_no를 받으므로, symlink에서
-# udev ID_SERIAL_SHORT를 읽어 ros_system 인자로 바꿔 넣는다. 직접 인자를 준 경우는 건드리지 않는다.
+# RealSense serial_no를 정한다.
+#   우선순위: 명령줄 인자 > 환경변수
+#   환경변수: POLE_FRONT_CAM_SERIAL · GRIPPER_CAM_SERIAL
+# RealSense ROS 드라이버는 /dev 경로가 아니라 serial_no를 받는다.
+front_present=0
+gripper_present=0
 for spec in \
-  "pole_front_cam_serial:/dev/realsense_pole_front" \
-  "gripper_cam_serial:/dev/realsense_gripper"; do
+  "pole_front_cam_serial:POLE_FRONT_CAM_SERIAL" \
+  "gripper_cam_serial:GRIPPER_CAM_SERIAL"; do
   key=${spec%%:*}
-  link=${spec#*:}
+  env_name=${spec#*:}
+
   set_by_user=0
   for a in "$@"; do
     case "$a" in "$key":=*) set_by_user=1 ;; esac
   done
-  [ "$set_by_user" = 1 ] && continue
-  [ -e "$link" ] || continue
-  props=$(udevadm info --query=property --name="$link" 2>/dev/null || true)
-  serial=$(awk -F= '$1=="ID_SERIAL_SHORT" {print $2; exit}' <<<"$props")
-  [ -n "$serial" ] || serial=$(awk -F= '$1=="ID_SERIAL" {print $2; exit}' <<<"$props")
-  if [ -n "$serial" ]; then
-    set -- "$@" "$key:=$serial"
-    echo "ok: $key=$serial ($link)"
-  else
-    echo "WARN: $link 에서 serial을 못 읽음 — $key를 직접 지정"
+  if [ "$set_by_user" = 1 ]; then
+    case "$key" in pole_front_cam_serial) front_present=1 ;; gripper_cam_serial) gripper_present=1 ;; esac
+    continue
+  fi
+
+  if [ -n "${!env_name:-}" ]; then
+    set -- "$@" "$key:=${!env_name}"
+    echo "ok: $key=${!env_name} (env $env_name)"
+    case "$key" in pole_front_cam_serial) front_present=1 ;; gripper_cam_serial) gripper_present=1 ;; esac
   fi
 done
+
+# 한쪽 serial만 설정됐으면 나머지 카메라 노드는 끈다 (한 대만 연결한 상태에서
+# 빈 serial 노드가 같은 카메라를 잡으려는 충돌 방지). 직접 use_*_cam:= 인자를 준 경우는 존중한다.
+if [ "$front_present" = 1 ] && [ "$gripper_present" = 0 ]; then
+  case " $* " in *" use_gripper_cam:="*) ;; *) set -- "$@" "use_gripper_cam:=false" ;; esac
+  echo "WARN: gripper_cam serial 없음 → use_gripper_cam:=false"
+fi
+if [ "$gripper_present" = 1 ] && [ "$front_present" = 0 ]; then
+  case " $* " in *" use_pole_front_cam:="*) ;; *) set -- "$@" "use_pole_front_cam:=false" ;; esac
+  echo "WARN: pole_front_cam serial 없음 → use_pole_front_cam:=false"
+fi
 
 # 지도 폴더 기본 = 이 워크스페이스의 map/ (테스트베드 /ws/map 과 같은 자리) — map:=slam(새 폴더 매핑) · saved(저장 지도, 기본)
 case " $* " in *" map_dir:="*) ;; *) set -- "$@" "map_dir:=$HERE/map" ;; esac
