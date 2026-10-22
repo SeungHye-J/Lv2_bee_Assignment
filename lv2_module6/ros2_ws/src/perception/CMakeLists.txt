@@ -24,6 +24,8 @@ install(PROGRAMS scripts/perception_node.py
 
 # 파라미터 (bringup이 share/perception/config/perception.yaml을 노드에 넘긴다)
 install(DIRECTORY config DESTINATION share/${PROJECT_NAME})
+# 패키지 단독 실행용 (전체 로봇은 bringup)
+install(DIRECTORY launch DESTINATION share/${PROJECT_NAME})
 
 # 학습 가중치 — 워크스페이스 공용 lv2_module6/ros2_ws/model/yolo/*.pt 를 share에 설치
 # (urdf와 같은 패턴: ROS 밖 train_yolo.py가 쓰는 파일을 패키지가 가져옴)
@@ -39,6 +41,9 @@ endif()
 if(BUILD_TESTING)
   find_package(ament_cmake_pytest REQUIRED)
   ament_add_pytest_test(test_node test/test_node.py TIMEOUT 120 ENV ROS_DOMAIN_ID=101)
+  ament_add_test(test_launch GENERATE_RESULT_FOR_RETURN_CODE_ZERO
+    COMMAND ros2 launch "${CMAKE_CURRENT_SOURCE_DIR}/launch/perception.launch.py" --show-args
+    TIMEOUT 60)
 endif()
 
 ament_export_dependencies(rosidl_default_runtime)

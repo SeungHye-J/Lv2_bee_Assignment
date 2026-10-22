@@ -164,6 +164,16 @@ if [ "$gripper_present" = 1 ] && [ "$front_present" = 0 ]; then
   echo "WARN: pole_front_cam serial 없음 → use_pole_front_cam:=false"
 fi
 
+# MoveIt이 설치되어 있지 않으면 launch 전체가 "package not found"로 죽는다.
+# 명시적으로 use_moveit:=true/false를 준 경우는 존중하고, 아니면 스택이 뜨도록 false로 내린다.
+if ! ros2 pkg prefix moveit_ros_move_group >/dev/null 2>&1; then
+  case " $* " in
+    *" use_moveit:="*) ;;
+    *) set -- "$@" "use_moveit:=false" ;;
+  esac
+  echo "WARN: moveit_ros_move_group 없음 → use_moveit:=false (팔 pick/place는 사용 불가)"
+fi
+
 # 지도 폴더 기본 = 이 워크스페이스의 map/ (테스트베드 /ws/map 과 같은 자리) — map:=slam(새 폴더 매핑) · saved(저장 지도, 기본)
 case " $* " in *" map_dir:="*) ;; *) set -- "$@" "map_dir:=$HERE/map" ;; esac
 echo "=== ros2 launch bringup bringup.launch.py $*"

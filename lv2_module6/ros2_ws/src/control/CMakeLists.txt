@@ -56,6 +56,8 @@ install(TARGETS beebot_system_hardware LIBRARY DESTINATION lib)
 
 # 파라미터 (bringup이 share/control/config/control.yaml을 노드에 넘긴다)
 install(DIRECTORY config DESTINATION share/${PROJECT_NAME})
+# 패키지 단독 실행용 (전체 로봇은 bringup)
+install(DIRECTORY launch DESTINATION share/${PROJECT_NAME})
 
 # --- 테스트: colcon test --packages-select control (노드 클래스를 같은 프로세스에 띄워 토픽으로 확인)
 if(BUILD_TESTING)
@@ -66,6 +68,9 @@ if(BUILD_TESTING)
   target_link_libraries(test_manual_control ${PROJECT_NAME}_nodes)
   ament_add_gtest(test_body_filter test/test_body_filter.cpp TIMEOUT 60 ENV ROS_DOMAIN_ID=108)
   target_link_libraries(test_body_filter ${PROJECT_NAME}_nodes)
+  ament_add_test(test_launch GENERATE_RESULT_FOR_RETURN_CODE_ZERO
+    COMMAND ros2 launch "${CMAKE_CURRENT_SOURCE_DIR}/launch/control.launch.py" --show-args
+    TIMEOUT 60)
 endif()
 
 ament_export_dependencies(rosidl_default_runtime)

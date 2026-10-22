@@ -1,6 +1,6 @@
 # OS
 1. sdk 실행
-2. 리커버리 모드진입
+2. 리커버리 모드진입 (딥스위치 숏트)
 3. 플러그인 선택 x
 4. [download](https://developer.nvidia.com/sdk-manager)
 5. runtime, ssd 선택
@@ -11,9 +11,37 @@
 10. reboot
 11. ssh 연결 확인 
 - ssh user@jetson.local
-
-
-
+```bash
+uname -a
+cat /etc/os-release
+cat /etc/nv_tegra_release 2>/dev/null
+dpkg --print-architecture
+python3 --version
+getconf GNU_LIBC_VERSION
+```
+```text
+Linux bee 6.8.12-1021-tegra #1 SMP PREEMPT Thu Aug  6 21:56:04 PDT 2026 aarch64 aarch64 aarch64 GNU/Linux
+PRETTY_NAME="Ubuntu 24.04.4 LTS"
+NAME="Ubuntu"
+VERSION_ID="24.04"
+VERSION="24.04.4 LTS (Noble Numbat)"
+VERSION_CODENAME=noble
+ID=ubuntu
+ID_LIKE=debian
+HOME_URL="https://www.ubuntu.com/"
+SUPPORT_URL="https://help.ubuntu.com/"
+BUG_REPORT_URL="https://bugs.launchpad.net/ubuntu/"
+PRIVACY_POLICY_URL="https://www.ubuntu.com/legal/terms-and-policies/privacy-policy"
+UBUNTU_CODENAME=noble
+LOGO=ubuntu-logo
+# R39 (release), REVISION: 2.1, GCID: 46758480, BOARD: generic, EABI: aarch64, DATE: Fri Aug  7 05:54:22 AM UTC 2026
+# KERNEL_VARIANT: oot
+TARGET_USERSPACE_LIB_DIR=nvidia
+TARGET_USERSPACE_LIB_DIR_PATH=usr/lib/aarch64-linux-gnu/nvidia
+arm64
+Python 3.12.3
+glibc 2.39
+```
 
 
 # ros setting
@@ -21,29 +49,24 @@
 - https://nvidia-isaac-ros.github.io/getting_started/isaac_ros_buildfarm_cdn.html
 
 
-
-
-
-
-
 *ROS 2 Lyrical 설치 가이드 (Ubuntu 24.04 / Jetson JetPack 7.2 공통)*
 ROS 공식 저장소에는 arm64용 Lyrical이 없어서 *NVIDIA Isaac ROS 저장소*에서 설치함. 팀 노트북도 같은 방식임.
 
 *1. 기본 도구 · universe*
-```
+```bash
 sudo apt install -y software-properties-common curl
 sudo add-apt-repository -y universe
 ```
 
 *2. ROS 공식 저장소 등록 (ros2-apt-source)*
-```
+```bash
 export ROS_APT_SOURCE_VERSION=$(curl -s https://api.github.com/repos/ros-infrastructure/ros-apt-source/releases/latest | grep -F "tag_name" | awk -F\" '{print $4}')
 curl -L -o /tmp/ros2-apt-source.deb "https://github.com/ros-infrastructure/ros-apt-source/releases/download/${ROS_APT_SOURCE_VERSION}/ros2-apt-source_${ROS_APT_SOURCE_VERSION}.$(. /etc/os-release && echo ${UBUNTU_CODENAME:-${VERSION_CODENAME}})_all.deb"
 sudo dpkg -i /tmp/ros2-apt-source.deb
 ```
 
 *3. Isaac ROS 저장소 등록 (Lyrical은 여기서 받음)*
-```
+```bash
 curl -fsSL https://isaac.download.nvidia.com/isaac-ros/repos.key | sudo gpg --dearmor --yes -o /usr/share/keyrings/nvidia-isaac-ros.gpg
 echo "deb [signed-by=/usr/share/keyrings/nvidia-isaac-ros.gpg] https://isaac.download.nvidia.com/isaac-ros/release-5.0 noble main" | sudo tee /etc/apt/sources.list.d/nvidia-isaac-ros.list
 echo "deb [signed-by=/usr/share/keyrings/nvidia-isaac-ros.gpg] https://isaac.download.nvidia.com/isaac-ros/ubuntu/main noble main" | sudo tee /etc/apt/sources.list.d/nvidia-isaac-ros-buildfarm.list
@@ -53,7 +76,7 @@ apt-cache policy ros-lyrical-ros-base
 • 마지막 줄에서 Candidate에 버전이 나와야 함
 
 *4. ROS 2 · 빌드 도구 설치*
-```
+```bash
 sudo apt install -y ros-lyrical-ros-base python3-colcon-common-extensions python3-rosdep python3-vcstool python3-pip build-essential cmake
 sudo rosdep init
 rosdep update
@@ -61,7 +84,7 @@ rosdep update
 • `ros-lyrical-desktop-full`은 설치하지 말 것 (우리 `perception` 패키지와 이름 겹침)
 
 *5. 환경 변수 (~/.bashrc)*
-```
+```bash
 echo -e '\n# ROS 2 Lyrical\nsource /opt/ros/lyrical/setup.bash\nexport ROS_DOMAIN_ID=88' >> ~/.bashrc
 source ~/.bashrc
 ```
@@ -72,7 +95,7 @@ source ~/.bashrc
 • ~/.bashrc 고친 뒤엔 열려 있는 터미널마다 `source ~/.bashrc` (안 하면 예전 설정으로 실행됨)
 
 *6. 확인*
-```
+```bash
 echo $ROS_DISTRO $ROS_DOMAIN_ID $ROS_STATIC_PEERS
 ros2 doctor --report | grep -E "distribution name|middleware name"
 ```
@@ -80,11 +103,11 @@ ros2 doctor --report | grep -E "distribution name|middleware name"
 
 *7. 통신 테스트*
 기기 A
-```
+```bash
 ros2 topic pub -r 2 /test std_msgs/msg/String "{data: hello}"
 ```
 기기 B
-```
+```bash
 ros2 topic echo --once /test std_msgs/msg/String
 ```
 • `data: hello` 나오면 성공. 안 되면 양쪽 IP · ROS_STATIC_PEERS · DOMAIN_ID 확인 (Wi-Fi IP는 바뀔 수 있음)
@@ -99,7 +122,7 @@ ros2 topic echo --once /test std_msgs/msg/String
 sudo apt-get install -y python3-colcon-common-extensions python3-rosdep
 ```
 - ros library
-```
+```bash
 sudo apt-get install -y --no-install-recommends \
     ros-dev-tools \
     python3-colcon-common-extensions \
@@ -176,6 +199,10 @@ sudo apt-get install -y --no-install-recommends \
     && rm -rf /tmp/pick_ik_ws
 ```
 
+```bash
+sudo apt install -y ros-lyrical-moveit-ros-move-group
+```
+
 # RealSense
 
 ```bash
@@ -184,6 +211,8 @@ sudo apt install -y ros-$ROS_DISTRO-realsense2-camera
 ```
 
 # RTAB-Map (Jetson Ubuntu 24.04, ROS 2 Lyrical)
+
+> 실행·로그·오류 추적은 [`DEBUG.md`](DEBUG.md)에 정리되어 있다.
 
 NVIDIA arm64 저장소의 `ros-lyrical-pcl-conversions`는 **PCL 1.15**를 요구한다.
 Jetson Ubuntu 24.04에는 **PCL 1.14**만 있으므로 이 패키지는 설치할 수 없다.
@@ -255,6 +284,30 @@ colcon build --symlink-install \
   --cmake-args -DCMAKE_BUILD_TYPE=Release
 ```
 
+전체 빌드 후 `rtabmap_launch`만 빠지는 경우가 있다.
+이때 `--packages-select rtabmap_launch`만 쓰면 **의존 패키지 `rtabmap_odom`·`rtabmap_viz`가 없어서**
+다음 에러가 날 수 있다.
+
+```text
+Failed to find ... rtabmap_viz/package.sh
+Failed to find ... rtabmap_odom/package.sh
+```
+
+이 경우 `rtabmap_launch`의 의존성까지 같이 빌드한다.
+
+```bash
+source install/setup.bash
+
+colcon build --symlink-install \
+  --packages-up-to rtabmap_launch \
+  --parallel-workers 1 \
+  --event-handlers console_direct+ \
+  --cmake-args -DCMAKE_BUILD_TYPE=Release
+```
+
+`rtabmap_launch`는 우리 `ros_system`이 직접 `rtabmap.launch.py`를 쓰지는 않지만,
+`ros2 launch`의 패키지 검색에서 빠지지 않도록 설치해 둔다.
+
 ## 4. 설치 확인
 
 ```bash
@@ -265,6 +318,8 @@ ros2 pkg prefix rtabmap_launch
 ros2 pkg prefix rtabmap_slam
 ros2 pkg prefix rtabmap_sync
 ros2 pkg prefix rtabmap_util
+ros2 pkg prefix rtabmap_odom
+ros2 pkg prefix rtabmap_viz
 ```
 
 모두 실제 경로가 나와야 한다.
@@ -290,6 +345,72 @@ source ~/ros2_rtabmap_ws/install/setup.bash
 
 `ros-lyrical-pcl-conversions`를 apt로 설치하려 해서 생긴다.  
 설치하지 말고 위 2번부터 소스 빌드한다.
+
+### `Failed to find ... rtabmap_viz/package.sh` / `rtabmap_odom/package.sh`
+
+`rtabmap_launch`만 `--packages-select`로 빌드해서 생긴다.  
+`--packages-up-to rtabmap_launch`로 의존 패키지까지 빌드한다.
+
+```bash
+cd ~/ros2_rtabmap_ws
+source /opt/ros/lyrical/setup.bash
+source install/setup.bash
+
+colcon build --symlink-install \
+  --packages-up-to rtabmap_launch \
+  --parallel-workers 1 \
+  --event-handlers console_direct+ \
+  --cmake-args -DCMAKE_BUILD_TYPE=Release
+```
+
+의존 패키지를 하나씩 먼저 빌드하려면:
+
+```bash
+cd ~/ros2_rtabmap_ws
+source /opt/ros/lyrical/setup.bash
+source install/setup.bash
+
+# 1) rtabmap_odom
+colcon build --symlink-install \
+  --packages-select rtabmap_odom \
+  --parallel-workers 1 \
+  --event-handlers console_direct+
+
+# 2) rtabmap_viz (Qt/RViz — 실패하면 에러를 먼저 해결)
+colcon build --symlink-install \
+  --packages-select rtabmap_viz \
+  --parallel-workers 1 \
+  --event-handlers console_direct+
+
+# 3) rtabmap_launch
+colcon build --symlink-install \
+  --packages-select rtabmap_launch \
+  --parallel-workers 1 \
+  --event-handlers console_direct+
+```
+
+또는 의존성까지 한 번에:
+
+```bash
+colcon build --symlink-install \
+  --packages-up-to rtabmap_launch \
+  --parallel-workers 1 \
+  --event-handlers console_direct+ \
+  --cmake-args -DCMAKE_BUILD_TYPE=Release
+```
+
+확인:
+
+```bash
+source ~/ros2_rtabmap_ws/install/setup.bash
+
+ros2 pkg prefix rtabmap_launch
+ros2 pkg prefix rtabmap_odom
+ros2 pkg prefix rtabmap_viz
+
+cd ~/Lv2_bee_Assignment/lv2_module6/ros2_ws
+./start.sh
+```
 
 ### `Findpcl_conversions.cmake` 없음
 
@@ -409,10 +530,8 @@ sudo arduino-cli는 절대 쓰지 말고, $HOME/bin/arduino-cli를 일반 사용
 ```
 
 
-```
 # CI 배포 패키지 (Ubuntu 24.04 / Jetson)
-
-CI가 `aarch64`용을 두 가지로 만든다.
+- CI가 `aarch64`용을 두 가지로 만든다.
 
 | 패키지 | 대상 |
 | --- | --- |

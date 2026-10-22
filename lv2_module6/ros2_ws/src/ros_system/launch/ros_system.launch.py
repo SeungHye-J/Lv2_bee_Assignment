@@ -60,7 +60,8 @@ def camera(name, serial_arg, profile_arg, pointcloud_arg, use_arg):
         condition=IfCondition(enabled),
         respawn=True, respawn_delay=2.0,  # 카메라를 나중에 꽂아도 다시 잡도록
         parameters=[{
-            'serial_no': LaunchConfiguration(serial_arg),
+            # launch 인자로 들어온 serial은 숫자처럼 보여도 ROS 파라미터는 string이어야 한다.
+            'serial_no': ParameterValue(LaunchConfiguration(serial_arg), value_type=str),
             'camera_name': name,
             # 네트워크가 터지지 않게 낮춘 기본값. 640x360x15는 D435/D435i 지원 프로파일.
             'rgb_camera.color_profile': LaunchConfiguration(profile_arg),

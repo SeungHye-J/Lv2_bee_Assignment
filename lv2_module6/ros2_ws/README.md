@@ -229,6 +229,22 @@ ros2 topic echo /state/topics --once \
 | `use_ekf:=false` | EKF 끔 |
 | `use_moveit:=false` | MoveIt move_group 끔 |
 
+### 패키지별 단독 launch
+
+전체 로봇은 `bringup`으로 띄우고, 아래 launch는 해당 패키지 노드만 따로 시험할 때 씁니다.
+`ros_system`(하드웨어·Nav2·RTAB-Map)·TF·다른 패키지 노드는 포함되지 않습니다.
+
+```bash
+ros2 launch control control.launch.py
+ros2 launch manager manager.launch.py map_mode:=MAPPING
+ros2 launch ml ml.launch.py learning_enabled:=false
+ros2 launch perception perception.launch.py device:=cuda
+ros2 launch plan plan.launch.py command:="빨간 퍽을 목표 구역으로 옮겨"
+```
+
+`BeebotSystemHardware`와 `rl_arm_correction`은 노드가 아니라 `controller_manager`가
+URDF/컨트롤러 설정으로 올리는 플러그인이므로 패키지 launch에 포함되지 않습니다.
+
 ## 6. 빌드·테스트
 
 ```bash

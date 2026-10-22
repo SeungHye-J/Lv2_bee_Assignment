@@ -53,6 +53,8 @@ install(TARGETS user_input vlm_task_planner coordinator explorer DESTINATION lib
 
 # 파라미터 (bringup이 share/plan/config/plan.yaml을 노드에 넘긴다)
 install(DIRECTORY config DESTINATION share/${PROJECT_NAME})
+# 패키지 단독 실행용 (전체 로봇은 bringup)
+install(DIRECTORY launch DESTINATION share/${PROJECT_NAME})
 
 # --- 테스트: colcon test --packages-select plan (노드 클래스를 같은 프로세스에 띄워 토픽으로 확인)
 if(BUILD_TESTING)
@@ -61,6 +63,9 @@ if(BUILD_TESTING)
   target_link_libraries(test_coordinator ${PROJECT_NAME}_nodes)
   ament_add_gtest(test_explorer test/test_explorer.cpp TIMEOUT 60 ENV ROS_DOMAIN_ID=110)
   target_link_libraries(test_explorer ${PROJECT_NAME}_nodes)
+  ament_add_test(test_launch GENERATE_RESULT_FOR_RETURN_CODE_ZERO
+    COMMAND ros2 launch "${CMAKE_CURRENT_SOURCE_DIR}/launch/plan.launch.py" --show-args
+    TIMEOUT 60)
 endif()
 
 ament_export_dependencies(rosidl_default_runtime)

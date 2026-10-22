@@ -25,6 +25,8 @@ install(TARGETS state_manager DESTINATION lib/${PROJECT_NAME})
 
 # 파라미터 (bringup이 share/manager/config/manager.yaml을 노드에 넘긴다)
 install(DIRECTORY config DESTINATION share/${PROJECT_NAME})
+# 패키지 단독 실행용 (전체 로봇은 bringup)
+install(DIRECTORY launch DESTINATION share/${PROJECT_NAME})
 
 # --- 테스트: colcon test --packages-select manager
 if(BUILD_TESTING)
@@ -33,6 +35,9 @@ if(BUILD_TESTING)
   target_link_libraries(test_state_manager ${PROJECT_NAME}_nodes)
   ament_add_gtest(test_restart test/test_restart.cpp TIMEOUT 60)
   target_link_libraries(test_restart ${PROJECT_NAME}_nodes)
+  ament_add_test(test_launch GENERATE_RESULT_FOR_RETURN_CODE_ZERO
+    COMMAND ros2 launch "${CMAKE_CURRENT_SOURCE_DIR}/launch/manager.launch.py" --show-args
+    TIMEOUT 60)
 endif()
 
 ament_package()
