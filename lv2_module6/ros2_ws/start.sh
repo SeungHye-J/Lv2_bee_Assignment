@@ -47,6 +47,15 @@ ros_setup="/opt/ros/$ROS_DISTRO_NAME/setup.bash"
 # shellcheck disable=SC1090
 source "$ros_setup"
 
+# RTAB-Map을 별도 workspace에 소스 빌드한 경우 overlay를 자동으로 올린다.
+#   ~/ros2_rtabmap_ws/install/setup.bash
+# 없는 경우에도 계속 진행하고, RTAB-Map이 필요한 launch에서 원인이 드러난다.
+RTABMAP_WS="${RTABMAP_WS:-$HOME/ros2_rtabmap_ws}"
+if [ -f "$RTABMAP_WS/install/setup.bash" ]; then
+  # shellcheck disable=SC1091
+  source "$RTABMAP_WS/install/setup.bash"
+fi
+
 # --- 빌드 (저장소에서 실행할 때만)
 if [ "$build" = 1 ] || [ ! -f "$HERE/install/setup.bash" ]; then
   [ -d "$HERE/src" ] || { echo "FAIL: install/도 src/도 없음 ($HERE)"; exit 1; }

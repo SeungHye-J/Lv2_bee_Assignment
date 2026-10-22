@@ -242,7 +242,7 @@ test-faker 0                              # 띄워 두기 (fake_opencr가 OpenCR
 test-faker 0 mock_hardware:=true          # OpenCR 없이 mock (물리 없음)
 
 # 실기 (라즈베리파이·PC, CI 배포 패키지 또는 저장소)
-./ros2_ws/firmware-upload.sh              # OpenCR 펌웨어 올리기
+./ros2_ws/firmware-upload.sh              # OpenCR 펌웨어 올리기 (내부에서 firmware/ 스크립트 호출)
 ./ros2_ws/start.sh                        # 장치 확인 → bringup
 ./ros2_ws/start.sh mock_hardware:=true    # OpenCR 없이
 ./ros2_ws/stop.sh                         # 떠 있는 ROS 전부 끄기

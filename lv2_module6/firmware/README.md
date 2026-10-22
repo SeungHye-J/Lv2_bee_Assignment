@@ -29,22 +29,43 @@ OpenCR 내장 IMU (MPU9250, cIMU)
   (OM-X 기본은 그리퍼가 15 — 손목을 끼우면서 16으로 옮긴다). 전부 1,000,000 bps · Protocol 2.0.
 - `config.h`에서 바퀴 방향, 관절 부호(`ARM_DIR`), 그리퍼 변환(`GRIPPER_RAD_PER_M`)을 실기에서 확인한다 (TODO).
 
-## 컴파일·업로드
+## 설치·컴파일·업로드
+
+스크립트는 단계별로 나뉜다.
+
+| 스크립트 | 역할 |
+| --- | --- |
+| `setup.sh` | arduino-cli·OpenCR 코어·컴파일러·업로더 설치 (최초 1회) |
+| `compile.sh [스케치]` | 컴파일만 → `build/<스케치>/*.ino.bin` |
+| `upload.sh [포트] [파일]` | `.bin`/`.opencr` 업로드 (기본: 최신 `.bin`, `/dev/opencr`) |
+| `setup_compile_upload.sh [포트] [스케치]` | 설치 + 컴파일 + 업로드를 한 번에 |
 
 ```bash
-# 테스트베드 (도커) — 컴파일 + 가상 시리얼 업로드 검사 (test-all에 포함)
-test-firmware
+# 최초 1회 또는 툴이 바뀌었을 때
+./setup.sh
 
-# 실기 PC·라즈베리파이 — 저장소에서
-./upload.sh --setup                 # 최초 1회 (arduino-cli · OpenCR 코어 · 업로더)
-./upload.sh [포트]                  # 컴파일 → 업로드 (기본 /dev/opencr, 없으면 /dev/ttyACM0)
+# 컴파일만
+./compile.sh
+./compile.sh beebot_opencr
 
-# CI 배포 패키지에서 — 미리 컴파일된 .bin
-../ros2_ws/firmware-upload.sh --setup && ../ros2_ws/firmware-upload.sh [포트]
+# 업로드만 (기본 포트 /dev/opencr → 없으면 /dev/ttyACM0)
+./upload.sh
+./upload.sh /dev/ttyACM0
+./upload.sh /dev/ttyACM0 build/beebot_opencr/beebot_opencr.ino.bin
+
+# 설치부터 한 번에
+./setup_compile_upload.sh /dev/ttyACM0 beebot_opencr
+```
+
+CI 배포 패키지에서 미리 컴파일된 `.bin`을 올릴 때:
+
+```bash
+../ros2_ws/firmware-upload.sh --setup
+../ros2_ws/firmware-upload.sh /dev/ttyACM0
 ```
 
 업로드 중에는 ROS(`start.sh`, controller_manager)를 끈다 — 같은 포트를 잡으면 업로드가 깨진다.
-안 되면 OpenCR의 SW2를 누른 채 RESET → 부트로더 모드에서 다시. 자세한 업로더 설명은 [upload.sh](upload.sh) 머리 주석.
+안 되면 OpenCR의 SW2를 누른 채 RESET → 부트로더 모드에서 다시. 공통 경로·업로더 설정은 [common.sh](common.sh)를 본다.
 
 ## 실기 시리얼 테스트
 
@@ -120,5 +141,5 @@ timeout 2 cat /dev/ttyACM0 | head -3
 OpenCR에 올라간 펌웨어를 확인하고 `beebot_opencr`을 다시 업로드한다.
 
 ```bash
-./upload.sh /dev/ttyACM0 beebot_opencr
+./setup_compile_upload.sh /dev/ttyACM0 beebot_opencr
 ```

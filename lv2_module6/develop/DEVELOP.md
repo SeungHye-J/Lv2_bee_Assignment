@@ -395,7 +395,7 @@ xacro /ws/urdf/beebot_mesh/urdf.xacro mock_hardware:=true > /tmp/beebot.urdf && 
 OpenCR 하나가 바퀴 2 · 팔 5축 · 그리퍼 · IMU를 맡고, 호스트의 `control/BeebotSystemHardware`와 USB 시리얼 ASCII 줄 프로토콜로 짝을 이룬다 — 형식·모터 ID·업로드는 [firmware/README.md](firmware/README.md).
 
 - 프로토콜을 바꾸면 **펌웨어(`beebot_opencr.ino`)와 호스트(`beebot_system_hardware.cpp`)를 같이** 바꾼다. `test-hardware`가 호스트 쪽을, `test-firmware`가 컴파일을 확인한다.
-- 컨테이너엔 OpenCR 보드가 없어서 업로드는 가상 시리얼로 보낸 바이트가 .bin과 같은지만 본다. 실물 업로드는 `firmware/upload.sh` 또는 배포 패키지의 `firmware-upload.sh`.
+- 컨테이너엔 OpenCR 보드가 없어서 업로드는 가상 시리얼로 보낸 바이트가 .bin과 같은지만 본다. 실물 업로드는 `firmware/setup_compile_upload.sh`(또는 setup·compile·upload 개별 실행) 또는 배포 패키지의 `firmware-upload.sh`.
 
 ## 11. CI · 배포 패키지
 

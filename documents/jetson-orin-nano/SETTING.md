@@ -176,55 +176,157 @@ sudo apt-get install -y --no-install-recommends \
     && rm -rf /tmp/pick_ik_ws
 ```
 
+# RealSense
 
 ```bash
-
-sudo apt-get install -y --no-install-recommends \
-    ros-lyrical-rtabmap-msgs \
-    ros-lyrical-rtabmap-ros \
-    && rm -rf /var/lib/apt/lists/*
-```
-
-```bash
-# realsense
 sudo apt update
-sudo apt install ros-$ROS_DISTRO-realsense2-camera
+sudo apt install -y ros-$ROS_DISTRO-realsense2-camera
 ```
 
+# RTAB-Map (Jetson Ubuntu 24.04, ROS 2 Lyrical)
+
+NVIDIA arm64 저장소의 `ros-lyrical-pcl-conversions`는 **PCL 1.15**를 요구한다.
+Jetson Ubuntu 24.04에는 **PCL 1.14**만 있으므로 이 패키지는 설치할 수 없다.
+`pcl_conversions`는 소스로 빌드하고, `rtabmap_ros`도 소스로 빌드한다.
+
+## 1. 사전 패키지
 
 ```bash
-sudo apt-get install -y --no-install-recommends \
-    ros-lyrical-rtabmap-msgs \
-    ros-lyrical-rtabmap-slam \
-    ros-lyrical-rtabmap-odom \
-    ros-lyrical-rtabmap-util \
-    ros-lyrical-rtabmap-sync \
-    ros-lyrical-rtabmap-launch
+sudo apt update
+sudo apt install -y \
+  libpcl-dev \
+  libeigen3-dev \
+  ros-lyrical-image-geometry \
+  ros-lyrical-cv-bridge \
+  ros-lyrical-image-transport \
+  ros-lyrical-laser-geometry \
+  ros-lyrical-message-filters \
+  ros-lyrical-pcl-msgs
 ```
 
-- rtapmap error 우선 설치해보고 안되면  이것ㄷ 안되면 ros-lyrical-rtabmap-map 만깔아라 
+> `ros-lyrical-pcl-conversions`, `ros-lyrical-pcl-ros`는 설치하지 않는다.  
+> 위 PCL 1.15 의존성 때문에 `Unable to correct problems`가 난다.
+
+## 2. 소스 받기
+
 ```bash
-mkdir -p ~/ros2_ws/src && cd ~/ros2_ws
+mkdir -p ~/ros2_rtabmap_ws/src
+cd ~/ros2_rtabmap_ws
+
 git clone -b lyrical-devel https://github.com/introlab/rtabmap.git src/rtabmap
 git clone -b lyrical-devel https://github.com/introlab/rtabmap_ros.git src/rtabmap_ros
+```
+
+`pcl_conversions`는 **반드시 `ros2` 브랜치**를 쓴다.  
+`jazzy` 브랜치는 Lyrical의 `message_filters` 헤더(.hpp)와 맞지 않아
+`message_filters/message_event.h: No such file` 에러가 난다.
+
+```bash
+git clone -b ros2 https://github.com/ros-perception/perception_pcl.git src/perception_pcl
+```
+
+## 3. 빌드 (순서 중요)
+
+```bash
+cd ~/ros2_rtabmap_ws
 source /opt/ros/lyrical/setup.bash
-rosdep install --from-paths src --ignore-src -r -y
+
+# 3-1. PCL 1.14에 맞는 pcl_conversions
+colcon build --symlink-install \
+  --packages-select pcl_conversions \
+  --parallel-workers 1 \
+  --cmake-args -DCMAKE_BUILD_TYPE=Release
+
+source install/setup.bash
+
+# 3-2. pcl_conversions를 쓰는 rtabmap_conversions
+rm -rf build/rtabmap_conversions install/rtabmap_conversions
+colcon build --symlink-install \
+  --packages-select rtabmap_conversions \
+  --parallel-workers 1 \
+  --cmake-args -DCMAKE_BUILD_TYPE=Release
+
+source install/setup.bash
+
+# 3-3. 나머지 rtabmap/rtabmap_ros
 export MAKEFLAGS="-j2"
-colcon build --symlink-install --parallel-workers 1 \
+colcon build --symlink-install \
+  --parallel-workers 1 \
   --cmake-args -DCMAKE_BUILD_TYPE=Release
 ```
 
-
+## 4. 설치 확인
 
 ```bash
-sudo apt-get install -y --no-install-recommends \
-    libgl1 libglib2.0-0 python3-pip ros-lyrical-ament-cmake-pytest \
-    && rm -rf /var/lib/apt/lists/* \
-    && pip install --break-system-packages --ignore-installed --no-cache-dir torch --index-url https://download.pytorch.org/whl/cpu \
-    && pip install --break-system-packages --ignore-installed --no-cache-dir ultralytics pytest
+source ~/ros2_rtabmap_ws/install/setup.bash
 
+ros2 pkg prefix pcl_conversions
+ros2 pkg prefix rtabmap_launch
+ros2 pkg prefix rtabmap_slam
+ros2 pkg prefix rtabmap_sync
+ros2 pkg prefix rtabmap_util
 ```
 
+모두 실제 경로가 나와야 한다.
+
+## 5. 실행
+
+`start.sh`는 `~/ros2_rtabmap_ws/install/setup.bash`를 자동으로 source한다.
+
+```bash
+cd ~/Lv2_bee_Assignment/lv2_module6/ros2_ws
+./start.sh
+```
+
+수동으로 source하려면:
+
+```bash
+source ~/ros2_rtabmap_ws/install/setup.bash
+```
+
+## 6. 자주 나는 빌드 에러
+
+### `libpcl-common1.15` / `libpcl-io1.15` 없음
+
+`ros-lyrical-pcl-conversions`를 apt로 설치하려 해서 생긴다.  
+설치하지 말고 위 2번부터 소스 빌드한다.
+
+### `Findpcl_conversions.cmake` 없음
+
+```bash
+source ~/ros2_rtabmap_ws/install/setup.bash
+ros2 pkg prefix pcl_conversions
+```
+
+가 안 되면 3-1의 `pcl_conversions` 빌드가 안 된 것이다.
+
+### `message_filters/message_event.h` 없음
+
+`perception_pcl`을 `jazzy` 브랜치로 받은 경우다.
+
+```bash
+cd ~/ros2_rtabmap_ws/src/perception_pcl
+git fetch origin ros2
+git checkout ros2
+git pull
+```
+
+그 뒤 `pcl_conversions`를 다시 빌드한다.
+
+### `Findpcl_msgs.cmake` 없음
+
+```bash
+sudo apt install -y ros-lyrical-pcl-msgs
+source /opt/ros/lyrical/setup.bash
+ros2 pkg prefix pcl_msgs
+```
+
+가 안 되면 `pcl_msgs`도 소스 빌드한다.
+
+```bash
+git clone -b jazzy https://github.com/ros-perception/pcl_msgs.git \
+  ~/ros2_rtabmap_ws/src/pcl_msgs
+```
 
 # 1. Arduino CLI 설치
 ```bash
