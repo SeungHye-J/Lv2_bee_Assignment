@@ -504,12 +504,26 @@
     <origin rpy="-1.570796 0.000000 -1.570796" xyz="-0.004300 0.032500 0.000000"/>
   </joint>
   <link name="pole_front_cam_color_optical_frame"/>
+  <joint name="pole_front_cam_depth_optical_joint" type="fixed">
+    <parent link="pole_front_cam_link"/>
+    <child link="pole_front_cam_depth_optical_frame"/>
+    <!-- RealSense point cloud is published in the depth optical frame. publish_tf=false라
+         (publish_tf는 URDF와 중복 방지용) 이 고정 프레임을 URDF가 제공해야 한다. -->
+    <origin rpy="-1.570796 0.000000 -1.570796" xyz="0.000000 0.000000 0.000000"/>
+  </joint>
+  <link name="pole_front_cam_depth_optical_frame"/>
   <joint name="gripper_cam_optical_joint" type="fixed">
     <parent link="gripper_cam_link"/>
     <child link="gripper_cam_color_optical_frame"/>
     <origin rpy="-1.570796 0.000000 -1.570796" xyz="0.000000 0.000000 0.000000"/>
   </joint>
   <link name="gripper_cam_color_optical_frame"/>
+  <joint name="gripper_cam_depth_optical_joint" type="fixed">
+    <parent link="gripper_cam_link"/>
+    <child link="gripper_cam_depth_optical_frame"/>
+    <origin rpy="-1.570796 0.000000 -1.570796" xyz="0.000000 0.000000 0.000000"/>
+  </joint>
+  <link name="gripper_cam_depth_optical_frame"/>
   <link name="imu_link"/>
   <joint name="imu_joint" type="fixed">
     <parent link="base_link"/>

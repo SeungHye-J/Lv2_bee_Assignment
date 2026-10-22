@@ -126,6 +126,19 @@ serial을 하나도 지정하지 않으면 두 카메라 노드가 같은 첫 �
 - `pole_front_cam_pointcloud`: `body_filter`·Nav2용. 보통 켜 둠.
 - `gripper_cam_pointcloud`: `grasp_scorer`용. 네트워크 절약 시 끌 수 있음.
 
+관련 토픽:
+
+```text
+/pole_front_cam/depth/color/points           # RealSense 원본
+/pole_front_cam/depth/color/points_filtered  # body_filter가 자기 몸 점을 뺀 것 (Nav2용)
+/gripper_cam/depth/color/points              # gripper RealSense 원본
+```
+
+> Jetson(ARM)의 `realsense2_camera` 4.57.7은 pointcloud 필터를 NEON 구현으로
+> 등록해서 파라미터 이름이 `pointcloud.enable`이 아니라
+> **`pointcloud__neon_.enable`**이다. `ros_system.launch.py`가 ARM에서는 이 이름을
+> 자동으로 선택한다. 예전처럼 `pointcloud.enable`만 넘기면 publisher가 0개가 된다.
+
 현재 대역폭 확인:
 
 ```bash

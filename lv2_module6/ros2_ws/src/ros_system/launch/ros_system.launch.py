@@ -36,6 +36,11 @@ CONTROLLERS = ['joint_state_broadcaster', 'imu_sensor_broadcaster', 'diff_drive_
                'rl_arm_correction', 'arm_controller',  # 체인은 뒤에서부터 (rl_arm_correction → arm_controller)
                'gripper_controller']
 
+# Jetson(ARM)의 realsense2_camera 4.57.7은 pointcloud 필터를 NEON 구현으로 등록해
+# 파라미터 이름이 pointcloud.enable이 아니라 pointcloud__neon_.enable이다.
+# pointcloud.enable만 주면 조용히 무시되어 publisher가 0개가 된다.
+POINTCLOUD_PARAM = 'pointcloud__neon_' if os.uname().machine in ('aarch64', 'arm64') else 'pointcloud'
+
 
 def flag(name, default, description):
     return DeclareLaunchArgument(name, default_value=default, description=description)
@@ -70,9 +75,9 @@ def camera(name, serial_arg, profile_arg, pointcloud_arg, use_arg):
             # SENSOR_DATA = best_effort · volatile · keep_last(5) (드라이버가 depth를 1로 바꾸는 파라미터는 없다).
             'color_qos': 'SENSOR_DATA',
             'depth_qos': 'SENSOR_DATA',
-            'pointcloud.pointcloud_qos': 'SENSOR_DATA',
+            f'{POINTCLOUD_PARAM}.pointcloud_qos': 'SENSOR_DATA',
             'align_depth.enable': True,
-            'pointcloud.enable': LaunchConfiguration(pointcloud_arg),
+            f'{POINTCLOUD_PARAM}.enable': LaunchConfiguration(pointcloud_arg),
             # 적외선 스트림은 쓰지 않는다. 두 카메라를 같은 USB 버스에 물리면
             # IR 영상까지 대역폭을 나눠 써서 depth가 'overflow video frame'으로 막힌다.
             'enable_infra1': False,
