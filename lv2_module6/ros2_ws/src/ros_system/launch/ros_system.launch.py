@@ -66,8 +66,17 @@ def camera(name, serial_arg, profile_arg, pointcloud_arg, use_arg):
             # 네트워크가 터지지 않게 낮춘 기본값. 640x360x15는 D435/D435i 지원 프로파일.
             'rgb_camera.color_profile': LaunchConfiguration(profile_arg),
             'depth_module.depth_profile': LaunchConfiguration(profile_arg),
+            # RealSense 기본은 SYSTEM_DEFAULT(reliable) — 영상은 best_effort가 맞다.
+            # SENSOR_DATA = best_effort · volatile · keep_last(5) (드라이버가 depth를 1로 바꾸는 파라미터는 없다).
+            'color_qos': 'SENSOR_DATA',
+            'depth_qos': 'SENSOR_DATA',
+            'pointcloud.pointcloud_qos': 'SENSOR_DATA',
             'align_depth.enable': True,
             'pointcloud.enable': LaunchConfiguration(pointcloud_arg),
+            # 적외선 스트림은 쓰지 않는다. 두 카메라를 같은 USB 버스에 물리면
+            # IR 영상까지 대역폭을 나눠 써서 depth가 'overflow video frame'으로 막힌다.
+            'enable_infra1': False,
+            'enable_infra2': False,
             'publish_tf': False,  # 카메라 프레임은 URDF(robot_state_publisher)가 낸다 — 하나만 남김
         }])
 
@@ -261,7 +270,10 @@ def rtabmap_nodes():
                       "--Grid/NormalsSegmentation false --Grid/MaxGroundHeight 0.03 --Grid/MaxObstacleHeight 0.6' + ('' if '",
                       LaunchConfiguration('localization'),
                       "'.lower() == 'true' else ' --delete_db_on_start')"])
-    qos = {'qos': 2, 'qos_camera_info': 2}  # best effort 구독 — 카메라가 best effort(fake_camera SensorData)든 reliable이든 받음
+    # best effort 구독 — 카메라가 best effort(fake_camera SensorData)든 reliable이든 받음.
+    # queue 10은 컬러·depth·두 카메라 approximate sync용이다. 여기를 1로 줄이면
+    # 한쪽 프레임이 먼저 도착할 때 짝을 못 찾아 RTAB-Map이 'Did not receive data'로 멈출 수 있다.
+    qos = {'qos': 2, 'qos_camera_info': 2}
 
     def rgbd_sync(name, rgb, depth, info, out):
         return Node(package='rtabmap_sync', executable='rgbd_sync', name=name, namespace='rtabmap', output='screen', condition=on,

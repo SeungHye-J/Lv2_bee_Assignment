@@ -399,7 +399,7 @@ VlmTaskPlanner::VlmTaskPlanner()
     });
   status_sub_ = create_subscription<TaskStatus>("/task_status", rclcpp::QoS(10).reliable().transient_local(),
     [this](TaskStatus::ConstSharedPtr m) { on_status(*m); });
-  const auto sensor_qos = rclcpp::SensorDataQoS();
+  const auto sensor_qos = rclcpp::SensorDataQoS().keep_last(1);  // VLM은 최신 장면만 필요
   for (const std::string cam : {"pole_front_cam", "gripper_cam"}) {
     image_subs_.push_back(create_subscription<sensor_msgs::msg::Image>(
       "/" + cam + "/color/image_raw", sensor_qos,

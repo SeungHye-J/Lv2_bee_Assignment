@@ -1361,7 +1361,7 @@ def main():
         sys.exit(f"FAIL: 미션 태그가 벽 높이({WALL_HEIGHT} m)보다 큽니다")
 
     tag_assets, tag_metadata = generate_tags.ensure_assets(args.asset_dir,
-                                                            force=args.force_tags)
+                                                           force=args.force_tags)
     spawn_models = write_spawn_models(args, tag_assets)
     rng = random.Random(args.seed)
 

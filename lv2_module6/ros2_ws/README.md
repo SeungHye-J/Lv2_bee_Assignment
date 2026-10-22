@@ -4,7 +4,7 @@ ROS 2 Lyrical 실기 워크스페이스 — 로봇 bringup, 지도·주행, 팔�
 
 - 전체 설계: [`../../documents/ros2-design/README.md`](../../documents/ros2-design/README.md)
 - 미션 설명: [`../../documents/MISSION.md`](../../documents/MISSION.md)
-- 개발·도커·테스트: [`../develop/DEVELOP.md`](../develop/DEVELOP.md)
+- 개발·도커·테스트: [`../simulator/gazebo`](../simulator/gazebo/DEVELOP.md)
 
 ## 1. 빠른 시작
 
@@ -73,12 +73,16 @@ rs-enumerate-devices -s
 ```
 
 한 대만 연결한 경우에는 그 카메라 serial만 설정하면 `start.sh`가 반대쪽을 자동으로 끕니다.
+환경변수에 남아 있는 serial이 실제로 감지되지 않아도 그 카메라를 자동으로 끕니다.
 
 ```bash
 export POLE_FRONT_CAM_SERIAL=261822074109
 ./start.sh
 # WARN: gripper_cam serial 없음 → use_gripper_cam:=false
 ```
+
+serial을 하나도 지정하지 않으면 두 카메라 노드가 같은 첫 장치를 잡을 수 있으므로,
+2대를 쓸 때는 반드시 `POLE_FRONT_CAM_SERIAL`·`GRIPPER_CAM_SERIAL`을 지정합니다.
 
 직접 launch 인자로 넘길 수도 있습니다.
 
@@ -109,6 +113,9 @@ export POLE_FRONT_CAM_SERIAL=261822074109
 지원 프로파일은 D435/D435i 기준입니다. 예: `424x240x15`, `640x480x15`.
 네트워크가 버티지 못하면 먼저 해상도/FPS를 낮추고 point cloud를 끕니다.
 
+해상도를 바꾸면 카메라 내부 파라미터(fx·fy·cx·cy)도 달라집니다. 고정 표를 쓰지 말고
+실제 `/pole_front_cam/color/camera_info`·`/gripper_cam/color/camera_info` 값을 쓰세요.
+
 ```bash
 ./start.sh \
   pole_front_cam_profile:=424x240x15 \
@@ -129,6 +136,49 @@ ros2 topic hz /pole_front_cam/color/image_raw
 
 Wi-Fi에서 raw Image/PointCloud2를 여러 개 보내면 쉽게 포화됩니다.  
 가능하면 Jetson과 PC를 유선 Ethernet으로 연결하고, 원격 영상만 필요하면 compressed image transport를 쓰세요.
+
+### Fast DDS 공유 메모리
+
+영상 한 장이 Fast DDS 기본 공유 메모리(512KB)보다 커서, 프로파일 없이는 구독 노드가
+영상을 거의 받지 못할 수 있습니다. `start.sh`는 아래 파일을 자동으로 지정합니다.
+
+```text
+src/ros_system/config/fastdds.xml
+```
+
+`start.sh` 없이 `ros2 launch`를 직접 실행할 때는 직접 지정합니다.
+
+```bash
+export FASTDDS_DEFAULT_PROFILES_FILE=$PWD/install/ros_system/share/ros_system/config/fastdds.xml
+```
+
+### 적외선 스트림
+
+두 카메라를 같은 USB 버스에 연결하면 IR 스트림까지 대역폭을 나눠 써서
+`overflow video frame detected`와 depth 실패가 날 수 있습니다.  
+`ros_system`은 IR을 쓰지 않으므로 카메라 파라미터에서 `enable_infra1`·`enable_infra2`를
+끕니다.
+
+### 카메라 QoS
+
+RealSense의 color/depth/pointcloud는 `SENSOR_DATA`(best effort, depth 5)로 발행합니다.
+카메라 원본을 최신 값만 쓰는 구독자(body_filter·grasp_scorer·VLM·state_manager)는
+queue depth 1로 줄였습니다.
+
+반면 아래 경로는 **일부러 queue를 크게** 둡니다.
+
+- `perception`: color/depth `ApproximateTimeSynchronizer` — 큐 5
+- RTAB-Map: 두 카메라·depth·odom approximate sync — 큐 10
+
+이 경로를 1로 줄이면 한 스트림이 먼저 도착했을 때 짝을 찾지 못해
+`Did not receive data`가 나거나 지도가 끊길 수 있습니다.
+
+현재 QoS는 실기에서 직접 확인할 수 있습니다.
+
+```bash
+ros2 topic info -v /pole_front_cam/color/image_raw
+ros2 topic info -v /pole_front_cam/depth/color/points
+```
 
 ## 3. 지도·모드
 

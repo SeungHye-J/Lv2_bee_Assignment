@@ -676,7 +676,15 @@ source ~/.bashrc
 ```
 
 한 대만 연결한 경우에는 **그 카메라 serial만 설정**하면 `start.sh`가 반대쪽을 자동으로 끈다.
+환경변수에 남아 있는 serial이 실제로 감지되지 않아도 그 카메라를 자동으로 끈다.
 
+```bash
+bee@bee:~$ rs-enumerate-devices -s
+ 22/10 17:38:38,510 ERROR [281473406128160] (context.cpp:41) No valid configuration file found at : /home/bee/.realsense-config.json loading defaults
+Device Name                   Serial Number       Firmware Version
+Intel RealSense D435          261822074109        5.17.3.10
+Intel RealSense D435          261622075828        5.17.0.10
+```
 ```bash
 # front만 연결
 export POLE_FRONT_CAM_SERIAL=261822074109
@@ -686,11 +694,16 @@ export POLE_FRONT_CAM_SERIAL=261822074109
 
 ```bash
 # gripper만 연결
-export GRIPPER_CAM_SERIAL=987654321098
+export GRIPPER_CAM_SERIAL=261622075828
 ./start.sh
 # WARN: pole_front_cam serial 없음 → use_pole_front_cam:=false
 ```
+```bash
+#.bashrc 에적어둠 
+export POLE_FRONT_CAM_SERIAL=261822074109
+export GRIPPER_CAM_SERIAL=261622075828
 
+```
 직접 launch 인자로 넘기는 방식도 그대로 된다.
 
 ```bash
@@ -700,6 +713,28 @@ export GRIPPER_CAM_SERIAL=987654321098
 ```
 
 > `use_cameras:=false`는 카메라 두 대를 모두 끄는 스위치다. 한 대만 쓸 때 쓰면 안 된다.
+
+### Fast DDS 공유 메모리
+
+영상 한 장이 Fast DDS 기본 공유 메모리(512KB)보다 커서, 프로파일 없이는 구독 노드가
+영상을 거의 받지 못할 수 있다. `start.sh`는 아래 프로파일을 자동으로 지정한다.
+
+```text
+lv2_module6/ros2_ws/src/ros_system/config/fastdds.xml
+```
+
+`start.sh` 없이 `ros2 launch`를 직접 실행할 때는:
+
+```bash
+export FASTDDS_DEFAULT_PROFILES_FILE=\
+  $PWD/install/ros_system/share/ros_system/config/fastdds.xml
+```
+
+### 적외선 스트림 끄기
+
+두 카메라를 같은 USB 버스에 연결하면 IR 스트림까지 대역폭을 나눠 써서
+`overflow video frame detected`와 depth 실패가 날 수 있다. `ros_system`은 IR을
+쓰지 않으므로 카메라 파라미터에서 `enable_infra1`·`enable_infra2`를 끈다.
 
 ## 3. 확인
 

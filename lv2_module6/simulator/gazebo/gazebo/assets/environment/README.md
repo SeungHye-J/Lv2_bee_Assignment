@@ -1,6 +1,6 @@
 # Gazebo 환경 텍스처
 
-`lv2_module6/simulator/images/`의 Poly Haven CC0 자산을 Gazebo 선택용으로 복사한 것입니다.
+`../../../../vazebo/images`의 Poly Haven CC0 자산을 Gazebo 선택용으로 복사한 것입니다.
 
 | 종류 | 파일 | 사용 |
 | --- | --- | --- |

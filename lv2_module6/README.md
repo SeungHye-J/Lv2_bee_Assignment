@@ -3,7 +3,7 @@
 **미로 코스 안에서 로봇(beebot)이 스스로 주행하며 코스를 스캔하고, 흩어진 퍽을 찾아 집어 목표 구역으로 옮겨 놓는다.**
 가는 길의 장애물·끼어드는 사람은 피하거나 멈춘다 — 로봇 대회의 "물건 옮기고 위치시키기" 미션.
 
-- 처음이면 **[DEVELOP.md](develop/DEVELOP.md)** — 셋팅 · 도커 · 빌드 · 커스텀 메시지 · 파라미터 · 수동 조작 · 상태 진단 · 테스트 · 펌웨어 · 시뮬레이터 · CI
+- 처음이면 **[DEVELOP.md](simulator/gazebo/DEVELOP.md)** — 셋팅 · 도커 · 빌드 · 커스텀 메시지 · 파라미터 · 수동 조작 · 상태 진단 · 테스트 · 펌웨어 · 시뮬레이터 · CI
 - 설계(노드·토픽 상세): [documents/ros2-design](../documents/ros2-design/README.md)
 - ROS 2 Lyrical (Ubuntu 26.04) · C++ (ament_cmake) · OpenCR 펌웨어 (Arduino)
 
@@ -218,6 +218,7 @@ lv2_module6/
 ├── urdf/<이름>/urdf.xacro    로봇 모델 (폴더 하나 = 모델 하나, launch urdf:= · 기본 beebot_mesh) (더미 치수 — 팔은 ROBOTIS OM-X 원본 값 + 손목 roll)
 ├── firmware/beebot_opencr/   OpenCR 펌웨어 (호스트 BeebotSystemHardware와 같은 시리얼 프로토콜)
 ├── simulator/                SIL 시뮬레이터 (main.py · 수동 조작 창 manual_window.py · opencr.py = fake_opencr 연결, 읽기·요청만)
+├── operator_tool/            운영자 수동 조작 CLI (상태 · 모드 · 주행 · 팔 · 지도)
 ├── ros2_ws/
 │   ├── start.sh · firmware-upload.sh · download-artifact.sh · monitor.sh   실기·배포 패키지용 스크립트
 │   └── src/
@@ -245,6 +246,7 @@ test-faker 0 mock_hardware:=true          # OpenCR 없이 mock (물리 없음)
 ./ros2_ws/firmware-upload.sh              # OpenCR 펌웨어 올리기 (내부에서 firmware/ 스크립트 호출)
 ./ros2_ws/start.sh                        # 장치 확인 → bringup
 ./ros2_ws/start.sh mock_hardware:=true    # OpenCR 없이
+./operator_tool/run.sh status             # 운영 중 상태·수동 조작
 ./ros2_ws/stop.sh                         # 떠 있는 ROS 전부 끄기
 ```
 

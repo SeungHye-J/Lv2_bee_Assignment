@@ -208,7 +208,7 @@ gz sim --gui-config lv2_module6/develop/gazebo/gui.config /tmp/beebot_world.sdf
 
 # 환경 텍스처 선택
 
-`lv2_module6/simulator/images/`의 Poly Haven CC0 파노라마·바닥·벽 텍스처를 Gazebo 쪽
+`../../vazebo/images`의 Poly Haven CC0 파노라마·바닥·벽 텍스처를 Gazebo 쪽
 `assets/environment/`로 복사했습니다. 원본 크레딧도 함께 들어 있습니다.
 
 ```text

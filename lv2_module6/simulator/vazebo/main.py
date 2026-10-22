@@ -52,10 +52,10 @@ import opencr
 import robot_view
 import scene
 from perception_view import CAM_COLORS, camera_detections, draw_detected_3d, fused_ids
-from bridge import (DEBUG, INPUT_DIR, FileTail, LIVE_DIR, TOPIC_DIR, cancel_action_goal, cmd_manual_mode, current_joints,
+from bridge import (DEBUG, FileTail, LIVE_DIR, TOPIC_DIR, cancel_action_goal, cmd_manual_mode, current_joints,
                     read_action_file, read_grid, read_msg, read_points, read_service_response, read_topic_list, send, send_action_goal,
-                    send_arm, send_bool, send_service_request,
-                    send_twist, write_atomic, yaw_of)
+                    send_service_request,
+                    write_atomic, yaw_of)
 try:  # 창(GUI) — 컨테이너(--headless)엔 tkinter가 없다
     import tkinter as tk
     from tkinter import ttk

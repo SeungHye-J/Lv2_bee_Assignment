@@ -3,7 +3,7 @@
 Jetson에서 `start.sh`가 안 뜨거나, 뜨다가 죽거나, 센서가 안 잡힐 때 보는 절차.
 
 - 설치/RTAB-Map/PCL 빌드: [`SETTING.md`](SETTING.md)
-- 전체 개발·도커 테스트: [`../../lv2_module6/develop/DEVELOP.md`](../../lv2_module6/develop/DEVELOP.md)
+- 전체 개발·도커 테스트: [`../../lv2_module6/simulator/gazebo`](../../lv2_module6/simulator/gazebo/DEVELOP.md)
 
 ## 1. 먼저 구분할 것
 
@@ -55,7 +55,7 @@ less /tmp/start.log
 
 ### Gazebo / 센서 스택
 
-`lv2_module6/develop/gazebo/start.sh`가 띄운 경우:
+`../../lv2_module6/simulator/gazebo`가 띄운 경우:
 
 ```bash
 tail -100 /tmp/gz.log

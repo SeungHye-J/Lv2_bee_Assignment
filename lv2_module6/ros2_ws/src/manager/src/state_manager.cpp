@@ -69,18 +69,20 @@ StateManager::StateManager(const rclcpp::NodeOptions & options)
     });
   // 카메라/IMU는 "publisher가 있다"가 아니라 실제 메시지가 최근에 왔는지로 본다.
   // 카메라 영상(Image)은 state_manager가 받지 않고, 같은 주기로 작은 camera_info만 받는다.
+  // 신선도 확인용 — 과거 샘플을 쌓을 이유가 없어 최신 1개만 받는다.
+  const auto heartbeat_qos = rclcpp::SensorDataQoS().keep_last(1);
   front_cam_info_sub_ = create_subscription<sensor_msgs::msg::CameraInfo>(
-    "/pole_front_cam/color/camera_info", rclcpp::SensorDataQoS(),
+    "/pole_front_cam/color/camera_info", heartbeat_qos,
     [this](sensor_msgs::msg::CameraInfo::ConstSharedPtr) {
       last_seen_["pole_front_cam"] = std::chrono::steady_clock::now();
     });
   gripper_cam_info_sub_ = create_subscription<sensor_msgs::msg::CameraInfo>(
-    "/gripper_cam/color/camera_info", rclcpp::SensorDataQoS(),
+    "/gripper_cam/color/camera_info", heartbeat_qos,
     [this](sensor_msgs::msg::CameraInfo::ConstSharedPtr) {
       last_seen_["gripper_cam"] = std::chrono::steady_clock::now();
     });
   imu_sub_ = create_subscription<sensor_msgs::msg::Imu>(
-    "/imu", rclcpp::SensorDataQoS(),
+    "/imu", heartbeat_qos,
     [this](sensor_msgs::msg::Imu::ConstSharedPtr) {
       last_seen_["imu"] = std::chrono::steady_clock::now();
     });

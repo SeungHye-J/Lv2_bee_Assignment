@@ -107,8 +107,10 @@ BodyFilter::BodyFilter(const rclcpp::NodeOptions & options)
       boxes_ = parse_collision_boxes(m->data);
       RCLCPP_INFO(get_logger(), "자기 몸 충돌 상자 %zu개 (URDF <collision>)", boxes_.size());
     });
-  pub_ = create_publisher<PointCloud2>(out, rclcpp::SensorDataQoS());
-  cloud_sub_ = create_subscription<PointCloud2>(in, rclcpp::SensorDataQoS(),
+  // 최신 점구름만 처리한다 — 밀린 프레임을 쌓아 두면 obstacle_layer가 과거 위치를 본다.
+  const auto sensor_qos = rclcpp::SensorDataQoS().keep_last(1);
+  pub_ = create_publisher<PointCloud2>(out, sensor_qos);
+  cloud_sub_ = create_subscription<PointCloud2>(in, sensor_qos,
     [this](PointCloud2::ConstSharedPtr m) { on_cloud(*m); });
   diag_.setHardwareID("beebot");
   diag_.add("상태", [this](diagnostic_updater::DiagnosticStatusWrapper & s) {

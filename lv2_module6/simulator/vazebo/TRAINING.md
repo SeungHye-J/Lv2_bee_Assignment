@@ -34,7 +34,7 @@ cd lv2_module6/simulator
 
 - 출력 고정: `simulator/runs/<name>/weights/best.pt`
   (`train_yolo.py:34`에서 `project=HERE/runs` 절대경로 고정 — cwd가 어디든 여기로 간다)
-- 끝나면 스크립트가 자동으로 `../ros2_ws/model/yolo/best.pt`에 복사한다 (`train_yolo.py:35-39`)
+- 끝나면 스크립트가 자동으로 `../../ros2_ws/model/yolo/best.pt`에 복사한다 (`train_yolo.py:35-39`)
 - MPS(Mac GPU) 기준 100에폭 약 1.5시간. 로그는 nohup으로: `nohup ./.venv/bin/python train_yolo.py --epochs 100 > /tmp/train.log 2>&1 &`
 
 ### 학습 현황 보기

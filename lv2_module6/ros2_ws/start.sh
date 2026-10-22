@@ -110,11 +110,14 @@ if [ "$mock" = false ]; then
   fi
 fi
 
+rs_count=0
+devices=''
 if [ "$use_cameras" = true ]; then
   # grep -q는 pipefail에서 앞 명령이 SIGPIPE로 실패할 수 있어 출력을 먼저 받아 둔다
   if command -v rs-enumerate-devices >/dev/null; then
     devices=$(rs-enumerate-devices -s 2>/dev/null || true)
     count=$(grep -c "Intel RealSense" <<<"$devices" || true)
+    rs_count=$count
     if [ "$count" -ge 2 ]; then
       echo "ok: RealSense ${count}대 (pole_front_cam · gripper_cam)"
     else
@@ -131,6 +134,8 @@ fi
 # RealSense ROS 드라이버는 /dev 경로가 아니라 serial_no를 받는다.
 front_present=0
 gripper_present=0
+front_env_serial=''
+gripper_env_serial=''
 for spec in \
   "pole_front_cam_serial:POLE_FRONT_CAM_SERIAL" \
   "gripper_cam_serial:GRIPPER_CAM_SERIAL"; do
@@ -149,19 +154,58 @@ for spec in \
   if [ -n "${!env_name:-}" ]; then
     set -- "$@" "$key:=${!env_name}"
     echo "ok: $key=${!env_name} (env $env_name)"
-    case "$key" in pole_front_cam_serial) front_present=1 ;; gripper_cam_serial) gripper_present=1 ;; esac
+    case "$key" in
+      pole_front_cam_serial) front_present=1; front_env_serial=${!env_name} ;;
+      gripper_cam_serial) gripper_present=1; gripper_env_serial=${!env_name} ;;
+    esac
   fi
 done
+
+# 환경변수에 남아 있는 serial이 실제로 감지되지 않으면 그 카메라를 끈다.
+# (한 대만 꽂았는데 예전 GRIPPER_CAM_SERIAL이 남아 있는 경우가 대표적)
+# 명령줄로 직접 준 serial은 사용자의 의도일 수 있으므로 건드리지 않는다.
+if [ "$use_cameras" = true ] && [ "$rs_count" -gt 0 ]; then
+  if [ -n "$front_env_serial" ] && ! grep -Fq "$front_env_serial" <<<"$devices"; then
+    echo "WARN: POLE_FRONT_CAM_SERIAL=$front_env_serial 감지 안 됨 — use_pole_front_cam:=true를 직접 주지 않았으면 끔"
+    case " $* " in
+      *" use_pole_front_cam:="*) ;;
+      *) set -- "$@" "use_pole_front_cam:=false"; front_present=0 ;;
+    esac
+  fi
+  if [ -n "$gripper_env_serial" ] && ! grep -Fq "$gripper_env_serial" <<<"$devices"; then
+    echo "WARN: GRIPPER_CAM_SERIAL=$gripper_env_serial 감지 안 됨 — use_gripper_cam:=true를 직접 주지 않았으면 끔"
+    case " $* " in
+      *" use_gripper_cam:="*) ;;
+      *) set -- "$@" "use_gripper_cam:=false"; gripper_present=0 ;;
+    esac
+  fi
+fi
+
+# serial을 하나도 안 주면 RealSense 노드의 serial_no가 빈 문자열이 되어
+# 두 노드가 같은 첫 장치를 잡을 수 있다. 자동으로 임의 serial을 넣지 않고 경고만 한다.
+if [ "$use_cameras" = true ] && [ "$front_present" = 0 ] && [ "$gripper_present" = 0 ] \
+  && [ -z "$front_env_serial" ] && [ -z "$gripper_env_serial" ]; then
+  if [ "$rs_count" -ge 2 ]; then
+    echo "WARN: RealSense 2대인데 serial 미지정 — 두 노드가 같은 장치를 잡을 수 있음"
+    echo "      POLE_FRONT_CAM_SERIAL=... GRIPPER_CAM_SERIAL=... ./start.sh"
+  elif [ "$rs_count" -eq 1 ]; then
+    echo "WARN: RealSense 1대인데 serial 미지정 — 한쪽 카메라를 use_*_cam:=false로 끄거나 serial 지정"
+  fi
+fi
 
 # 한쪽 serial만 설정됐으면 나머지 카메라 노드는 끈다 (한 대만 연결한 상태에서
 # 빈 serial 노드가 같은 카메라를 잡으려는 충돌 방지). 직접 use_*_cam:= 인자를 준 경우는 존중한다.
 if [ "$front_present" = 1 ] && [ "$gripper_present" = 0 ]; then
-  case " $* " in *" use_gripper_cam:="*) ;; *) set -- "$@" "use_gripper_cam:=false" ;; esac
-  echo "WARN: gripper_cam serial 없음 → use_gripper_cam:=false"
+  case " $* " in
+    *" use_gripper_cam:="*) ;;
+    *) set -- "$@" "use_gripper_cam:=false"; echo "WARN: gripper_cam serial 없음 → use_gripper_cam:=false" ;;
+  esac
 fi
 if [ "$gripper_present" = 1 ] && [ "$front_present" = 0 ]; then
-  case " $* " in *" use_pole_front_cam:="*) ;; *) set -- "$@" "use_pole_front_cam:=false" ;; esac
-  echo "WARN: pole_front_cam serial 없음 → use_pole_front_cam:=false"
+  case " $* " in
+    *" use_pole_front_cam:="*) ;;
+    *) set -- "$@" "use_pole_front_cam:=false"; echo "WARN: pole_front_cam serial 없음 → use_pole_front_cam:=false" ;;
+  esac
 fi
 
 # MoveIt이 설치되어 있지 않으면 launch 전체가 "package not found"로 죽는다.

@@ -27,9 +27,9 @@ find_package(gz-sim REQUIRED)
 find_package(Qt6 REQUIRED COMPONENTS Core Quick Widgets)
 
 add_library(ManualActors SHARED
-  ManualActors.cc
-  ManualActors.hh
-  ManualActors.qml
+        ManualActors.cc
+        ManualActors.hh
+        ManualActors.qml
 )
 
 target_link_libraries(ManualActors PRIVATE

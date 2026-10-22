@@ -130,6 +130,8 @@ def kf_update(p, P, z, R):
 
 
 def sensor_qos():
+    # depth=5: 컬러·depth ApproximateTimeSynchronizer가 한쪽 프레임을 기다릴 여유.
+    # depth=1로 줄이면 두 스트림의 도착 순서가 조금만 어긋나도 sync가 굶는다.
     return QoSProfile(reliability=QoSReliabilityPolicy.BEST_EFFORT,
                       durability=QoSDurabilityPolicy.VOLATILE,
                       history=QoSHistoryPolicy.KEEP_LAST, depth=5)
