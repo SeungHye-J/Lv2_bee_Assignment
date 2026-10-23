@@ -190,13 +190,15 @@ if [ "$fields" != 32 ]; then
   echo "WARN: S 필드 수가 32가 아닙니다. 펌웨어/프로토콜 버전을 확인하세요."
 fi
 
-printf 'wheel L : pos % .4f rad  vel % .4f rad/s\n' "${v[1]}" "${v[2]}"
-printf 'wheel R : pos % .4f rad  vel % .4f rad/s\n' "${v[3]}" "${v[4]}"
-printf 'joint1  : pos % .4f rad  vel % .4f rad/s  cur % .3f A\n' "${v[5]}" "${v[6]}" "${v[7]}"
-printf 'joint2  : pos % .4f rad  vel % .4f rad/s  cur % .3f A\n' "${v[8]}" "${v[9]}" "${v[10]}"
-printf 'joint3  : pos % .4f rad  vel % .4f rad/s  cur % .3f A\n' "${v[11]}" "${v[12]}" "${v[13]}"
-printf 'joint4  : pos % .4f rad  vel % .4f rad/s  cur % .3f A\n' "${v[14]}" "${v[15]}" "${v[16]}"
-printf 'joint5  : pos % .4f rad  vel % .4f rad/s  cur % .3f A\n' "${v[17]}" "${v[18]}" "${v[19]}"
+# rad + deg 같이 (각도 확인용). 바퀴는 회전 누적이라 deg는 참고만.
+deg() { awk -v r="$1" 'BEGIN { printf "%+.1f", r * 57.2957795 }'; }
+printf 'wheel L : pos % .4f rad (%s deg)  vel % .4f rad/s (%s deg/s)\n' "${v[1]}" "$(deg "${v[1]}")" "${v[2]}" "$(deg "${v[2]}")"
+printf 'wheel R : pos % .4f rad (%s deg)  vel % .4f rad/s (%s deg/s)\n' "${v[3]}" "$(deg "${v[3]}")" "${v[4]}" "$(deg "${v[4]}")"
+printf 'joint1  : pos % .4f rad (%s deg)  vel % .4f rad/s  cur % .3f A\n' "${v[5]}" "$(deg "${v[5]}")" "${v[6]}" "${v[7]}"
+printf 'joint2  : pos % .4f rad (%s deg)  vel % .4f rad/s  cur % .3f A\n' "${v[8]}" "$(deg "${v[8]}")" "${v[9]}" "${v[10]}"
+printf 'joint3  : pos % .4f rad (%s deg)  vel % .4f rad/s  cur % .3f A\n' "${v[11]}" "$(deg "${v[11]}")" "${v[12]}" "${v[13]}"
+printf 'joint4  : pos % .4f rad (%s deg)  vel % .4f rad/s  cur % .3f A\n' "${v[14]}" "$(deg "${v[14]}")" "${v[15]}" "${v[16]}"
+printf 'joint5  : pos % .4f rad (%s deg)  vel % .4f rad/s  cur % .3f A\n' "${v[17]}" "$(deg "${v[17]}")" "${v[18]}" "${v[19]}"
 printf 'gripper : pos % .4f m    vel % .4f m/s    cur % .3f A\n' "${v[20]}" "${v[21]}" "${v[22]}"
 
 # 현재 자세를 유지하는 C 명령. 관절·그리퍼는 마지막 S의 위치를 그대로 쓴다.
@@ -328,8 +330,8 @@ if [ "$HOLD" = 1 ] || [ -n "$SEND" ] || [ -n "$ARM" ] || [ -n "$GRIPPER" ] || [ 
   if [ -n "$last2" ]; then
     IFS=',' read -r -a v2 <<<"$last2"
     say ""
-    printf '확인 wheelL vel=% .4f  wheelR vel=% .4f  joint1=% .4f  joint2=% .4f  gripper=% .4f m\n' \
-      "${v2[2]}" "${v2[4]}" "${v2[5]}" "${v2[8]}" "${v2[20]}"
+    printf '확인 wheelL vel=% .4f  wheelR vel=% .4f  joint1=% .4f rad (%s deg)  joint2=% .4f rad (%s deg)  gripper=% .4f m\n' \
+      "${v2[2]}" "${v2[4]}" "${v2[5]}" "$(deg "${v2[5]}")" "${v2[8]}" "$(deg "${v2[8]}")" "${v2[20]}"
   fi
 fi
 

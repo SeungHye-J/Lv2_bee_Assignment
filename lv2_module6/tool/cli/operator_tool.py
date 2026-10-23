@@ -442,6 +442,10 @@ class OperatorTool(Node):
         self._publish(self._cmd_map_name, String(data=name))
 
     # ---------------------------------------------------------------- status
+    @staticmethod
+    def _rad_deg(value: float) -> str:
+        return f'{value:+.3f} rad ({math.degrees(value):+.1f}°)'
+
     def _wait_joints(self, timeout: float = 6.0) -> bool:
         """/joint_states가 올 때까지 대기 (Jetson discovery 느림 대응)."""
         end = time.monotonic() + timeout
@@ -488,8 +492,8 @@ class OperatorTool(Node):
         if self._joints:
             wheels = [f'{name}={self._joints[name]:.3f}' for name in WHEEL_JOINTS
                       if name in self._joints]
-            arms = [f'{name}={self._joints[name]:.3f}' for name in
-                    (*ARM_JOINTS, GRIPPER_JOINT) if name in self._joints]
+            arms = [f'{name}={self._joints[name]:+.3f}/{math.degrees(self._joints[name]):+.1f}°'
+                    for name in (*ARM_JOINTS, GRIPPER_JOINT) if name in self._joints]
             if wheels:
                 print('바퀴        : ' + '  '.join(wheels))
             if arms:
@@ -664,7 +668,7 @@ class OperatorTool(Node):
     def cmd_arm(self, args) -> int:
         if args.action == 'show':
             self._wait_joints()
-            values = [f'{name}={self._joints[name]:.3f}' for name in ARM_JOINTS if name in self._joints]
+            values = [f'{name}={self._rad_deg(self._joints[name])}' for name in ARM_JOINTS if name in self._joints]
             if not values:
                 print('/joint_states 없음 — bringup/OpenCR 확인', file=sys.stderr)
                 return 1
@@ -1042,8 +1046,8 @@ class OperatorTool(Node):
         lines.append(f' 임무: {self._task_status or "-"}')
         wheels = [f'{n}={self._joints[n]:.2f}' for n in WHEEL_JOINTS
                   if n in self._joints]
-        arms = [f'{n}={self._joints[n]:.2f}' for n in (*ARM_JOINTS, GRIPPER_JOINT)
-                if n in self._joints]
+        arms = [f'{n}={self._joints[n]:+.2f}/{math.degrees(self._joints[n]):+.0f}°'
+                for n in (*ARM_JOINTS, GRIPPER_JOINT) if n in self._joints]
         if wheels:
             lines.append(' 바퀴: ' + ' '.join(wheels))
         if arms:
@@ -1478,7 +1482,8 @@ class OperatorTool(Node):
         found = False
         for name in (*WHEEL_JOINTS, *ARM_JOINTS, GRIPPER_JOINT):
             if name in self._joints:
-                print(f'  {name:18s} {self._joints[name]: .4f} rad')
+                deg = '' if name in WHEEL_JOINTS else f'  ({math.degrees(self._joints[name]):+.1f} deg)'
+                print(f'  {name:18s} {self._joints[name]: .4f} rad{deg}')
                 found = True
         if not found:
             print('/joint_states에 팔 관절이 없습니다 — bringup/OpenCR 확인', file=sys.stderr)
@@ -2018,8 +2023,8 @@ class OperatorTool(Node):
 
     def _menu_arm(self) -> str:
         while rclpy.ok():
-            values = [f'{name}={self._joints[name]:.3f}' for name in ARM_JOINTS
-                      if name in self._joints]
+            values = [f'{name}={self._joints[name]:+.3f} rad ({math.degrees(self._joints[name]):+.1f}°)'
+                      for name in ARM_JOINTS if name in self._joints]
             left = [
                 '  1) 관절 상태',
                 '  2) 관절 목표 설정',
