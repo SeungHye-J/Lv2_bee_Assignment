@@ -177,12 +177,14 @@ bool FakeOpenCR::read_command(std::array<double, 8> & cmd) {
 }
 
 bool FakeOpenCR::parse_command(const std::string & line, std::array<double, 8> & v) {
-  // 펌웨어 parse_fields와 같은 규칙: "C," + 정확히 8 필드.
-  // 빈 필드(`,,` · 끝에 쉼표 포함)는 유지(NaN) — 팔·그리퍼는 명령 생략, 바퀴는 0(정지).
-  // 각 값은 끝까지 숫자이고 유한, 마지막 값 뒤에 아무것도 없음. 예: C,1,,0.4,,,,,
+  // 펌웨어 parse_fields와 같은 규칙:
+  //   빈 필드(`,,` · 끝에 쉼표 포함)는 유지(NaN) — 팔·그리퍼는 명령 생략, 바퀴는 0(정지).
+  //   모자란 뒷 필드도 유지로 채운다. 예: C,1,,0.4 / C,0.4,0.4
+  //   필드가 8개를 넘거나, 숫자가 아니거나, 숫자 뒤에 쓰레기가 있으면 줄 전체를 버린다.
   if (line.compare(0, 2, "C,") != 0) return false;
   const char * text = line.c_str() + 2;
-  for (int i = 0; i < 8; ++i) {
+  size_t i = 0;
+  while (true) {
     if (*text == ',' || *text == '\0') {
       v[i] = std::numeric_limits<double>::quiet_NaN();
     } else {
@@ -191,13 +193,13 @@ bool FakeOpenCR::parse_command(const std::string & line, std::array<double, 8> &
       if (end == text || !std::isfinite(v[i])) return false;
       text = end;
     }
-    if (i + 1 < 8) {
-      if (*text != ',') return false;
-      text = text + 1;
-    } else if (*text != '\0') {
-      return false;
-    }
+    ++i;
+    if (*text == '\0') break;
+    if (*text != ',') return false;
+    ++text;
+    if (i == 8) return false;  // 필드가 8개를 넘음
   }
+  for (; i < 8; ++i) v[i] = std::numeric_limits<double>::quiet_NaN();
   return true;
 }
 
