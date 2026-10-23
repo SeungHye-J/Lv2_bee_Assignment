@@ -13,7 +13,9 @@ PID_FILE="${X11VNC_PID:-$HOME/.vnc/x11vnc.pid}"
 AUTH="${X11VNC_AUTH:-guess}"
 WAIT_MS="${X11VNC_WAIT:-20}"
 DEFER_MS="${X11VNC_DEFER:-40}"
-SCALE="${X11VNC_SCALE:-}"
+# 저해상도 기본값: 전송량을 줄이기 위해 960x540으로 축소 전송한다.
+# 원래 해상도로 쓰려면 X11VNC_SCALE=off ./server.sh 또는 --scale off
+SCALE="${X11VNC_SCALE:-960x540}"
 ACTION=start
 FOREGROUND=0
 
@@ -29,7 +31,8 @@ usage() {
   -d, --display :N        X display (기본 :0)
   -p, --port N            VNC 포트 (기본 5900)
       --password FILE     VNC 비밀번호 파일 (기본 ~/.vnc/passwd)
-      --scale WxH         x11vnc 출력 축소 (예: 1280x720)
+      --scale WxH         x11vnc 출력 축소 (기본 960x540, off면 축소 안 함)
+                        예: 960x540 / 1280x720 / 1024x600 / 1/2 / off
       --foreground        백그라운드 대신 현재 터미널에서 실행
       --status            실행 상태만 확인
       --stop              x11vnc 종료
@@ -68,6 +71,7 @@ show_status() {
   echo "display : ${XDISPLAY}"
   echo "address : 127.0.0.1:${VNC_PORT} (localhost only)"
   echo "passwd  : ${VNC_PASSWD}"
+  echo "scale   : ${SCALE:-off (원본 해상도)}"
   echo "log     : ${LOG_FILE}"
   if port_in_use; then
     echo "state   : LISTEN"
@@ -151,7 +155,10 @@ start_server() {
     -wait "$WAIT_MS"
     -defer "$DEFER_MS"
   )
-  [[ -n "$SCALE" ]] && cmd+=(-scale "$SCALE")
+  # SCALE=off/none/orig/1/1x1 이면 축소 없이 원본 해상도로 실행
+  if [[ -n "$SCALE" && ! "${SCALE,,}" =~ ^(off|none|orig|1|1x1)$ ]]; then
+    cmd+=(-scale "$SCALE")
+  fi
 
   if [[ "$FOREGROUND" -eq 1 ]]; then
     echo "x11vnc를 foreground로 실행합니다. 종료: Ctrl-C"
