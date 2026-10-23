@@ -38,3 +38,4 @@ lv2_module6/firmware/build/
 /lv2_module6/ros2_ws/model/nav_correction/*.pt
 /lv2_module6/ros2_ws/model/nav_tuner/*.pt
 /lv2_module6/simulator/yolo_job.log
+/log/

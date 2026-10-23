@@ -11,11 +11,11 @@ HERE="$(cd "$(dirname "$0")" && pwd)"
 cmd="${1:-start}"
 case "$cmd" in
   start)
-    shift
+    [ $# -gt 0 ] && shift
     exec "$HERE/cli/start.sh" "$@"
     ;;
   stop)
-    shift
+    [ $# -gt 0 ] && shift
     exec "$HERE/cli/stop.sh" "$@"
     ;;
   restart)

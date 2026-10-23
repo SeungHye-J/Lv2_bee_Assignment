@@ -10,7 +10,7 @@ cmd="${1:-start}"
 case "$cmd" in
   start|stop|restart)
     script="$cmd.sh"
-    shift
+    [ $# -gt 0 ] && shift
     exec "$HERE/rviz/$script" "$@"
     ;;
   *)
