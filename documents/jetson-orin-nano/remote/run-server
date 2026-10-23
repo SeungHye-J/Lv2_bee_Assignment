@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
-# server.sh — Jetson 화면 공유 서버 (x11vnc)
+# run-server — Jetson 화면 공유 서버 (x11vnc)
 #
-# 이 스크립트는 Jetson에서 실행한다. PC에서는 client.sh를 사용한다.
+# 이 스크립트는 Jetson에서 실행한다. PC에서는 run-client를 사용한다.
 # 기본값: DISPLAY=:0, 127.0.0.1:5900, VNC 비밀번호 ~/.vnc/passwd
 set -euo pipefail
 
@@ -14,7 +14,7 @@ AUTH="${X11VNC_AUTH:-guess}"
 WAIT_MS="${X11VNC_WAIT:-20}"
 DEFER_MS="${X11VNC_DEFER:-40}"
 # 저해상도 기본값: 전송량을 줄이기 위해 960x540으로 축소 전송한다.
-# 원래 해상도로 쓰려면 X11VNC_SCALE=off ./server.sh 또는 --scale off
+# 원래 해상도로 쓰려면 X11VNC_SCALE=off ./run-server 또는 --scale off
 SCALE="${X11VNC_SCALE:-960x540}"
 ACTION=start
 FOREGROUND=0
@@ -22,10 +22,11 @@ FOREGROUND=0
 usage() {
   cat <<'EOF'
 사용법:
-  ./server.sh [옵션]
-  ./server.sh --status
-  ./server.sh --stop
-  ./server.sh --restart
+  ./run-server [옵션]
+  ./run-server --start
+  ./run-server --status
+  ./run-server --stop
+  ./run-server --restart
 
 옵션:
   -d, --display :N        X display (기본 :0)
@@ -34,9 +35,10 @@ usage() {
       --scale WxH         x11vnc 출력 축소 (기본 960x540, off면 축소 안 함)
                         예: 960x540 / 1280x720 / 1024x600 / 1/2 / off
       --foreground        백그라운드 대신 현재 터미널에서 실행
+      --start             x11vnc 시작 (기본 동작, 이미 실행 중이면 유지)
       --status            실행 상태만 확인
       --stop              x11vnc 종료
-      --restart           종료 후 다시 시작
+      --restart           종료 후 다시 시작 (설정 변경 적용용)
   -h, --help              이 도움말
 
 환경변수:
@@ -189,6 +191,7 @@ while [[ $# -gt 0 ]]; do
     --password)     need_value "$1" "${2:-}"; VNC_PASSWD="$2"; shift 2 ;;
     --scale)        need_value "$1" "${2:-}"; SCALE="$2"; shift 2 ;;
     --foreground)   FOREGROUND=1; shift ;;
+    --start)        ACTION=start; shift ;;
     --status)       ACTION=status; shift ;;
     --stop)         ACTION=stop; shift ;;
     --restart)      ACTION=restart; shift ;;

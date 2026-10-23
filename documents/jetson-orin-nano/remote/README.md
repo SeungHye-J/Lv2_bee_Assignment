@@ -46,24 +46,24 @@ PC    : SSH 터널로 Jetson의 5900에 연결 → Remmina VNC로 화면 표시
 같은 폴더에 두 스크립트가 있다.
 
 ```text
-server.sh   # Jetson에서 실행 — x11vnc 시작/중지/상태
-client.sh   # PC에서 실행 — SSH 터널 + Remmina
+run-server   # Jetson에서 실행 — x11vnc 시작/중지/상태
+run-client   # PC에서 실행 — SSH 터널 + Remmina
 ```
 
-### Jetson: server.sh
+### Jetson: run-server
 
 Jetson에 스크립트를 복사해서 실행한다.
 
 ```bash
-scp documents/jetson-orin-nano/remote/server.sh bee@bee.local:~/server.sh
-ssh bee@bee.local 'chmod +x ~/server.sh && ~/server.sh'
+scp documents/jetson-orin-nano/remote/run-server bee@bee.local:~/run-server
+ssh bee@bee.local 'chmod +x ~/run-server && ~/run-server'
 ```
 
 이미 Jetson에 저장소가 있으면 그 경로에서 실행해도 된다.
 
 ```bash
 cd ~/Lv2_bee_Assignment/documents/jetson-orin-nano/remote
-./server.sh
+./run-server
 ```
 
 기본 동작:
@@ -78,23 +78,24 @@ display   : :0
 자주 쓰는 명령:
 
 ```bash
-./server.sh --status
-./server.sh --stop
-./server.sh --restart
-./server.sh --scale 1280x720
-./server.sh --foreground
+./run-server --start
+./run-server --status
+./run-server --stop
+./run-server --restart
+./run-server --scale 1280x720
+./run-server --foreground
 ```
 
-`server.sh`는 항상 `-localhost`로 실행한다. PC에서 직접 `10.2.12.110:5900`으로
-붙는 방식이 아니므로 아래 `client.sh`의 SSH 터널이 필요하다.
+`run-server`는 항상 `-localhost`로 실행한다. PC에서 직접 `10.2.12.110:5900`으로
+붙는 방식이 아니므로 아래 `run-client`의 SSH 터널이 필요하다.
 
-### PC: client.sh
+### PC: run-client
 
 PC에서 실행한다.
 
 ```bash
 cd documents/jetson-orin-nano/remote
-./client.sh
+./run-client
 ```
 
 기본 동작:
@@ -108,26 +109,28 @@ Jetson VNC : 127.0.0.1:5900
 SSH 키가 이미 등록되어 있어야 한다. 접속 대상이 다르면:
 
 ```bash
-./client.sh --host bee@10.2.12.110
+./run-client --host bee@10.2.12.110
 ```
 
 PC의 5900 포트가 이미 사용 중이면:
 
 ```bash
-./client.sh --local-port 5901
+./run-client --local-port 5901
 ```
 
 터널만 열고 VNC 클라이언트는 직접 실행하려면:
 
 ```bash
-./client.sh --no-vnc
+./run-client --no-vnc
 ```
 
 상태/종료:
 
 ```bash
-./client.sh --status
-./client.sh --stop
+./run-client --start
+./run-client --status
+./run-client --stop
+./run-client --restart
 ```
 
 VNC 비밀번호는 Jetson 로그인 비밀번호가 아니라 `x11vnc -storepasswd`에서 만든
