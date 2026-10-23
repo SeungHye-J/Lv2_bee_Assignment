@@ -19,7 +19,7 @@ fi
 #   ./test-firmware --l-wheel 0.3 --yes     # 왼쪽만 0.3 rad/s (오른쪽은 정지)
 #   ./test-firmware --r-wheel 0.3 --yes     # 오른쪽만 0.3 rad/s (왼쪽은 정지)
 #   ./test-firmware --wheel 0.3 --count 100 --yes  # 100번 전송 ≈ 5초간 구동
-#   ./test-firmware --send 'C,0.3,0.3,,,,,' --yes  # 빈칸 = 유지 (바퀴는 0 대신 명시)
+#   ./test-firmware --send 'C,0.3,0.3,,,,,,' --yes # 빈칸 = 유지 (바퀴는 0 대신 명시, 총 8필드)
 #
 # 빈칸 규칙 (펌웨어·faker 공통): C의 빈 필드는 "유지" — 팔·그리퍼는 현재 목표 유지,
 #   바퀴는 정지(0). 전부 빈칸이면 바퀴 정지 + 팔 유지. S 읽기에는 영향 없음.
@@ -212,6 +212,18 @@ if [ -n "$SEND" ]; then
     C,*) cmd=$SEND ;;
     *) cmd="C,$SEND" ;;
   esac
+  # 필드는 항상 8개 = 콤마 7개. 모자란 뒷 필드는 빈칸(유지)으로 채운다.
+  # (bash `read -a`는 끝 빈 필드를 버려서 개수 세기에 못 씀 → 콤마 수로 계산)
+  body=${cmd#C,}
+  _commas=$(tr -cd ',' <<<"$body" | wc -c)
+  _commas=$((_commas))
+  if [ "$_commas" -lt 7 ]; then
+    for (( _i = _commas; _i < 7; ++_i )); do body+=","; done
+    cmd="C,$body"
+    say "NOTE: 필드가 모자라 뒷부분을 빈칸으로 채움 → $cmd"
+  elif [ "$_commas" -gt 7 ]; then
+    echo "FAIL: 필드가 8개를 넘습니다 (콤마 ${_commas}개): $cmd"; exit 2
+  fi
   say ""
   say "전송: $cmd"
   send_repeated "$cmd" "${COUNT:-5}"

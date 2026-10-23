@@ -117,6 +117,10 @@ cd tool
 ./run-cli mode explore       # MAPPING 중일 때만
 ```
 
+터미널에서 수동 명령(`drive`·`teleop`·`arm`·`gripper`)을 내렸는데 MANUAL이 아니면
+전환할지 물어보고 `y`면 자동으로 바꾼 뒤 명령을 보냅니다 (시뮬레이터 "마지막 행동이 모드"와 같은 사용감).
+자동화(비TTY)에서는 묻지 않고 거부하므로 스크립트는 `mode manual`을 먼저 넣으세요.
+
 ### 비상정지
 
 ```bash

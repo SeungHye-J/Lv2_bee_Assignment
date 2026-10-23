@@ -1,7 +1,7 @@
 // beebot OpenCR 펌웨어 — SBC(control/BeebotSystemHardware) ↔ OpenCR ↔ DYNAMIXEL 8개 + 내장 IMU
 //   USB 시리얼 ASCII 줄 프로토콜 (module5 opencr_pan_tilt와 같은 방식, 단위는 SI):
 //     SBC → OpenCR  C,<바퀴L rad/s>,<바퀴R rad/s>,<j1>,<j2>,<j3>,<j4>,<j5 rad>,<그리퍼 m>\n      (매 제어 주기)
-//                        빈 필드(`,,` ·trailing comma 포함)는 "유지" — 팔·그리퍼는 명령 생략(현재 유지),
+//                        빈 필드(`,,` ·trailing comma · 모자란 뒷필드)는 "유지" — 팔·그리퍼는 명령 생략(현재 유지),
 //                        바퀴는 정지(0). 전부 빈칸이면 바퀴 정지 + 팔 유지. 예: C,0.3,0.3,,,,,,
 //                        (빈칸 없이 전부 숫자였던 기존 C와 호환 — SBC는 항상 전부 숫자로 보냄)
 //     OpenCR → SBC  S,<바퀴L pos,vel>,<바퀴R pos,vel>,<j1 pos,vel,A>…<j5 …>,<그리퍼 m,m/s,A>,
@@ -55,7 +55,12 @@ void hold_present_pose()
 
 bool parse_fields(char *text, float *out, size_t count)
 {
-    for (size_t i = 0; i < count; ++i)
+    // 필드 수는 유연하게: 모자란 뒷 필드는 빈칸(유지)으로 채운다.
+    //   C,0.3,0.3            → 바퀴만 (팔·그리퍼 유지)
+    //   C,0.3,0.3,,,,,       → 위와 같음 (빈칸 명시)
+    //   C,0.3,0.3,+1(더 많음) → 형식 오류로 줄 전체 버림
+    size_t i = 0;
+    while (true)
     {
         if (*text == ',' || *text == '\0')
         {
@@ -69,17 +74,17 @@ bool parse_fields(char *text, float *out, size_t count)
                 return false;
             text = end;
         }
-        if (i + 1 < count)
-        {
-            if (*text != ',')
-                return false;
-            text += 1;
-        }
-        else if (*text != '\0')
-        {
+        ++i;
+        if (*text == '\0')
+            break;
+        if (*text != ',')
             return false;
-        }
+        ++text;
+        if (i == count)
+            return false;  // 필드가 count개를 넘음
     }
+    for (; i < count; ++i)
+        out[i] = NAN;  // 생략된 뒷 필드 = 유지
     return true;
 }
 

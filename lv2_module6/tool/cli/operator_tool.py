@@ -328,7 +328,7 @@ class OperatorTool(Node):
         publisher.publish(msg)
         self._poll(0.15)
 
-    def _wait_value(self, key: str, expected: str, timeout: float = 2.5) -> bool:
+    def _wait_value(self, key: str, expected: str, timeout: float = 5.0) -> bool:
         end = time.monotonic() + timeout
         while time.monotonic() < end and rclpy.ok():
             self._poll(0.1)
@@ -354,8 +354,9 @@ class OperatorTool(Node):
         return (self._values.get('map_mode') or '').upper()
 
     def _ensure_manual(self, force: bool = False) -> bool:
-        # discovery가 느린 Jetson에서도 state 토픽을 놓치지 않게 최대 4초 대기
-        end = time.monotonic() + 4.0
+        # discovery가 느린 Jetson에서도 state 토픽을 놓치지 않게 최대 8초 대기
+        # (status는 5초. 모드 gate는 더 길게 — 못 보면 거부라 재시도만 하면 됨)
+        end = time.monotonic() + 8.0
         while time.monotonic() < end and rclpy.ok():
             self._poll(0.2)
             if self.operation:
@@ -379,6 +380,37 @@ class OperatorTool(Node):
                   '(스캔 자세 고정) — gripper만 조작 가능', file=sys.stderr)
             return False
         return True
+
+    def _ensure_manual_or_switch(self, force: bool = False) -> bool:
+        """수동 명령 전 모드 확보. TTY면 MANUAL 전환을 물어보고 자동 전환한다.
+
+        시뮬레이터("마지막 행동이 모드다")와 같은 사용감. 자동화(비TTY)·--force는
+        기존 동작 유지 (거부 또는 확인 생략 — manual_control이 최종 판단).
+        """
+        if force:
+            return self._ensure_manual(True)
+        if self._ensure_manual(False):
+            return True
+        if not sys.stdin.isatty():
+            return False
+        if not self._ui_yes_no('MANUAL 모드로 전환할까요?', default=True):
+            return False
+        self.cmd_mode(argparse.Namespace(mode='manual'))
+        return self._ensure_manual(False)
+
+    def _ensure_arm_or_switch(self, force: bool = False) -> bool:
+        if force:
+            return self._ensure_arm(True)
+        if self._ensure_arm(False):
+            return True
+        if not sys.stdin.isatty():
+            return False
+        if self.map_mode == 'MAPPING':
+            return False  # MAPPING 중 팔 거부는 전환으로 해결 안 됨 (위에서 안내됨)
+        if not self._ui_yes_no('MANUAL 모드로 전환할까요?', default=True):
+            return False
+        self.cmd_mode(argparse.Namespace(mode='manual'))
+        return self._ensure_arm(False)
 
     # -------------------------------------------------------------- 명령 전송
     def _send_velocity(self, linear: float, angular: float):
@@ -410,6 +442,15 @@ class OperatorTool(Node):
         self._publish(self._cmd_map_name, String(data=name))
 
     # ---------------------------------------------------------------- status
+    def _wait_joints(self, timeout: float = 6.0) -> bool:
+        """/joint_states가 올 때까지 대기 (Jetson discovery 느림 대응)."""
+        end = time.monotonic() + timeout
+        while time.monotonic() < end and rclpy.ok():
+            self._poll(0.2)
+            if self._joints:
+                return True
+        return bool(self._joints)
+
     def cmd_status(self, args) -> int:
         # discovery가 느린 Jetson에서도 잡히게: /state/* 가 오거나 5초까지 대기.
         # joint_states(100Hz)가 먼저 와도 state 토픽 매칭까지 기다린다.
@@ -510,7 +551,7 @@ class OperatorTool(Node):
         if args.duration <= 0.0:
             print('거부: --duration은 0보다 커야 합니다', file=sys.stderr)
             return 2
-        if not self._ensure_manual(args.force):
+        if not self._ensure_manual_or_switch(args.force):
             return 1
         if self._cmd_vel.get_subscription_count() == 0:
             print('WARN: /cmd/manual/cmd_vel 구독자 없음 — manual_control 확인', file=sys.stderr)
@@ -531,7 +572,7 @@ class OperatorTool(Node):
 
     # ------------------------------------------------------------------ teleop
     def cmd_teleop(self, args) -> int:
-        if not self._ensure_manual(args.force):
+        if not self._ensure_manual_or_switch(args.force):
             return 1
         if not sys.stdin.isatty():
             print('거부: teleop은 터미널에서 실행해야 합니다', file=sys.stderr)
@@ -622,7 +663,7 @@ class OperatorTool(Node):
 
     def cmd_arm(self, args) -> int:
         if args.action == 'show':
-            self._poll(0.5)
+            self._wait_joints()
             values = [f'{name}={self._joints[name]:.3f}' for name in ARM_JOINTS if name in self._joints]
             if not values:
                 print('/joint_states 없음 — bringup/OpenCR 확인', file=sys.stderr)
@@ -630,7 +671,7 @@ class OperatorTool(Node):
             print('  '.join(values))
             return 0
 
-        if not self._ensure_arm(args.force):
+        if not self._ensure_arm_or_switch(args.force):
             return 1
 
         if args.action == 'home':
@@ -645,7 +686,7 @@ class OperatorTool(Node):
                 print('거부: 관절 목표가 없습니다 (예: joint1=0.0 joint2=0.4)', file=sys.stderr)
                 return 2
             if args.action == 'delta':
-                self._poll(0.5)
+                self._wait_joints()
                 for name, delta in list(targets.items()):
                     if name not in self._joints:
                         print(f'거부: {name} 현재 각을 모름 (/joint_states 대기)', file=sys.stderr)
@@ -654,7 +695,7 @@ class OperatorTool(Node):
 
         # manual_control은 목표에 없는 관절을 /joint_states의 현재 각으로 채운다.
         # 그 관절의 현재 각이 없으면 명령 전체를 보류하므로 여기서 먼저 막는다.
-        self._poll(0.5)
+        self._wait_joints()
         missing = [name for name in ARM_JOINTS if name not in targets and name not in self._joints]
         if missing:
             print('/joint_states에 없는 팔 관절: ' + ', '.join(missing) +
@@ -668,7 +709,7 @@ class OperatorTool(Node):
     # ----------------------------------------------------------------- gripper
     def cmd_gripper(self, args) -> int:
         if args.action == 'show':
-            self._poll(0.5)
+            self._wait_joints()
             if GRIPPER_JOINT not in self._joints:
                 print('/joint_states에 gripper_left_joint 없음', file=sys.stderr)
                 return 1
@@ -695,7 +736,7 @@ class OperatorTool(Node):
                 print(f'WARN: gripper 위치 {position:.4f}은 일반 범위(0~{GRIPPER_OPEN}) 밖입니다',
                       file=sys.stderr)
 
-        if not self._ensure_manual(args.force):
+        if not self._ensure_manual_or_switch(args.force):
             return 1
         self._send_gripper(position)
         print(f'그리퍼 목표: {position:.4f} m')
