@@ -20,10 +20,13 @@ SB_SECS="${X11VNC_SB:-15}"
 # 저해상도 기본값: 전송량을 줄이기 위해 960x540으로 축소 전송한다.
 # 원래 해상도로 쓰려면 X11VNC_SCALE=off ./run-server 또는 --scale off
 SCALE="${X11VNC_SCALE:-960x540}"
-# 실제 X 출력 해상도 변경 (물리 모니터에도 같이 적용됨). 비어 있으면 건드리지 않음.
-# 예: X11VNC_XRANDR_MODE=1280x720 ./run-server --restart
-XRANDR_MODE="${X11VNC_XRANDR_MODE:-}"
+# 실제 X 출력 해상도 변경 (물리 모니터에도 같이 적용됨).
+# 기본 1280x720으로 자동 적용. 변경하지 않으려면 keep/off/none 또는 빈 값.
+# 예: ./run-server --restart --xrandr keep
+XRANDR_MODE="${X11VNC_XRANDR_MODE:-1280x720}"
 XRANDR_OUTPUT="${X11VNC_OUTPUT:-}"
+XRANDR_EXPLICIT=0
+[[ -n "${X11VNC_XRANDR_MODE+set}" ]] && XRANDR_EXPLICIT=1
 ACTION=start
 FOREGROUND=0
 
@@ -42,8 +45,8 @@ usage() {
       --password FILE     VNC 비밀번호 파일 (기본 ~/.vnc/passwd)
       --scale WxH         x11vnc 출력 축소 (기본 960x540, off면 축소 안 함)
                         예: 960x540 / 1280x720 / 1024x600 / 1/2 / off
-      --xrandr MODE       Jetson 실제 출력 해상도 변경 후 시작 (예: 1280x720)
-                        물리 모니터에도 같이 적용됨. --restart와 함께 사용
+      --xrandr MODE       Jetson 실제 출력 해상도 변경 후 시작 (기본 1280x720)
+                        keep면 변경 안 함. 물리 모니터에도 같이 적용됨
       --speeds MODE       저속 링크 스케줄러 튜닝 (기본 dsl, off면 미사용)
                         예: dsl / modem / lan / off
       --sb SECS           무입력 시 폴링 간격 늦추기까지 대기 초 (기본 15, 0이면 끔)
@@ -146,7 +149,9 @@ stop_server() {
 }
 
 apply_xrandr() {
-  [[ -z "$XRANDR_MODE" ]] && return 0
+  case "${XRANDR_MODE,,}" in
+    ""|keep|off|none) echo "xrandr 유지 (실제 해상도 변경 안 함)"; return 0 ;;
+  esac
   command -v xrandr >/dev/null 2>&1 || die "xrandr가 없습니다. Jetson에서 'sudo apt install -y x11-xserver-utils' 실행"
 
   # SSH에서도 동작하도록 XAUTHORITY 후보를 순서대로 시도
@@ -171,9 +176,14 @@ apply_xrandr() {
   local modes
   modes="$(DISPLAY="$XDISPLAY" XAUTHORITY="$xa" xrandr --current | awk -v o="$out" '/^[^[:space:]]/{p=($1==o)} p && /^[[:space:]]+[0-9]+x[0-9]+/{print $1}')"
   if ! printf '%s\n' "$modes" | grep -qx "$XRANDR_MODE"; then
-    echo "출력 ${out}에서 모드 ${XRANDR_MODE}를 지원하지 않습니다. 사용 가능:" >&2
+    if [[ "$XRANDR_EXPLICIT" -eq 1 ]]; then
+      echo "출력 ${out}에서 모드 ${XRANDR_MODE}를 지원하지 않습니다. 사용 가능:" >&2
+      printf '%s\n' "$modes" >&2
+      exit 1
+    fi
+    echo "경고: 출력 ${out}에서 기본 모드 ${XRANDR_MODE} 미지원. 실제 해상도는 그대로 둡니다. 사용 가능:" >&2
     printf '%s\n' "$modes" >&2
-    exit 1
+    return 0
   fi
 
   echo "xrandr 적용: ${out} -> ${XRANDR_MODE}"
@@ -265,7 +275,7 @@ while [[ $# -gt 0 ]]; do
     -p|--port)      need_value "$1" "${2:-}"; VNC_PORT="$2"; shift 2 ;;
     --password)     need_value "$1" "${2:-}"; VNC_PASSWD="$2"; shift 2 ;;
     --scale)        need_value "$1" "${2:-}"; SCALE="$2"; shift 2 ;;
-    --xrandr)       need_value "$1" "${2:-}"; XRANDR_MODE="$2"; shift 2 ;;
+    --xrandr)       need_value "$1" "${2:-}"; XRANDR_MODE="$2"; XRANDR_EXPLICIT=1; shift 2 ;;
     --speeds)       need_value "$1" "${2:-}"; SPEEDS="$2"; shift 2 ;;
     --sb)           need_value "$1" "${2:-}"; SB_SECS="$2"; shift 2 ;;
     --wireframe)    WIREFRAME=1; shift ;;
