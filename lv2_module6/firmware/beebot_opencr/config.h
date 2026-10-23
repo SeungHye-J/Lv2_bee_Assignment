@@ -17,9 +17,11 @@ constexpr uint8_t ARM_IDS[] = {11, 12, 13, 14, 15};   // joint1~joint5
 constexpr size_t ARM_COUNT = sizeof(ARM_IDS) / sizeof(ARM_IDS[0]);
 constexpr uint8_t GRIPPER_ID = 16;
 
-// ---- 방향·변환 (TODO(김현하): 실기에서 관절마다 부호·영점 확인)
+// ---- 방향·변환 (실기 확인: 바퀴 1번=좌·2번=우, 두 모터 같은 방향 장착.
+//   TB3(거울 장착)와 달라 양쪽 DIR = +1. URDF 바퀴 축도 양쪽 "0 1 0"으로 동일.
+//   TODO(김현하): 팔 관절마다 부호·영점 확인, 그리퍼 변환 실측)
 constexpr float WHEEL_LEFT_DIR = 1.0f;
-constexpr float WHEEL_RIGHT_DIR = -1.0f;              // 오른쪽 바퀴는 반대로 장착 (TB3 관례)
+constexpr float WHEEL_RIGHT_DIR = 1.0f;               // 같은 방향 장착 (TB3 거울 장착과 다름)
 constexpr float ARM_DIR[ARM_COUNT] = {1, 1, 1, 1, 1};
 constexpr float GRIPPER_RAD_PER_M = 60.0f;            // 그리퍼 손가락 [m] → 서보 [rad] (TODO 실측)
 
