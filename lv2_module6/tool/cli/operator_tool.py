@@ -354,7 +354,12 @@ class OperatorTool(Node):
         return (self._values.get('map_mode') or '').upper()
 
     def _ensure_manual(self, force: bool = False) -> bool:
-        self._poll(0.5)
+        # discovery가 느린 Jetson에서도 state 토픽을 놓치지 않게 최대 4초 대기
+        end = time.monotonic() + 4.0
+        while time.monotonic() < end and rclpy.ok():
+            self._poll(0.2)
+            if self.operation:
+                break
         if self._emergency:
             print('거부: 비상정지 중입니다 — 먼저 `estop off`', file=sys.stderr)
             return False
