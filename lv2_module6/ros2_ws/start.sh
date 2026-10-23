@@ -120,11 +120,11 @@ if [ -n "${ROS_DISCOVERY_SERVER:-}" ]; then
     done
   fi
   if [ "$_ds_local" = true ]; then
-    if pgrep -f "fast-discovery-server -i 0 -p ${_ds_port}" >/dev/null 2>&1; then
+    if pgrep -f "fastdds discovery -i 0 -p ${_ds_port}" >/dev/null 2>&1; then
       echo "ok: discovery server already running (:${_ds_port})"
     else
-      echo "=== fast-discovery-server 시작 (:${_ds_port})"
-      setsid fast-discovery-server -i 0 -p "$_ds_port" > /tmp/ds.log 2>&1 < /dev/null &
+      echo "=== fastdds discovery 시작 (:${_ds_port})"
+      setsid fastdds discovery -i 0 -p "$_ds_port" > /tmp/ds.log 2>&1 < /dev/null &
     fi
   fi
   echo "Discovery: server ($ROS_DISCOVERY_SERVER)"

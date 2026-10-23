@@ -30,7 +30,8 @@ discovery 서버 없이, “저 주소에 참가자가 있으니 직접 찾아�
 Jetson에 SSH로 들어가서:
 
 ```bash
-setsid fast-discovery-server -i 0 -p 11811 > /tmp/ds.log 2>&1 < /dev/null &
+source /opt/ros/lyrical/setup.bash
+setsid fastdds discovery -i 0 -p 11811 > /tmp/ds.log 2>&1 < /dev/null &
 ss -uln | grep 11811
 ```
 
