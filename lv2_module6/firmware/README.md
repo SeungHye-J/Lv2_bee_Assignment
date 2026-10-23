@@ -16,6 +16,7 @@ OpenCR 내장 IMU (MPU9250, cIMU)
 | 방향 | 형식 | 주기 |
 | --- | --- | --- |
 | SBC → OpenCR | `C,<바퀴L rad/s>,<바퀴R rad/s>,<joint1>,<joint2>,<joint3>,<joint4>,<joint5 rad>,<그리퍼 m>\n` (8개) | 제어 주기 (100Hz) |
+| SBC → OpenCR | `T,<8필드>` 또는 `T,0`·`T,1` — 토크 온/오프 (빈칸=유지, 관절별 가능) | 자세 실측·수동 정렬 |
 | OpenCR → SBC | `S,` 바퀴L pos·vel, 바퀴R pos·vel, joint1~5 pos·vel·전류A, 그리퍼 m·m/s·A, IMU qx·qy·qz·qw, gx·gy·gz rad/s, ax·ay·az m/s² `\n` (32개) | `STATE_PERIOD_MS` (25ms) |
 
 - watchdog: 마지막 **유효한** `C`부터 `COMMAND_TIMEOUT_MS`(500ms)가 지나면 바퀴 속도 0, 팔·그리퍼는 현재 자세 유지 (한 번).
@@ -91,6 +92,10 @@ chmod +x test-firmware          # 최초 1회 (Permission denied 방지)
 ./test-firmware --r-wheel 0.3 --yes     # 오른쪽만 (왼쪽 정지)
 ./test-firmware --send 'C,0,0,0,0,0,0,0,0' --yes
 ./test-firmware --send 'C,0.3,0.3,,,,,,' --yes  # 빈칸 = 유지 (아래 규칙)
+./test-firmware --torque off --yes              # 전체 토크 해제 (손으로 자세 잡기)
+./test-firmware --torque on --yes               # 전체 토크 켜기 (지금 자세를 목표로)
+./test-firmware --torque 1,0,,,,,, --yes        # 조인트별 (C와 같은 순서, 빈칸=유지)
+./test-firmware --torque joint2=0,joint4=1 --yes
 ```
 
 `sh ./test-firmware`로 실행하면 Ubuntu의 `/bin/sh`(dash)가 되어
@@ -116,6 +121,8 @@ bash ./test-firmware
 | `--l-wheel <v>` / `--r-wheel <v>` | 한쪽 바퀴만 속도 (반대쪽은 정지) |
 | `--count <n>` | `C` 전송 횟수, 1회 = 0.05초 (기본: `--hold`·`--send` 5회, `--arm`·`--gripper`·바퀴 20회, 최대 1200) |
 | `--send 'C,...'` | `C` 명령을 직접 전송 (빈 필드 `,,`는 유지 — 아래 규칙) |
+| `--torque on\|off` | 전체 토크 켜기/끄기 (`T,1` · `T,0`). 끄면 손으로 자세를 잡을 수 있다 |
+| `--torque <8필드>` | 조인트별 토크 (C와 같은 순서, 빈칸=지금 상태 유지, `1`=켜기 `0`=끄기) |
 | `--yes` | 확인 프롬프트 없이 실행 |
 
 - `--arm`, `--gripper`, `--wheel`, `--send`는 실제로 모터를 움직인다. 주변을 비우고 작은 값부터 사용한다.
