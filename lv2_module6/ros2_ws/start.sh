@@ -100,6 +100,38 @@ for arg in "$@"; do
   esac
 done
 
+# --- Discovery Server: ROS_DISCOVERY_SERVER가 자기 자신을 가리키면 서버도 여기서 띄운다.
+#   127.0.0.1:11811·localhost:11811·자기IP:11811 → 로컬 서버 시작(없으면) 후 사용 (내가 서버 자리)
+#   남의 IP → 그쪽 서버에 붙기만 함 (서버 안 띄움)
+#   미설정 → 멀티캐스트 기본
+if [ -n "${ROS_DISCOVERY_SERVER:-}" ]; then
+  _ds_first="${ROS_DISCOVERY_SERVER%%;*}"
+  _ds_host="${_ds_first%%:*}"
+  _ds_port="${_ds_first##*:}"
+  [ "$_ds_port" = "$_ds_first" ] && _ds_port=11811
+  _ds_local=false
+  case "$_ds_host" in
+    127.0.0.1|localhost) _ds_local=true ;;
+  esac
+  if [ "$_ds_local" = false ]; then
+    # shellcheck disable=SC2046
+    for _ds_ip in $(hostname -I 2>/dev/null); do
+      if [ "$_ds_ip" = "$_ds_host" ]; then _ds_local=true; break; fi
+    done
+  fi
+  if [ "$_ds_local" = true ]; then
+    if pgrep -f "fast-discovery-server -i 0 -p ${_ds_port}" >/dev/null 2>&1; then
+      echo "ok: discovery server already running (:${_ds_port})"
+    else
+      echo "=== fast-discovery-server 시작 (:${_ds_port})"
+      setsid fast-discovery-server -i 0 -p "$_ds_port" > /tmp/ds.log 2>&1 < /dev/null &
+    fi
+  fi
+  echo "Discovery: server ($ROS_DISCOVERY_SERVER)"
+else
+  echo "Discovery: multicast (기본)"
+fi
+
 if [ "$mock" = false ]; then
   # BeebotSystemHardware가 여는 포트 (URDF port → ros_system 인자 port)
   if [ ! -e "$port" ]; then
