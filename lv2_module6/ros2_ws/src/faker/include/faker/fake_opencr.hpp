@@ -48,6 +48,8 @@ private:
   bool read_command(std::array<double, 8> & cmd);
   // 펌웨어 parse_fields와 같은 규칙으로 C 한 줄 검사
   static bool parse_command(const std::string & line, std::array<double, 8> & v);
+  // T 줄(토크 온/오프) 적용 — 전체(T,0) 또는 조인트별(T,1,0,,,,,,), 빈칸=유지
+  void apply_torque_line(const std::string & line);
   void write_state();
   void tick();
 
@@ -58,6 +60,7 @@ private:
   double x_, y_, yaw_, yaw_rate_;
   std::array<double, 2> wheel_cmd_{}, wheel_vel_{}, wheel_pos_{};
   std::array<double, 6> joint_cmd_{}, joint_pos_{}, joint_vel_{};
+  std::array<bool, 8> torque_{true, true, true, true, true, true, true, true};  // 펌웨어 T 명령 상태
   std::chrono::steady_clock::time_point last_cmd_{}, last_state_{}, last_tick_{};
   long cmds_ = 0;
   bool bumped_ = false;

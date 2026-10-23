@@ -7,6 +7,8 @@
 //     OpenCR → SBC  S,<바퀴L pos,vel>,<바퀴R pos,vel>,<j1 pos,vel,A>…<j5 …>,<그리퍼 m,m/s,A>,
 //                        <qx,qy,qz,qw>,<gx,gy,gz rad/s>,<ax,ay,az m/s²>\n                         (STATE_PERIOD_MS마다)
 //   관절 0rad = 서보 중앙(2048 = 180°). 바퀴 위치는 부팅 후 누적 rad.
+//   토크: T,0 = 전체 해제(손으로 자세 잡기) · T,1 = 전체 켜기(현재 자세 목표) ·
+//         T,<8필드> = 관절별(빈칸=지금 상태 유지, 1=켜기 0=끄기). 예: T,1,0,,,,,,
 //   watchdog: 마지막 유효 C부터 COMMAND_TIMEOUT_MS 지나면 바퀴 속도 0, 팔·그리퍼는 현재 자세 유지 (한 번)
 // TODO(김현하): SyncRead/SyncWrite로 바꿔 주기 올리기, 관절 부호·영점·그리퍼 변환 실측, 전류 한계 설정
 #include <Dynamixel2Arduino.h>
@@ -88,30 +90,111 @@ bool parse_fields(char *text, float *out, size_t count)
     return true;
 }
 
+// T 명령 — 토크 온/오프. 필드 8개 = C와 같은 순서(바퀴L, 바퀴R, joint1~5, 그리퍼).
+//   T,0                     → 전체 해제
+//   T,1                     → 전체 켜기 (지금 자세를 목표로)
+//   T,1,0,,,,,,             → 왼바퀴만 켜고 오른바퀴 끔, 나머지 유지
+//   T,,0,,,,,,             → joint1만 끄기 (빈칸 = 지금 상태 유지)
+// 켤 때는 그 관절의 현재 위치를 목표로 잡아 튀지 않게 한다.
+constexpr size_t TORQUE_COUNT = 2 + ARM_COUNT + 1;
+bool torque_state[TORQUE_COUNT] = {true, true, true, true, true, true, true, true};
+
+uint8_t torque_id(size_t i)
+{
+    if (i == 0)
+        return WHEEL_LEFT_ID;
+    if (i == 1)
+        return WHEEL_RIGHT_ID;
+    if (i < 2 + ARM_COUNT)
+        return ARM_IDS[i - 2];
+    return GRIPPER_ID;
+}
+
+void set_torque_one(size_t i, bool on)
+{
+    const uint8_t id = torque_id(i);
+    if (on)
+    {
+        if (i < 2)
+            dxl.setGoalVelocity(id, 0);  // 바퀴는 속도 모드 — 0으로
+        else
+            dxl.setGoalPosition(id, dxl.getPresentPosition(id, UNIT_DEGREE), UNIT_DEGREE);
+        dxl.torqueOn(id);
+    }
+    else
+    {
+        dxl.torqueOff(id);
+    }
+    torque_state[i] = on;
+}
+
+bool any_torque_on()
+{
+    for (size_t i = 0; i < TORQUE_COUNT; ++i)
+        if (torque_state[i])
+            return true;
+    return false;
+}
+
+void apply_torque_line()
+{
+    if (!motors_ready || strncmp(line, "T,", 2) != 0)
+        return;
+    const bool whole = (strchr(line + 2, ',') == nullptr);  // T,0 / T,1 = 전체
+    float v[TORQUE_COUNT];
+    if (!parse_fields(line + 2, v, TORQUE_COUNT))
+        return;
+    if (whole)
+    {
+        if (isnan(v[0]))
+            return;
+        const bool on = v[0] != 0.0f;
+        for (size_t i = 0; i < TORQUE_COUNT; ++i)
+            set_torque_one(i, on);
+    }
+    else
+    {
+        for (size_t i = 0; i < TORQUE_COUNT; ++i)
+            if (!isnan(v[i]))
+                set_torque_one(i, v[i] != 0.0f);
+    }
+    // 하나라도 토크가 켜져 있으면 watchdog 유지, 전부 꺼졌으면 watchdog 정지
+    watchdog_tripped = !any_torque_on();
+    last_command_ms = millis();
+}
+
 void apply_line()
 {
-    if (!motors_ready || strncmp(line, "C,", 2) != 0)
+    if (!motors_ready)
+        return;
+    if (strncmp(line, "T,", 2) == 0)
+    {
+        apply_torque_line();
+        return;
+    }
+    if (strncmp(line, "C,", 2) != 0)
         return;
     float v[COMMAND_FIELDS];
     if (!parse_fields(line + 2, v, COMMAND_FIELDS))
         return;
     if (isnan(v[0]))
         dxl.setGoalVelocity(WHEEL_LEFT_ID, 0);  // 빈칸 = 정지
-    else
+    else if (torque_state[0])
         dxl.setGoalVelocity(WHEEL_LEFT_ID, rad_s_to_rpm(v[0] * WHEEL_LEFT_DIR), UNIT_RPM);
     if (isnan(v[1]))
         dxl.setGoalVelocity(WHEEL_RIGHT_ID, 0);  // 빈칸 = 정지
-    else
+    else if (torque_state[1])
         dxl.setGoalVelocity(WHEEL_RIGHT_ID, rad_s_to_rpm(v[1] * WHEEL_RIGHT_DIR), UNIT_RPM);
     for (size_t i = 0; i < ARM_COUNT; ++i)
     {
-        if (!isnan(v[2 + i]))
+        if (!isnan(v[2 + i]) && torque_state[2 + i])
             dxl.setGoalPosition(ARM_IDS[i], joint_rad_to_deg(v[2 + i], ARM_DIR[i]), UNIT_DEGREE);
     }
-    if (!isnan(v[2 + ARM_COUNT]))
+    if (!isnan(v[2 + ARM_COUNT]) && torque_state[2 + ARM_COUNT])
         dxl.setGoalPosition(GRIPPER_ID, joint_rad_to_deg(v[2 + ARM_COUNT] * GRIPPER_RAD_PER_M, 1.0f), UNIT_DEGREE);
     last_command_ms = millis();
-    watchdog_tripped = false;
+    if (any_torque_on())
+        watchdog_tripped = false;
 }
 
 void check_command_timeout()

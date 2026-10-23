@@ -3,6 +3,7 @@
 #include "faker/fake_opencr.hpp"
 
 #include <array>
+#include <algorithm>
 #include <cstdio>
 #include <limits>
 
@@ -166,6 +167,10 @@ bool FakeOpenCR::read_command(std::array<double, 8> & cmd) {
   std::string line;
   while (std::getline(cmd_stream_, line)) {
     if (!line.empty() && line.back() == '\r') line.pop_back();
+    if (line.compare(0, 2, "T,") == 0) {
+      apply_torque_line(line);  // 토크 온/오프는 C와 별개
+      continue;
+    }
     std::array<double, 8> v{};
     if (parse_command(line, v)) {
       cmd = v;
@@ -201,6 +206,33 @@ bool FakeOpenCR::parse_command(const std::string & line, std::array<double, 8> &
   }
   for (; i < 8; ++i) v[i] = std::numeric_limits<double>::quiet_NaN();
   return true;
+}
+
+void FakeOpenCR::apply_torque_line(const std::string & line) {
+  // 펌웨어 apply_torque_line과 같은 규칙. 빈칸 = 유지.
+  //   T,0 → 전체 해제 · T,1 → 전체 켜기(현재 자세 목표) · T,1,0,,,,,, → 조인트별
+  if (line.compare(0, 2, "T,") != 0) return;
+  const bool whole = line.find(',', 2) == std::string::npos;
+  std::array<double, 8> v{};
+  if (!parse_command(std::string("C,") + line.substr(2), v)) return;  // 파서 재사용
+  std::lock_guard<std::mutex> lock(mutex_);
+  const auto set_one = [this](size_t i, bool on) {
+    if (on) {
+      if (i < 2) wheel_cmd_[i] = 0.0;
+      else joint_cmd_[i - 2] = joint_pos_[i - 2];
+    }
+    torque_[i] = on;
+  };
+  if (whole) {
+    if (std::isnan(v[0])) return;
+    const bool on = v[0] != 0.0;
+    for (size_t i = 0; i < 8; ++i) set_one(i, on);
+  } else {
+    for (size_t i = 0; i < 8; ++i)
+      if (!std::isnan(v[i])) set_one(i, v[i] != 0.0);
+  }
+  const bool any = std::any_of(torque_.begin(), torque_.end(), [](bool b) { return b; });
+  watchdog_tripped_ = !any;  // 전부 꺼졌으면 watchdog 정지 (펌웨어와 같음)
 }
 
 void FakeOpenCR::write_state() {
@@ -271,7 +303,7 @@ void FakeOpenCR::tick() {
     std::lock_guard<std::mutex> lock(mutex_);
     const double accel = ACCEL_MAX * friction_ * dt;
     for (int i = 0; i < 2; ++i) {
-      const double target = wheel_cmd_[i];  // watchdog이 끊기면 0으로 바꿔 둠
+      const double target = torque_[i] ? wheel_cmd_[i] : 0.0;  // 토크 꺼짐 / watchdog = 0
       wheel_vel_[i] += std::max(-accel, std::min(accel, target - wheel_vel_[i]));
       wheel_pos_[i] += wheel_vel_[i] * dt;
     }
@@ -290,6 +322,10 @@ void FakeOpenCR::tick() {
     yaw_ -= M_PI;
     yaw_rate_ = w;
     for (int j = 0; j < 6; ++j) {
+      if (!torque_[2 + j]) {  // 토크 해제 = 자유 (시뮬레이터는 중력 없음 → 제자리)
+        joint_vel_[j] = 0.0;
+        continue;
+      }
       if (arm_grabbed_ && j != 5) {
         joint_vel_[j] = 0.0;
         continue;
