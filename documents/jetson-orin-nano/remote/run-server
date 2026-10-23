@@ -13,9 +13,17 @@ PID_FILE="${X11VNC_PID:-$HOME/.vnc/x11vnc.pid}"
 AUTH="${X11VNC_AUTH:-guess}"
 WAIT_MS="${X11VNC_WAIT:-20}"
 DEFER_MS="${X11VNC_DEFER:-40}"
+# 저부하 프리셋 (x11vnc에 -quality 같은 색상 강제 옵션은 없음. 색상은 클라이언트가 정함)
+SPEEDS="${X11VNC_SPEEDS:-dsl}"
+WIREFRAME="${X11VNC_WIREFRAME:-1}"
+SB_SECS="${X11VNC_SB:-15}"
 # 저해상도 기본값: 전송량을 줄이기 위해 960x540으로 축소 전송한다.
 # 원래 해상도로 쓰려면 X11VNC_SCALE=off ./run-server 또는 --scale off
 SCALE="${X11VNC_SCALE:-960x540}"
+# 실제 X 출력 해상도 변경 (물리 모니터에도 같이 적용됨). 비어 있으면 건드리지 않음.
+# 예: X11VNC_XRANDR_MODE=1280x720 ./run-server --restart
+XRANDR_MODE="${X11VNC_XRANDR_MODE:-}"
+XRANDR_OUTPUT="${X11VNC_OUTPUT:-}"
 ACTION=start
 FOREGROUND=0
 
@@ -34,6 +42,13 @@ usage() {
       --password FILE     VNC 비밀번호 파일 (기본 ~/.vnc/passwd)
       --scale WxH         x11vnc 출력 축소 (기본 960x540, off면 축소 안 함)
                         예: 960x540 / 1280x720 / 1024x600 / 1/2 / off
+      --xrandr MODE       Jetson 실제 출력 해상도 변경 후 시작 (예: 1280x720)
+                        물리 모니터에도 같이 적용됨. --restart와 함께 사용
+      --speeds MODE       저속 링크 스케줄러 튜닝 (기본 dsl, off면 미사용)
+                        예: dsl / modem / lan / off
+      --sb SECS           무입력 시 폴링 간격 늦추기까지 대기 초 (기본 15, 0이면 끔)
+      --wireframe         창 드래그 중 와이어프레임 표시 (기본 켜짐)
+      --no-wireframe      와이어프레임 끄기
       --foreground        백그라운드 대신 현재 터미널에서 실행
       --start             x11vnc 시작 (기본 동작, 이미 실행 중이면 유지)
       --status            실행 상태만 확인
@@ -43,7 +58,9 @@ usage() {
 
 환경변수:
   X11VNC_DISPLAY, VNC_PORT, VNC_PASSWD, X11VNC_LOG, X11VNC_PID,
-  X11VNC_AUTH, X11VNC_WAIT, X11VNC_DEFER, X11VNC_SCALE
+  X11VNC_AUTH, X11VNC_WAIT, X11VNC_DEFER, X11VNC_SCALE,
+  X11VNC_XRANDR_MODE, X11VNC_OUTPUT, X11VNC_SPEEDS, X11VNC_WIREFRAME,
+  X11VNC_SB
 
 보안:
   항상 -localhost로 실행한다. PC는 SSH 터널을 통해서만 접속한다.
@@ -74,6 +91,10 @@ show_status() {
   echo "address : 127.0.0.1:${VNC_PORT} (localhost only)"
   echo "passwd  : ${VNC_PASSWD}"
   echo "scale   : ${SCALE:-off (원본 해상도)}"
+  echo "speeds  : ${SPEEDS:-off}"
+  echo "wirefrm : ${WIREFRAME}"
+  echo "sb      : ${SB_SECS}"
+  echo "xrandr  : ${XRANDR_MODE:-keep (변경 안 함)}"
   echo "log     : ${LOG_FILE}"
   if port_in_use; then
     echo "state   : LISTEN"
@@ -124,6 +145,42 @@ stop_server() {
   rm -f "$PID_FILE"
 }
 
+apply_xrandr() {
+  [[ -z "$XRANDR_MODE" ]] && return 0
+  command -v xrandr >/dev/null 2>&1 || die "xrandr가 없습니다. Jetson에서 'sudo apt install -y x11-xserver-utils' 실행"
+
+  # SSH에서도 동작하도록 XAUTHORITY 후보를 순서대로 시도
+  local cands=()
+  [[ -n "${XAUTHORITY:-}" ]] && cands+=("$XAUTHORITY")
+  cands+=("/run/user/$(id -u)/gdm/Xauthority" "$HOME/.Xauthority")
+  local xa="" c
+  for c in "${cands[@]}"; do
+    if [[ -r "$c" ]] && DISPLAY="$XDISPLAY" XAUTHORITY="$c" xrandr --current >/dev/null 2>&1; then
+      xa="$c"
+      break
+    fi
+  done
+  [[ -n "$xa" ]] || die "X 세션에 접근할 수 없습니다. Jetson 모니터에서 bee로 그래픽 로그인되어 있는지 확인"
+
+  local out="$XRANDR_OUTPUT"
+  if [[ -z "$out" ]]; then
+    out="$(DISPLAY="$XDISPLAY" XAUTHORITY="$xa" xrandr --current | awk '$2=="connected"{print $1; exit}')"
+  fi
+  [[ -n "$out" ]] || die "연결된 디스플레이 출력을 찾지 못했습니다 (xrandr --current 확인)"
+
+  local modes
+  modes="$(DISPLAY="$XDISPLAY" XAUTHORITY="$xa" xrandr --current | awk -v o="$out" '/^[^[:space:]]/{p=($1==o)} p && /^[[:space:]]+[0-9]+x[0-9]+/{print $1}')"
+  if ! printf '%s\n' "$modes" | grep -qx "$XRANDR_MODE"; then
+    echo "출력 ${out}에서 모드 ${XRANDR_MODE}를 지원하지 않습니다. 사용 가능:" >&2
+    printf '%s\n' "$modes" >&2
+    exit 1
+  fi
+
+  echo "xrandr 적용: ${out} -> ${XRANDR_MODE}"
+  DISPLAY="$XDISPLAY" XAUTHORITY="$xa" xrandr --output "$out" --mode "$XRANDR_MODE" \
+    || die "xrandr 적용 실패 (출력: ${out}, 모드: ${XRANDR_MODE})"
+}
+
 start_server() {
   command -v x11vnc >/dev/null 2>&1 || die "x11vnc가 없습니다. Jetson에서 'sudo apt install -y x11vnc' 실행"
 
@@ -136,6 +193,9 @@ start_server() {
       die "VNC 비밀번호 파일이 없습니다: ${VNC_PASSWD} (Jetson에서 x11vnc -storepasswd 실행)"
     fi
   fi
+
+  # 실제 해상도 변경이 요청되면 x11vnc 기동 전에 적용 (모니터+VNC 둘 다 영향)
+  apply_xrandr
 
   if port_in_use; then
     echo "이미 ${VNC_PORT} 포트에서 x11vnc가 실행 중입니다."
@@ -161,6 +221,21 @@ start_server() {
   if [[ -n "$SCALE" && ! "${SCALE,,}" =~ ^(off|none|orig|1|1x1)$ ]]; then
     cmd+=(-scale "$SCALE")
   fi
+  # 저속 링크 스케줄러 튜닝 (dsl/modem/lan 또는 rd,bw,lat)
+  if [[ -n "$SPEEDS" && ! "${SPEEDS,,}" =~ ^(off|none)$ ]]; then
+    cmd+=(-speeds "$SPEEDS")
+  fi
+  # 창 드래그 중 전체 다시 그리기 대신 와이어프레임 (저속 링크에서 체감 큼)
+  if [[ "${WIREFRAME,,}" =~ ^(1|on|yes|true)$ ]]; then
+    cmd+=(-wireframe)
+  else
+    cmd+=(-nowireframe)
+  fi
+  # 평소엔 -nap(기본값)으로 쉬고, 무입력 SB_SECS초 후 폴링을 더 늦춤
+  cmd+=(-nap -sb "$SB_SECS")
+
+  # 실제 기동 명령행을 로그에 남긴다 (적용 여부 증거용)
+  printf '=== %s CMD: %s\n' "$(date '+%F %T')" "${cmd[*]}" >>"$LOG_FILE"
 
   if [[ "$FOREGROUND" -eq 1 ]]; then
     echo "x11vnc를 foreground로 실행합니다. 종료: Ctrl-C"
@@ -190,6 +265,11 @@ while [[ $# -gt 0 ]]; do
     -p|--port)      need_value "$1" "${2:-}"; VNC_PORT="$2"; shift 2 ;;
     --password)     need_value "$1" "${2:-}"; VNC_PASSWD="$2"; shift 2 ;;
     --scale)        need_value "$1" "${2:-}"; SCALE="$2"; shift 2 ;;
+    --xrandr)       need_value "$1" "${2:-}"; XRANDR_MODE="$2"; shift 2 ;;
+    --speeds)       need_value "$1" "${2:-}"; SPEEDS="$2"; shift 2 ;;
+    --sb)           need_value "$1" "${2:-}"; SB_SECS="$2"; shift 2 ;;
+    --wireframe)    WIREFRAME=1; shift ;;
+    --no-wireframe) WIREFRAME=0; shift ;;
     --foreground)   FOREGROUND=1; shift ;;
     --start)        ACTION=start; shift ;;
     --status)       ACTION=status; shift ;;
@@ -202,6 +282,7 @@ done
 
 [[ "$VNC_PORT" =~ ^[0-9]+$ ]] || die "포트는 숫자여야 합니다: ${VNC_PORT}"
 (( VNC_PORT >= 1 && VNC_PORT <= 65535 )) || die "포트 범위 오류: ${VNC_PORT}"
+[[ "$SB_SECS" =~ ^[0-9]+$ ]] || die "--sb 값은 숫자(초)여야 합니다: ${SB_SECS}"
 
 case "$ACTION" in
   status)  show_status ;;

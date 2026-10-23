@@ -82,6 +82,7 @@ display   : :0
 ./run-server --status
 ./run-server --stop
 ./run-server --restart
+./run-server --restart --xrandr 1280x720   # 실제 출력 해상도 변경 (모니터에도 적용)
 ./run-server --scale 1280x720
 ./run-server --foreground
 ```
@@ -327,6 +328,12 @@ pkill x11vnc
 ```
 
 ### 성능: 해상도 낮추기
+
+> `run-server` 기본값은 저부하 프리셋이다: `-scale 960x540`,
+> `-speeds dsl`, `-wireframe`, `-sb 15`. 실제 출력 해상도까지 낮추려면
+> `./run-server --restart --xrandr 1280x720` (물리 모니터에도 같이 적용됨).
+> 색상 깊이(8/16-bit)는 VNC 프로토콜상 클라이언트가 정하므로 서버에서
+> 강제할 수 없다. Remmina 쪽에서 낮춘다(아래 참고).
 
 1920x1080 화면을 32-bit로 보내면 VNC가 느려지기 쉽다. Jetson에서 실제 해상도를
 1280x720으로 낮추면 가장 효과가 크다.
