@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""🛠 perception (YOLO nano, 담당: 전승혜) — 설계: documents/ros2-design/02-sense.md
+"""🛠 perception (YOLO nano, 담당: 전승혜) — 설계: documents/project/ros/02-sense.md
 
   입력: pole_front_cam·gripper_cam 컬러·정렬 depth·camera_info (best_effort)
   출력: /tracked_objects (perception/TrackedObjectArray, reliable) — 두 카메라 융합 결과 · vlm_task_planner · coordinator · grasp_scorer

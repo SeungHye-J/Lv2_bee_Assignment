@@ -1,6 +1,6 @@
 # DEVELOP — 처음 들어온 개발자용
 
-lv2_module6 워크스페이스에서 개발·빌드·테스트하는 방법입니다. 프로젝트 개요·패키지·담당은 [README.md](../../README.md), 설계는 [documents/ros2-design](../../../documents/ros2-design/README.md), 브랜치·커밋·PR 규칙은 [CONTRIBUTING.md](../../../CONTRIBUTING.md)를 봅니다.
+lv2_module6 워크스페이스에서 개발·빌드·테스트하는 방법입니다. 프로젝트 개요·패키지·담당은 [README.md](../../README.md), 설계는 [documents/project/ros](../../../documents/project/ros/README.md), 브랜치·커밋·PR 규칙은 [CONTRIBUTING.md](../../../CONTRIBUTING.md)를 봅니다.
 
 - ROS 2 **Lyrical** (Ubuntu 26.04) · **C++** (ament_cmake, rclcpp)
 - 개발·테스트는 **도커 테스트베드**에서 합니다 (로컬에 ROS를 설치하지 않아도 됨). CI도 같은 컨테이너에서 같은 검사를 돌립니다.
@@ -23,7 +23,7 @@ test-all                               # 빌드 + 전체 검사. ALL PASS면 셋
 
 컨테이너는 워크스페이스 전체(`../../ros2_ws` → `/ws`)를 마운트합니다. 빌드 결과·로그도 호스트에서 바로 봅니다.
 같은 LAN의 다른 팀 스택과 DDS 토픽이 섞이지 않게 `ROS_DOMAIN_ID=88` (docker-compose.yml · `~/.bashrc`) — 컨테이너 안 명령은 compose가 자동 적용, 호스트는 셸 설정.
-DDS 환경 (docker-compose · CI 공통): `ROS_AUTOMATIC_DISCOVERY_RANGE=SUBNET` (ROS 기본값 — LOCALHOST면 Fast DDS가 localhost 참가자 번호 몇 개에만 유니캐스트로 discovery를 보내 노드 40여 개 중 일부가 서로 안 보였음: Nav2 관리자 멈춤 · `/map` 발행자 0 · CLI가 노드 못 찾음. 다른 팀과는 `ROS_DOMAIN_ID=88`로 분리) · `FASTDDS_DEFAULT_PROFILES_FILE=…/ros_system/config/fastdds.xml` (Fast DDS TypeLookup 끔 — 없으면 노드 40개에서 UDP 폭주로 컨트롤러가 못 뜸).
+DDS 환경 (docker-compose · CI 공통): `ROS_AUTOMATIC_DISCOVERY_RANGE=SUBNET` (ROS 기본값 — LOCALHOST면 Fast DDS가 localhost 참가자 번호 몇 개에만 유니캐스트로 discovery를 보내 노드 40여 개 중 일부가 서로 안 보였음: Nav2 관리자 멈춤 · `/map` 발행자 0 · CLI가 노드 못 찾음. 다른 팀과는 `ROS_DOMAIN_ID=88`로 분리) · `FASTDDS_DEFAULT_PROFILES_FILE=…/fastdds.xml` (Fast DDS TypeLookup 끔 — 없으면 노드 40개에서 UDP 폭주로 컨트롤러가 못 뜸).
 
 | 호스트 | 컨테이너 | 용도 |
 | --- | --- | --- |
@@ -458,7 +458,7 @@ bringup 기본은 실기 값: `use_cameras:=true` · `mock_hardware:=false` · `
 
 | 증상 | 원인 · 해결 |
 | --- | --- |
-| 컨테이너 load가 수십 · spawner가 `/controller_manager/load_controller`를 못 찾아 컨트롤러 0개 · 아무 일 없는 노드도 CPU 10~20% | Fast DDS 3 TypeLookup 폭주 (루프백 UDP 초당 8만 패킷). `FASTDDS_DEFAULT_PROFILES_FILE=…/ros_system/config/fastdds.xml`(type_propagation 끔)이 설정돼 있는지 — docker-compose · CI · start.sh가 지정. 확인: `awk '/^Udp:/{getline;print $2}' /proc/net/snmp`를 5초 간격으로 두 번 → 차이/5가 수천 이하여야 정상 |
+| 컨테이너 load가 수십 · spawner가 `/controller_manager/load_controller`를 못 찾아 컨트롤러 0개 · 아무 일 없는 노드도 CPU 10~20% | Fast DDS 3 TypeLookup 폭주 (루프백 UDP 초당 8만 패킷). `FASTDDS_DEFAULT_PROFILES_FILE=…/fastdds.xml`(type_propagation 끔)이 설정돼 있는지 — docker-compose · CI · start.sh가 지정. 확인: `awk '/^Udp:/{getline;print $2}' /proc/net/snmp`를 5초 간격으로 두 번 → 차이/5가 수천 이하여야 정상 |
 | 토픽이 두 번씩 오거나 이상한 값 | 이전 실행의 노드·launch가 남음 → `pkill -f '(/ws/install\|/opt/ros/lyrical)/[^ ]*lib/\|ros2 launch'` (test-* 시작 때 자동으로 같은 정리) 또는 `docker compose restart` |
 | `Overrun detected!` 경고 (controller_manager) | 컨테이너는 실시간 스케줄링이 안 돼서 나는 경고 — 테스트에는 문제없음 |
 | spawner `Could not contact service` | 기동 직후 CPU가 몰림. `test-faker`는 spawner를 2회까지 자동 재시도, 그래도 안 되면 다른 무거운 일(빌드 등)을 끝내고 다시 |

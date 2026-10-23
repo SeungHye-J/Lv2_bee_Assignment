@@ -1,6 +1,6 @@
 #pragma once
 
-// coordinator (🛠 직접 작성, 담당: 권형중) — 설계: documents/ros2-design/03-plan.md "coordinator가 지키는 실행 규칙"
+// coordinator (🛠 직접 작성, 담당: 권형중) — 설계: documents/project/ros/03-plan.md "coordinator가 지키는 실행 규칙"
 //   입력: /sub_goals (VLM 계획), /tracked_objects (대상 id 검증), /arm_safety_event (팔 접촉)
 //   출력: 🎬 /navigate_to_pose (Nav2), 🎬 /plan_kinematic_path + /execute_trajectory (move_group),
 //         🎬 /gripper_controller/gripper_cmd, 📞 /score_grasps (grasp_scorer),

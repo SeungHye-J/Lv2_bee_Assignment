@@ -4,12 +4,12 @@
 bringup이 떠 있는 상태에서 상태 확인, 자동/수동 전환, 비상정지, 바퀴·팔·그리퍼
 수동 명령, 지도 모드/지도 전환을 한 곳에서 실행한다.
 
-  ./operator_tool/run.sh              # 대화형 메뉴
-  ./operator_tool/run.sh status       # 한 번만 출력 (자동화용)
-  ./operator_tool/run.sh mode manual
-  ./operator_tool/run.sh teleop
-  ./operator_tool/run.sh arm set joint1=0.0 joint2=0.4
-  ./operator_tool/run.sh map save
+  ./tool/run-cli              # 대화형 메뉴
+  ./tool/run-cli status       # 한 번만 출력 (자동화용)
+  ./tool/run-cli mode manual
+  ./tool/run-cli teleop
+  ./tool/run-cli arm set joint1=0.0 joint2=0.4
+  ./tool/run-cli map save
 
 모든 수동 명령은 먼저 `mode manual`이어야 하고, 비상정지 중에는 거부한다.
 실제 명령은 기존 control/manual_control 노드가 받아 안전 체인으로 보낸다.
@@ -509,8 +509,8 @@ class OperatorTool(Node):
         env = os.environ.get('BEEBOT_MAP_DIR')
         if env:
             return Path(env).expanduser()
-        # operator_tool/operator_tool.py → lv2_module6/ros2_ws/map
-        return Path(__file__).resolve().parents[1] / 'ros2_ws' / 'map'
+        # tool/cli/operator_tool.py → lv2_module6/ros2_ws/map
+        return Path(__file__).resolve().parents[2] / 'ros2_ws' / 'map'
 
     @staticmethod
     def _local_maps(map_dir: Path) -> list[str]:
@@ -634,7 +634,7 @@ class OperatorTool(Node):
     def cmd_menu(self, args) -> int:
         if not sys.stdin.isatty():
             print('거부: 대화형 메뉴는 터미널(TTY)에서 실행해야 합니다. '
-                  '`./run.sh status`처럼 명령을 직접 쓰세요.', file=sys.stderr)
+                  '`./run-cli status`처럼 명령을 직접 쓰세요.', file=sys.stderr)
             return 2
         return self.run_menu()
 
@@ -834,7 +834,7 @@ class OperatorTool(Node):
             print('거부: DISPLAY/WAYLAND_DISPLAY가 없습니다 — GUI가 있는 터미널에서 실행하세요.')
             result = self._ui_pause(back_label='메인 메뉴')
             return result if result in (MAIN, QUIT) else STAY
-        script = Path(__file__).resolve().with_name('run_rviz.sh')
+        script = Path(__file__).resolve().parent.parent / 'run-rviz'
         print('  카메라/점구름은 Best Effort, queue 1로 구독합니다.')
         print(f'  실행: {script}')
         if not script.is_file():
@@ -1492,16 +1492,16 @@ def build_parser() -> argparse.ArgumentParser:
         prog='operator_tool',
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog='''예시:
-  ./operator_tool/run.sh status
-  ./operator_tool/run.sh menu
-  ./operator_tool/run.sh
-  ./operator_tool/run.sh mode manual
-  ./operator_tool/run.sh drive forward --speed 0.15 --duration 1
-  ./operator_tool/run.sh teleop
-  ./operator_tool/run.sh arm set joint1=0.0 joint2=0.4
-  ./operator_tool/run.sh gripper open
-  ./operator_tool/run.sh map status
-  ./operator_tool/run.sh map save
+  ./tool/run-cli status
+  ./tool/run-cli menu
+  ./tool/run-cli
+  ./tool/run-cli mode manual
+  ./tool/run-cli drive forward --speed 0.15 --duration 1
+  ./tool/run-cli teleop
+  ./tool/run-cli arm set joint1=0.0 joint2=0.4
+  ./tool/run-cli gripper open
+  ./tool/run-cli map status
+  ./tool/run-cli map save
 ''')
     sub = parser.add_subparsers(dest='command', required=True)
 

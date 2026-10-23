@@ -2,7 +2,7 @@
 
 `SETTING.md`에서 분리한 Jetson 원격 접속 문서다. SSH 키 등록부터 x11vnc, GNOME RDP, NoMachine까지 정리한다.
 
-[← SETTING.md](SETTING.md)
+[← SETTING.md](../SETTING.md)
 
 Jetson의 전체 Ubuntu 데스크톱을 원격에서 보려면 SSH 키 등록과 원격 데스크톱 설정을
 분리해서 진행한다. SSH 터미널만 필요하면 키 등록까지만 하면 된다.
@@ -41,7 +41,99 @@ PC    : SSH 터널로 Jetson의 5900에 연결 → Remmina VNC로 화면 표시
 4. **PC**: SSH 터널 열기
 5. **PC**: Remmina VNC → `localhost:5900`
 
-### 꼭 구분할 것
+## 빠른 실행 (스크립트)
+
+같은 폴더에 두 스크립트가 있다.
+
+```text
+server.sh   # Jetson에서 실행 — x11vnc 시작/중지/상태
+client.sh   # PC에서 실행 — SSH 터널 + Remmina
+```
+
+### Jetson: server.sh
+
+Jetson에 스크립트를 복사해서 실행한다.
+
+```bash
+scp documents/jetson-orin-nano/remote/server.sh bee@bee.local:~/server.sh
+ssh bee@bee.local 'chmod +x ~/server.sh && ~/server.sh'
+```
+
+이미 Jetson에 저장소가 있으면 그 경로에서 실행해도 된다.
+
+```bash
+cd ~/Lv2_bee_Assignment/documents/jetson-orin-nano/remote
+./server.sh
+```
+
+기본 동작:
+
+```text
+주소      : 127.0.0.1:5900
+display   : :0
+비밀번호  : ~/.vnc/passwd
+백그라운드 실행, 로그 ~/.vnc/x11vnc.log
+```
+
+자주 쓰는 명령:
+
+```bash
+./server.sh --status
+./server.sh --stop
+./server.sh --restart
+./server.sh --scale 1280x720
+./server.sh --foreground
+```
+
+`server.sh`는 항상 `-localhost`로 실행한다. PC에서 직접 `10.2.12.110:5900`으로
+붙는 방식이 아니므로 아래 `client.sh`의 SSH 터널이 필요하다.
+
+### PC: client.sh
+
+PC에서 실행한다.
+
+```bash
+cd documents/jetson-orin-nano/remote
+./client.sh
+```
+
+기본 동작:
+
+```text
+SSH 대상   : bee@bee.local
+PC 포트    : localhost:5900
+Jetson VNC : 127.0.0.1:5900
+```
+
+SSH 키가 이미 등록되어 있어야 한다. 접속 대상이 다르면:
+
+```bash
+./client.sh --host bee@10.2.12.110
+```
+
+PC의 5900 포트가 이미 사용 중이면:
+
+```bash
+./client.sh --local-port 5901
+```
+
+터널만 열고 VNC 클라이언트는 직접 실행하려면:
+
+```bash
+./client.sh --no-vnc
+```
+
+상태/종료:
+
+```bash
+./client.sh --status
+./client.sh --stop
+```
+
+VNC 비밀번호는 Jetson 로그인 비밀번호가 아니라 `x11vnc -storepasswd`에서 만든
+비밀번호다.
+
+## 꼭 구분할 것
 
 - `x11vnc`는 **Jetson에서만** 실행한다. PC에서 실행하는 프로그램이 아니다.
 - SSH 터널과 Remmina는 **PC에서만** 실행한다.
@@ -94,16 +186,16 @@ ssh bee
 ```bash
 ssh bee@bee.local
 
-cd ~/Lv2_bee_Assignment/lv2_module6/operator_tool
-./run.sh
+cd ~/Lv2_bee_Assignment/lv2_module6/tool
+./run-cli
 ```
 
 RViz 같은 개별 GUI 앱만 필요하면 X11 포워딩을 사용할 수 있다.
 
 ```bash
 ssh -X bee@bee.local
-cd ~/Lv2_bee_Assignment/lv2_module6/operator_tool
-./run_rviz.sh
+cd ~/Lv2_bee_Assignment/lv2_module6/tool
+./run-rviz
 ```
 
 X11 포워딩은 전체 데스크톱이 아니라 앱 하나를 PC 화면에 띄우는 방식이다.

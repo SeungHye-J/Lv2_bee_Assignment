@@ -64,8 +64,9 @@ if [ "$build" = 1 ] || [ ! -f "$HERE/install/setup.bash" ]; then
 fi
 # shellcheck disable=SC1091
 source "$HERE/install/setup.bash"
-# Fast DDS TypeLookup 끔 — 노드 40개에서 UDP 폭주로 controller_manager가 못 뜨는 것 방지 (설명: ros_system/config/fastdds.xml)
-export FASTDDS_DEFAULT_PROFILES_FILE="${FASTDDS_DEFAULT_PROFILES_FILE:-$HERE/install/ros_system/share/ros_system/config/fastdds.xml}"
+# Fast DDS TypeLookup 끔 — 노드 40개에서 UDP 폭주로 controller_manager가 못 뜨는 것 방지 (설명: fastdds.xml)
+export FASTDDS_DEFAULT_PROFILES_FILE="${FASTDDS_DEFAULT_PROFILES_FILE:-$HERE/fastdds.xml}"
+[ -f "$FASTDDS_DEFAULT_PROFILES_FILE" ] || echo "WARN: Fast DDS 프로파일 없음: $FASTDDS_DEFAULT_PROFILES_FILE — 기본 전송으로 실행 (UDP 폭주 가능)"
 
 # --- 아키텍처 확인: 다른 CPU용으로 빌드된 install/이면 노드가 Exec format error로 죽으므로 미리 멈춘다
 # (예: CI x86_64 패키지를 Raspberry Pi에서 실행). 실행 파일의 ELF 헤더 e_machine(오프셋 18)으로 판정.

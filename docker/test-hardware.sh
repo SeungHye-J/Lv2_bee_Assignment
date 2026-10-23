@@ -21,7 +21,7 @@ fi
 WS=$(realpath -m "$WS")   # ../ 정리 — CMakeCache 절대경로와 문자열 비교하므로 정규화 필수
 # DDS: 컨테이너 compose와 동일 (DEVELOP.md §1). 없으면 노드 40개에서 UDP 폭주로 컨트롤러가 못 뜸
 export ROS_AUTOMATIC_DISCOVERY_RANGE=${ROS_AUTOMATIC_DISCOVERY_RANGE:-SUBNET}
-export FASTDDS_DEFAULT_PROFILES_FILE=${FASTDDS_DEFAULT_PROFILES_FILE:-$WS/src/ros_system/config/fastdds.xml}
+export FASTDDS_DEFAULT_PROFILES_FILE=${FASTDDS_DEFAULT_PROFILES_FILE:-$WS/fastdds.xml}
 cd "$WS" || { echo "FAIL: $WS 없음"; exit 2; }
 [ -e /dev/opencr ] || { echo "FAIL: /dev/opencr 없음 (가상 시리얼 브릿지 미구동)"; exit 2; }
 stty -F /dev/opencr raw -echo 2>/dev/null

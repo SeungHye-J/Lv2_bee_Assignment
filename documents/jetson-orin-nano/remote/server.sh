@@ -1,0 +1,201 @@
+#!/usr/bin/env bash
+# server.sh — Jetson 화면 공유 서버 (x11vnc)
+#
+# 이 스크립트는 Jetson에서 실행한다. PC에서는 client.sh를 사용한다.
+# 기본값: DISPLAY=:0, 127.0.0.1:5900, VNC 비밀번호 ~/.vnc/passwd
+set -euo pipefail
+
+XDISPLAY="${X11VNC_DISPLAY:-:0}"
+VNC_PORT="${VNC_PORT:-5900}"
+VNC_PASSWD="${VNC_PASSWD:-$HOME/.vnc/passwd}"
+LOG_FILE="${X11VNC_LOG:-$HOME/.vnc/x11vnc.log}"
+PID_FILE="${X11VNC_PID:-$HOME/.vnc/x11vnc.pid}"
+AUTH="${X11VNC_AUTH:-guess}"
+WAIT_MS="${X11VNC_WAIT:-20}"
+DEFER_MS="${X11VNC_DEFER:-40}"
+SCALE="${X11VNC_SCALE:-}"
+ACTION=start
+FOREGROUND=0
+
+usage() {
+  cat <<'EOF'
+사용법:
+  ./server.sh [옵션]
+  ./server.sh --status
+  ./server.sh --stop
+  ./server.sh --restart
+
+옵션:
+  -d, --display :N        X display (기본 :0)
+  -p, --port N            VNC 포트 (기본 5900)
+      --password FILE     VNC 비밀번호 파일 (기본 ~/.vnc/passwd)
+      --scale WxH         x11vnc 출력 축소 (예: 1280x720)
+      --foreground        백그라운드 대신 현재 터미널에서 실행
+      --status            실행 상태만 확인
+      --stop              x11vnc 종료
+      --restart           종료 후 다시 시작
+  -h, --help              이 도움말
+
+환경변수:
+  X11VNC_DISPLAY, VNC_PORT, VNC_PASSWD, X11VNC_LOG, X11VNC_PID,
+  X11VNC_AUTH, X11VNC_WAIT, X11VNC_DEFER, X11VNC_SCALE
+
+보안:
+  항상 -localhost로 실행한다. PC는 SSH 터널을 통해서만 접속한다.
+EOF
+}
+
+die() {
+  echo "에러: $*" >&2
+  exit 1
+}
+
+need_value() {
+  [[ $# -ge 2 && -n "$2" ]] || die "$1 옵션에 값이 필요합니다."
+}
+
+port_in_use() {
+  ss -ltnH 2>/dev/null | awk -v port=":${VNC_PORT}" '$4 ~ port"$" { found = 1 } END { exit !found }'
+}
+
+listener_pids() {
+  ss -ltnpH "sport = :${VNC_PORT}" 2>/dev/null |
+    sed -n 's/.*pid=\([0-9][0-9]*\).*/\1/p' |
+    sort -u
+}
+
+show_status() {
+  echo "display : ${XDISPLAY}"
+  echo "address : 127.0.0.1:${VNC_PORT} (localhost only)"
+  echo "passwd  : ${VNC_PASSWD}"
+  echo "log     : ${LOG_FILE}"
+  if port_in_use; then
+    echo "state   : LISTEN"
+    ss -ltnpH "sport = :${VNC_PORT}" 2>/dev/null || true
+    local pids
+    pids="$(listener_pids || true)"
+    [[ -n "$pids" ]] && echo "pid     : ${pids}"
+  else
+    echo "state   : stopped"
+  fi
+}
+
+stop_server() {
+  local pids=""
+  if [[ -f "$PID_FILE" ]]; then
+    local pid
+    pid="$(cat "$PID_FILE" 2>/dev/null || true)"
+    if [[ "$pid" =~ ^[0-9]+$ ]] && kill -0 "$pid" 2>/dev/null &&
+       [[ "$(cat "/proc/${pid}/comm" 2>/dev/null || true)" == "x11vnc" ]]; then
+      pids="$pid"
+    fi
+  fi
+  if [[ -z "$pids" ]]; then
+    pids="$(listener_pids || true)"
+  fi
+
+  if [[ -z "$pids" ]]; then
+    echo "x11vnc가 실행 중이 아닙니다."
+    rm -f "$PID_FILE"
+    return 0
+  fi
+
+  echo "x11vnc 종료: ${pids}"
+  # shellcheck disable=SC2086
+  kill $pids 2>/dev/null || true
+  for _ in $(seq 1 20); do
+    if ! port_in_use; then
+      rm -f "$PID_FILE"
+      echo "종료됨."
+      return 0
+    fi
+    sleep 0.2
+  done
+
+  echo "정상 종료되지 않아 강제 종료합니다." >&2
+  # shellcheck disable=SC2086
+  kill -9 $pids 2>/dev/null || true
+  rm -f "$PID_FILE"
+}
+
+start_server() {
+  command -v x11vnc >/dev/null 2>&1 || die "x11vnc가 없습니다. Jetson에서 'sudo apt install -y x11vnc' 실행"
+
+  if [[ ! -f "$VNC_PASSWD" ]]; then
+    if [[ -t 0 && -t 1 ]]; then
+      echo "VNC 비밀번호 파일이 없어 새로 만듭니다: ${VNC_PASSWD}"
+      mkdir -p "$(dirname "$VNC_PASSWD")"
+      x11vnc -storepasswd
+    else
+      die "VNC 비밀번호 파일이 없습니다: ${VNC_PASSWD} (Jetson에서 x11vnc -storepasswd 실행)"
+    fi
+  fi
+
+  if port_in_use; then
+    echo "이미 ${VNC_PORT} 포트에서 x11vnc가 실행 중입니다."
+    show_status
+    return 0
+  fi
+
+  mkdir -p "$(dirname "$LOG_FILE")" "$(dirname "$PID_FILE")"
+
+  local cmd=(
+    x11vnc
+    -display "$XDISPLAY"
+    -auth "$AUTH"
+    -forever
+    -shared
+    -rfbauth "$VNC_PASSWD"
+    -localhost
+    -rfbport "$VNC_PORT"
+    -wait "$WAIT_MS"
+    -defer "$DEFER_MS"
+  )
+  [[ -n "$SCALE" ]] && cmd+=(-scale "$SCALE")
+
+  if [[ "$FOREGROUND" -eq 1 ]]; then
+    echo "x11vnc를 foreground로 실행합니다. 종료: Ctrl-C"
+    exec "${cmd[@]}"
+  fi
+
+  nohup "${cmd[@]}" >"$LOG_FILE" 2>&1 &
+  local pid=$!
+  printf '%s\n' "$pid" >"$PID_FILE"
+  sleep 1
+
+  if ! kill -0 "$pid" 2>/dev/null; then
+    echo "x11vnc 시작 실패. 로그:" >&2
+    tail -30 "$LOG_FILE" >&2 || true
+    exit 1
+  fi
+
+  echo "x11vnc 시작됨 (pid ${pid})"
+  echo "주소: 127.0.0.1:${VNC_PORT} (SSH 터널 필요)"
+  echo "로그: ${LOG_FILE}"
+  show_status
+}
+
+while [[ $# -gt 0 ]]; do
+  case "$1" in
+    -d|--display)   need_value "$1" "${2:-}"; XDISPLAY="$2"; shift 2 ;;
+    -p|--port)      need_value "$1" "${2:-}"; VNC_PORT="$2"; shift 2 ;;
+    --password)     need_value "$1" "${2:-}"; VNC_PASSWD="$2"; shift 2 ;;
+    --scale)        need_value "$1" "${2:-}"; SCALE="$2"; shift 2 ;;
+    --foreground)   FOREGROUND=1; shift ;;
+    --status)       ACTION=status; shift ;;
+    --stop)         ACTION=stop; shift ;;
+    --restart)      ACTION=restart; shift ;;
+    -h|--help)      usage; exit 0 ;;
+    *)              die "알 수 없는 옵션: $1 (--help 참고)" ;;
+  esac
+done
+
+[[ "$VNC_PORT" =~ ^[0-9]+$ ]] || die "포트는 숫자여야 합니다: ${VNC_PORT}"
+(( VNC_PORT >= 1 && VNC_PORT <= 65535 )) || die "포트 범위 오류: ${VNC_PORT}"
+
+case "$ACTION" in
+  status)  show_status ;;
+  stop)    stop_server ;;
+  restart) stop_server; start_server ;;
+  start)   start_server ;;
+esac

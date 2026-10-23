@@ -1,6 +1,6 @@
 #pragma once
 
-// arm_safety_monitor (🛠 직접 작성, 담당: 김현하) — 설계: documents/ros2-design/05-arm.md 4-2
+// arm_safety_monitor (🛠 직접 작성, 담당: 김현하) — 설계: documents/project/ros/05-arm.md 4-2
 //   입력: /joint_states effort (= 다이나믹셀 Present Current, joint_state_broadcaster)
 //   출력: 📞 /arm_controller/follow_joint_trajectory/_action/cancel_goal (이상 시에만)
 //         ✉️ /arm_safety_event (control/ArmSafetyEvent) → coordinator

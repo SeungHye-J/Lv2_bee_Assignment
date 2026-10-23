@@ -1,9 +1,9 @@
 # API 명세서 — 토픽·서비스·액션
 
-협업용 인터페이스 명세입니다. 설계 근거는 [ros2-design](ros2-design/README.md) (특히 [노드 사전](ros2-design/10-catalog.md)), 구현은 [lv2_module6](../lv2_module6/README.md)입니다.
+협업용 인터페이스 명세입니다. 설계 근거는 [documents/project/ros](project/ros/README.md) (특히 [노드 사전](project/ros/10-catalog.md)), 구현은 [lv2_module6](../lv2_module6/README.md)입니다.
 커스텀 타입 원문은 `.msg`·`.srv` 파일이 정본입니다 — 아래 정의와 파일이 다르면 **파일이 맞습니다**.
 
-표기: ✉️ 토픽 · 🎬 액션 · 📞 서비스 · 🧩 ros2_control 내부 인터페이스 · 🔌 장치. QoS 규칙은 [§7](ros2-design/07-tf.md) 요약.
+표기: ✉️ 토픽 · 🎬 액션 · 📞 서비스 · 🧩 ros2_control 내부 인터페이스 · 🔌 장치. QoS 규칙은 [§7](project/ros/07-tf.md) 요약.
 
 <a id="api-toc"></a>
 ## 목차
@@ -102,7 +102,7 @@ string reason       # grasp_failed_all | nav_failed | arm_contact ...
 ```
 
 - 냄새: coordinator → `/task_status` (reliable + transient_local). 받는 쪽: vlm_task_planner(FAILED면 재계획) · user_input(표시).
-- 주의: [노드 사전](ros2-design/10-catalog.md)의 reason 예시(`nav_blocked`)와 파일(`nav_failed`)이 다릅니다 — 파일이 정본.
+- 주의: [노드 사전](project/ros/10-catalog.md)의 reason 예시(`nav_blocked`)와 파일(`nav_failed`)이 다릅니다 — 파일이 정본.
 
 <a id="api-msg-armsafetyevent"></a>
 ### control/msg/ArmSafetyEvent ([파일](../lv2_module6/ros2_ws/src/control/msg/ArmSafetyEvent.msg))
@@ -135,7 +135,7 @@ string message
 <a id="api-topics"></a>
 ## 2. 토픽 목록
 
-### 센서·인지 ([02](ros2-design/02-sense.md) · [노드 사전](ros2-design/10-catalog.md#perception))
+### 센서·인지 ([02](project/ros/02-sense.md) · [노드 사전](project/ros/10-catalog.md#perception))
 
 | 이름 | 타입 | 보내는 쪽 → 받는 쪽 | 주기 · QoS |
 | --- | --- | --- | --- |
@@ -157,7 +157,7 @@ string message
 
 - depth 단위는 16UC1 = 밀리미터. D435 최소 측정 거리 약 0.2~0.3m — 그리퍼가 퍽에 바짝 붙으면 빈다.
 
-### 계획·임무 ([03](ros2-design/03-plan.md))
+### 계획·임무 ([03](project/ros/03-plan.md))
 
 | 이름 | 타입 | 보내는 쪽 → 받는 쪽 | 주기 · QoS |
 | --- | --- | --- | --- |
@@ -169,7 +169,7 @@ string message
 | `/speed_limit` | nav2_msgs/SpeedLimit | rl_nav_tuner → controller_server, rl_nav_correction | 프리셋 변경 시 · reliable |
 | `/arm_safety_event` | control/ArmSafetyEvent | arm_safety_monitor → coordinator | 접촉 시 |
 
-### Nav2·위치추정 ([04](ros2-design/04-nav.md))
+### Nav2·위치추정 ([04](project/ros/04-nav.md))
 
 | 이름 | 타입 | 보내는 쪽 → 받는 쪽 | 주기 · QoS |
 | --- | --- | --- | --- |
@@ -184,7 +184,7 @@ string message
 | `/tf` (odom→base_footprint) | tf2_msgs/TFMessage | ekf → 전체 | 연속 |
 | `/collision_monitor_state` | nav2_msgs/CollisionMonitorState | collision_monitor → RViz, coordinator | 걸린 다각형 표시 |
 
-### 베이스 명령 체인 ([06](ros2-design/06-base.md))
+### 베이스 명령 체인 ([06](project/ros/06-base.md))
 
 `/cmd_vel_nav` → rl_nav_correction → `/cmd_vel_corrected` → twist_mux → `/cmd_vel_mux` → velocity_smoother → `/cmd_vel_smoothed` → collision_monitor → `/cmd_vel` → diff_drive_controller. 전부 `geometry_msgs/TwistStamped`, 체인 전체 통일 (Jazzy 이후 Nav2 `enable_stamped_cmd_vel: true`).
 
@@ -203,7 +203,7 @@ string message
 - diff_drive_controller 토픽은 기본 `/diff_drive_controller/cmd_vel`·`/odom` — launch에서 `/cmd_vel`·`/odom`으로 리매핑.
 - odom TF는 ekf만 (`diff_drive_controller enable_odom_tf: false`, ekf `publish_tf: true`).
 
-### 수동 조작·운영 모드 ([노드 사전](ros2-design/10-catalog.md#manual_control))
+### 수동 조작·운영 모드 ([노드 사전](project/ros/10-catalog.md#manual_control))
 
 | 이름 | 타입 | 보내는 쪽 → 받는 쪽 | 주기 · QoS |
 | --- | --- | --- | --- |
@@ -232,7 +232,7 @@ string message
 | `/cmd_vel_manual` | geometry_msgs/TwistStamped | manual_control → twist_mux | 위 체인 참조 |
 | `/arm_controller/joint_trajectory` | trajectory_msgs/JointTrajectory | manual_control → arm_controller (JTC) | 5축 전체 한 점 |
 
-### 팔·MoveIt ([05](ros2-design/05-arm.md))
+### 팔·MoveIt ([05](project/ros/05-arm.md))
 
 | 이름 | 타입 | 보내는 쪽 → 받는 쪽 | 주기 |
 | --- | --- | --- | --- |
@@ -242,7 +242,7 @@ string message
 | `/monitored_planning_scene` | moveit_msgs/PlanningScene | move_group → coordinator(MTC), RViz | 갱신 시 |
 | `/arm_controller/controller_state` | control_msgs/JointTrajectoryControllerState | arm_controller → 모니터링·RViz | 상태 표시 |
 
-### ros2_control·진단 ([08](ros2-design/08-ctrl.md))
+### ros2_control·진단 ([08](project/ros/08-ctrl.md))
 
 | 이름 | 타입 | 보내는 쪽 → 받는 쪽 | 비고 |
 | --- | --- | --- | --- |
@@ -286,7 +286,7 @@ string message
 <a id="api-tf"></a>
 ## 5. TF
 
-[07](ros2-design/07-tf.md). 발행자는 딱 둘 + robot_state_publisher.
+[07](project/ros/07-tf.md). 발행자는 딱 둘 + robot_state_publisher.
 
 | 변환 | 발행자 | 성격 |
 | --- | --- | --- |
@@ -300,7 +300,7 @@ string message
 <a id="api-qos"></a>
 ## 6. QoS 규칙
 
-[07 QoS 정리](ros2-design/07-tf.md#qoS-정리).
+[07 QoS 정리](project/ros/07-tf.md#qoS-정리).
 
 | 데이터 | Reliability | Durability | Depth | 이유 |
 | --- | --- | --- | --- | --- |

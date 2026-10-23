@@ -212,7 +212,7 @@ sudo apt install -y ros-$ROS_DISTRO-realsense2-camera
 
 # RTAB-Map (Jetson Ubuntu 24.04, ROS 2 Lyrical)
 
-> 실행·로그·오류 추적은 [`DEBUG.md`](DEBUG.md)에 정리되어 있다.
+> 실행·로그·오류 추적은 [`DEBUG.md`](../ros/DEBUG.md)에 정리되어 있다.
 
 NVIDIA arm64 저장소의 `ros-lyrical-pcl-conversions`는 **PCL 1.15**를 요구한다.
 Jetson Ubuntu 24.04에는 **PCL 1.14**만 있으므로 이 패키지는 설치할 수 없다.
@@ -720,14 +720,14 @@ export GRIPPER_CAM_SERIAL=261622075828
 영상을 거의 받지 못할 수 있다. `start.sh`는 아래 프로파일을 자동으로 지정한다.
 
 ```text
-lv2_module6/ros2_ws/src/ros_system/config/fastdds.xml
+lv2_module6/ros2_ws/fastdds.xml
 ```
 
 `start.sh` 없이 `ros2 launch`를 직접 실행할 때는:
 
 ```bash
 export FASTDDS_DEFAULT_PROFILES_FILE=\
-  $PWD/install/ros_system/share/ros_system/config/fastdds.xml
+  $PWD/fastdds.xml
 ```
 
 ### 적외선 스트림 끄기
@@ -769,4 +769,5 @@ ros2 topic echo /state/devices/gripper_cam --once \
 ## 원격 접속
 
 Jetson SSH 키 등록, `operator_tool` 원격 실행, x11vnc · GNOME RDP · NoMachine
-설정은 [REMOTE.md](REMOTE.md)에 분리해 두었다.
+설정은 [remote/README.md](remote/README.md)에 분리해 두었다. `remote/`에는 Jetson용
+`server.sh`와 PC용 `client.sh`도 있다.

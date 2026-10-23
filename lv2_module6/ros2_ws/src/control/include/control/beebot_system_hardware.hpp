@@ -1,7 +1,7 @@
 #pragma once
 
 // BeebotSystemHardware (🛠 직접 작성, 담당: 김현하) — ros2_control hardware component (SystemInterface)
-// controller_manager가 URDF의 <ros2_control> 태그를 보고 이 플러그인을 올린다. 설계: documents/ros2-design/08-ctrl.md
+// controller_manager가 URDF의 <ros2_control> 태그를 보고 이 플러그인을 올린다. 설계: documents/project/ros/08-ctrl.md
 //   관절·센서 (lv2_module6/urdf/beebot.urdf.xacro):
 //     wheel_left/right_joint   command velocity · state position, velocity          (TurtleBot3 2륜)
 //     joint1~5                 command position · state position, velocity, effort  (OM-X 4축 + 손목 roll)

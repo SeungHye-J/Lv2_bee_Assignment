@@ -1,7 +1,7 @@
 <?xml version="1.0"?>
 <!--
   beebot — TurtleBot3 Waffle Pi + 앞쪽 상판(한 단) 위 매니퓰레이터(OM-X + 손목 roll + 그리퍼) + 뒤쪽 전원선 가이드 폴 (더미 치수)
-  설계: documents/ros2-design/07-tf.md (TF 트리), 08-ctrl.md (ros2_control)
+  설계: documents/project/ros/07-tf.md (TF 트리), 08-ctrl.md (ros2_control)
 
   좌표: base_footprint(바닥) → base_link(바퀴 축 아래 0.010m), x 앞 · y 왼쪽 · z 위
     - 차체: Waffle Pi 본체 266×266mm, 바퀴 반경 0.033m · 간격 0.287m, 뒤쪽 캐스터 2개

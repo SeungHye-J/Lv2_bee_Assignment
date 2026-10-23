@@ -1,17 +1,44 @@
-# operator_tool
+# tool
 
 운영 중 수동 조작을 위한 CLI입니다. 별도 ROS 노드를 새로 만들지 않고, 이미 떠 있는
 `state_manager`·`manual_control`의 토픽과 `map_saver` 서비스를 사용합니다.
 
 ```text
-operator_tool/
+tool/
 ├── README.md
-├── run.sh
-├── run_rviz.sh
-├── operator_tool.py
-└── rviz/
-    └── operator.rviz
+├── run-cli          # start|stop|restart 실행기 (기본 start)
+├── run-rviz         # start|stop|restart 실행기 (기본 start)
+├── rviz/
+│   ├── start.sh
+│   ├── stop.sh
+│   ├── restart.sh
+│   └── operator.rviz
+└── cli/
+    ├── start.sh
+    ├── stop.sh
+    ├── restart.sh
+    └── operator_tool.py
 ```
+
+`run-cli`/`run-rviz`는 `start|stop|restart`를 받아 각 폴더의 스크립트를 실행한다.
+인자가 없으면 `start`다.
+
+```bash
+cd tool
+./run-cli            # CLI 시작 (= start)
+./run-cli stop       # 실행 중인 CLI 종료
+./run-cli restart    # CLI 프로세스 재시작
+```
+
+```bash
+cd tool
+./run-rviz          # RViz 시작 (= start)
+./run-rviz stop
+./run-rviz restart
+```
+
+주의: `./run-cli restart <대상> --yes`처럼 뒤에 인자가 있으면
+CLI 프로세스 재시작이 아니라 state_manager에 보내는 재시작 '요청' 명령이다.
 
 전체 로봇은 먼저 띄워 둡니다.
 
@@ -23,11 +50,11 @@ cd ../ros2_ws
 ## 실행
 
 ```bash
-cd operator_tool
-./run.sh
+cd tool
+./run-cli
 ```
 
-`run.sh`가 `/opt/ros/lyrical`과 `../ros2_ws/install/setup.bash`를 source합니다.
+`run-cli`가 `/opt/ros/lyrical`과 `../ros2_ws/install/setup.bash`를 source합니다.
 다른 워크스페이스를 쓰면 `ROS_DISTRO_NAME` 또는 `BEEBOT_MAP_DIR`를 지정합니다.
 
 터미널에서 인자 없이 실행하면 **대화형 메뉴**가 열립니다.
@@ -58,8 +85,8 @@ cd operator_tool
 한 번만 실행하는 기존 명령도 그대로 사용할 수 있습니다.
 
 ```bash
-./run.sh status
-./run.sh status --diagnostics
+./run-cli status
+./run-cli status --diagnostics
 ```
 
 ## 명령
@@ -67,9 +94,9 @@ cd operator_tool
 ### 상태
 
 ```bash
-./run.sh status
-./run.sh status --diagnostics
-./run.sh status --topics
+./run-cli status
+./run-cli status --diagnostics
+./run-cli status --topics
 ```
 
 `/state/operation_mode`, `/state/map_mode`, `/state/map_name`, `/state/emergency`,
@@ -78,17 +105,17 @@ cd operator_tool
 ### 자동/수동 전환
 
 ```bash
-./run.sh mode manual
-./run.sh mode auto
-./run.sh mode explore       # MAPPING 중일 때만
+./run-cli mode manual
+./run-cli mode auto
+./run-cli mode explore       # MAPPING 중일 때만
 ```
 
 ### 비상정지
 
 ```bash
-./run.sh estop on
-./run.sh estop off
-./run.sh estop status
+./run-cli estop on
+./run-cli estop off
+./run-cli estop status
 ```
 
 `estop on`은 바퀴 명령을 막고, 현재 수동 주행 명령도 0으로 보냅니다.
@@ -98,32 +125,32 @@ cd operator_tool
 먼저 `mode manual`이어야 합니다.
 
 ```bash
-./run.sh drive forward --speed 0.15 --duration 1.0
-./run.sh drive back --speed 0.10 --duration 0.5
-./run.sh drive left --angular 0.6 --duration 0.5
-./run.sh drive right --angular 0.6 --duration 0.5
-./run.sh drive stop
+./run-cli drive forward --speed 0.15 --duration 1.0
+./run-cli drive back --speed 0.10 --duration 0.5
+./run-cli drive left --angular 0.6 --duration 0.5
+./run-cli drive right --angular 0.6 --duration 0.5
+./run-cli drive stop
 ```
 
 터미널 키보드 조작:
 
 ```bash
-./run.sh teleop
+./run-cli teleop
 # w/s 전후진 · a/d 좌우회전 · space 정지 · q 종료
 ```
 
 ### 팔·그리퍼
 
 ```bash
-./run.sh arm show
-./run.sh arm set joint1=0.0 joint2=0.4 joint3=-0.2
-./run.sh arm delta joint2=+0.05
-./run.sh arm home
+./run-cli arm show
+./run-cli arm set joint1=0.0 joint2=0.4 joint3=-0.2
+./run-cli arm delta joint2=+0.05
+./run-cli arm home
 
-./run.sh gripper show
-./run.sh gripper open
-./run.sh gripper close
-./run.sh gripper position 0.01
+./run-cli gripper show
+./run-cli gripper open
+./run-cli gripper close
+./run-cli gripper position 0.01
 ```
 
 - `arm set`은 지정한 관절만 보내고, 나머지는 `manual_control`이 현재 각으로 채웁니다.
@@ -133,14 +160,14 @@ cd operator_tool
 ### 지도
 
 ```bash
-./run.sh map status
-./run.sh map list
-./run.sh map mode mapping
-./run.sh map mode localization
-./run.sh map switch 20261019_093353
-./run.sh map save
-./run.sh map save --file /tmp/my_map
-./run.sh map save --map-dir /path/to/maps
+./run-cli map status
+./run-cli map list
+./run-cli map mode mapping
+./run-cli map mode localization
+./run-cli map switch 20261019_093353
+./run-cli map save
+./run-cli map save --file /tmp/my_map
+./run-cli map save --map-dir /path/to/maps
 ```
 
 `map save`는 `/map_saver/save_map` 서비스를 호출해 `.pgm`·`.yaml`을 저장합니다.
@@ -149,8 +176,8 @@ cd operator_tool
 ### 재시작
 
 ```bash
-./run.sh restart all --yes
-./run.sh restart perception --yes
+./run-cli restart all --yes
+./run-cli restart perception --yes
 ```
 
 `--yes` 없이는 실행되지 않습니다. 전체 스택이 재시작되므로 주의합니다.
@@ -158,7 +185,8 @@ cd operator_tool
 ## RViz
 
 ```bash
-./run_rviz.sh
+cd tool
+./run-rviz
 ```
 
 `rviz/operator.rviz`는 카메라·점구름을 **Best Effort, queue 1**로 구독합니다.
@@ -187,7 +215,7 @@ export ROS_DOMAIN_ID=42
 ```
 
 느리면 RViz Image Display의 **Transport Hint**를 `compressed`로 바꾸거나
-Jetson에서 `./run_rviz.sh`를 실행하세요.
+Jetson에서 `tool/run-rviz`를 실행하세요.
 
 ## 안전 규칙
 
@@ -221,5 +249,5 @@ ros2 topic echo /state/emergency --once \
 
 ```bash
 export ROS_DOMAIN_ID=42
-./run.sh status
+./run-cli status
 ```

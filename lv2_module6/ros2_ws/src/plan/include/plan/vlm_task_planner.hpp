@@ -1,6 +1,6 @@
 #pragma once
 
-// vlm_task_planner (🛠 직접 작성, 담당: 권형중) — 설계: documents/ros2-design/03-plan.md
+// vlm_task_planner (🛠 직접 작성, 담당: 권형중) — 설계: documents/project/ros/03-plan.md
 //   입력: /cmd/user_command (명령), /tracked_objects (지금 보이는 물체), /task_status (FAILED면 재계획)
 //   출력: /sub_goals (plan/SubGoalArray, reliable + transient_local) → coordinator
 // VLM은 "무엇을, 어떤 순서로"만 정한다. 어떻게 움직일지·파지 후보 재시도는 coordinator 몫.
