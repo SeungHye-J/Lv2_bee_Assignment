@@ -15,6 +15,7 @@
 //   팔이 닿게 다가가기: pick · place <물체 id> 차례에 대상이 로봇(base_footprint, TF)에서 reach_m 넘게 떨어져 있으면
 //     먼저 그 물체를 바라보며 approach_m 떨어진 자리로 navigate한 뒤 그 단계를 실행 (단계마다 한 번 — VLM이 navigate를 빼먹어도).
 //     navigate <물체 id>도 같은 접근 자세 — 로봇이 있는 쪽에서 물체를 바라봄 (예전: 늘 물체의 −x 쪽 · yaw 0)
+//   시작 자세: bringup 직후 한 번 팔을 initial_pose(plan.yaml)로 — MoveIt 없이 /arm_controller/joint_trajectory 토픽
 //   스캔 자세: 지도를 만들 때(/state/map_mode MAPPING · 자동 탐사 EXPLORE) 작업이 없으면 팔을 scan_pose로 (2초마다 확인, MoveIt 관절 목표)
 //     — gripper_cam이 왼쪽 뒤를 보는 두 번째 고정 카메라가 됨 (ros_system/config/scan_pose.yaml · scan_cam_gate). 수동 모드여도
 //     (스캔은 보통 수동 주행) — MAPPING 동안 팔 수동 조작은 manual_control(/cmd/manual/arm)·service_action_input(/move_action)이 거절
@@ -48,6 +49,7 @@
 #include "plan/msg/task_status.hpp"
 #include "rclcpp/rclcpp.hpp"
 #include "sensor_msgs/msg/joint_state.hpp"
+#include "trajectory_msgs/msg/joint_trajectory.hpp"
 #include "rclcpp_action/rclcpp_action.hpp"
 #include "std_msgs/msg/string.hpp"
 #include "std_srvs/srv/empty.hpp"
@@ -133,6 +135,11 @@ private:
   //     계획이 실패하면 같은 목표로 arm_plan_tries번까지 (tries_left −1 = 처음)
   void move_arm(const geometry_msgs::msg::PoseStamped & target, std::function<void(bool)> done, int tries_left = -1);
 
+  // ---------- 시작 자세 — bringup 직후 한 번 팔을 initial_pose로 (MoveIt 없이 JTC 토픽)
+  void check_initial_pose();
+  bool at_initial_pose() const;
+  void publish_arm_targets(const std::vector<std::string> & names, const std::vector<double> & pos, double seconds);
+
   // ---------- 스캔 자세 — 지도 만드는 중이고 작업이 없으면 팔을 scan_pose로
   void check_scan_pose();
   bool at_scan_pose() const;
@@ -154,6 +161,16 @@ private:
 
   int max_grasp_tries_, max_step_failures_, arm_plan_tries_;
   double reach_m_, approach_m_;
+  std::vector<std::string> initial_joints_;
+  std::vector<double> initial_pose_;
+  double initial_tol_ = 0.05;
+  double initial_move_s_ = 3.0;
+  bool initial_enabled_ = true;
+  bool initial_done_ = false;
+  bool initial_waiting_ = false;
+  std::chrono::steady_clock::time_point initial_sent_{};
+  rclcpp::TimerBase::SharedPtr initial_timer_;
+  rclcpp::Publisher<trajectory_msgs::msg::JointTrajectory>::SharedPtr arm_traj_pub_;
   std::vector<std::string> scan_joints_;
   std::vector<double> scan_pose_;
   double scan_tol_ = 0.05;

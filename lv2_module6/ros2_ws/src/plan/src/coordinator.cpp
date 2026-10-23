@@ -46,6 +46,15 @@ Coordinator::Coordinator()
   place_spacing_ = declare_parameter<double>("place_spacing", 0.08);
   reach_m_ = declare_parameter<double>("reach_m", 0.30);
   approach_m_ = declare_parameter<double>("approach_m", 0.24);
+  initial_enabled_ = declare_parameter<bool>("initial_pose_enabled", true);
+  initial_joints_ = declare_parameter<std::vector<std::string>>(
+    "initial_pose_joints", {"joint1", "joint2", "joint3", "joint4", "joint5"});
+  initial_pose_ = declare_parameter<std::vector<double>>(
+    "initial_pose", {-0.0898, -1.8069, 1.3432, 1.6473, -0.0268});
+  initial_tol_ = declare_parameter<double>("initial_pose_tolerance", 0.05);
+  initial_move_s_ = declare_parameter<double>("initial_pose_move_s", 3.0);
+  arm_traj_pub_ = create_publisher<trajectory_msgs::msg::JointTrajectory>(
+    "/arm_controller/joint_trajectory", rclcpp::QoS(10));
   scan_joints_ = declare_parameter<std::vector<std::string>>("scan_pose_joints", {"joint1", "joint2", "joint3", "joint4", "joint5"});
   scan_pose_ = declare_parameter<std::vector<double>>("scan_pose", {2.618, 0.681, -1.414, 1.082, 0.0});
   scan_tol_ = declare_parameter<double>("scan_pose_tolerance", 0.05);
@@ -91,6 +100,8 @@ Coordinator::Coordinator()
     [this](sensor_msgs::msg::JointState::ConstSharedPtr m) {
       for (size_t i = 0; i < m->name.size() && i < m->position.size(); ++i) joints_[m->name[i]] = m->position[i];
     });
+  // 시작 자세는 1초부터 자주 확인 (팔이 늦게 뜨는 경우 대비), 스캔 자세는 기존대로 2초
+  initial_timer_ = create_wall_timer(std::chrono::seconds(1), [this]() { check_initial_pose(); });
   scan_timer_ = create_wall_timer(std::chrono::seconds(2), [this]() { check_scan_pose(); });
   nav_ = rclcpp_action::create_client<NavigateToPose>(this, "/navigate_to_pose");
   motion_plan_ = create_client<GetMotionPlan>("/plan_kinematic_path");
@@ -301,6 +312,65 @@ bool Coordinator::at_scan_pose() const {
     if (std::abs(d) > scan_tol_) return false;
   }
   return true;
+}
+
+bool Coordinator::at_initial_pose() const {
+  for (size_t i = 0; i < initial_joints_.size() && i < initial_pose_.size(); ++i) {
+    const auto it = joints_.find(initial_joints_[i]);
+    if (it == joints_.end()) return false;
+    if (std::abs(std::remainder(it->second - initial_pose_[i], 2 * M_PI)) > initial_tol_) return false;
+  }
+  return !joints_.empty();
+}
+
+void Coordinator::publish_arm_targets(const std::vector<std::string> & names,
+                                      const std::vector<double> & pos, double seconds) {
+  if (!arm_traj_pub_) return;
+  trajectory_msgs::msg::JointTrajectory traj;
+  trajectory_msgs::msg::JointTrajectoryPoint point;
+  for (size_t i = 0; i < names.size() && i < pos.size(); ++i) {
+    traj.joint_names.push_back(names[i]);
+    point.positions.push_back(pos[i]);
+  }
+  point.time_from_start = rclcpp::Duration::from_seconds(seconds);
+  traj.points.push_back(point);
+  arm_traj_pub_->publish(traj);
+}
+
+void Coordinator::check_initial_pose() {
+  // bringup 직후 한 번, 손으로 잡아 둔 초기 자세로 팔을 옮긴다.
+  //  - MAPPING/EXPLORE면 스캔 자세가 우선이라 건너뜀
+  //  - estop·진행 중 작업·비상정지 중에는 안 함
+  //  - 이미 그 자세면 바로 완료
+  if (!initial_enabled_ || initial_done_) return;
+  if (initial_waiting_) {
+    // 보낸 뒤 도달 확인 — 도달하면 완료, 6초 넘게 못 가면 한 번 더 보냄 (JTC 재시작·일시 거절 대비)
+    if (at_initial_pose()) {
+      initial_waiting_ = false;
+      initial_done_ = true;
+      RCLCPP_INFO(get_logger(), "팔 초기 자세 완료");
+    } else if (std::chrono::duration<double>(
+                 std::chrono::steady_clock::now() - initial_sent_).count() > initial_move_s_ + 3.0) {
+      initial_waiting_ = false;
+      RCLCPP_WARN(get_logger(), "팔 초기 자세 미도달 — 다시 보냄");
+    }
+    return;
+  }
+  if (estop_ || running_ || joints_.empty()) return;
+  if (map_mode_ == "MAPPING" || mode_ == "EXPLORE") {
+    initial_done_ = true;  // 스캔 자세(coordinator check_scan_pose)가 대신 잡는다
+    return;
+  }
+  if (at_initial_pose()) {
+    initial_done_ = true;
+    RCLCPP_INFO(get_logger(), "팔이 이미 초기 자세 — 이동 생략");
+    return;
+  }
+  if (arm_traj_pub_->get_subscription_count() == 0) return;  // JTC 아직 없음
+  initial_waiting_ = true;
+  initial_sent_ = std::chrono::steady_clock::now();
+  RCLCPP_INFO(get_logger(), "팔을 초기 자세로 이동 (%.1fs)", initial_move_s_);
+  publish_arm_targets(initial_joints_, initial_pose_, initial_move_s_);
 }
 
 void Coordinator::check_scan_pose() {

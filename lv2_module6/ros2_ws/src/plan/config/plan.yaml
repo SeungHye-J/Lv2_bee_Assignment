@@ -10,6 +10,14 @@ vlm_task_planner:
     tray_capacity: 4         # MOVE_TO_B 템플릿이 한 번에 싣는 퍽 수 (coordinator tray_slots 칸 수와 같게)
 coordinator:
   ros__parameters:
+    # 시작 자세 — bringup 직후 한 번 팔을 이 자세로 (MoveIt 없이 JTC 토픽, 3초 궤적).
+    #   실기에서 손으로 잡아 test-firmware로 읽은 값 (2026-10-23, joint3가 URDF 한계 안).
+    #   MAPPING/EXPLORE면 스캔 자세가 우선이라 건너뛴다. false면 자동 이동 안 함.
+    initial_pose_enabled: true
+    initial_pose_joints: [joint1, joint2, joint3, joint4, joint5]
+    initial_pose: [-0.0898, -1.8069, 1.3432, 1.6473, -0.0268]
+    initial_pose_tolerance: 0.05   # [rad] 이 안이면 이미 그 자세 (이동 생략)
+    initial_pose_move_s: 3.0       # [s] 궤적 시간 — 너무 짧으면 급정지·흔들림
     max_grasp_tries: 2       # 파지 후보를 점수순으로 몇 개까지 시도 (규칙 4)
     max_step_failures: 2     # 같은 단계가 이만큼 연속 실패하면 알리고 정지 (규칙 5)
     server_wait_s: 30.0      # [s] Nav2·MoveIt 서버가 뜰 때까지 기다리는 시간
