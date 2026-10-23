@@ -2,14 +2,16 @@
 
 // OpenCR 대역: BeebotSystemHardware(mock:=false)가 가상 시리얼로 주고받는 펌웨어 프로토콜(firmware/README.md)을
 // 파일로 흉내낸다. 테스트베드에서 OpenCR 역할은 이것 하나 (시뮬레이터는 시리얼에 쓰지 않음 — simulator/opencr.py가 읽기·요청만).
-//   C 읽기: <serial_out> (debug/output/hardware/serial) — "C,<바퀴L·R rad/s>,<joint1~5 rad>,<그리퍼 m>" 8값, 줄마다 엄격 검사 후 적용 (틀린 줄은 버림 — 결과 = 마지막 유효 줄)
+//   C 읽기: <serial_out> (debug/output/hardware/serial) — "C,<바퀴L·R rad/s>,<joint1~5 rad>,<그리퍼 m>" 8 필드,
+//     빈 필드(`,,`)는 유지(NaN) — 팔·그리퍼는 명령 생략(현재 유지), 바퀴는 0(정지).
+//     줄마다 엄격 검사 후 적용 (틀린 줄은 버림 — 결과 = 마지막 유효 줄). 예: C,1,,0.4,,,,,
 //   S 쓰기: <serial_in> (debug/input/hardware/serial) — "S,<32값>" 25ms마다 항상 (펌웨어처럼 C와 무관 — 통신 끊김일 때만 멈춤)
 //     바퀴 pos·vel ×2 · 관절 pos·vel·A ×6(joint1~5 + gripper_left) · 쿼터니언 · 자이로 · 가속도
 // 물리 (한 걸음 dt):
 //   바퀴: 명령 속도로 가속 (한계 ACCEL_MAX × friction) → 엔코더는 회전 그대로,
 //         바닥 전달은 (1 − slip) → 차동 구동 자세 적분.
-// 펌웨어(firmware/beebot_opencr)와 1:1: S 25ms 주기로 항상 · C는 줄마다 엄격 검사(8값·유한·뒤 쓰레기 없음) ·
-//   watchdog = 마지막 유효 C부터 0.5초 → 바퀴 0 + 팔·그리퍼 지금 자세 유지 (한 번) · 첫 C 전엔 안 움직임
+// 펌웨어(firmware/beebot_opencr)와 1:1: S 25ms 주기로 항상 · C는 줄마다 엄격 검사(8 필드·유한·뒤 쓰레기 없음,
+//   빈 필드는 유지) · watchdog = 마지막 유효 C부터 0.5초 → 바퀴 0 + 팔·그리퍼 지금 자세 유지 (한 번) · 첫 C 전엔 안 움직임
 //   충돌: 코스 지도 PGM(벽)과 로봇 원(반경 ROBOT_R)이 겹치면 그 걸음 이동 차단 (bumped)
 //   팔·그리퍼: 속도 한계로 목표 추종. arm_grabbed면 관절 고정 + 과전류 1.6A
 //   IMU: 실제 yaw · yaw rate (+ 가우스 잡음), 가속도 z = 9.81
@@ -42,7 +44,7 @@ private:
   bool load_map(const std::string & yaml_path);
   bool occupied(double x, double y) const;
   bool collide(double x, double y, double r) const;
-  // C 파일 끝부분에서 가장 최근의 완전한 "C,..." 줄을 파싱 → true (8값)
+  // C 파일 끝부분에서 가장 최근의 완전한 "C,..." 줄을 파싱 → true (8 필드, 빈칸=유지 NaN)
   bool read_command(std::array<double, 8> & cmd);
   // 펌웨어 parse_fields와 같은 규칙으로 C 한 줄 검사
   static bool parse_command(const std::string & line, std::array<double, 8> & v);

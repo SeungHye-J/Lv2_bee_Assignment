@@ -14,6 +14,14 @@ fi
 #   ./test-firmware --send 'C,0,0,0,0,0,0,0,0' --yes
 #   ./test-firmware --arm joint1 0.05 --yes # joint1만 현재 자세에서 +0.05 rad
 #   ./test-firmware --gripper 0.005 --yes   # 그리퍼 폭 5 mm
+#   ./test-firmware --wheel 0.3 --yes       # 양쪽 바퀴 0.3 rad/s (팔·그리퍼는 현재 유지)
+#   ./test-firmware --wheel 0.3 -0.3 --yes  # 좌 0.3 · 우 -0.3 rad/s (제자리 회전)
+#   ./test-firmware --l-wheel 0.3 --yes     # 왼쪽만 0.3 rad/s (오른쪽은 정지)
+#   ./test-firmware --r-wheel 0.3 --yes     # 오른쪽만 0.3 rad/s (왼쪽은 정지)
+#   ./test-firmware --send 'C,0.3,0.3,,,,,' --yes  # 빈칸 = 유지 (바퀴는 0 대신 명시)
+#
+# 빈칸 규칙 (펌웨어·faker 공통): C의 빈 필드는 "유지" — 팔·그리퍼는 현재 목표 유지,
+#   바퀴는 정지(0). 전부 빈칸이면 바퀴 정지 + 팔 유지. S 읽기에는 영향 없음.
 #
 # 주의:
 #   - --arm/--gripper/--send는 실제로 모터를 움직입니다. 주변을 비우고 작은 값부터.
@@ -30,6 +38,8 @@ SEND=""
 ARM=""
 ARM_DELTA=""
 GRIPPER=""
+WHEEL_L=""
+WHEEL_R=""
 YES=0
 TIMEOUT=2
 
@@ -46,6 +56,12 @@ while (($#)); do
     --send) SEND=$2; shift 2 ;;
     --arm) ARM=$2; ARM_DELTA=$3; shift 3 ;;
     --gripper) GRIPPER=$2; shift 2 ;;
+    --wheel)
+      # --wheel <vl> [vr] — vr 생략 시 양쪽 동일. 바퀴만 움직이고 팔·그리퍼는 S 현재값 유지.
+      WHEEL_L=$2
+      if [[ "${3:-}" =~ ^-?[0-9]+([.][0-9]+)?$ ]]; then WHEEL_R=$3; shift 3; else WHEEL_R=$2; shift 2; fi ;;
+    --l-wheel) WHEEL_L=$2; WHEEL_R=0; shift 2 ;;  # 왼쪽만, 오른쪽은 정지
+    --r-wheel) WHEEL_L=0; WHEEL_R=$2; shift 2 ;;  # 오른쪽만, 왼쪽은 정지
     --yes) YES=1; shift ;;
     --timeout) TIMEOUT=$2; shift 2 ;;
     -h | --help) usage; exit 0 ;;
@@ -67,7 +83,7 @@ if pgrep -f 'ros2_control_node|controller_manager' >/dev/null 2>&1; then
   exit 2
 fi
 
-if [ -n "$ARM" ] || [ -n "$GRIPPER" ] || [ -n "$SEND" ] || [ "$HOLD" = 1 ]; then
+if [ -n "$ARM" ] || [ -n "$GRIPPER" ] || [ -n "$SEND" ] || [ -n "$WHEEL_L" ] || [ "$HOLD" = 1 ]; then
   [ -w "$PORT" ] || { echo "FAIL: 쓰기 권한 없음: $PORT"; exit 2; }
   if [ "$YES" != 1 ]; then
     echo "WARNING: 모터가 움직일 수 있습니다: $PORT"
@@ -229,20 +245,30 @@ if [ -n "$GRIPPER" ]; then
   send_repeated "$cmd" 20
 fi
 
-if [ "$HOLD" = 1 ] || [ -n "$SEND" ] || [ -n "$ARM" ] || [ -n "$GRIPPER" ]; then
+if [ -n "$WHEEL_L" ]; then
+  [[ "$WHEEL_L" =~ ^-?[0-9]+([.][0-9]+)?$ ]] || { echo "FAIL: 바퀴 속도가 숫자가 아님: $WHEEL_L"; exit 2; }
+  [[ "$WHEEL_R" =~ ^-?[0-9]+([.][0-9]+)?$ ]] || { echo "FAIL: 바퀴 속도가 숫자가 아님: $WHEEL_R"; exit 2; }
+  cmd="C,$WHEEL_L,$WHEEL_R,${v[5]},${v[8]},${v[11]},${v[14]},${v[17]},${v[20]}"
+  say ""
+  say "wheel: L=$WHEEL_L R=$WHEEL_R rad/s (팔·그리퍼 현재 유지)"
+  say "전송: $cmd"
+  send_repeated "$cmd" 20
+fi
+
+if [ "$HOLD" = 1 ] || [ -n "$SEND" ] || [ -n "$ARM" ] || [ -n "$GRIPPER" ] || [ -n "$WHEEL_L" ]; then
   sleep 0.3
   read_status
   last2=$(complete_s_lines | tail -n 1 || true)
   if [ -n "$last2" ]; then
     IFS=',' read -r -a v2 <<<"$last2"
     say ""
-    printf '확인 joint1=% .4f  joint2=% .4f  gripper=% .4f m\n' \
-      "${v2[5]}" "${v2[8]}" "${v2[20]}"
+    printf '확인 wheelL vel=% .4f  wheelR vel=% .4f  joint1=% .4f  joint2=% .4f  gripper=% .4f m\n' \
+      "${v2[2]}" "${v2[4]}" "${v2[5]}" "${v2[8]}" "${v2[20]}"
   fi
 fi
 
 say ""
 say "PASS: S 프로토콜 수신"
-if [ -z "$SEND" ] && [ -z "$ARM" ] && [ -z "$GRIPPER" ] && [ "$HOLD" = 0 ]; then
+if [ -z "$SEND" ] && [ -z "$ARM" ] && [ -z "$GRIPPER" ] && [ -z "$WHEEL_L" ] && [ "$HOLD" = 0 ]; then
   say "로봇은 움직이지 않았습니다. 실제 동작 시험은 --hold/--arm/--gripper를 사용하세요."
 fi

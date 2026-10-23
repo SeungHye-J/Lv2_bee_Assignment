@@ -4,6 +4,7 @@
 
 #include <array>
 #include <cstdio>
+#include <limits>
 
 namespace faker {
 
@@ -176,17 +177,24 @@ bool FakeOpenCR::read_command(std::array<double, 8> & cmd) {
 }
 
 bool FakeOpenCR::parse_command(const std::string & line, std::array<double, 8> & v) {
-  // 펌웨어 parse_fields와 같은 규칙: "C," + 정확히 8값, 각 값은 끝까지 숫자이고 유한, 마지막 값 뒤에 아무것도 없음
+  // 펌웨어 parse_fields와 같은 규칙: "C," + 정확히 8 필드.
+  // 빈 필드(`,,` · 끝에 쉼표 포함)는 유지(NaN) — 팔·그리퍼는 명령 생략, 바퀴는 0(정지).
+  // 각 값은 끝까지 숫자이고 유한, 마지막 값 뒤에 아무것도 없음. 예: C,1,,0.4,,,,,
   if (line.compare(0, 2, "C,") != 0) return false;
   const char * text = line.c_str() + 2;
   for (int i = 0; i < 8; ++i) {
-    char * end = nullptr;
-    v[i] = std::strtod(text, &end);
-    if (end == text || !std::isfinite(v[i])) return false;
+    if (*text == ',' || *text == '\0') {
+      v[i] = std::numeric_limits<double>::quiet_NaN();
+    } else {
+      char * end = nullptr;
+      v[i] = std::strtod(text, &end);
+      if (end == text || !std::isfinite(v[i])) return false;
+      text = end;
+    }
     if (i + 1 < 8) {
-      if (*end != ',') return false;
-      text = end + 1;
-    } else if (*end != '\0') {
+      if (*text != ',') return false;
+      text = text + 1;
+    } else if (*text != '\0') {
       return false;
     }
   }
@@ -241,8 +249,10 @@ void FakeOpenCR::tick() {
     std::array<double, 8> cmd{};
     if (read_command(cmd)) {
       std::lock_guard<std::mutex> lock(mutex_);
-      wheel_cmd_ = {cmd[0], cmd[1]};
-      for (int j = 0; j < 6; ++j) joint_cmd_[j] = cmd[2 + j];
+      for (int i = 0; i < 2; ++i) wheel_cmd_[i] = std::isnan(cmd[i]) ? 0.0 : cmd[i];  // 바퀴 빈칸 = 정지
+      for (int j = 0; j < 6; ++j) {
+        if (!std::isnan(cmd[2 + j])) joint_cmd_[j] = cmd[2 + j];  // 팔·그리퍼 빈칸 = 현재 유지
+      }
       last_cmd_ = now;
       watchdog_tripped_ = false;
       ++cmds_;

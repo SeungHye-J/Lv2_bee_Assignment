@@ -1,6 +1,9 @@
 // beebot OpenCR 펌웨어 — SBC(control/BeebotSystemHardware) ↔ OpenCR ↔ DYNAMIXEL 8개 + 내장 IMU
 //   USB 시리얼 ASCII 줄 프로토콜 (module5 opencr_pan_tilt와 같은 방식, 단위는 SI):
 //     SBC → OpenCR  C,<바퀴L rad/s>,<바퀴R rad/s>,<j1>,<j2>,<j3>,<j4>,<j5 rad>,<그리퍼 m>\n      (매 제어 주기)
+//                        빈 필드(`,,` ·trailing comma 포함)는 "유지" — 팔·그리퍼는 명령 생략(현재 유지),
+//                        바퀴는 정지(0). 전부 빈칸이면 바퀴 정지 + 팔 유지. 예: C,0.3,0.3,,,,,,
+//                        (빈칸 없이 전부 숫자였던 기존 C와 호환 — SBC는 항상 전부 숫자로 보냄)
 //     OpenCR → SBC  S,<바퀴L pos,vel>,<바퀴R pos,vel>,<j1 pos,vel,A>…<j5 …>,<그리퍼 m,m/s,A>,
 //                        <qx,qy,qz,qw>,<gx,gy,gz rad/s>,<ax,ay,az m/s²>\n                         (STATE_PERIOD_MS마다)
 //   관절 0rad = 서보 중앙(2048 = 180°). 바퀴 위치는 부팅 후 누적 rad.
@@ -54,17 +57,25 @@ bool parse_fields(char *text, float *out, size_t count)
 {
     for (size_t i = 0; i < count; ++i)
     {
-        char *end = nullptr;
-        out[i] = strtof(text, &end);
-        if (end == text || !isfinite(out[i]))
-            return false;
+        if (*text == ',' || *text == '\0')
+        {
+            out[i] = NAN;  // 빈칸 = 유지 (바퀴는 0으로, 팔·그리퍼는 명령 생략)
+        }
+        else
+        {
+            char *end = nullptr;
+            out[i] = strtof(text, &end);
+            if (end == text || !isfinite(out[i]))
+                return false;
+            text = end;
+        }
         if (i + 1 < count)
         {
-            if (*end != ',')
+            if (*text != ',')
                 return false;
-            text = end + 1;
+            text += 1;
         }
-        else if (*end != '\0')
+        else if (*text != '\0')
         {
             return false;
         }
@@ -79,11 +90,21 @@ void apply_line()
     float v[COMMAND_FIELDS];
     if (!parse_fields(line + 2, v, COMMAND_FIELDS))
         return;
-    dxl.setGoalVelocity(WHEEL_LEFT_ID, rad_s_to_rpm(v[0] * WHEEL_LEFT_DIR), UNIT_RPM);
-    dxl.setGoalVelocity(WHEEL_RIGHT_ID, rad_s_to_rpm(v[1] * WHEEL_RIGHT_DIR), UNIT_RPM);
+    if (isnan(v[0]))
+        dxl.setGoalVelocity(WHEEL_LEFT_ID, 0);  // 빈칸 = 정지
+    else
+        dxl.setGoalVelocity(WHEEL_LEFT_ID, rad_s_to_rpm(v[0] * WHEEL_LEFT_DIR), UNIT_RPM);
+    if (isnan(v[1]))
+        dxl.setGoalVelocity(WHEEL_RIGHT_ID, 0);  // 빈칸 = 정지
+    else
+        dxl.setGoalVelocity(WHEEL_RIGHT_ID, rad_s_to_rpm(v[1] * WHEEL_RIGHT_DIR), UNIT_RPM);
     for (size_t i = 0; i < ARM_COUNT; ++i)
-        dxl.setGoalPosition(ARM_IDS[i], joint_rad_to_deg(v[2 + i], ARM_DIR[i]), UNIT_DEGREE);
-    dxl.setGoalPosition(GRIPPER_ID, joint_rad_to_deg(v[2 + ARM_COUNT] * GRIPPER_RAD_PER_M, 1.0f), UNIT_DEGREE);
+    {
+        if (!isnan(v[2 + i]))
+            dxl.setGoalPosition(ARM_IDS[i], joint_rad_to_deg(v[2 + i], ARM_DIR[i]), UNIT_DEGREE);
+    }
+    if (!isnan(v[2 + ARM_COUNT]))
+        dxl.setGoalPosition(GRIPPER_ID, joint_rad_to_deg(v[2 + ARM_COUNT] * GRIPPER_RAD_PER_M, 1.0f), UNIT_DEGREE);
     last_command_ms = millis();
     watchdog_tripped = false;
 }

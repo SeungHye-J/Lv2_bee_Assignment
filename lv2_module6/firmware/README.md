@@ -86,7 +86,11 @@ chmod +x test-firmware          # 최초 1회 (Permission denied 방지)
 ./test-firmware --hold --yes     # 현재 자세 유지 명령
 ./test-firmware --arm joint1 0.05 --yes
 ./test-firmware --gripper 0.005 --yes
+./test-firmware --wheel 0.3 --yes       # 양쪽 바퀴 0.3 rad/s (팔·그리퍼 현재 유지)
+./test-firmware --l-wheel 0.3 --yes     # 왼쪽만 (오른쪽 정지)
+./test-firmware --r-wheel 0.3 --yes     # 오른쪽만 (왼쪽 정지)
 ./test-firmware --send 'C,0,0,0,0,0,0,0,0' --yes
+./test-firmware --send 'C,0.3,0.3,,,,,' --yes  # 빈칸 = 유지 (아래 규칙)
 ```
 
 `sh ./test-firmware`로 실행하면 Ubuntu의 `/bin/sh`(dash)가 되어
@@ -108,11 +112,14 @@ bash ./test-firmware
 | `--hold` | 현재 자세를 유지하는 `C` 명령 전송 |
 | `--arm <joint> <rad>` | 현재 자세에서 해당 관절만 delta만큼 이동 |
 | `--gripper <m>` | 그리퍼 폭을 m로 이동 |
-| `--send 'C,...'` | `C` 명령을 직접 전송 |
+| `--wheel <vl> [vr]` | 바퀴 속도 rad/s (vr 생략 시 양쪽 동일, 팔·그리퍼는 S 현재값 유지) |
+| `--l-wheel <v>` / `--r-wheel <v>` | 한쪽 바퀴만 속도 (반대쪽은 정지) |
+| `--send 'C,...'` | `C` 명령을 직접 전송 (빈 필드 `,,`는 유지 — 아래 규칙) |
 | `--yes` | 확인 프롬프트 없이 실행 |
 
-- `--arm`, `--gripper`, `--send`는 실제로 모터를 움직인다. 주변을 비우고 작은 값부터 사용한다.
-- `--send 'C,0,0,...'`은 **현재 자세 유지가 아니다.** 팔을 0 rad(중앙)으로 보내는 명령이므로, 현재 자세 유지는 `--hold`를 쓴다.
+- `--arm`, `--gripper`, `--wheel`, `--send`는 실제로 모터를 움직인다. 주변을 비우고 작은 값부터 사용한다.
+- `C` 빈 필드는 **유지**다: 팔·그리퍼는 현재 목표 유지, 바퀴는 정지(0). 전부 빈칸이면 바퀴 정지 + 팔 유지. 예: `C,0.3,0.3,,,,,` (바퀴만 구동), `C,1,,0.4,,,,,` (좌바퀴 1 · 우 정지 · joint1 0.4).
+- `--send 'C,0,0,...'`처럼 전부 숫자로 보내면 팔을 0 rad(중앙)으로 보내는 명령이므로, 현재 자세 유지는 `--hold`나 빈칸을 쓴다.
 - 모터 8개(바퀴 1·2, 팔 11~15, 그리퍼 16)가 모두 1 Mbps / Protocol 2.0으로 연결되어 있지 않으면 `C`가 무시된다.
 - 그리퍼는 Current-based Position의 Goal Current가 0이면 움직이지 않을 수 있다. (`setGoalCurrent()` 확인)
 
