@@ -342,12 +342,12 @@ void Coordinator::check_initial_pose() {
   //  - MAPPING/EXPLORE면 스캔 자세가 우선이라 건너뜀
   //  - estop·진행 중 작업·비상정지 중에는 안 함
   //  - 이미 그 자세면 바로 완료
-  if (!initial_enabled_ || initial_done_) return;
+  if (!initial_enabled_) return;
   if (initial_waiting_) {
-    // 보낸 뒤 도달 확인 — 도달하면 완료, 6초 넘게 못 가면 한 번 더 보냄 (JTC 재시작·일시 거절 대비)
+    // 보낸 뒤 도달 확인 — 도달하면 타이머 자체를 끔, 6초 넘게 못 가면 한 번 더 보냄 (JTC 재시작·일시 거절 대비)
     if (at_initial_pose()) {
       initial_waiting_ = false;
-      initial_done_ = true;
+      initial_timer_->cancel();
       RCLCPP_INFO(get_logger(), "팔 초기 자세 완료");
     } else if (std::chrono::duration<double>(
                  std::chrono::steady_clock::now() - initial_sent_).count() > initial_move_s_ + 3.0) {
@@ -358,11 +358,11 @@ void Coordinator::check_initial_pose() {
   }
   if (estop_ || running_ || joints_.empty()) return;
   if (map_mode_ == "MAPPING" || mode_ == "EXPLORE") {
-    initial_done_ = true;  // 스캔 자세(coordinator check_scan_pose)가 대신 잡는다
+    initial_timer_->cancel();  // 스캔 자세(coordinator check_scan_pose)가 대신 잡는다
     return;
   }
   if (at_initial_pose()) {
-    initial_done_ = true;
+    initial_timer_->cancel();
     RCLCPP_INFO(get_logger(), "팔이 이미 초기 자세 — 이동 생략");
     return;
   }

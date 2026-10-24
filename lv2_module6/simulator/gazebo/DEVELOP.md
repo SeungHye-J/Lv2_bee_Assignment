@@ -352,18 +352,9 @@ xacro /ws/urdf/beebot_mesh/urdf.xacro mock_hardware:=true > /tmp/beebot.urdf && 
   - STL 메시: <https://imagetostl.com/kr/view-stl-online> — `urdf/beebot_mesh/meshes` 드래그
   - URDF: <https://viewer.robotsfan.com/> — 위 `xacro`로 펼친 `/tmp/beebot.urdf` + `meshes/` 폴더를 함께 올림 (xacro 원본은 못 읽음)
 
-## 9. SIL 시뮬레이터 (`simulator/`)
+## 9. 지도 모드 (launch 인자)
 
-실행·화면·파일 규격은 [simulator/README.md](simulator/README.md)를 본다. 요약만 두면:
-
-- 호스트에서 `cd lv2_module6/simulator && .venv/bin/python main.py` (컨테이너 셸에서는 `test-faker 0`으로 띄워 두기 — 컨테이너 접속은 §1 참조)
-- **시뮬레이터는 사람이 호스트에서** 켠다 (컨테이너·테스트·CI는 띄우지 않음 — 컨테이너는 `debug/` 파일만 받음). `test-faker`·`test-all`은 시뮬레이터 없이도 배관(joint_states · odom · Nav2 · monitor)을 검사하고, **시뮬레이터가 켜져 있으면** 카메라 → 인지 → 작업 성공 흐름까지 본다 (창 없이 켜려면 `.venv/bin/python main.py --headless --pucks 6`).
-- 컨테이너와는 `../../debug` 파일로만 주고받는다 (호스트에 ROS 불필요)
-- **지도 만들기 (스캔)**: 컨테이너 `test-faker 0 map:=slam` → 시뮬레이터 [수동 조작] 탭으로 미로를 몰고 다님 (RTAB-Map이 pole_front_cam 컬러+깊이로 작성. 지도 한 벌 = 폴더 하나 `ros2_ws/map/<날짜_시각>/` — rtabmap.db · map.pgm · map.yaml, 새 스캔은 새 폴더라 덮어쓰지 않음)
-  → '지도 (SLAM)' 칸 [지도 저장] (같은 폴더에 `map.pgm`·`map.yaml` — 미리보기용, 폴더 이름은 `/state/map_name`) → 다음부터 `test-faker 0 map:=saved` (default 폴더, 없으면 가장 최근) 또는 `map:=saved map_name:=<폴더>` (rtabmap.db로 위치추정). 실행 중에도 시뮬레이터 지도 목록에서 폴더를 고르면 그 지도로 갈아끼움 (`/cmd/map_name`).
-  [스캔 시작]·[위치추정으로]는 `/cmd/map_mode` → state_manager가 RTAB-Map 모드를 재시작 없이 바꿈
-
-### 지도 모드 정리
+SIL 시뮬레이터(`simulator/`)는 더 이상 사용하지 않는다. 지도 관련 launch 인자만 남긴다:
 
 | 시작 인자 | 뜨는 지도 노드 | `/state/map_mode` | 지도 DB |
 | --- | --- | --- | --- |
@@ -372,18 +363,8 @@ xacro /ws/urdf/beebot_mesh/urdf.xacro mock_hardware:=true > /tmp/beebot.urdf && 
 | `map:=saved [map_name:=<폴더>]` | RTAB-Map + map_saver (slam과 **같은 노드**) | LOCALIZATION | 저장 폴더의 DB (기본 `default` 폴더, 없으면 가장 최근) |
 
 - **재시작 없이 바뀌는 것** (같은 RTAB-Map 안): 스캔 ↔ 위치추정(`/cmd/map_mode` → `/rtabmap/rtabmap/set_mode_*`) · 지도 갈아끼우기(`/cmd/map_name` → `/rtabmap/rtabmap/load_database` + 위치추정).
-- **재시작이 필요한 것**: 코스 ↔ RTAB-Map — 노드 구성이 다르고(`/map`·`map→odom`을 map_server와 RTAB-Map이 같이 내면 안 됨) launch는 시작 때 노드를 정한다.
-  시뮬레이터에서 코스 모드일 때 [스캔 시작]·[위치추정으로]·지도 고르기를 누르면 확인 창 → `/cmd/restart`(`map:=slam` / `map:=saved [map_name:=…]`).
+- **재시작이 필요한 것**: 코스 ↔ RTAB-Map — 노드 구성이 다르고(`/map`·`map→odom`을 map_server와 RTAB-Map이 같이 내면 안 됨) launch는 시작 때 노드를 정한다 (`/cmd/restart` → `map:=slam` / `map:=saved [map_name:=…]`).
 - 상태: `/state/map_mode` · `/state/map_name`(지금 지도 폴더) · `/state/map_list`(가진 지도 폴더) — 전부 state_manager.
-- **카메라 두 대로 지도** (RTAB-Map — `ros_system.launch.py` `rtabmap_nodes()`): 지도를 만들 때(MAPPING · 자동 탐사) coordinator가 팔을
-  **스캔 자세**(`ros_system/config/scan_pose.yaml` — 팔을 낮춰 왼쪽 뒤로, gripper_cam이 왼쪽 뒤를 20° 내려다봄 · pole_front_cam 앞 시야를 안 가림)로
-  보내고, `scan_cam_gate`가 팔이 그 자세에 멈춰 있을 때만 gripper_cam depth를 넘김(아니면 0 — 지도를 안 망치고 동기화도 안 끊김).
-  pole_front_cam · gripper_cam → `rgbd_sync` ×2 → `rgbdx_sync` → rtabmap(`rgbd_images`). 점구름도 둘 다: 몸 뺀 pole_front_cam +
-  gripper_cam(게이트 — 스캔 자세일 때만, 카메라 0.5m 안 = 손가락·폴대·적재함은 뺌) → `point_cloud_aggregator` → `/rtabmap/scan_cloud` (격자 `/map` · ICP).
-  **MAPPING 동안 팔 수동 조작 금지**: coordinator가 수동 모드여도 스캔 자세로 보냄(스캔은 보통 수동 주행) · `/cmd/manual/arm` 팔 관절(manual_control)과
-  시뮬레이터 MoveIt 팔 목표(service_action_input `/move_action`)는 거절 — 그리퍼만 됨. [위치추정으로] 뒤에 조작.
-  회전 시험(새 지도 · 제자리 3바퀴 · 전진 · 반대 3바퀴, 실측 2026-10-19): 지도 위 로봇 방향 오차 카메라 하나 −2.4°/−1.1°/−2.1° → 두 대 +0.6°/−0.4°/−0.1°.
-  남은 것: 지금 설정이 엄격해 클로저를 거의 받지 않음 — 지도 ≈ EKF(odom). 짧은 매핑엔 좋으나 오래 돌면 자이로 오차가 쌓여도 안 고침.
 - **재시작** (`/cmd/restart` → state_manager, 실기·테스트베드 같음 — 결과 `/state/restart`):
   `ros2 topic pub --once /cmd/restart std_msgs/msg/String "{data: 'all'}"` (이 launch 전체, 같은 인자) · `"{data: 'all map:=slam'}"` (그 인자만 바꿔) ·
   `"{data: 'node perception'}"` (그 노드만, 같은 파라미터). 분리된 도우미가 끄고 띄움 — launch에 SIGINT → 3초 안에 안 꺼지면 SIGTERM + 노드에 직접 SIGINT

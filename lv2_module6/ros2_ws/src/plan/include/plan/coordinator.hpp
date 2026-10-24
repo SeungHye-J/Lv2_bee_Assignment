@@ -166,7 +166,6 @@ private:
   double initial_tol_ = 0.05;
   double initial_move_s_ = 3.0;
   bool initial_enabled_ = true;
-  bool initial_done_ = false;
   bool initial_waiting_ = false;
   std::chrono::steady_clock::time_point initial_sent_{};
   rclcpp::TimerBase::SharedPtr initial_timer_;
