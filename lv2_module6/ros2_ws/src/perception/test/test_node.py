@@ -491,14 +491,14 @@ def test_puck_judge_pipeline():
 
 
 def test_resolve_model_path(tmp_path):
-    """model_path — 비면 best.pt · 파일 이름만이면 설치 폴더(share/perception/model)에서 · 경로면 그대로"""
+    """model_path — 비면 model.pt · 파일 이름만이면 설치 폴더(share/perception/model)에서 · 경로면 그대로"""
     from perception_node import resolve_model_path
-    (tmp_path / "best.pt").write_bytes(b"")
+    (tmp_path / "model.pt").write_bytes(b"")
     (tmp_path / "bee_yolo11n_v1.pt").write_bytes(b"")
     d = str(tmp_path)
-    assert resolve_model_path("", d) == os.path.join(d, "best.pt")
+    assert resolve_model_path("", d) == os.path.join(d, "model.pt")
     assert resolve_model_path("bee_yolo11n_v1.pt", d) == os.path.join(d, "bee_yolo11n_v1.pt")
     assert resolve_model_path("/x/y/my.pt", d) == "/x/y/my.pt"      # 전체 경로는 그대로
     assert resolve_model_path("none.pt", d) == "none.pt"            # 폴더에 없으면 그대로 (로드 실패 경고)
-    (tmp_path / "best.pt").unlink()
-    assert resolve_model_path("", d) == ""                          # best.pt도 없으면 모델 없음
+    (tmp_path / "model.pt").unlink()
+    assert resolve_model_path("", d) == ""                          # model.pt도 없으면 모델 없음

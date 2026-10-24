@@ -4,7 +4,7 @@
 카메라 토픽과 함께 시험할 때 쓴다.
 
   ros2 launch perception perception.launch.py
-  ros2 launch perception perception.launch.py device:=cuda model_path:=/path/to/best.pt
+  ros2 launch perception perception.launch.py device:=cuda model_path:=/path/to/model.pt
 """
 
 from launch import LaunchDescription
@@ -19,7 +19,7 @@ def generate_launch_description():
     config = PathJoinSubstitution([FindPackageShare('perception'), 'config', 'perception.yaml'])
     return LaunchDescription([
         DeclareLaunchArgument('model_path', default_value='',
-                              description='YOLO 가중치 경로 (비면 share/perception/model/best.pt 자동 탐색)'),
+                              description='YOLO 가중치 경로 (비면 share/perception/model/model.pt 자동 탐색)'),
         DeclareLaunchArgument('device', default_value='cpu',
                               description='추론 장치: cpu | cuda'),
         DeclareLaunchArgument('rate_hz', default_value='10.0',

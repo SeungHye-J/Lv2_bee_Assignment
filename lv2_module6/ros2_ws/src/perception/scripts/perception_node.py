@@ -237,11 +237,11 @@ def classify_color(cls, roi):
 
 def resolve_model_path(model_path, model_dir):
     """model_path 파라미터 → 실제 가중치 파일 경로 ('' = 모델 없음 — 빈 목록 발행)
-      ''              → model_dir/best.pt (팀 기본 — 있으면)
+      ''              → model_dir/model.pt (팀 기본 — 있으면)
       파일 이름만     → model_dir/<이름> (예: bee_yolo11n_v1.pt — ros2_ws/model/yolo/*.pt가 share/perception/model에 설치됨)
       그 밖(경로)     → 그대로 (전체 경로를 준 경우 · 없으면 YOLO 로드 실패 경고)"""
     if not model_path:
-        cand = os.path.join(model_dir, "best.pt") if model_dir else ""
+        cand = os.path.join(model_dir, "model.pt") if model_dir else ""
         return cand if cand and os.path.exists(cand) else ""
     if os.sep not in model_path and model_dir:
         cand = os.path.join(model_dir, model_path)
@@ -324,8 +324,15 @@ def to_msg(tid, tr):
     o.size.x, o.size.y, o.size.z = (float(v) for v in tr["size"])
     o.last_seen = tr["last_seen"]
     o.camera = tr.get("camera", "")
+    o.cameras = sorted(tr.get("seen", {}).keys()) or ([o.camera] if o.camera else [])
     o.px = [int(v) for v in tr.get("px", (0, 0))]
     o.color = tr.get("color", "")
+    details = []
+    if o.class_name in ("puck", "puck_lying") and tr.get("posture"):  # 퍽 자세 (color와 별도)
+        details.append(KeyValue(key="posture", value=tr["posture"]))
+    elif o.class_name == "traffic_light" and o.color:  # 신호등 상태 (color에도 같이 있음)
+        details.append(KeyValue(key="state", value=o.color))
+    o.details = details
     return o
 
 
