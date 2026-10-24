@@ -516,36 +516,42 @@
       <state_interface name="velocity"/>
     </joint>
     <joint name="joint1">
+      <param name="offset">0.0</param>  <!-- [rad] 영점 오프셋: 서보 값 = 관절값 + offset (실측) -->
       <command_interface name="position"/>
       <state_interface name="position"/>
       <state_interface name="velocity"/>
       <state_interface name="effort"/>
     </joint>
     <joint name="joint2">
+      <param name="offset">0.0</param>  <!-- [rad] 영점 오프셋: 서보 값 = 관절값 + offset (실측) -->
       <command_interface name="position"/>
       <state_interface name="position"/>
       <state_interface name="velocity"/>
       <state_interface name="effort"/>
     </joint>
     <joint name="joint3">
+      <param name="offset">0.0</param>  <!-- [rad] 영점 오프셋: 서보 값 = 관절값 + offset (실측) -->
       <command_interface name="position"/>
       <state_interface name="position"/>
       <state_interface name="velocity"/>
       <state_interface name="effort"/>
     </joint>
     <joint name="joint4">
+      <param name="offset">0.0</param>  <!-- [rad] 영점 오프셋: 서보 값 = 관절값 + offset (실측) -->
       <command_interface name="position"/>
       <state_interface name="position"/>
       <state_interface name="velocity"/>
       <state_interface name="effort"/>
     </joint>
     <joint name="joint5">
+      <param name="offset">0.0</param>  <!-- [rad] 영점 오프셋: 서보 값 = 관절값 + offset (실측) -->
       <command_interface name="position"/>
       <state_interface name="position"/>
       <state_interface name="velocity"/>
       <state_interface name="effort"/>
     </joint>
     <joint name="gripper_left_joint">
+      <param name="offset">0.0</param>  <!-- [m] 영점 오프셋: 서보 값 = 관절값 + offset (실측) -->
       <command_interface name="position"/>
       <state_interface name="position"/>
       <state_interface name="velocity"/>

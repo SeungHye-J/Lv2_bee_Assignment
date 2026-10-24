@@ -30,6 +30,8 @@
 #include <cstring>
 #include <sstream>
 #include <string>
+#include <map>
+#include <thread>
 #include <vector>
 
 #include "diagnostic_updater/diagnostic_updater.hpp"
@@ -80,6 +82,7 @@ private:
   bool mock_ = false;
   double mock_effort_ = 0.0;
   std::string port_, imu_;
+  std::map<std::string, double> offset_;  // 팔·그리퍼 영점 오프셋 (URDF <joint><param name="offset">) — 서보 값 = 관절값 + offset
   int fd_ = -1;
   std::string rx_;
   std::atomic<std::chrono::steady_clock::time_point> last_state_{};

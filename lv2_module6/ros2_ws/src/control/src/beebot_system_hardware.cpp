@@ -29,6 +29,10 @@ CallbackReturn BeebotSystemHardware::on_init(const hardware_interface::HardwareC
     for (const auto * name : WHEELS) if (!in_urdf(name)) return missing(name);
     for (const auto * name : ARM) if (!in_urdf(name)) return missing(name);
   }
+  for (const auto & j : info_.joints) {  // 영점 오프셋 — 조립·서보 혼 각도가 URDF 0과 다를 때 (실측해서 URDF에 적는다)
+    const auto it = j.parameters.find("offset");
+    offset_[j.name] = it != j.parameters.end() ? std::stod(it->second) : 0.0;  // 미리 채워 read/write에서 삽입 없게
+  }
   RCLCPP_INFO(get_logger(), "관절 %zu개 · 센서 %zu개 · %s", info_.joints.size(), info_.sensors.size(),
     mock_ ? "mock (명령 → 상태 되돌림)" : ("실기 OpenCR " + port_).c_str());
   return CallbackReturn::SUCCESS;
@@ -62,7 +66,22 @@ CallbackReturn BeebotSystemHardware::on_shutdown(const rclcpp_lifecycle::State &
 }
 
 CallbackReturn BeebotSystemHardware::on_activate(const rclcpp_lifecycle::State &) {
-  // 활성화 순간 명령 = 현재 상태 (첫 주기에 엉뚱한 곳으로 튀지 않게)
+  // 활성화 순간 명령 = 현재 상태 (첫 주기에 엉뚱한 곳으로 튀지 않게).
+  // controller_manager는 configure→activate를 read() 없이 바로 하므로 상태가 아직 on_configure의 0 —
+  // 그대로 쓰면 팔이 0rad(서보 중앙)로 최고 속도로 튀었다 (실기). 첫 S 줄을 받아 실제 각도를 채운 뒤 맞춘다.
+  // S가 없으면 활성화 실패 — 펌웨어는 모터가 없어도 S를 보내므로 S 없음 = 시리얼 끊김. 0으로 띄우면
+  // rl_arm_correction·JTC가 그 0을 "현재 자세"로 붙잡아, 나중에 S가 와도 팔이 0으로 튄다.
+  if (!mock_) {
+    const auto until = std::chrono::steady_clock::now() + std::chrono::seconds(3);
+    while (received_.load() == 0 && std::chrono::steady_clock::now() < until) {
+      read_serial();
+      std::this_thread::sleep_for(std::chrono::milliseconds(20));
+    }
+    if (received_.load() == 0) {
+      RCLCPP_ERROR(get_logger(), "OpenCR 상태(S) 3초 동안 없음 — 실제 팔 각도를 몰라 활성화 안 함 (펌웨어·USB 확인)");
+      return CallbackReturn::ERROR;
+    }
+  }
   for (const auto & j : info_.joints) {
     for (const auto & c : j.command_interfaces) {
       const auto key = j.name + "/" + c.name;
@@ -186,7 +205,7 @@ bool BeebotSystemHardware::apply_state(const std::string & text) {
     set_state(std::string(name) + "/velocity", v[i++]);
   }
   for (const auto * name : ARM) {
-    double p = v[i++];
+    double p = v[i++] - offset_[name];  // 서보 값 → 관절값
     // 시리얼은 소수 넷째 자리(%.4f) — 한계값 명령(π = 3.14159)이 3.1416으로 오가며 한계를 0.0001쯤 넘는다.
     // 그대로 내보내면 MoveIt이 출발 자세가 한계 밖이라며 모든 계획을 거부했음 (START_STATE_INVALID) → 반올림만큼 넘은 건 한계로
     const auto lim = info_.limits.find(name);
@@ -212,9 +231,13 @@ return_type BeebotSystemHardware::write_serial() {
     out += num;
   }
   for (const auto * name : ARM) {
-    double p = get_command<double>(std::string(name) + "/position");
-    if (std::isnan(p)) p = get_state<double>(std::string(name) + "/position");  // 명령 없으면 현재 자세 유지
-    std::snprintf(num, sizeof(num), ",%.4f", p);
+    const double p = get_command<double>(std::string(name) + "/position");
+    // 명령 없으면 빈칸 = 펌웨어가 현재 자세 유지 (상태로 채우면 S 받기 전엔 0rad를 보내 팔이 튄다)
+    if (std::isnan(p)) {
+      out += ',';
+      continue;
+    }
+    std::snprintf(num, sizeof(num), ",%.4f", p + offset_[name]);  // 관절값 → 서보 값
     out += num;
   }
   out += '\n';

@@ -3,7 +3,7 @@
 //     SBC → OpenCR  C,<바퀴L rad/s>,<바퀴R rad/s>,<j1>,<j2>,<j3>,<j4>,<j5 rad>,<그리퍼 m>\n      (매 제어 주기)
 //                        빈 필드(`,,` ·trailing comma · 모자란 뒷필드)는 "유지" — 팔·그리퍼는 명령 생략(현재 유지),
 //                        바퀴는 정지(0). 전부 빈칸이면 바퀴 정지 + 팔 유지. 예: C,0.3,0.3,,,,,,
-//                        (빈칸 없이 전부 숫자였던 기존 C와 호환 — SBC는 항상 전부 숫자로 보냄)
+//                        (빈칸 없이 전부 숫자였던 기존 C와 호환 — SBC는 팔 명령이 없을 때(NaN) 팔 칸을 빈칸으로 보냄)
 //     OpenCR → SBC  S,<바퀴L pos,vel>,<바퀴R pos,vel>,<j1 pos,vel,A>…<j5 …>,<그리퍼 m,m/s,A>,
 //                        <qx,qy,qz,qw>,<gx,gy,gz rad/s>,<ax,ay,az m/s²>\n                         (STATE_PERIOD_MS마다)
 //   관절 0rad = 서보 중앙(2048 = 180°). 바퀴 위치는 부팅 후 누적 rad.
