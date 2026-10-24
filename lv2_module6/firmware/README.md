@@ -19,6 +19,18 @@ OpenCR 내장 IMU (MPU9250, cIMU)
 | SBC → OpenCR | `T,<8필드>` 또는 `T,0`·`T,1` — 토크 온/오프 (빈칸=유지, 관절별 가능) | 자세 실측·수동 정렬 |
 | OpenCR → SBC | `S,` 바퀴L pos·vel, 바퀴R pos·vel, joint1~5 pos·vel·전류A, 그리퍼 m·m/s·A, IMU qx·qy·qz·qw, gx·gy·gz rad/s, ax·ay·az m/s² `\n` (32개) | `STATE_PERIOD_MS` (25ms) |
 
+`C` 필드별 단위와 펌웨어 변환:
+
+| 필드 | 값 | 단위 | 펌웨어 변환 |
+| --- | --- | --- | --- |
+| 바퀴L · 바퀴R | 속도 | rad/s (바퀴 각속도) | `rad_s_to_rpm(v × WHEEL_*_DIR)` → `setGoalVelocity(UNIT_RPM)` |
+| joint1~5 | 위치 | rad (0 = 서보 중앙) | `deg = ARM_DIR × rad × 180/π + 180` → `setGoalPosition(UNIT_DEGREE)` |
+| 그리퍼 | 손가락 벌림 | m (0 ~ 0.0265) | `m × GRIPPER_RAD_PER_M` → 위 관절식으로 deg |
+
+- 빈칸 = 유지: 팔·그리퍼는 명령 생략, 바퀴는 0(정지).
+- 영점 오프셋은 펌웨어가 아니라 SBC가 처리한다: URDF `<ros2_control>` 관절 `<param name="offset">` → 보낼 때 `관절값 + offset`, 받을 때 `− offset` (단위 그대로 rad·m). 바퀴는 속도 명령이라 오프셋 없음.
+- `S`도 같은 단위: 바퀴 누적 위치 rad·속도 rad/s, 관절 rad·rad/s·전류 A, 그리퍼 m·m/s·A.
+
 - watchdog: 마지막 **유효한** `C`부터 `COMMAND_TIMEOUT_MS`(500ms)가 지나면 바퀴 속도 0, 팔·그리퍼는 현재 자세 유지 (한 번).
   형식이 틀린 줄·빈 줄은 무시하고 타이머도 갱신하지 않는다.
 - SBC는 활성화 때 첫 `S`를 받아 실제 각도로 팔 명령을 맞춘다. 3초 안에 `S`가 없으면 활성화를 실패시킨다(실제 각도를 모르니 띄우지 않음). 팔 명령이 없으면(NaN) 팔 칸을 **빈칸(유지)**으로 보낸다 — 예전엔 초기 상태 0을 그대로 보내 시작하자마자 팔이 0 rad로 최고 속도로 튀었음.
