@@ -167,6 +167,7 @@ def generate_launch_description():
              parameters=[PathJoinSubstitution([FindPackageShare('plan'), 'config', 'plan.yaml']),
                          PathJoinSubstitution([FindPackageShare('ros_system'), 'config', 'scan_pose.yaml'])]),
         node('plan', 'explorer'),
+        node('plan', 'signal_decoder'),
         *[node('ml', n, learning, condition=IfCondition(LaunchConfiguration(f'use_{n}'))) for n in ML_NODES],
         node('control', 'arm_safety_monitor'),
         node('control', 'manual_control'),

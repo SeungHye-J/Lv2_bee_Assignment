@@ -4,7 +4,7 @@
 가는 길의 장애물·끼어드는 사람은 피하거나 멈춘다 — 로봇 대회의 "물건 옮기고 위치시키기" 미션.
 
 - 처음이면 **[DEVELOP.md](simulator/gazebo/DEVELOP.md)** — 셋팅 · 도커 · 빌드 · 커스텀 메시지 · 파라미터 · 수동 조작 · 상태 진단 · 테스트 · 펌웨어 · 시뮬레이터 · CI
-- 설계(노드·토픽 상세): [documents/ros2-design](../documents/ros2-design/README.md)
+- 설계(노드·토픽 상세): [documents/project/ros](../documents/project/ros/README.md)
 - ROS 2 Lyrical (Ubuntu 26.04) · C++ (ament_cmake) · OpenCR 펌웨어 (Arduino)
 
 코드 구조: 노드마다 `include/<패키지>/<노드>.hpp`(선언) · `src/<노드>.cpp`(구현) · `src/<노드>_main.cpp`(main), 클래스는 `namespace <패키지>`.
@@ -153,6 +153,7 @@ sequenceDiagram
 | 지도 모드 (스캔 ↔ 위치추정) | `/cmd/map_mode` (std_msgs/String MAPPING·LOCALIZATION) | state_manager → RTAB-Map 모드 전환 → `/state/map_mode` |
 | 원격 조종 | `/cmd/manual/cmd_vel` (TwistStamped) | manual_control → `/cmd_vel_manual` → twist_mux(자동보다 우선) → 안전 체인 → 바퀴 |
 | 팔·그리퍼 | `/cmd/manual/arm` (JointState: joint1~5 rad · gripper_left_joint m) | manual_control → JTC `/arm_controller/joint_trajectory` · 그리퍼 액션 |
+| 모터 재부팅 | `/cmd/manual/reboot_motors` (Empty) — 과부하 등 Hardware Error 풀기 | manual_control → 📞 `/beebotsystem/reboot_motors` → 펌웨어 `R` (에러 난 모터만) |
 | 비상정지 | `/cmd/e_stop` (std_msgs/Bool true) | state_manager → `/state/emergency` → twist_mux 잠금 — 자동·수동 바퀴 명령 전부 차단 |
 
 시뮬레이터 수동 조작 창(바퀴 버튼 · 로봇/팔 3D에서 관절 드래그) · 키보드(`ros2 run teleop_twist_keyboard teleop_twist_keyboard --ros-args -p stamped:=true -r cmd_vel:=/cmd/manual/cmd_vel`) · `ros2 topic pub` 어느 것으로도 보낼 수 있다. 수동 바퀴 명령도 안전 체인(velocity_smoother · collision_monitor)을 지난다.
@@ -218,7 +219,7 @@ lv2_module6/
 ├── urdf/<이름>/urdf.xacro    로봇 모델 (폴더 하나 = 모델 하나, launch urdf:= · 기본 beebot_mesh) (더미 치수 — 팔은 ROBOTIS OM-X 원본 값 + 손목 roll)
 ├── firmware/beebot_opencr/   OpenCR 펌웨어 (호스트 BeebotSystemHardware와 같은 시리얼 프로토콜)
 ├── simulator/                SIL 시뮬레이터 (main.py · 수동 조작 창 manual_window.py · opencr.py = fake_opencr 연결, 읽기·요청만)
-├── operator_tool/            운영자 수동 조작 CLI (상태 · 모드 · 주행 · 팔 · 지도)
+├── tool/                     운영 도구 (cli/ 수동 조작 CLI · run-rviz · rviz/)
 ├── ros2_ws/
 │   ├── start.sh · firmware-upload.sh · download-artifact.sh · monitor.sh   실기·배포 패키지용 스크립트
 │   └── src/
@@ -246,9 +247,9 @@ test-faker 0 mock_hardware:=true          # OpenCR 없이 mock (물리 없음)
 ./ros2_ws/firmware-upload.sh              # OpenCR 펌웨어 올리기 (내부에서 firmware/ 스크립트 호출)
 ./ros2_ws/start.sh                        # 장치 확인 → bringup
 ./ros2_ws/start.sh mock_hardware:=true    # OpenCR 없이
-./operator_tool/run.sh                      # 대화형 운영 메뉴
-./operator_tool/run.sh status             # 상태만 한 번 출력
-./operator_tool/run_rviz.sh               # 카메라·지도 RViz (Best Effort QoS)
+./tool/run-cli                      # 대화형 운영 메뉴
+./tool/run-cli status             # 상태만 한 번 출력
+./tool/run-rviz                       # 카메라·지도 RViz (Best Effort QoS)
 ./ros2_ws/stop.sh                         # 떠 있는 ROS 전부 끄기
 ```
 

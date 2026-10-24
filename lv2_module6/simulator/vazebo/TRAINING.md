@@ -34,7 +34,7 @@ cd lv2_module6/simulator
 
 - 출력 고정: `simulator/runs/<name>/weights/best.pt`
   (`train_yolo.py:34`에서 `project=HERE/runs` 절대경로 고정 — cwd가 어디든 여기로 간다)
-- 끝나면 스크립트가 자동으로 `../../ros2_ws/model/yolo/best.pt`에 복사한다 (`train_yolo.py:35-39`)
+- 끝나면 스크립트가 자동으로 `../../ros2_ws/model/yolo/model.pt`에 복사한다 (`train_yolo.py:35-39`)
 - MPS(Mac GPU) 기준 100에폭 약 1.5시간. 로그는 nohup으로: `nohup ./.venv/bin/python train_yolo.py --epochs 100 > /tmp/train.log 2>&1 &`
 
 ### 학습 현황 보기
@@ -48,7 +48,7 @@ open runs/yolo11n-beebot/results.png              # 학습 곡선 그림
 
 ## 3. 컨테이너 perception에 장착
 
-가중치는 빌드 때 `share/perception/model/best.pt`로 설치된다
+가중치는 빌드 때 `share/perception/model/model.pt`로 설치된다
 (`src/perception/CMakeLists.txt:28-33`, `file(GLOB)` 방식). 그래서 **복사만으로는 안 되고 재빌드가 필수**다.
 `GLOB`은 configure 때 확정되므로, 가중치가 새로 생겼으면 force-configure:
 
@@ -65,7 +65,7 @@ ros2 run perception perception_node --ros-args \
   --params-file /ws/install/perception/share/perception/config/perception.yaml
 ```
 
-`model_path` 파라미터가 비어 있으면 share의 `model/best.pt`를 자동 탐색한다
+`model_path` 파라미터가 비어 있으면 share의 `model/model.pt`를 자동 탐색한다
 (`scripts/perception_node.py:58-66`, `config/perception.yaml:5`).
 모델 없이 뜨면 "빈 목록 발행" 모드 — `/tracked_objects`가 `objects: []`로만 나온다.
 

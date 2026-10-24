@@ -184,8 +184,11 @@ class ManualPanel(tk.Frame):
         for i, (text, cmd) in enumerate([('지금 자세로', self.reset_target), ('팔 초기화', self.init_arm),
                                          ('그리퍼 열기', lambda: self.set_gripper(0.026)),
                                          ('그리퍼 닫기', lambda: self.set_gripper(0.0)),
-                                         ('그리퍼 초기화', self.init_gripper)]):
+                                         ('그리퍼 초기화', self.init_gripper), ('모터 재부팅', self.reboot_motors)]):
             tk.Button(row, text=text, width=10, command=cmd).grid(row=i // 2, column=i % 2, padx=2, pady=2, sticky=tk.W)
+        # 모터 Hardware Error (과부하·과열 등) — /state/devices/<wheels|arm|gripper> 세부의 '관절:에러' (state_manager)
+        self.motor_label = tk.Label(right, text='', anchor=tk.W, justify=tk.LEFT, wraplength=260)
+        self.motor_label.pack(anchor=tk.W)
         # 관절별 슬라이더 — 3D 화면 마커 끌기와 같은 목표(self.target)를 바꾼다. 놓으면 /cmd/manual/arm
         tk.Label(right, text='관절 (놓으면 MoveIt으로 — 몸체와 안 부딪히는 경로)', fg='#666').pack(anchor=tk.W, pady=(6, 0))
         self.slider_box = tk.Frame(right)
@@ -381,6 +384,28 @@ class ManualPanel(tk.Frame):
 
     def set_gripper(self, value):
         self.send_gripper(value)
+
+    def reboot_motors(self):
+        """Hardware Error 난 DYNAMIXEL만 재부팅 — /cmd/manual/reboot_motors (수동 모드에서만 manual_control이 받음)"""
+        cmd_manual_mode(True)
+        send('/cmd/manual/reboot_motors', 'std_msgs/msg/Empty', {})
+        self.motor_note = time.time()
+
+    def refresh_motor_errors(self):
+        errors = []
+        for dev in ('wheels', 'arm', 'gripper'):
+            msg, _ = read_msg(f'state/devices/{dev}')
+            parts = (msg or {}).get('data', '').split('|', 2)
+            if len(parts) == 3:
+                errors += [d for d in parts[2].split(',') if ':' in d]
+        if errors:
+            text, color = '모터 에러: ' + ', '.join(errors) + ' → [모터 재부팅]', '#d33'
+        elif time.time() - getattr(self, 'motor_note', 0) < 5:
+            text, color = '재부팅 요청 보냄 — 팔은 천천히 명령 자세로', '#666'
+        else:
+            text, color = '', '#666'
+        if self.motor_label.cget('text') != text:
+            self.motor_label.config(text=text, fg=color)
 
     def init_gripper(self):
         """그리퍼 초기화 — URDF 원점(관절값 0.0, 그린 그대로)으로"""
@@ -1229,6 +1254,7 @@ class ManualPanel(tk.Frame):
         if time.time() < getattr(self, 'follow_actual_until', 0) and q and self.slider_held is None and not self.selected:
             self.target.update({j: q[j] for j in ARM_JOINTS if j in q and j != 'gripper_left_joint'})
         self.sync_sliders()
+        self.refresh_motor_errors()
         self.poll_ee()
         self.poll_seq()
         if self.model:

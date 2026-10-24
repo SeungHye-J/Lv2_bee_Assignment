@@ -3,7 +3,7 @@
 
   cd lv2_module6/simulator && .venv/bin/python train_yolo.py [--epochs 100] [--model yolo11n.pt]
 
-산출물 runs/yolo11n-beebot/weights/best.pt → perception_yolo/model/best.pt 로 복사 후 커밋.
+산출물 runs/yolo11n-beebot/weights/best.pt(ultralytics 이름) → lv2_module6/ros2_ws/model/yolo/model.pt(perception 기본 모델) 로 복사 후 커밋.
 """
 import argparse
 import shutil
@@ -33,7 +33,7 @@ def main():
                 device=args.device, name=args.name, patience=20,
                 workers=4, batch=-1, project=str(HERE / "runs"))
     best = HERE / "runs" / args.name / "weights" / "best.pt"
-    dst = HERE.parent / "ros2_ws" / "model" / "yolo" / "best.pt"
+    dst = HERE.parent.parent / "ros2_ws" / "model" / "yolo" / "model.pt"  # vazebo → simulator → lv2_module6
     dst.parent.mkdir(parents=True, exist_ok=True)
     shutil.copy(best, dst)
     print(f"OK: {best} → {dst} ({dst.stat().st_size / 1e6:.1f} MB)")

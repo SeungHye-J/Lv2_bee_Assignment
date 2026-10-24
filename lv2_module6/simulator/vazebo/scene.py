@@ -186,7 +186,7 @@ def goal_zone(course, cells):
             'sx': GOAL_SIZE, 'sy': GOAL_SIZE, 'size': [GOAL_SIZE, 0.005]}
 
 
-# 미션 (documents/MISSION.md §1~3·8) — 한 맵 안에 미션 지역 여러 곳: 지도에서 자리를 찍고 문제를 고른다.
+# 미션 (documents/mission/README.md §1~3·8) — 한 맵 안에 미션 지역 여러 곳: 지도에서 자리를 찍고 문제를 고른다.
 # 채점은 외부(대회 심판)에서 하므로 시뮬레이터는 판(미션 지역 퍽 · QR 판 · B 지역 · 환경)만 깐다. 규정이 나오면 여기만 고친다.
 ENV_LAYOUT = {'obstacles': 3, 'movers': 1, 'traffic': 0, 'slip_zones': 2, 'slip': 0.3, 'light_change': True}
 QR_DIR = Path(__file__).resolve().parent / 'qr'

@@ -11,11 +11,12 @@ find_package(rosidl_default_generators REQUIRED)
 find_package(std_msgs REQUIRED)
 find_package(builtin_interfaces REQUIRED)
 find_package(geometry_msgs REQUIRED)
+find_package(diagnostic_msgs REQUIRED)
 
 rosidl_generate_interfaces(${PROJECT_NAME}
   msg/TrackedObject.msg
   msg/TrackedObjectArray.msg
-  DEPENDENCIES std_msgs builtin_interfaces geometry_msgs)
+  DEPENDENCIES std_msgs builtin_interfaces geometry_msgs diagnostic_msgs)
 
 # YOLO 노드 (Python, scripts/perception_node.py) — 메시지 패키지는 이 CMake가 만든다
 install(PROGRAMS scripts/perception_node.py

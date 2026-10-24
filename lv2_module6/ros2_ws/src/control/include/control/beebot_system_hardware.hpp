@@ -1,7 +1,7 @@
 #pragma once
 
 // BeebotSystemHardware (🛠 직접 작성, 담당: 김현하) — ros2_control hardware component (SystemInterface)
-// controller_manager가 URDF의 <ros2_control> 태그를 보고 이 플러그인을 올린다. 설계: documents/ros2-design/08-ctrl.md
+// controller_manager가 URDF의 <ros2_control> 태그를 보고 이 플러그인을 올린다. 설계: documents/project/ros/08-ctrl.md
 //   관절·센서 (lv2_module6/urdf/beebot.urdf.xacro):
 //     wheel_left/right_joint   command velocity · state position, velocity          (TurtleBot3 2륜)
 //     joint1~5                 command position · state position, velocity, effort  (OM-X 4축 + 손목 roll)
@@ -30,12 +30,15 @@
 #include <cstring>
 #include <sstream>
 #include <string>
+#include <map>
+#include <thread>
 #include <vector>
 
 #include "diagnostic_updater/diagnostic_updater.hpp"
 #include "hardware_interface/system_interface.hpp"
 #include "hardware_interface/types/hardware_interface_type_values.hpp"
 #include "rclcpp/rclcpp.hpp"
+#include "std_srvs/srv/trigger.hpp"
 
 namespace control {
 
@@ -75,16 +78,24 @@ private:
 
   bool apply_state(const std::string & text);
 
+  bool apply_errors(const std::string & text);  // E 줄 — 모터별 Hardware Error Status
+
+  void reboot_motors(const std_srvs::srv::Trigger::Request::SharedPtr, std_srvs::srv::Trigger::Response::SharedPtr res);
+
   return_type write_serial();
 
   bool mock_ = false;
   double mock_effort_ = 0.0;
   std::string port_, imu_;
+  std::map<std::string, double> offset_;  // 팔·그리퍼 영점 오프셋 (URDF <joint><param name="offset">) — 서보 값 = 관절값 + offset
   int fd_ = -1;
   std::string rx_;
   std::atomic<std::chrono::steady_clock::time_point> last_state_{};
   std::atomic<size_t> sent_{0}, received_{0}, bad_{0};
   std::unique_ptr<diagnostic_updater::Updater> diag_;
+  std::array<std::atomic<int>, 8> hw_error_{};  // 프로토콜 순서(바퀴L·R·joint1~5·그리퍼), −1 = 응답 없음
+  std::atomic<uint32_t> reboot_mask_{0};         // 서비스가 고른 모터 — write()가 R 줄로 보냄
+  rclcpp::Service<std_srvs::srv::Trigger>::SharedPtr reboot_srv_;
 };
 
 }  // namespace control

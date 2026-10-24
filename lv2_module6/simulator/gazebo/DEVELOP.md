@@ -1,6 +1,6 @@
 # DEVELOP — 처음 들어온 개발자용
 
-lv2_module6 워크스페이스에서 개발·빌드·테스트하는 방법입니다. 프로젝트 개요·패키지·담당은 [README.md](../../README.md), 설계는 [documents/ros2-design](../../../documents/ros2-design/README.md), 브랜치·커밋·PR 규칙은 [CONTRIBUTING.md](../../../CONTRIBUTING.md)를 봅니다.
+lv2_module6 워크스페이스에서 개발·빌드·테스트하는 방법입니다. 프로젝트 개요·패키지·담당은 [README.md](../../README.md), 설계는 [documents/project/ros](../../../documents/project/ros/README.md), 브랜치·커밋·PR 규칙은 [CONTRIBUTING.md](../../../CONTRIBUTING.md)를 봅니다.
 
 - ROS 2 **Lyrical** (Ubuntu 26.04) · **C++** (ament_cmake, rclcpp)
 - 개발·테스트는 **도커 테스트베드**에서 합니다 (로컬에 ROS를 설치하지 않아도 됨). CI도 같은 컨테이너에서 같은 검사를 돌립니다.
@@ -23,7 +23,7 @@ test-all                               # 빌드 + 전체 검사. ALL PASS면 셋
 
 컨테이너는 워크스페이스 전체(`../../ros2_ws` → `/ws`)를 마운트합니다. 빌드 결과·로그도 호스트에서 바로 봅니다.
 같은 LAN의 다른 팀 스택과 DDS 토픽이 섞이지 않게 `ROS_DOMAIN_ID=88` (docker-compose.yml · `~/.bashrc`) — 컨테이너 안 명령은 compose가 자동 적용, 호스트는 셸 설정.
-DDS 환경 (docker-compose · CI 공통): `ROS_AUTOMATIC_DISCOVERY_RANGE=SUBNET` (ROS 기본값 — LOCALHOST면 Fast DDS가 localhost 참가자 번호 몇 개에만 유니캐스트로 discovery를 보내 노드 40여 개 중 일부가 서로 안 보였음: Nav2 관리자 멈춤 · `/map` 발행자 0 · CLI가 노드 못 찾음. 다른 팀과는 `ROS_DOMAIN_ID=88`로 분리) · `FASTDDS_DEFAULT_PROFILES_FILE=…/ros_system/config/fastdds.xml` (Fast DDS TypeLookup 끔 — 없으면 노드 40개에서 UDP 폭주로 컨트롤러가 못 뜸).
+DDS 환경 (docker-compose · CI 공통): `ROS_AUTOMATIC_DISCOVERY_RANGE=SUBNET` (ROS 기본값 — LOCALHOST면 Fast DDS가 localhost 참가자 번호 몇 개에만 유니캐스트로 discovery를 보내 노드 40여 개 중 일부가 서로 안 보였음: Nav2 관리자 멈춤 · `/map` 발행자 0 · CLI가 노드 못 찾음. 다른 팀과는 `ROS_DOMAIN_ID=88`로 분리) · `FASTDDS_DEFAULT_PROFILES_FILE=…/fastdds.xml` (Fast DDS TypeLookup 끔 — 없으면 노드 40개에서 UDP 폭주로 컨트롤러가 못 뜸).
 
 | 호스트 | 컨테이너 | 용도 |
 | --- | --- | --- |
@@ -352,18 +352,9 @@ xacro /ws/urdf/beebot_mesh/urdf.xacro mock_hardware:=true > /tmp/beebot.urdf && 
   - STL 메시: <https://imagetostl.com/kr/view-stl-online> — `urdf/beebot_mesh/meshes` 드래그
   - URDF: <https://viewer.robotsfan.com/> — 위 `xacro`로 펼친 `/tmp/beebot.urdf` + `meshes/` 폴더를 함께 올림 (xacro 원본은 못 읽음)
 
-## 9. SIL 시뮬레이터 (`simulator/`)
+## 9. 지도 모드 (launch 인자)
 
-실행·화면·파일 규격은 [simulator/README.md](simulator/README.md)를 본다. 요약만 두면:
-
-- 호스트에서 `cd lv2_module6/simulator && .venv/bin/python main.py` (컨테이너 셸에서는 `test-faker 0`으로 띄워 두기 — 컨테이너 접속은 §1 참조)
-- **시뮬레이터는 사람이 호스트에서** 켠다 (컨테이너·테스트·CI는 띄우지 않음 — 컨테이너는 `debug/` 파일만 받음). `test-faker`·`test-all`은 시뮬레이터 없이도 배관(joint_states · odom · Nav2 · monitor)을 검사하고, **시뮬레이터가 켜져 있으면** 카메라 → 인지 → 작업 성공 흐름까지 본다 (창 없이 켜려면 `.venv/bin/python main.py --headless --pucks 6`).
-- 컨테이너와는 `../../debug` 파일로만 주고받는다 (호스트에 ROS 불필요)
-- **지도 만들기 (스캔)**: 컨테이너 `test-faker 0 map:=slam` → 시뮬레이터 [수동 조작] 탭으로 미로를 몰고 다님 (RTAB-Map이 pole_front_cam 컬러+깊이로 작성. 지도 한 벌 = 폴더 하나 `ros2_ws/map/<날짜_시각>/` — rtabmap.db · map.pgm · map.yaml, 새 스캔은 새 폴더라 덮어쓰지 않음)
-  → '지도 (SLAM)' 칸 [지도 저장] (같은 폴더에 `map.pgm`·`map.yaml` — 미리보기용, 폴더 이름은 `/state/map_name`) → 다음부터 `test-faker 0 map:=saved` (default 폴더, 없으면 가장 최근) 또는 `map:=saved map_name:=<폴더>` (rtabmap.db로 위치추정). 실행 중에도 시뮬레이터 지도 목록에서 폴더를 고르면 그 지도로 갈아끼움 (`/cmd/map_name`).
-  [스캔 시작]·[위치추정으로]는 `/cmd/map_mode` → state_manager가 RTAB-Map 모드를 재시작 없이 바꿈
-
-### 지도 모드 정리
+SIL 시뮬레이터(`simulator/`)는 더 이상 사용하지 않는다. 지도 관련 launch 인자만 남긴다:
 
 | 시작 인자 | 뜨는 지도 노드 | `/state/map_mode` | 지도 DB |
 | --- | --- | --- | --- |
@@ -372,18 +363,8 @@ xacro /ws/urdf/beebot_mesh/urdf.xacro mock_hardware:=true > /tmp/beebot.urdf && 
 | `map:=saved [map_name:=<폴더>]` | RTAB-Map + map_saver (slam과 **같은 노드**) | LOCALIZATION | 저장 폴더의 DB (기본 `default` 폴더, 없으면 가장 최근) |
 
 - **재시작 없이 바뀌는 것** (같은 RTAB-Map 안): 스캔 ↔ 위치추정(`/cmd/map_mode` → `/rtabmap/rtabmap/set_mode_*`) · 지도 갈아끼우기(`/cmd/map_name` → `/rtabmap/rtabmap/load_database` + 위치추정).
-- **재시작이 필요한 것**: 코스 ↔ RTAB-Map — 노드 구성이 다르고(`/map`·`map→odom`을 map_server와 RTAB-Map이 같이 내면 안 됨) launch는 시작 때 노드를 정한다.
-  시뮬레이터에서 코스 모드일 때 [스캔 시작]·[위치추정으로]·지도 고르기를 누르면 확인 창 → `/cmd/restart`(`map:=slam` / `map:=saved [map_name:=…]`).
+- **재시작이 필요한 것**: 코스 ↔ RTAB-Map — 노드 구성이 다르고(`/map`·`map→odom`을 map_server와 RTAB-Map이 같이 내면 안 됨) launch는 시작 때 노드를 정한다 (`/cmd/restart` → `map:=slam` / `map:=saved [map_name:=…]`).
 - 상태: `/state/map_mode` · `/state/map_name`(지금 지도 폴더) · `/state/map_list`(가진 지도 폴더) — 전부 state_manager.
-- **카메라 두 대로 지도** (RTAB-Map — `ros_system.launch.py` `rtabmap_nodes()`): 지도를 만들 때(MAPPING · 자동 탐사) coordinator가 팔을
-  **스캔 자세**(`ros_system/config/scan_pose.yaml` — 팔을 낮춰 왼쪽 뒤로, gripper_cam이 왼쪽 뒤를 20° 내려다봄 · pole_front_cam 앞 시야를 안 가림)로
-  보내고, `scan_cam_gate`가 팔이 그 자세에 멈춰 있을 때만 gripper_cam depth를 넘김(아니면 0 — 지도를 안 망치고 동기화도 안 끊김).
-  pole_front_cam · gripper_cam → `rgbd_sync` ×2 → `rgbdx_sync` → rtabmap(`rgbd_images`). 점구름도 둘 다: 몸 뺀 pole_front_cam +
-  gripper_cam(게이트 — 스캔 자세일 때만, 카메라 0.5m 안 = 손가락·폴대·적재함은 뺌) → `point_cloud_aggregator` → `/rtabmap/scan_cloud` (격자 `/map` · ICP).
-  **MAPPING 동안 팔 수동 조작 금지**: coordinator가 수동 모드여도 스캔 자세로 보냄(스캔은 보통 수동 주행) · `/cmd/manual/arm` 팔 관절(manual_control)과
-  시뮬레이터 MoveIt 팔 목표(service_action_input `/move_action`)는 거절 — 그리퍼만 됨. [위치추정으로] 뒤에 조작.
-  회전 시험(새 지도 · 제자리 3바퀴 · 전진 · 반대 3바퀴, 실측 2026-10-19): 지도 위 로봇 방향 오차 카메라 하나 −2.4°/−1.1°/−2.1° → 두 대 +0.6°/−0.4°/−0.1°.
-  남은 것: 지금 설정이 엄격해 클로저를 거의 받지 않음 — 지도 ≈ EKF(odom). 짧은 매핑엔 좋으나 오래 돌면 자이로 오차가 쌓여도 안 고침.
 - **재시작** (`/cmd/restart` → state_manager, 실기·테스트베드 같음 — 결과 `/state/restart`):
   `ros2 topic pub --once /cmd/restart std_msgs/msg/String "{data: 'all'}"` (이 launch 전체, 같은 인자) · `"{data: 'all map:=slam'}"` (그 인자만 바꿔) ·
   `"{data: 'node perception'}"` (그 노드만, 같은 파라미터). 분리된 도우미가 끄고 띄움 — launch에 SIGINT → 3초 안에 안 꺼지면 SIGTERM + 노드에 직접 SIGINT
@@ -458,7 +439,7 @@ bringup 기본은 실기 값: `use_cameras:=true` · `mock_hardware:=false` · `
 
 | 증상 | 원인 · 해결 |
 | --- | --- |
-| 컨테이너 load가 수십 · spawner가 `/controller_manager/load_controller`를 못 찾아 컨트롤러 0개 · 아무 일 없는 노드도 CPU 10~20% | Fast DDS 3 TypeLookup 폭주 (루프백 UDP 초당 8만 패킷). `FASTDDS_DEFAULT_PROFILES_FILE=…/ros_system/config/fastdds.xml`(type_propagation 끔)이 설정돼 있는지 — docker-compose · CI · start.sh가 지정. 확인: `awk '/^Udp:/{getline;print $2}' /proc/net/snmp`를 5초 간격으로 두 번 → 차이/5가 수천 이하여야 정상 |
+| 컨테이너 load가 수십 · spawner가 `/controller_manager/load_controller`를 못 찾아 컨트롤러 0개 · 아무 일 없는 노드도 CPU 10~20% | Fast DDS 3 TypeLookup 폭주 (루프백 UDP 초당 8만 패킷). `FASTDDS_DEFAULT_PROFILES_FILE=…/fastdds.xml`(type_propagation 끔)이 설정돼 있는지 — docker-compose · CI · start.sh가 지정. 확인: `awk '/^Udp:/{getline;print $2}' /proc/net/snmp`를 5초 간격으로 두 번 → 차이/5가 수천 이하여야 정상 |
 | 토픽이 두 번씩 오거나 이상한 값 | 이전 실행의 노드·launch가 남음 → `pkill -f '(/ws/install\|/opt/ros/lyrical)/[^ ]*lib/\|ros2 launch'` (test-* 시작 때 자동으로 같은 정리) 또는 `docker compose restart` |
 | `Overrun detected!` 경고 (controller_manager) | 컨테이너는 실시간 스케줄링이 안 돼서 나는 경고 — 테스트에는 문제없음 |
 | spawner `Could not contact service` | 기동 직후 CPU가 몰림. `test-faker`는 spawner를 2회까지 자동 재시도, 그래도 안 되면 다른 무거운 일(빌드 등)을 끝내고 다시 |

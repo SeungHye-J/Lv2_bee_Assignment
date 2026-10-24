@@ -1,12 +1,12 @@
 #!/usr/bin/env bash
-# 운영 확인용 RViz — 카메라/점구름을 Best Effort + queue 1로 구독한다.
+# tool/rviz 시작 — 카메라/점구름을 Best Effort + queue 1로 구독한다.
 # Jetson에서 실행하면 로컬, PC에서 실행하면 네트워크 너머의 Jetson을 본다.
-#   ./run_rviz.sh
-#   ROS_DOMAIN_ID=42 ./run_rviz.sh
+#   ./start.sh
+#   ROS_DOMAIN_ID=42 ./start.sh
 set -eo pipefail
 
 HERE="$(cd "$(dirname "$0")" && pwd)"
-WS="$(cd "$HERE/../ros2_ws" 2>/dev/null && pwd || true)"
+WS="$(cd "$HERE/../../ros2_ws" 2>/dev/null && pwd || true)"
 ROS_SETUP="/opt/ros/${ROS_DISTRO_NAME:-lyrical}/setup.bash"
 
 if [ ! -f "$ROS_SETUP" ]; then
@@ -27,4 +27,14 @@ if ! command -v rviz2 >/dev/null; then
   exit 1
 fi
 
-exec rviz2 -d "$HERE/rviz/operator.rviz" "$@"
+if [ -n "${ROS_DOMAIN_ID:-}" ]; then
+  echo "ROS_DOMAIN_ID=$ROS_DOMAIN_ID"
+else
+  echo "ROS_DOMAIN_ID 미설정 → 기본값 0 사용"
+fi
+
+if [ "${ROS_LOCALHOST_ONLY:-0}" = "1" ]; then
+  echo "WARN: ROS_LOCALHOST_ONLY=1 — 다른 머신과 통신 불가 (원격이면 0으로)" >&2
+fi
+
+exec rviz2 -d "$HERE/operator.rviz" "$@"

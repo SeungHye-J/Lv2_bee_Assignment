@@ -2,7 +2,7 @@
 
 Jetson에서 `start.sh`가 안 뜨거나, 뜨다가 죽거나, 센서가 안 잡힐 때 보는 절차.
 
-- 설치/RTAB-Map/PCL 빌드: [`SETTING.md`](SETTING.md)
+- 설치/RTAB-Map/PCL 빌드: [`SETTING.md`](../jetson-orin-nano/SETTING.md)
 - 전체 개발·도커 테스트: [`../../lv2_module6/simulator/gazebo`](../../lv2_module6/simulator/gazebo/DEVELOP.md)
 
 ## 1. 먼저 구분할 것
@@ -50,7 +50,7 @@ find ~/.ros/log/latest -maxdepth 2 -type f | sort
 직접 리다이렉트했다면:
 
 ```bash
-less /tmp/start.log
+less ~/beebot-start.log
 ```
 
 ### Gazebo / 센서 스택
@@ -100,8 +100,10 @@ docker logs --tail 200 <컨테이너>
 
 ```bash
 cd ~/Lv2_bee_Assignment/lv2_module6/ros2_ws
-setsid ./start.sh > /tmp/start.log 2>&1 < /dev/null &
-tail -f /tmp/start.log
+# /tmp는 RAM(tmpfs)이라 무한 증가 로그를 두면 메모리를 먹는다 — 디스크 파일에 시작할 때 비우고 쓴다.
+: > ~/beebot-start.log
+setsid ./start.sh >> ~/beebot-start.log 2>&1 < /dev/null &
+tail -f ~/beebot-start.log
 ```
 
 종료:
@@ -115,7 +117,7 @@ tail -f /tmp/start.log
 ## 4. 첫 에러 찾기
 
 ```bash
-grep -n -i -E 'error|exception|traceback|failed|abort|not found|died' /tmp/start.log | head -60
+grep -n -i -E 'error|exception|traceback|failed|abort|not found|died' ~/beebot-start.log | head -60
 ```
 
 - `package '...' not found`
@@ -236,7 +238,7 @@ ros2 param get /state_manager map_name
 
 ## 8. RTAB-Map / 빌드 에러
 
-자세한 설치는 [`SETTING.md`](SETTING.md)의 **RTAB-Map 설치** 참고.
+자세한 설치는 [`SETTING.md`](../jetson-orin-nano/SETTING.md)의 **RTAB-Map 설치** 참고.
 
 ### `package 'rtabmap_launch' not found`
 
@@ -330,7 +332,7 @@ Ubuntu 26.04용 패키지를 24.04에서 실행한 경우다.
 기동 중 abort라면 첫 ERROR와 Nav2 파라미터를 확인한다.
 
 ```bash
-grep -n -i -E 'planner_server|lifecycle_manager|Failed to bring up' /tmp/start.log | head -40
+grep -n -i -E 'planner_server|lifecycle_manager|Failed to bring up' ~/beebot-start.log | head -40
 ```
 
 ### 카메라가 안 잡힘
@@ -395,7 +397,7 @@ pgrep -af 'ros2|realsense|planner|controller|rtabmap'
 D=/tmp/beebot-debug-$(date +%Y%m%d-%H%M%S)
 mkdir -p "$D"
 
-cp /tmp/start.log "$D/" 2>/dev/null || true
+cp ~/beebot-start.log "$D/" 2>/dev/null || true
 cp -a ~/.ros/log/latest "$D/ros-log" 2>/dev/null || true
 
 {
@@ -424,7 +426,7 @@ echo "$D"
 
 1. 실행한 전체 명령
 2. `Ctrl-C`를 눌렀는지 여부
-3. `/tmp/start.log`의 **맨 처음 ERROR 30~50줄**
+3. `~/beebot-start.log`의 **맨 처음 ERROR 30~50줄**
 4. `ros2 pkg prefix rtabmap_launch` 결과
 5. `uname -m`, Ubuntu 버전, `ROS_DISTRO`, `ROS_DOMAIN_ID`
 6. `dmesg -T | tail -30`

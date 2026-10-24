@@ -43,7 +43,10 @@
 //     출력: ✉️ /state/devices/<장치> (std_msgs/String, transient_local) — "종류|active|disconnected|세부 토픽·관절"
 //           · pole_front_cam·gripper_cam = camera_info가 최근 1초 안에 실제로 흐르는지
 //           · opencr = /joint_states가 최근 1초 안에 실제로 흐르는지
-//           · wheels / arm / gripper = /joint_states의 관절 이름 + 최근성
+//           · wheels / arm / gripper = /joint_states의 관절 이름 + 최근성. 그 관절 모터에 Hardware Error(과부하·과열 등)가 있으면
+//             상태 error · 세부 끝에 "joint2:과부하"처럼 — ✉️ /diagnostics의 BeebotSystemHardware "OpenCR 연결" 값 "모터 에러 <관절>"을 읽음
+//             (에러 자체는 diagnostics가 원본, 여기선 장치 상태로만 판단 · 3초 넘게 안 오면 모름 = 에러 없음으로)
+//             재부팅: /cmd/manual/reboot_motors (manual_control)
 //           · imu = /imu가 최근 1초 안에 실제로 흐르는지
 //     출력: ✉️ /state/topics (std_msgs/String, transient_local) — 현재 ROS 그래프의 "토픽|타입|publisher 수" 전체 목록
 //           → 장치 목록에 없는 새 센서도 여기서 찾아 세부 토픽을 확인할 수 있다.
@@ -58,6 +61,7 @@
 #include <string>
 #include <vector>
 
+#include "diagnostic_msgs/msg/diagnostic_array.hpp"
 #include "diagnostic_updater/diagnostic_updater.hpp"
 #include "rclcpp/rclcpp.hpp"
 #include "sensor_msgs/msg/camera_info.hpp"
@@ -101,6 +105,9 @@ private:
   std::set<std::string> joint_names_;
   std::chrono::steady_clock::time_point last_joint_time_{};
   std::map<std::string, std::chrono::steady_clock::time_point> last_seen_;
+  std::map<std::string, std::string> motor_error_;  // 관절 → 에러 이름 (정상이면 없음) — BeebotSystemHardware 진단
+  std::chrono::steady_clock::time_point last_motor_diag_{};
+  rclcpp::Subscription<diagnostic_msgs::msg::DiagnosticArray>::SharedPtr diag_sub_;
   rclcpp::TimerBase::SharedPtr restartable_timer_;
   double restart_wait_s_ = 25.0;
   bool map_list_published_ = false;

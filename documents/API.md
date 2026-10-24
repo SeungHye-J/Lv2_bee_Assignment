@@ -1,9 +1,9 @@
 # API 명세서 — 토픽·서비스·액션
 
-협업용 인터페이스 명세입니다. 설계 근거는 [ros2-design](ros2-design/README.md) (특히 [노드 사전](ros2-design/10-catalog.md)), 구현은 [lv2_module6](../lv2_module6/README.md)입니다.
+협업용 인터페이스 명세입니다. 설계 근거는 [documents/project/ros](project/ros/README.md) (특히 [노드 사전](project/ros/10-catalog.md)), 구현은 [lv2_module6](../lv2_module6/README.md)입니다.
 커스텀 타입 원문은 `.msg`·`.srv` 파일이 정본입니다 — 아래 정의와 파일이 다르면 **파일이 맞습니다**.
 
-표기: ✉️ 토픽 · 🎬 액션 · 📞 서비스 · 🧩 ros2_control 내부 인터페이스 · 🔌 장치. QoS 규칙은 [§7](ros2-design/07-tf.md) 요약.
+표기: ✉️ 토픽 · 🎬 액션 · 📞 서비스 · 🧩 ros2_control 내부 인터페이스 · 🔌 장치. QoS 규칙은 [§7](project/ros/07-tf.md) 요약.
 
 <a id="api-toc"></a>
 ## 목차
@@ -34,8 +34,12 @@ geometry_msgs/Vector3 size              # m — x·y = 카메라 영상 박스 �
 builtin_interfaces/Time last_seen       # 마지막 관측 영상 시각
 string camera                           # 마지막으로 본 카메라 (pole_front_cam | gripper_cam) — VLM 이미지 마킹용
 int32[2] px                             # 그 카메라 영상 속 박스 중심 픽셀 [u, v]
-string color                            # 퍽: red | orange | yellow | green | blue | purple | white | black | unknown · 신호등 상태: red | yellow | green | off · 그 외 빈 값 (박스 가운데 HSV)
+string color                            # 퍽: red | green | blue … (윗면 태그를 읽었으면 태그 번호대 색) · 신호등 상태: red | yellow | green | off | all(두 색 이상 동시) · 그 외 빈 값
+diagnostic_msgs/KeyValue[] details      # puck: posture · tag(윗면 AprilTag 0~11) / location: tag(12~14) / barcode: content(작업 지시) / traffic_light: state
 ```
+
+표식 (발제 「AprilTag와 바코드 실제 배포 표식」, tag36h11 — OpenCV aruco로 읽음): 퍽 윗면 16mm R1~R4 = 0~3 · G1~G4 = 4~7 · B1~B4 = 8~11 → 그 퍽의 `tag`(한 번 읽으면 기억 · gripper_cam이 위에서 봐야 읽힘 — coordinator `inspect`) ·
+장소 48mm L1~L3 = 12~14 → class `location` 물체 · 줄무늬 바코드(P2-01 …) = 장소 작업 지시 → class `barcode` 물체(`content`) + `/mission_qr`. 셋 다 안 보여도 기억.
 
 물체 하나 = 추적 트랙 하나. 카메라마다 YOLO 박스 → 박스 중심 픽셀 + 박스 안 정렬 depth 중앙값으로 3D 점 1개 → 영상 시각의 TF로 map 변환 →
 **자기 몸이면 버림** — 3D: 팔 링크를 잇는 선분 6cm 안 · 차체 반경 0.2m 안 바닥 위 / 영상: 팔(TF 링크를 화면에 투영, 두께 4cm)과 겹치는 박스(퍽 제외 — 박스 일부만 팔이면 depth가 팔 뒤 바닥이라 3D로는 못 거름) → 같은 클래스·0.4m 안의 트랙에 1:1로 붙여 **칼만 갱신(두 카메라 융합)**. 포인트 클라우드는 쓰지 않는다 (객체 단위 융합). 구현: [perception_node.py](../lv2_module6/ros2_ws/src/perception/scripts/perception_node.py), 파라미터: [perception.yaml](../lv2_module6/ros2_ws/src/perception/config/perception.yaml).
@@ -71,7 +75,7 @@ TrackedObject[] objects
 
 ```text
 uint32 step
-string skill        # navigate | pick | place | say
+string skill        # navigate | pick | place | inspect(퍽 위에서 내려다봐 윗면 번호 읽기) | say
 string target       # 물체 id (/tracked_objects의 id)
 string relation     # front | on | ...
 float32 offset_m
@@ -102,7 +106,7 @@ string reason       # grasp_failed_all | nav_failed | arm_contact ...
 ```
 
 - 냄새: coordinator → `/task_status` (reliable + transient_local). 받는 쪽: vlm_task_planner(FAILED면 재계획) · user_input(표시).
-- 주의: [노드 사전](ros2-design/10-catalog.md)의 reason 예시(`nav_blocked`)와 파일(`nav_failed`)이 다릅니다 — 파일이 정본.
+- 주의: [노드 사전](project/ros/10-catalog.md)의 reason 예시(`nav_blocked`)와 파일(`nav_failed`)이 다릅니다 — 파일이 정본.
 
 <a id="api-msg-armsafetyevent"></a>
 ### control/msg/ArmSafetyEvent ([파일](../lv2_module6/ros2_ws/src/control/msg/ArmSafetyEvent.msg))
@@ -135,7 +139,7 @@ string message
 <a id="api-topics"></a>
 ## 2. 토픽 목록
 
-### 센서·인지 ([02](ros2-design/02-sense.md) · [노드 사전](ros2-design/10-catalog.md#perception))
+### 센서·인지 ([02](project/ros/02-sense.md) · [노드 사전](project/ros/10-catalog.md#perception))
 
 | 이름 | 타입 | 보내는 쪽 → 받는 쪽 | 주기 · QoS |
 | --- | --- | --- | --- |
@@ -157,19 +161,20 @@ string message
 
 - depth 단위는 16UC1 = 밀리미터. D435 최소 측정 거리 약 0.2~0.3m — 그리퍼가 퍽에 바짝 붙으면 빈다.
 
-### 계획·임무 ([03](ros2-design/03-plan.md))
+### 계획·임무 ([03](project/ros/03-plan.md))
 
 | 이름 | 타입 | 보내는 쪽 → 받는 쪽 | 주기 · QoS |
 | --- | --- | --- | --- |
 | `/cmd/user_command` | std_msgs/String | user_input → vlm_task_planner | 명령마다 · reliable |
-| `/mission_qr` | std_msgs/String | perception → vlm_task_planner | A 지역 QR 문제 (`MISSION:SORT_COLOR` · `STAND_UP` · `MOVE_TO_B`), 읽은 내용이 바뀔 때만 · reliable + transient_local |
+| `/mission_qr` | std_msgs/String | perception → vlm_task_planner | 장소 바코드(작업 지시 문자열, 예 `P2-01`) · QR — 읽은 내용이 바뀔 때만 · reliable + transient_local. VLM이 해석 |
+| `/mission_signal` | plan/MissionSignal | signal_decoder → vlm_task_planner | 신호등 암호 미션 답 {color, count, sum, dest_tag, raw} — 확정될 때마다 · reliable + transient_local. planner가 규칙으로 계획 (번호 모르면 inspect → 조합 → 적재함 → 목적지 장소) |
 | `/robot_say` | std_msgs/String | coordinator → user_input | 알릴 때 · reliable |
-| `/sub_goals` | plan/SubGoalArray | vlm_task_planner → coordinator | 계획마다 · reliable + transient_local. target = 물체 id · `"x,y"`(navigate) · **`"tray"`(pick·place — 로봇 뒤 적재함: place tray = 다음 칸에 싣기, pick tray = 나중에 실은 것부터 꺼내기, 최대 4칸 — MISSION ③)** · 말할 내용(say) |
+| `/sub_goals` | plan/SubGoalArray | vlm_task_planner → coordinator | 계획마다 · reliable + transient_local. target = 물체 id · `"x,y"`(navigate) · **`"tray"`(pick·place — 로봇 뒤 적재함: place tray = 다음 칸에 싣기, pick tray = 나중에 실은 것부터 꺼내기, 최대 4칸)** · 퍽 id(inspect) · 말할 내용(say) |
 | `/task_status` | plan/TaskStatus | coordinator → vlm_task_planner, user_input | 단계 완료·실패 시 · reliable + transient_local |
 | `/speed_limit` | nav2_msgs/SpeedLimit | rl_nav_tuner → controller_server, rl_nav_correction | 프리셋 변경 시 · reliable |
 | `/arm_safety_event` | control/ArmSafetyEvent | arm_safety_monitor → coordinator | 접촉 시 |
 
-### Nav2·위치추정 ([04](ros2-design/04-nav.md))
+### Nav2·위치추정 ([04](project/ros/04-nav.md))
 
 | 이름 | 타입 | 보내는 쪽 → 받는 쪽 | 주기 · QoS |
 | --- | --- | --- | --- |
@@ -184,7 +189,7 @@ string message
 | `/tf` (odom→base_footprint) | tf2_msgs/TFMessage | ekf → 전체 | 연속 |
 | `/collision_monitor_state` | nav2_msgs/CollisionMonitorState | collision_monitor → RViz, coordinator | 걸린 다각형 표시 |
 
-### 베이스 명령 체인 ([06](ros2-design/06-base.md))
+### 베이스 명령 체인 ([06](project/ros/06-base.md))
 
 `/cmd_vel_nav` → rl_nav_correction → `/cmd_vel_corrected` → twist_mux → `/cmd_vel_mux` → velocity_smoother → `/cmd_vel_smoothed` → collision_monitor → `/cmd_vel` → diff_drive_controller. 전부 `geometry_msgs/TwistStamped`, 체인 전체 통일 (Jazzy 이후 Nav2 `enable_stamped_cmd_vel: true`).
 
@@ -203,16 +208,17 @@ string message
 - diff_drive_controller 토픽은 기본 `/diff_drive_controller/cmd_vel`·`/odom` — launch에서 `/cmd_vel`·`/odom`으로 리매핑.
 - odom TF는 ekf만 (`diff_drive_controller enable_odom_tf: false`, ekf `publish_tf: true`).
 
-### 수동 조작·운영 모드 ([노드 사전](ros2-design/10-catalog.md#manual_control))
+### 수동 조작·운영 모드 ([노드 사전](project/ros/10-catalog.md#manual_control))
 
 | 이름 | 타입 | 보내는 쪽 → 받는 쪽 | 주기 · QoS |
 | --- | --- | --- | --- |
 | `/cmd/operation_mode` | std_msgs/String | 시뮬레이터 · 운영자 → state_manager | MANUAL · AUTO · EXPLORE(자동 탐사 — 지도 모드 MAPPING일 때만 허락) — 조작 모드 명령 (외부 명령은 `/cmd/<이름>`(보내고 끝 — cmd_vel 관례), 결과는 `/state/<이름>` — 둘 다 state_manager만 구독·발행) |
 | `/cmd/manual/cmd_vel` | geometry_msgs/TwistStamped | teleop_twist_keyboard · 시뮬레이터 → manual_control | 수동일 때만 넘김, 0.5초 끊기면 0 |
 | `/cmd/manual/arm` | sensor_msgs/JointState | 시뮬레이터 · 운영자 → manual_control | joint1~5 rad · gripper_left_joint m |
+| `/cmd/manual/reboot_motors` | std_msgs/Empty | 시뮬레이터 · 운영자 → manual_control | 수동 모드에서만. Hardware Error(과부하·과열 등) 난 DYNAMIXEL만 재부팅 → 📞 `/beebotsystem/reboot_motors` (std_srvs/Trigger) → 펌웨어 `R`. 결과는 manual_control 진단 |
 | `/state/operation_mode` | std_msgs/String (transient_local) | state_manager → manual_control · coordinator · explorer | AUTO · MANUAL · EXPLORE (AUTO가 아니면 coordinator는 작업 멈춤, EXPLORE면 explorer가 탐사) |
 | `/state/devices` | std_msgs/String (transient_local) | state_manager → 시뮬레이터 · 누구나 | **장치 이름만 쉼표 구분** — `pole_front_cam,gripper_cam,opencr,imu,wheels,arm,gripper` · 상태가 아니라 목록 (2초마다 확인, 바뀔 때만) |
-| `/state/devices/<이름>` | std_msgs/String (transient_local) | state_manager → 시뮬레이터 · 누구나 | 장치별 상세 — `종류\|active 또는 disconnected\|세부 토픽·관절` (예: `camera\|disconnected\|/pole_front_cam/...`) · 장치마다 동적 토픽 |
+| `/state/devices/<이름>` | std_msgs/String (transient_local) | state_manager → 시뮬레이터 · 누구나 | 장치별 상세 — `종류\|active · disconnected · error\|세부 토픽·관절` (예: `camera\|disconnected\|/pole_front_cam/...`) · 장치마다 동적 토픽. `wheels`·`arm`·`gripper`는 그 관절 DYNAMIXEL에 Hardware Error가 있으면 `error` + 세부 끝에 `joint2:과부하` (원본은 /diagnostics "OpenCR 연결", 재부팅 `/cmd/manual/reboot_motors`) |
 | `/state/topics` | std_msgs/String (transient_local) | state_manager → 시뮬레이터 · 누구나 | 전체 ROS 그래프 — `토픽\|타입\|publisher 수` 줄들. `/state/devices`에 없는 새 센서도 여기서 찾음 |
 | `/explore/result` | std_msgs/String | explorer → state_manager | 탐사 끝: `DONE …`(프론티어 없음) · `FAILED …` → state_manager가 AUTO로 되돌림 |
 | `/state/map_list` | std_msgs/String (transient_local) | state_manager → 시뮬레이터 · 누구나 | 가진 지도 폴더 이름들 (줄바꿈 구분, `<map_dir>/<이름>/rtabmap.db` 있는 것) — 바뀔 때만 |
@@ -232,7 +238,7 @@ string message
 | `/cmd_vel_manual` | geometry_msgs/TwistStamped | manual_control → twist_mux | 위 체인 참조 |
 | `/arm_controller/joint_trajectory` | trajectory_msgs/JointTrajectory | manual_control → arm_controller (JTC) | 5축 전체 한 점 |
 
-### 팔·MoveIt ([05](ros2-design/05-arm.md))
+### 팔·MoveIt ([05](project/ros/05-arm.md))
 
 | 이름 | 타입 | 보내는 쪽 → 받는 쪽 | 주기 |
 | --- | --- | --- | --- |
@@ -242,7 +248,7 @@ string message
 | `/monitored_planning_scene` | moveit_msgs/PlanningScene | move_group → coordinator(MTC), RViz | 갱신 시 |
 | `/arm_controller/controller_state` | control_msgs/JointTrajectoryControllerState | arm_controller → 모니터링·RViz | 상태 표시 |
 
-### ros2_control·진단 ([08](ros2-design/08-ctrl.md))
+### ros2_control·진단 ([08](project/ros/08-ctrl.md))
 
 | 이름 | 타입 | 보내는 쪽 → 받는 쪽 | 비고 |
 | --- | --- | --- | --- |
@@ -286,7 +292,7 @@ string message
 <a id="api-tf"></a>
 ## 5. TF
 
-[07](ros2-design/07-tf.md). 발행자는 딱 둘 + robot_state_publisher.
+[07](project/ros/07-tf.md). 발행자는 딱 둘 + robot_state_publisher.
 
 | 변환 | 발행자 | 성격 |
 | --- | --- | --- |
@@ -300,7 +306,7 @@ string message
 <a id="api-qos"></a>
 ## 6. QoS 규칙
 
-[07 QoS 정리](ros2-design/07-tf.md#qoS-정리).
+[07 QoS 정리](project/ros/07-tf.md#qoS-정리).
 
 | 데이터 | Reliability | Durability | Depth | 이유 |
 | --- | --- | --- | --- | --- |

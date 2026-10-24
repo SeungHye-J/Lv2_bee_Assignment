@@ -1,4 +1,4 @@
-"""📦 제공 패키지 기동 (실기용). 설계: documents/ros2-design/09-nodes.md "직접 작성 노드와 제공 노드"
+"""📦 제공 패키지 기동 (실기용). 설계: documents/project/ros/09-nodes.md "직접 작성 노드와 제공 노드"
 
   ros2 launch ros_system ros_system.launch.py
   ros2 launch ros_system ros_system.launch.py use_rtabmap:=false pole_front_cam_serial:=123456

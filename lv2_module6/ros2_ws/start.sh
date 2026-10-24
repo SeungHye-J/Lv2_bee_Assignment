@@ -5,6 +5,7 @@
 #   ./start.sh mock_hardware:=true          # OpenCR 없이 (명령을 상태로 되돌림 — launch 인자는 그대로 전달)
 #   ./start.sh port:=/dev/ttyACM1           # OpenCR 포트 지정 (기본 /dev/opencr — udev 규칙 99-opencr.rules)
 #   POLE_FRONT_CAM_SERIAL=... GRIPPER_CAM_SERIAL=... ./start.sh  # RealSense serial 고정 (권장)
+#   RCUTILS_DEFAULT_LOGGER_DEFAULT_LEVEL=WARN ./start.sh  # 로그 소음 줄이기 (기본 INFO — 전 노드 적용)
 #   ./start.sh learning_enabled:=false      # 학습 노드 끄고 (비교 기준)
 #   ./start.sh map:=slam                    # 지도 매핑 (새 폴더 map/<날짜_시각>/) — 기본 map:=saved = 저장 지도로 위치추정
 #   ./start.sh --build [launch 인자]        # 저장소에서 실행할 때 colcon build 후 실행
@@ -24,7 +25,7 @@ if [ "${1:-}" = --build ]; then
   shift
 fi
 case "${1:-}" in
-  -h | --help) sed -n '2,10p' "$0"; exit 0 ;;
+  -h | --help) sed -n '2,11p' "$0"; exit 0 ;;
 esac
 
 # --- 패키지 대상 OS 확인 (CI 배포 패키지에만 TARGET 파일이 있음)
@@ -64,8 +65,13 @@ if [ "$build" = 1 ] || [ ! -f "$HERE/install/setup.bash" ]; then
 fi
 # shellcheck disable=SC1091
 source "$HERE/install/setup.bash"
-# Fast DDS TypeLookup 끔 — 노드 40개에서 UDP 폭주로 controller_manager가 못 뜨는 것 방지 (설명: ros_system/config/fastdds.xml)
-export FASTDDS_DEFAULT_PROFILES_FILE="${FASTDDS_DEFAULT_PROFILES_FILE:-$HERE/install/ros_system/share/ros_system/config/fastdds.xml}"
+# Fast DDS TypeLookup 끔 — 노드 40개에서 UDP 폭주로 controller_manager가 못 뜨는 것 방지 (설명: fastdds.xml)
+export FASTDDS_DEFAULT_PROFILES_FILE="${FASTDDS_DEFAULT_PROFILES_FILE:-$HERE/fastdds.xml}"
+[ -f "$FASTDDS_DEFAULT_PROFILES_FILE" ] || echo "WARN: Fast DDS 프로파일 없음: $FASTDDS_DEFAULT_PROFILES_FILE — 기본 전송으로 실행 (UDP 폭주 가능)"
+
+# 로그 소음 줄이기: RCUTILS_DEFAULT_LOGGER_DEFAULT_LEVEL=WARN ./start.sh (기본 INFO — 전 노드 적용, rcl 표준).
+# 우리 노드 중요 이벤트는 WARN 이상이라 WARN으로 올려도 운영에 지장 없음 (INFO 계획 상세·주기 상태는 안 나옴).
+export RCUTILS_DEFAULT_LOGGER_DEFAULT_LEVEL="${RCUTILS_DEFAULT_LOGGER_DEFAULT_LEVEL:-INFO}"
 
 # --- 아키텍처 확인: 다른 CPU용으로 빌드된 install/이면 노드가 Exec format error로 죽으므로 미리 멈춘다
 # (예: CI x86_64 패키지를 Raspberry Pi에서 실행). 실행 파일의 ELF 헤더 e_machine(오프셋 18)으로 판정.
@@ -98,6 +104,38 @@ for arg in "$@"; do
     port:=*) port=${arg#port:=} ;;
   esac
 done
+
+# --- Discovery Server: ROS_DISCOVERY_SERVER가 자기 자신을 가리키면 서버도 여기서 띄운다.
+#   127.0.0.1:11811·localhost:11811·자기IP:11811 → 로컬 서버 시작(없으면) 후 사용 (내가 서버 자리)
+#   남의 IP → 그쪽 서버에 붙기만 함 (서버 안 띄움)
+#   미설정 → 멀티캐스트 기본
+if [ -n "${ROS_DISCOVERY_SERVER:-}" ]; then
+  _ds_first="${ROS_DISCOVERY_SERVER%%;*}"
+  _ds_host="${_ds_first%%:*}"
+  _ds_port="${_ds_first##*:}"
+  [ "$_ds_port" = "$_ds_first" ] && _ds_port=11811
+  _ds_local=false
+  case "$_ds_host" in
+    127.0.0.1|localhost) _ds_local=true ;;
+  esac
+  if [ "$_ds_local" = false ]; then
+    # shellcheck disable=SC2046
+    for _ds_ip in $(hostname -I 2>/dev/null); do
+      if [ "$_ds_ip" = "$_ds_host" ]; then _ds_local=true; break; fi
+    done
+  fi
+  if [ "$_ds_local" = true ]; then
+    if pgrep -f "fastdds discovery -i 0 -p ${_ds_port}" >/dev/null 2>&1; then
+      echo "ok: discovery server already running (:${_ds_port})"
+    else
+      echo "=== fastdds discovery 시작 (:${_ds_port})"
+      setsid fastdds discovery -i 0 -p "$_ds_port" > /tmp/ds.log 2>&1 < /dev/null &
+    fi
+  fi
+  echo "Discovery: server ($ROS_DISCOVERY_SERVER)"
+else
+  echo "Discovery: multicast (기본)"
+fi
 
 if [ "$mock" = false ]; then
   # BeebotSystemHardware가 여는 포트 (URDF port → ros_system 인자 port)

@@ -2,8 +2,8 @@
 
 ROS 2 Lyrical 실기 워크스페이스 — 로봇 bringup, 지도·주행, 팔·그리퍼, 인지·계획 노드.
 
-- 전체 설계: [`../../documents/ros2-design/README.md`](../../documents/ros2-design/README.md)
-- 미션 설명: [`../../documents/MISSION.md`](../../documents/MISSION.md)
+- 전체 설계: [`../../documents/project/ros/README.md`](../../documents/project/ros/README.md)
+- 미션 설명: [`../../documents/mission/MISSION.md`](../../documents/mission/MISSION.md)
 - 개발·도커·테스트: [`../simulator/gazebo`](../simulator/gazebo/DEVELOP.md)
 
 ## 1. 빠른 시작
@@ -168,13 +168,13 @@ Wi-Fi에서 raw Image/PointCloud2를 여러 개 보내면 쉽게 포화됩니다
 영상을 거의 받지 못할 수 있습니다. `start.sh`는 아래 파일을 자동으로 지정합니다.
 
 ```text
-src/ros_system/config/fastdds.xml
+fastdds.xml
 ```
 
 `start.sh` 없이 `ros2 launch`를 직접 실행할 때는 직접 지정합니다.
 
 ```bash
-export FASTDDS_DEFAULT_PROFILES_FILE=$PWD/install/ros_system/share/ros_system/config/fastdds.xml
+export FASTDDS_DEFAULT_PROFILES_FILE=$PWD/fastdds.xml
 ```
 
 ### 적외선 스트림
