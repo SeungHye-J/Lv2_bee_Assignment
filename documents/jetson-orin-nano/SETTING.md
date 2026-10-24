@@ -203,6 +203,18 @@ sudo apt-get install -y --no-install-recommends \
 sudo apt install -y ros-lyrical-moveit-ros-move-group
 ```
 
+# perception 파이썬 패키지 (YOLO · 표식)
+
+```bash
+pip install --break-system-packages ultralytics zxing-cpp
+python3 -c "import cv2, zxingcpp; print(cv2.__version__, hasattr(cv2, 'aruco'))"   # aruco True여야 퍽 번호(AprilTag)를 읽음
+```
+
+- **AprilTag**(퍽 윗면 16mm 0~11 · 장소 48mm 12~14)는 OpenCV `aruco`(tag36h11)로 읽는다 — 따로 설치할 라이브러리 없음.
+  OpenCV 4.6(Ubuntu 24.04 apt)·4.7 이상 둘 다 됨 (perception이 API 차이를 맞춤, 4.6에서 실측). `aruco`가 없는 빌드면 진단 "AprilTag 못 읽음".
+- **바코드**(장소 작업 지시 P2-01 …, Code128)는 `zxing-cpp`가 필요 — OpenCV barcode는 EAN·UPC(숫자 상품코드)만 읽어서 발제 바코드를 못 읽음.
+- 확인: `ros2 topic echo /diagnostics | grep -A1 "AprilTag\|바코드"`
+
 # RealSense
 
 ```bash

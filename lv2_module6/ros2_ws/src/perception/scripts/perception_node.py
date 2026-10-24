@@ -21,6 +21,12 @@
   기억 (팀 확인 10/22): 퍽·목표 구역·QR 판은 안 보여도 목록에 남김 (같은 id). 그 자리가 잘 보이는데 miss_count번 연속 못 찾으면 지움.
     사람·장애물·신호등은 TRACK_TIMEOUT_S 안 보이면 지움. 지금 보이는지는 받는 쪽이 last_seen으로 구분.
   모델 파일이 없으면 빈 목록을 내보낸다 (진단 WARN) — test-bringup 기동 검사용.
+  표식 (documents/mission/README.md · 발제 「AprilTag와 바코드 실제 배포 표식」): AprilTag tag36h11
+    퍽 윗면 16mm — R1~R4 = 0~3 · G1~G4 = 4~7 · B1~B4 = 8~11 → 그 퍽 트랙의 details tag (한 번 읽으면 기억, 색도 태그 기준)
+      (16mm는 pole_front_cam으로는 안 읽힘 — gripper_cam이 위에서 내려다봐야 함: coordinator inspect)
+    장소 48mm — L1~L3 = 12~14 → class location 물체 (details tag, 안 보여도 기억)
+    바코드(줄무늬, P2-01 등) = 장소에 붙은 작업 지시 문자열 → class barcode 물체 (details content, 위치 = 붙은 곳) + /mission_qr
+  신호등 상태: red · yellow · green · off · all(두 색 이상 동시에 켜짐 — 신호등 미션 단계 구분 신호)
 """
 import os
 import threading
@@ -42,23 +48,27 @@ from tf2_ros import Buffer, TransformListener
 QR_GAP_S = 10.0  # 이만큼 QR이 안 보였다가 다시 읽히면 새 미션 지역으로 보고 재발행 [s]
 # 모델 없을 때의 기본 클래스 — 모델이 있으면 모델에 저장된 이름(model.names)을 쓴다 (학습 클래스가 바뀌어도 코드 수정 없음)
 CLASSES = ["puck", "puck_lying", "goal_zone", "station_zone", "qr_board", "obstacle", "person", "traffic_light"]
+# YOLO가 아니라 표식 디코드로 만드는 물체 — AprilTag 장소 태그 · 바코드
+MARKER_CLASSES = ("location", "barcode")
 # 크기 추정 실패 시 클래스 기본값 (sx, sy, sz) [m]
 SIZE_FALLBACK = {
-    "puck": (0.06, 0.06, 0.04),
-    "puck_lying": (0.04, 0.06, 0.05),
+    "puck": (0.03, 0.03, 0.06),        # 발제: 30×30×60mm 사각기둥 · Ø30×60mm 원기둥
+    "puck_lying": (0.06, 0.03, 0.03),
     "goal_zone": (0.30, 0.30, 0.01),
     "station_zone": (0.45, 0.45, 0.01),
     "qr_board": (0.01, 0.30, 0.30),
     "obstacle": (0.20, 0.20, 0.30),
     "person": (0.40, 0.40, 1.70),
     "traffic_light": (0.14, 0.14, 0.45),
+    "location": (0.06, 0.06, 0.01),    # 장소 태그 48mm (흰 여백 포함 60mm)
+    "barcode": (0.10, 0.01, 0.05),
 }
 DYNAMIC_CLASSES = ("person",)  # 스스로 움직이는 물체 — 예측 단계 공정 잡음을 process_noise_dynamic으로 크게
 TRACK_TIMEOUT_S = 2.0          # 기억하지 않는 물체(사람·장애물·신호등)가 이만큼 어느 카메라에도 안 보이면 트랙 삭제 [s]
 # 안 보여도 기억하는 물체 (팀 확인 10/22) — 스스로 움직이지 않고 나중에 다시 찾아가야 하는 것. 클래스 이름이 이 접두어로 시작하면 기억
 #   지우는 때 = 그 자리가 가려지지 않고 잘 보였어야 하는데(expected_visible) miss_count번 연속 못 찾음 (옮겨짐 · 집어 감)
 #   화면 밖 · 너무 멂 · 화면 가장자리 · 깊이 없음 · 앞에 다른 물체 → 못 봤다고 세지 않음
-REMEMBER_PREFIXES = ("puck", "goal_zone", "station_zone", "qr_board")
+REMEMBER_PREFIXES = ("puck", "goal_zone", "station_zone", "qr_board", "location", "barcode")
 ROT_VAR_UNKNOWN = 1e3          # 방향은 추정하지 않음 → pose.covariance 회전 대각 (사실상 모름)
 
 
@@ -82,6 +92,11 @@ def same_object(tr, d):
     """트랙 tr에 검출 d를 붙일 수 있는 종류인가 — 같은 종류 + 퍽이면 색도 같아야 (붙은 다른 색 퍽을 한 트랙으로 뭉치지 않게).
     색을 못 정한 쪽(빈 값 · unknown)이 있으면 색으로 가르지 않음. 신호등은 색(램프 상태)이 바뀌어도 같은 물체"""
     if tr["class_name"] != kind(d["class_name"]):
+        return False
+    a, b = tr.get("tag"), d.get("tag")  # 태그 번호가 둘 다 있으면 같아야 (퍽 0~11 · 장소 12~14)
+    if a is not None and b is not None and a != b:
+        return False
+    if tr.get("content") and d.get("content") and tr["content"] != d["content"]:  # 바코드 내용
         return False
     if tr["class_name"] != "puck":
         return True
@@ -220,6 +235,14 @@ def classify_color(cls, roi):
         if lit.sum() < 4:
             return "off"
         sel, names = h[lit], LAMP_COLORS
+        votes = {}
+        for hv in sel[:: max(1, sel.size // 400)]:
+            c = _nearest_hue(int(hv), names)
+            votes[c] = votes.get(c, 0) + 1
+        total = sum(votes.values())
+        if sum(1 for n in votes.values() if n >= 0.15 * total) >= 2:
+            return "all"  # 두 색 이상 동시에 켜짐 — 신호등 미션 단계 구분 신호 (세 색 동시 3초)
+        return max(votes, key=votes.get)
     else:
         if (s < ACHROMATIC_S).mean() > 0.6:
             med = float(np.median(v))
@@ -307,6 +330,84 @@ def qr_crop(bgr, box):
     return cv2.resize(crop, None, fx=k, fy=k, interpolation=cv2.INTER_CUBIC) if k > 1 else crop
 
 
+def tag_detector():
+    """AprilTag tag36h11 검출 함수 (OpenCV aruco — 새 라이브러리 없이) · aruco가 없으면 None.
+    OpenCV 4.7+ ArucoDetector 클래스 · 4.6 이하(Ubuntu 24.04 apt python3-opencv 4.6) detectMarkers 함수 둘 다.
+    작은 퍽 태그(16mm)도 잡게 둘레 하한을 낮춤 (기본 0.03 = 640px에서 둘레 19px)"""
+    aruco = getattr(cv2, "aruco", None)
+    if aruco is None or not hasattr(aruco, "DICT_APRILTAG_36h11"):
+        return None
+    if hasattr(aruco, "ArucoDetector"):
+        params = aruco.DetectorParameters()
+        params.minMarkerPerimeterRate = 0.01
+        det = aruco.ArucoDetector(aruco.getPredefinedDictionary(aruco.DICT_APRILTAG_36h11), params)
+        return det.detectMarkers
+    params = aruco.DetectorParameters_create()
+    params.minMarkerPerimeterRate = 0.01
+    dic = aruco.Dictionary_get(aruco.DICT_APRILTAG_36h11)
+    return lambda gray: aruco.detectMarkers(gray, dic, parameters=params)
+
+
+BARCODE_LIB = "zxing-cpp"  # barcode_detector가 고른 것 (진단 표시)
+
+
+def barcode_detector():
+    """바코드 검출 함수 → (ok, 문자열들, 종류들, 꼭짓점들[N×4×2]) · 없으면 None.
+    발제 바코드(P2-01 — 영문·하이픈)는 Code128 계열이라 OpenCV barcode(EAN·UPC 숫자 상품코드만)로는 못 읽음 (실측: 4.6·5.0 둘 다 실패)
+    → zxing-cpp(pip zxing-cpp)가 있으면 그것, 없으면 OpenCV (EAN·UPC만)"""
+    try:
+        import zxingcpp
+    except ImportError:
+        zxingcpp = None
+    global BARCODE_LIB
+    if zxingcpp is not None:
+        BARCODE_LIB = "zxing-cpp (Code128·Code39·QR 등)"
+
+        def read(bgr):
+            rs = [r for r in zxingcpp.read_barcodes(bgr) if r.text]
+            pts = [np.array([[p.x, p.y] for p in (r.position.top_left, r.position.top_right,
+                                                   r.position.bottom_right, r.position.bottom_left)], float) for r in rs]
+            return bool(rs), [r.text for r in rs], [str(r.format) for r in rs], (np.array(pts) if rs else None)
+        return read
+    mod = getattr(cv2, "barcode", None)
+    if mod is None or not hasattr(mod, "BarcodeDetector"):
+        return None
+    BARCODE_LIB = "OpenCV barcode (EAN·UPC만 — 발제 Code128은 못 읽음, pip install zxing-cpp)"
+    det = mod.BarcodeDetector()
+    # 4.8+ detectAndDecodeWithType · 4.5.3~4.7 detectAndDecode (같은 순서로 돌려줌)
+    return det.detectAndDecodeWithType if hasattr(det, "detectAndDecodeWithType") else det.detectAndDecode
+
+
+def detect_tags(detector, bgr):
+    """영상 → [(태그 번호, 중심 (u, v), 박스 (x0, y0, x1, y1))]"""
+    if detector is None:
+        return []
+    corners, ids, _ = detector(cv2.cvtColor(bgr, cv2.COLOR_BGR2GRAY))
+    if ids is None:
+        return []
+    out = []
+    for c, i in zip(corners, ids.ravel()):
+        pts = c.reshape(-1, 2)
+        (x0, y0), (x1, y1) = pts.min(0), pts.max(0)
+        out.append((int(i), (float(pts[:, 0].mean()), float(pts[:, 1].mean())), (int(x0), int(y0), int(x1) + 1, int(y1) + 1)))
+    return out
+
+
+def tag_in_box(tags, box, ids):
+    """퍽 박스 안(여유 10%)에 중심이 있는 퍽 태그 번호 — 없으면 None"""
+    x0, y0, x1, y1 = box
+    mx, my = (x1 - x0) * 0.1, (y1 - y0) * 0.1
+    for tid, (u, v), _ in tags:
+        if tid in ids and x0 - mx <= u <= x1 + mx and y0 - my <= v <= y1 + my:
+            return tid
+    return None
+
+
+def tag_color(tid, tag_colors):
+    """퍽 태그 번호 → 색 (tag_colors = {색: [번호…]}) · 모르면 ''"""
+    return next((c for c, ids in tag_colors.items() if tid in ids), "")
+
+
 def to_msg(tid, tr):
     """트랙(또는 한 검출) dict → TrackedObject — 위치 공분산 3×3을 pose.covariance에, 방향은 모름"""
     o = TrackedObject()
@@ -332,6 +433,10 @@ def to_msg(tid, tr):
         details.append(KeyValue(key="posture", value=tr["posture"]))
     elif o.class_name == "traffic_light" and o.color:  # 신호등 상태 (color에도 같이 있음)
         details.append(KeyValue(key="state", value=o.color))
+    if tr.get("tag") is not None:  # AprilTag 번호 — 퍽 0~11 · 장소 12~14
+        details.append(KeyValue(key="tag", value=str(tr["tag"])))
+    if tr.get("content"):  # 바코드 문자열 (장소 작업 지시)
+        details.append(KeyValue(key="content", value=tr["content"]))
     o.details = details
     return o
 
@@ -388,6 +493,16 @@ class PerceptionNode(Node):
         self.declare_parameter("edge_px", 5)                # 박스가 화면 가장자리 이 안에 닿으면 잘린 퍽 — 크기 하한·자세 안 봄
         self.declare_parameter("near_px", 70)               # 깊이 없는데 박스 짧은 변이 이 이상이면 너무 가까운 퍽 (3cm 퍽 70px ≈ 25cm)
         self.declare_parameter("depth_min_valid", 0.5)      # 박스 가운데 깊이 화소가 이 비율보다 적으면 깊이 없음
+        # 표식 (발제 배포 표식) — 퍽 윗면 AprilTag 번호 → 색, 장소 태그 번호
+        self.declare_parameter("puck_tags_red", [0, 1, 2, 3])
+        self.declare_parameter("puck_tags_green", [4, 5, 6, 7])
+        self.declare_parameter("puck_tags_blue", [8, 9, 10, 11])
+        self.declare_parameter("location_tags", [12, 13, 14])
+        self.tag_colors = {c: [int(v) for v in self.get_parameter(f"puck_tags_{c}").value] for c in ("red", "green", "blue")}
+        self.puck_tag_ids = {t for ids in self.tag_colors.values() for t in ids}
+        self.location_tags = {int(v) for v in self.get_parameter("location_tags").value}
+        self.tag_det = tag_detector()
+        self.barcode = barcode_detector()
         self.puck_colors = [str(v) for v in self.get_parameter("puck_colors").value]
         self.hue_tol = int(self.get_parameter("hue_tol").value)
         self.check_model_color = bool(self.get_parameter("check_model_color").value)
@@ -454,7 +569,7 @@ class PerceptionNode(Node):
         self.synced = {}       # cam → 동기화된 컬러·depth 쌍 수
         self.tf_fallback = 0   # 영상 시각 TF가 없어 최신 TF로 대신한 횟수
         self.self_dropped = 0  # 자기 몸(팔·차체)이라 버린 검출 수
-        # QR 문제 (documents/MISSION.md §3-1): A 지역 QR 판을 읽어 /mission_qr 로 — 모델 없이도 동작
+        # QR 문제 (documents/mission/README.md §3-1): A 지역 QR 판을 읽어 /mission_qr 로 — 모델 없이도 동작
         self.qr = cv2.QRCodeDetector()
         self.qr_text = ""
         self.qr_seen = 0.0   # 마지막으로 QR을 읽은 시각 — QR_GAP_S 넘게 안 보였다 다시 보이면 같은 내용도 재발행 (다음 미션 지역)
@@ -541,6 +656,7 @@ class PerceptionNode(Node):
                 self.frames[cam]["qr_boxes"] = boxes
             return
         rot, trans = tf
+        tags = detect_tags(self.tag_det, s["bgr"])
         body = self.robot_body(now_stamp) if self.self_filter and len(res.boxes) else None
         # 영상에서 팔 판정: 박스 일부만 팔이면 depth 중앙값이 팔 뒤 바닥·벽까지라 3D 판정(is_self)을 빠져나갔음
         # (실측: 스캔 자세 팔을 obstacle 0.5~0.7로 잡고 위치는 팔 뒤 바닥 (0.42, 0.20, −0.03)) → 팔을 화면에 투영해 박스 안에 있으면 버림
@@ -549,6 +665,7 @@ class PerceptionNode(Node):
         dets = []
         qr_boxes = []
         for b in res.boxes:
+            tag = None
             name = self.names.get(int(b.cls[0]))
             if name is None:
                 continue
@@ -575,6 +692,9 @@ class PerceptionNode(Node):
                     continue
                 if posture == "lying":
                     cls = "puck_lying"  # 발행 이름은 설계대로 puck / puck_lying
+                tag = tag_in_box(tags, (x0, y0, x1, y1), self.puck_tag_ids)
+                if tag is not None:
+                    color = tag_color(tag, self.tag_colors) or color  # 윗면 태그가 색보다 확실 (R·G·B 번호대)
             else:
                 region = depth_m[y0:y1, x0:x1]
                 valid = region[(region > 0.05) & (region < 6.0)]
@@ -605,7 +725,15 @@ class PerceptionNode(Node):
                 "conf": float(b.conf[0]), "px": (int(u), int(v)),
                 "color": color,
                 "posture": posture,  # 퍽: standing / lying / ''(모름 — 합칠 때 아는 자세를 덮지 않음) · 그 외 ''
+                "tag": tag,          # 퍽 윗면 AprilTag 번호 (못 읽으면 None — 합칠 때 아는 번호를 덮지 않음)
             })
+        for tid_tag, (u, v), box in tags:  # 장소 태그 (L1~L3) — YOLO가 아니라 태그 자체가 물체
+            if tid_tag not in self.location_tags:
+                continue
+            d = self.marker_det(s, box, (u, v), rot, trans, "location")
+            if d is not None:
+                d["tag"] = tid_tag
+                dets.append(d)
         now_s = stamp_s(now_stamp)
         view = (rot, trans, s["fx"], s["fy"], s["cx"], s["cy"], depth_m)  # 이 카메라 이 프레임 — 기억한 물체 지우기 판정용
         with self.lock:
@@ -618,6 +746,25 @@ class PerceptionNode(Node):
         out.objects = [to_msg(tid, self.to_map({**d, "p": d["z"], "P": d["R"], "last_seen": now_stamp, "camera": cam}))
                        for tid, d in zip(tids, dets)]
         self.det_pubs[cam].publish(out)
+
+    def marker_det(self, s, box, center, rot, trans, cls):
+        """표식(장소 태그 · 바코드) 영상 박스 → 검출 dict (위치 = 박스 안 깊이 중앙값) · 깊이 없으면 None"""
+        h, w = s["depth_mm"].shape[:2]
+        x0, y0, x1, y1 = max(box[0], 0), max(box[1], 0), min(box[2], w - 1), min(box[3], h - 1)
+        if x1 <= x0 or y1 <= y0:
+            return None
+        region = s["depth_mm"][y0:y1, x0:x1].astype(np.float32) / 1000.0
+        valid = region[(region > 0.05) & (region < 6.0)]
+        if valid.size < 4:
+            return None
+        zm = float(np.median(valid))
+        u, v = center
+        z_map = rot @ np.array([(u - s["cx"]) * zm / s["fx"], (v - s["cy"]) * zm / s["fy"], zm]) + trans
+        r_cam = meas_cov_cam(zm, s["fx"], s["fy"], self.pixel_sigma, self.depth_sigma0, self.depth_sigma_k)
+        return {"class_name": cls, "z": z_map, "R": rot @ r_cam @ rot.T,
+                "size": np.array([max((x1 - x0) * zm / s["fx"], 0.01), max((y1 - y0) * zm / s["fy"], 0.01),
+                                  SIZE_FALLBACK[cls][2]]),
+                "conf": 1.0, "px": (int(u), int(v)), "color": "", "posture": ""}
 
     def judge_puck(self, wcm, hcm, color, clipped=False, model_color="", near=False):
         """퍽 후보 박스의 실제 크기(폭·높이 cm, 깊이 없으면 ≤0)·색·잘림·YOLO 이름의 색·가까움 → (퍽인가, 아니면 이유, 자세)
@@ -686,6 +833,10 @@ class PerceptionNode(Node):
                 tr["color"] = d["color"]
             if d.get("posture"):  # 자세를 아는 관측만 자세를 바꿈 ('모름'은 덮어쓰지 않음)
                 tr["posture"] = d["posture"]
+            if d.get("tag") is not None:  # 태그 번호는 한 번 읽으면 기억 (멀어지면 못 읽어도 덮지 않음)
+                tr["tag"] = d["tag"]
+            if d.get("content"):
+                tr["content"] = d["content"]
         for i, d in enumerate(dets):
             if i in used_d:
                 continue
@@ -693,7 +844,7 @@ class PerceptionNode(Node):
                 "class_name": kind(d["class_name"]), "posture": d.get("posture", ""),
                 "p": d["z"], "P": d["R"], "t": t, "size": d["size"],
                 "conf": d["conf"], "last_seen": stamp, "seen": {cam: t}, "miss": 0, "hits": 1,
-                "camera": cam, "px": d["px"], "color": d["color"]}
+                "camera": cam, "px": d["px"], "color": d["color"], "tag": d.get("tag"), "content": d.get("content", "")}
             used_d[i] = self.next_id
             self.next_id += 1
         return [used_d[i] for i in range(len(dets))]
@@ -796,6 +947,44 @@ class PerceptionNode(Node):
                 self.qr_pub.publish(String(data=text))
                 self.get_logger().info(f"QR 문제 ({cam}): {text}")
             return
+        self.read_barcodes()
+
+    # ---------- 바코드 (2Hz) — 장소에 붙은 작업 지시 문자열 (발제 P2-01 …). 물체(barcode, 위치 = 붙은 곳)로 기억 + /mission_qr
+    def read_barcodes(self):
+        if self.barcode is None:
+            return
+        with self.lock:
+            frames = [(c, dict(s)) for c, s in self.frames.items()
+                      if s.get("bgr") is not None and s.get("depth_mm") is not None and s.get("fx")]
+        for cam, s in frames:
+            try:
+                ok, infos, _, points = self.barcode(s["bgr"])
+            except cv2.error:
+                continue
+            if not ok or points is None:
+                continue
+            tf = self.lookup_tf(s["frame_id"], s["stamp"], quiet=True)
+            dets = []
+            for text, pts in zip(infos, points):
+                if not text:
+                    continue
+                pts = np.asarray(pts).reshape(-1, 2)
+                (x0, y0), (x1, y1) = pts.min(0), pts.max(0)
+                if tf is not None:
+                    d = self.marker_det(s, (int(x0), int(y0), int(x1) + 1, int(y1) + 1),
+                                        (float(pts[:, 0].mean()), float(pts[:, 1].mean())), *tf, "barcode")
+                    if d is not None:
+                        d["content"] = text
+                        dets.append(d)
+                now = time.time()
+                if text != self.qr_text or now - self.qr_seen > QR_GAP_S:
+                    self.qr_text = text
+                    self.qr_pub.publish(String(data=text))
+                    self.get_logger().info(f"바코드 ({cam}): {text}")
+                self.qr_seen = now
+            if dets:
+                with self.lock:
+                    self.fuse(cam, s["stamp"], dets)
 
     def on_diag(self):
         s = DiagnosticStatus()
@@ -823,7 +1012,11 @@ class PerceptionNode(Node):
                     KeyValue(key="TF 최신 대체", value=str(fallback)),
                     KeyValue(key="자기 몸이라 버린 검출", value=str(dropped)),
                     KeyValue(key="발행한 /tracked_objects", value=str(pub)),
-                    KeyValue(key="QR 문제", value=self.qr_text or "(아직 없음)")]
+                    KeyValue(key="QR 문제", value=self.qr_text or "(아직 없음)"),
+                    KeyValue(key="AprilTag (퍽 번호·장소)", value=f"OpenCV {cv2.__version__} " + ("aruco 있음" if self.tag_det else "aruco 없음 — 퍽 번호 못 읽음")),
+                    KeyValue(key="바코드 (장소 작업 지시)", value=BARCODE_LIB if self.barcode else "없음 — pip install zxing-cpp")]
+        if self.tag_det is None and s.level == DiagnosticStatus.OK:
+            s.level, s.message = DiagnosticStatus.WARN, "AprilTag 못 읽음 (OpenCV aruco 없음)"
         msg = DiagnosticArray()
         msg.header.stamp = self.get_clock().now().to_msg()
         msg.status = [s]

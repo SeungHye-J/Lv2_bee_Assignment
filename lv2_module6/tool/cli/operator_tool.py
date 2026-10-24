@@ -43,7 +43,7 @@ from rclpy.qos import (
     QoSReliabilityPolicy,
 )
 from sensor_msgs.msg import JointState
-from std_msgs.msg import Bool, String
+from std_msgs.msg import Bool, Empty, String
 
 try:
     from nav2_msgs.srv import SaveMap as SaveMapSrv
@@ -229,6 +229,7 @@ class OperatorTool(Node):
         self._cmd_map_mode = self.create_publisher(String, '/cmd/map_mode', 10)
         self._cmd_map_name = self.create_publisher(String, '/cmd/map_name', 10)
         self._cmd_restart = self.create_publisher(String, '/cmd/restart', 10)
+        self._cmd_reboot = self.create_publisher(Empty, '/cmd/manual/reboot_motors', 10)
 
         for key, topic in STATE_TOPICS.items():
             self.create_subscription(
@@ -665,7 +666,39 @@ class OperatorTool(Node):
                 raise ValueError(f'모르는 관절: {name} (사용: {", ".join(ARM_JOINTS)} 또는 all)')
         return targets
 
+    def _motor_errors(self) -> list[str]:
+        """/state/devices/<wheels|arm|gripper> 세부의 '관절:에러' (state_manager가 모터 Hardware Error를 실어 줌)."""
+        errors = []
+        for name in ('wheels', 'arm', 'gripper'):
+            _, _, details = self._device_info(name)
+            errors += [d for d in details if ':' in d]
+        return errors
+
+    def cmd_reboot(self, force: bool = False) -> int:
+        """Hardware Error(과부하·과열 등) 난 DYNAMIXEL 재부팅 — /cmd/manual/reboot_motors (MANUAL, 에러 난 모터만)."""
+        if not self._ensure_manual_or_switch(force):
+            return 1
+        self._poll(2.5)  # /state/devices/<장치> 갱신 (2초 주기)
+        before = self._motor_errors()
+        print('모터 에러: ' + (', '.join(before) if before else '없음 (/state/devices 기준)'))
+        if not before:
+            print('재부팅할 모터가 없어 보내지 않습니다 (응답 없는 모터는 재부팅 불가 — 12V·배선 확인)')
+            return 0
+        self._publish(self._cmd_reboot, Empty())
+        print('재부팅 요청 보냄 → 에러 난 모터만 재부팅, 팔은 천천히 명령 자세로 돌아감')
+        end = time.monotonic() + 8.0
+        while time.monotonic() < end and rclpy.ok():
+            self._poll(0.5)
+            if not self._motor_errors():
+                print('OK: 모터 에러 풀림')
+                return 0
+        print('FAIL: 아직 에러: ' + ', '.join(self._motor_errors()) +
+              ' — manual_control 진단 "마지막 모터 재부팅"·기구 걸림 확인', file=sys.stderr)
+        return 1
+
     def cmd_arm(self, args) -> int:
+        if args.action == 'reboot':
+            return self.cmd_reboot(args.force)
         if args.action == 'show':
             self._wait_joints()
             values = [f'{name}={self._rad_deg(self._joints[name])}' for name in ARM_JOINTS if name in self._joints]
@@ -2030,9 +2063,13 @@ class OperatorTool(Node):
                 '  2) 관절 목표 설정',
                 '  3) 관절 델타 이동',
                 '  4) 홈 (모든 팔 관절 0)',
+                '  5) 모터 재부팅 (과부하 등 Hardware Error 풀기)',
             ]
             center = ['[팔 관절]']
             center += [f' {v}' for v in values] if values else [' (joint_states 없음)']
+            errors = self._motor_errors()
+            if errors:
+                center.append(f' {self._ui_paint("모터 에러: " + ", ".join(errors), RED)} → 5) 재부팅')
             if self.operation != 'MANUAL':
                 center.append(f' {self._ui_paint("MANUAL 모드가 아닙니다", YELLOW)}')
             if self.map_mode == 'MAPPING':
@@ -2072,6 +2109,12 @@ class OperatorTool(Node):
                 if not self._ui_yes_no('모든 팔 관절을 0으로 이동할까요?', default=False):
                     continue
                 self.cmd_arm(argparse.Namespace(action='home', targets=[], force=False))
+                result = self._ui_pause(back_label='팔 메뉴')
+            elif choice == '5':
+                if not self._prepare_manual():
+                    self._ui_pause(back_label='팔 메뉴')
+                    continue
+                self.cmd_reboot()
                 result = self._ui_pause(back_label='팔 메뉴')
             else:
                 self._ui_invalid(choice)
@@ -2415,7 +2458,8 @@ def build_parser() -> argparse.ArgumentParser:
     teleop.add_argument('--force', action='store_true', help='MANUAL 상태 확인을 건너뜀 (위험)')
 
     arm = sub.add_parser('arm', help='팔 관절 수동 명령 (MANUAL 모드)')
-    arm.add_argument('action', type=str.lower, choices=('show', 'set', 'delta', 'home'))
+    arm.add_argument('action', type=str.lower, choices=('show', 'set', 'delta', 'home', 'reboot'),
+                     help='reboot = Hardware Error(과부하 등) 난 모터만 재부팅 (/cmd/manual/reboot_motors)')
     arm.add_argument('targets', nargs='*', help='관절 목표: joint1=0.0 joint2=0.4 (all=0.0 가능)')
     arm.add_argument('--force', action='store_true', help='MANUAL/MAPPING 확인을 건너뜀 (위험)')
 

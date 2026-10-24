@@ -155,7 +155,7 @@ class Sim:
         self.streaming = True
         self.running = True
         self.opencr = opencr.OpenCR(self.spawn)  # 컨테이너 fake_opencr 연결 (읽기·요청만 — 시리얼에 안 씀)
-        # 미션 (documents/MISSION.md) — 배치 · 지정 퍽 · 미끄러운 구간 · 조명 (채점은 외부)
+        # 미션 (documents/mission/README.md) — 배치 · 지정 퍽 · 미끄러운 구간 · 조명 (채점은 외부)
         self.env = None           # {'seed', 't0'} — [환경 배치] 후 (장애물·이동물체·미끄러운 구간·조명 변화)
         self.slip_zones = []      # [{'x','y','yaw','sx','sy','slip'}] — 로봇이 안에 있으면 그 미끄럼
         self.base_slip = 0.0      # 구간 밖 미끄럼 (창의 슬라이더)
@@ -455,7 +455,7 @@ class Sim:
                 else:
                     p['z'] = s
 
-    # --- 미션 (documents/MISSION.md): 한 맵에 미션 지역 여러 곳 — 지도에서 찍고 문제를 고른다 (채점은 외부)
+    # --- 미션 (documents/mission/README.md): 한 맵에 미션 지역 여러 곳 — 지도에서 찍고 문제를 고른다 (채점은 외부)
     def snap_cell(self, x, y):
         """찍은 점 → 가장 가까운 칸 중심 (출발 칸에서 0.3m 안이면 None — 출발·귀환 자리)"""
         c = min(self.cells, key=lambda c: math.dist(c, (x, y)))
@@ -1570,7 +1570,7 @@ class App:
         tk.Button(envbox, text='바닥 장애물 삭제', command=lambda: self.sim.pop_prop('obstacle')).pack(fill=tk.X)
         tk.Button(envbox, text='신호등 추가', command=self.sim.spawn_traffic).pack(fill=tk.X)
         tk.Button(envbox, text='신호등 삭제', command=lambda: self.sim.pop_prop('traffic_light')).pack(fill=tk.X)
-        # 미션 (documents/MISSION.md) — 한 맵에 미션 지역 여러 곳. 지도에서 오른쪽 클릭 메뉴로 놓기·바꾸기·지우기,
+        # 미션 (documents/mission/README.md) — 한 맵에 미션 지역 여러 곳. 지도에서 오른쪽 클릭 메뉴로 놓기·바꾸기·지우기,
         # 왼쪽 드래그로 미션 지역·B 지역 옮기기 (채점은 외부)
         missbox = tk.LabelFrame(mapside, text='미션 (MISSION.md)')
         missbox.pack(fill=tk.X, pady=(6, 0))

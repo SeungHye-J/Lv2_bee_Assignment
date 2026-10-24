@@ -17,7 +17,8 @@ constexpr double ACCEL_MAX = 8.0;
 constexpr double JOINT_VEL_MAX = 4.8;
 constexpr double GRIPPER_VEL_MAX = 0.05;
 constexpr double COMMAND_TIMEOUT = 0.5;
-constexpr double STATE_PERIOD = 0.025;  // 펌웨어 STATE_PERIOD_MS (25ms) — S는 부팅 직후부터 C와 무관하게 항상
+constexpr double ERROR_PERIOD = 0.5;    // 펌웨어 MOTOR_CHECK_MS — E 줄 주기
+constexpr double STATE_PERIOD = 0.010;  // 펌웨어 STATE_PERIOD_MS (10ms) — S는 부팅 직후부터 C와 무관하게 항상
 }  // namespace
 
 FakeOpenCR::FakeOpenCR() : rclcpp::Node("fake_opencr") {
@@ -32,6 +33,7 @@ FakeOpenCR::FakeOpenCR() : rclcpp::Node("fake_opencr") {
   noise_ = declare_parameter<double>("noise", 0.01);
   comm_down_ = declare_parameter<bool>("comm_down", false);
   arm_grabbed_ = declare_parameter<bool>("arm_grabbed", false);
+  declare_parameter<std::vector<int64_t>>("hw_error", std::vector<int64_t>(8, 0));
   if (!map_yaml.empty() && !load_map(map_yaml)) {
     RCLCPP_WARN(get_logger(), "지도 로드 실패 (%s) — 충돌 없이 동작", map_yaml.c_str());
   }
@@ -78,7 +80,13 @@ FakeOpenCR::FakeOpenCR() : rclcpp::Node("fake_opencr") {
       else if (p.get_name() == "noise") noise_ = p.as_double();
       else if (p.get_name() == "comm_down") comm_down_ = p.as_bool();
       else if (p.get_name() == "arm_grabbed") arm_grabbed_ = p.as_bool();
-      else continue;
+      else if (p.get_name() == "hw_error") {
+        const auto v = p.as_integer_array();
+        for (size_t i = 0; i < 8 && i < v.size(); ++i) {
+          hw_error_[i] = static_cast<int>(v[i]);
+          if (hw_error_[i] > 0) torque_[i] = false;  // 진짜 서보도 Hardware Error면 토크를 끈다
+        }
+      } else continue;
       RCLCPP_INFO(get_logger(), "환경 %s = %s", p.get_name().c_str(), p.value_to_string().c_str());
     }
   });
@@ -171,6 +179,10 @@ bool FakeOpenCR::read_command(std::array<double, 8> & cmd) {
       apply_torque_line(line);  // 토크 온/오프는 C와 별개
       continue;
     }
+    if (line.compare(0, 2, "R,") == 0) {
+      apply_reboot_line(line);
+      continue;
+    }
     std::array<double, 8> v{};
     if (parse_command(line, v)) {
       cmd = v;
@@ -233,6 +245,36 @@ void FakeOpenCR::apply_torque_line(const std::string & line) {
   }
   const bool any = std::any_of(torque_.begin(), torque_.end(), [](bool b) { return b; });
   watchdog_tripped_ = !any;  // 전부 꺼졌으면 watchdog 정지 (펌웨어와 같음)
+}
+
+void FakeOpenCR::apply_reboot_line(const std::string & line) {
+  // 펌웨어 apply_reboot_line과 같은 규칙: R,1 = 전체 · R,<8필드> = 1인 모터만. 재부팅 = 에러 지움 + 토크 켜기(현재 자세 목표)
+  const bool whole = line.find(',', 2) == std::string::npos;
+  std::array<double, 8> v{};
+  if (!parse_command(std::string("C,") + line.substr(2), v)) return;
+  std::lock_guard<std::mutex> lock(mutex_);
+  for (size_t i = 0; i < 8; ++i) {
+    const double f = whole ? v[0] : v[i];
+    if (std::isnan(f) || f == 0.0) continue;
+    hw_error_[i] = 0;
+    if (i < 2) wheel_cmd_[i] = 0.0;
+    else joint_cmd_[i - 2] = joint_pos_[i - 2];
+    torque_[i] = true;
+  }
+  write_errors_locked();
+}
+
+void FakeOpenCR::write_errors() {
+  std::lock_guard<std::mutex> lock(mutex_);
+  write_errors_locked();
+}
+
+void FakeOpenCR::write_errors_locked() {
+  std::string line = "E";
+  for (int e : hw_error_) line += "," + std::to_string(e);
+  line += '\n';
+  std::ofstream out(serial_in_, std::ios::app);
+  if (out) out << line << std::flush;
 }
 
 void FakeOpenCR::write_state() {
@@ -339,6 +381,10 @@ void FakeOpenCR::tick() {
   if (!comm_down_ && std::chrono::duration<double>(now - last_state_).count() >= STATE_PERIOD) {
     write_state();
     last_state_ = now;
+  }
+  if (!comm_down_ && std::chrono::duration<double>(now - last_errors_).count() >= ERROR_PERIOD) {
+    write_errors();
+    last_errors_ = now;
   }
 }
 

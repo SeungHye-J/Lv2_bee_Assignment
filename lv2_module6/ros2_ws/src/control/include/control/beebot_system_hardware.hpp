@@ -38,6 +38,7 @@
 #include "hardware_interface/system_interface.hpp"
 #include "hardware_interface/types/hardware_interface_type_values.hpp"
 #include "rclcpp/rclcpp.hpp"
+#include "std_srvs/srv/trigger.hpp"
 
 namespace control {
 
@@ -77,6 +78,10 @@ private:
 
   bool apply_state(const std::string & text);
 
+  bool apply_errors(const std::string & text);  // E 줄 — 모터별 Hardware Error Status
+
+  void reboot_motors(const std_srvs::srv::Trigger::Request::SharedPtr, std_srvs::srv::Trigger::Response::SharedPtr res);
+
   return_type write_serial();
 
   bool mock_ = false;
@@ -88,6 +93,9 @@ private:
   std::atomic<std::chrono::steady_clock::time_point> last_state_{};
   std::atomic<size_t> sent_{0}, received_{0}, bad_{0};
   std::unique_ptr<diagnostic_updater::Updater> diag_;
+  std::array<std::atomic<int>, 8> hw_error_{};  // 프로토콜 순서(바퀴L·R·joint1~5·그리퍼), −1 = 응답 없음
+  std::atomic<uint32_t> reboot_mask_{0};         // 서비스가 고른 모터 — write()가 R 줄로 보냄
+  rclcpp::Service<std_srvs::srv::Trigger>::SharedPtr reboot_srv_;
 };
 
 }  // namespace control

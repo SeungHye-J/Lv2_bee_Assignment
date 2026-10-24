@@ -13,6 +13,17 @@ static const std::array<const char *, 10> IMU_FIELDS = {
   "angular_velocity.x", "angular_velocity.y", "angular_velocity.z",
   "linear_acceleration.x", "linear_acceleration.y", "linear_acceleration.z"};
 static constexpr size_t STATE_VALUES = WHEELS.size() * 2 + ARM.size() * 3 + IMU_FIELDS.size();  // 32
+static constexpr size_t MOTORS = WHEELS.size() + ARM.size();  // 8 — E·R 필드 순서
+static const char * motor_name(size_t i) { return i < WHEELS.size() ? WHEELS[i] : ARM[i - WHEELS.size()]; }
+
+// DYNAMIXEL Hardware Error Status 비트 → 사람이 읽는 이름
+static std::string error_text(int e) {
+  if (e < 0) return "응답 없음";
+  std::string t;
+  const std::pair<int, const char *> bits[] = {{0x01, "입력전압"}, {0x04, "과열"}, {0x08, "엔코더"}, {0x10, "전기충격"}, {0x20, "과부하"}};
+  for (const auto & [bit, name] : bits) if (e & bit) t += (t.empty() ? "" : "·") + std::string(name);
+  return t.empty() ? "에러 " + std::to_string(e) : t;
+}
 
 CallbackReturn BeebotSystemHardware::on_init(const hardware_interface::HardwareComponentInterfaceParams & params) {
   if (SystemInterface::on_init(params) != CallbackReturn::SUCCESS) return CallbackReturn::ERROR;
@@ -52,6 +63,11 @@ CallbackReturn BeebotSystemHardware::on_configure(const rclcpp_lifecycle::State 
     diag_->setHardwareID("beebot");
     diag_->add("OpenCR 연결", [this](diagnostic_updater::DiagnosticStatusWrapper & s) { report(s); });
   }
+  if (!reboot_srv_ && get_node()) {  // ~/reboot_motors — Hardware Error(과부하 등) 난 모터만 재부팅 (펌웨어 R)
+    reboot_srv_ = get_node()->create_service<std_srvs::srv::Trigger>(
+      "~/reboot_motors", [this](const std_srvs::srv::Trigger::Request::SharedPtr req,
+                                std_srvs::srv::Trigger::Response::SharedPtr res) { reboot_motors(req, res); });
+  }
   return mock_ || open_port() ? CallbackReturn::SUCCESS : CallbackReturn::ERROR;
 }
 
@@ -78,7 +94,7 @@ CallbackReturn BeebotSystemHardware::on_activate(const rclcpp_lifecycle::State &
       std::this_thread::sleep_for(std::chrono::milliseconds(20));
     }
     if (received_.load() == 0) {
-      RCLCPP_ERROR(get_logger(), "OpenCR 상태(S) 3초 동안 없음 — 실제 팔 각도를 몰라 활성화 안 함 (펌웨어·USB 확인)");
+      RCLCPP_ERROR(get_logger(), "OpenCR 상태(S) 3초 동안 없음 — 실제 팔 각도를 몰라 활성화 안 함 (펌웨어·USB 확인, 해석 실패 %zu줄이면 모터 응답 없음 nan — 12V 확인)", bad_.load());
       return CallbackReturn::ERROR;
     }
   }
@@ -106,6 +122,14 @@ void BeebotSystemHardware::report(diagnostic_updater::DiagnosticStatusWrapper & 
   else if (fd_ < 0) s.summary(DiagnosticStatus::ERROR, "포트 닫힘: " + port_);
   else if (age > 0.5) s.summary(DiagnosticStatus::ERROR, "OpenCR 상태(S) 수신 없음");
   else s.summary(DiagnosticStatus::OK, "연결됨 " + port_);
+  std::string errors;
+  for (size_t i = 0; i < MOTORS; ++i) {
+    const int e = hw_error_[i].load();
+    if (e != 0) errors += (errors.empty() ? "" : ", ") + std::string(motor_name(i)) + " " + error_text(e);
+    s.add(std::string("모터 에러 ") + motor_name(i), e == 0 ? std::string("정상") : error_text(e));
+  }
+  if (!mock_ && !errors.empty())
+    s.mergeSummary(DiagnosticStatus::ERROR, "모터 에러: " + errors + " → ~/reboot_motors 서비스로 재부팅");
   s.add("mock", mock_);
   s.add("port", port_);
   s.add("마지막 S [s 전]", mock_ ? 0.0 : age);
@@ -173,6 +197,7 @@ return_type BeebotSystemHardware::read_serial() {
   std::string last;
   for (size_t nl; (nl = rx_.find('\n')) != std::string::npos; rx_.erase(0, nl + 1)) {
     if (rx_.compare(0, 2, "S,") == 0) last = rx_.substr(2, nl - 2);
+    else if (rx_.compare(0, 2, "E,") == 0 && !apply_errors(rx_.substr(2, nl - 2))) ++bad_;
   }
   if (rx_.size() > 4096) rx_.clear();  // 줄바꿈 없는 쓰레기가 쌓이지 않게
   if (!last.empty()) {
@@ -199,6 +224,8 @@ bool BeebotSystemHardware::apply_state(const std::string & text) {
     v.push_back(d);
   }
   if (v.size() != STATE_VALUES) return false;
+  // 펌웨어는 한 번도 못 읽은 모터(부팅 때 12V 꺼짐 등)를 nan으로 보낸다 — 모르는 자세를 상태로 쓰지 않는다
+  for (size_t k = 0; k < WHEELS.size() * 2 + ARM.size() * 3; ++k) if (std::isnan(v[k])) return false;
   size_t i = 0;
   for (const auto * name : WHEELS) {
     set_state(std::string(name) + "/position", v[i++]);
@@ -222,7 +249,48 @@ bool BeebotSystemHardware::apply_state(const std::string & text) {
   return true;
 }
 
+bool BeebotSystemHardware::apply_errors(const std::string & text) {
+  std::stringstream ss(text);
+  size_t i = 0;
+  for (std::string field; std::getline(ss, field, ',') && i < MOTORS; ++i) {
+    char * end = nullptr;
+    const long e = std::strtol(field.c_str(), &end, 10);
+    if (end == field.c_str()) return false;
+    hw_error_[i] = static_cast<int>(e);
+  }
+  return i == MOTORS;
+}
+
+void BeebotSystemHardware::reboot_motors(const std_srvs::srv::Trigger::Request::SharedPtr,
+                                         std_srvs::srv::Trigger::Response::SharedPtr res) {
+  // 멀쩡한 모터까지 재부팅하면 그 관절 토크가 빠져 팔이 떨어진다 → 에러(>0) 난 모터만
+  uint32_t mask = 0;
+  std::string names;
+  for (size_t i = 0; i < MOTORS; ++i) {
+    if (hw_error_[i].load() > 0) {
+      mask |= 1u << i;
+      names += (names.empty() ? "" : ", ") + std::string(motor_name(i));
+    }
+  }
+  if (mock_ || mask == 0) {
+    res->success = false;
+    res->message = mock_ ? "mock — 재부팅할 모터 없음" : "Hardware Error 난 모터 없음 (응답 없는 모터는 재부팅 불가 — 12V·배선 확인)";
+    return;
+  }
+  reboot_mask_ = mask;  // write()가 다음 주기에 R 줄로 보냄 (시리얼 쓰기는 제어 주기 한 곳에서만)
+  res->success = true;
+  res->message = "재부팅 요청: " + names + " — 팔은 천천히 명령 자세로 돌아감";
+  RCLCPP_WARN(get_logger(), "%s", res->message.c_str());
+}
+
 return_type BeebotSystemHardware::write_serial() {
+  if (const uint32_t mask = reboot_mask_.exchange(0)) {  // R,<8필드> — 고른 모터만 1
+    std::string r = "R";
+    for (size_t i = 0; i < MOTORS; ++i) r += (mask & (1u << i)) ? ",1" : ",";
+    r += '\n';
+    if (::write(fd_, r.data(), r.size()) < 0 && errno != EAGAIN)
+      RCLCPP_ERROR(get_logger(), "OpenCR R 쓰기 실패: %s", strerror(errno));
+  }
   std::string out = "C";
   char num[32];
   for (const auto * name : WHEELS) {

@@ -42,9 +42,9 @@
 
 **토픽 이름 규칙 — 명령은 /cmd, 상태는 /state**
 
-- **외부에서 들어오는 명령은 전부 `/cmd/...`.** 보내고 끝 (cmd_vel 관례 — 응답 없음). `/cmd/user_command` · `/cmd/manual/cmd_vel` · `/cmd/manual/arm` · `/cmd/e_stop` · `/cmd/operation_mode` · `/cmd/map_mode` · `/cmd/fake_opencr/set_pose`(테스트베드).
+- **외부에서 들어오는 명령은 전부 `/cmd/...`.** 보내고 끝 (cmd_vel 관례 — 응답 없음). `/cmd/user_command` · `/cmd/manual/cmd_vel` · `/cmd/manual/arm` · `/cmd/manual/reboot_motors` · `/cmd/e_stop` · `/cmd/operation_mode` · `/cmd/map_mode` · `/cmd/fake_opencr/set_pose`(테스트베드).
 - **상태는 `/state/<이름>`, 발행은 state_manager 하나만.** 다른 노드는 구독만 한다. 상태를 바꾸고 싶으면 `/cmd/<이름>`을 보내고 결과는 `/state/<이름>`으로 본다 (`/cmd/operation_mode` → `/state/operation_mode`, `/cmd/map_mode` → `/state/map_mode`, `/cmd/e_stop` → `/state/emergency`). ROS에는 발행자 제한 기능이 없으므로 규칙으로 지키고, 테스트베드 input_manager(호스트 파일 → 토픽)는 `/state/*` 를 거부한다.
-- **연결 장치 상태도 같은 규칙.** `/state/devices`는 장치 이름만 쉼표로 내고, 장치별 상세(`active`/`disconnected` + 세부 토픽)는 `/state/devices/<이름>`, 전체 그래프는 `/state/topics`로 낸다. 장치가 없어도 state_manager는 계속 뜬다.
+- **연결 장치 상태도 같은 규칙.** `/state/devices`는 장치 이름만 쉼표로 내고, 장치별 상세(`active`/`disconnected`/`error`(모터 Hardware Error) + 세부 토픽)는 `/state/devices/<이름>`, 전체 그래프는 `/state/topics`로 낸다. 장치가 없어도 state_manager는 계속 뜬다.
 - **응답이 꼭 필요한 요청은 토픽이 아니라 서비스** (예: `/map_saver/save_map`).
 
 ---

@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""YOLO 데이터셋 자동 생성 (호스트 — 도커 불필요) — documents/MISSION.md 장면.
+"""YOLO 데이터셋 자동 생성 (호스트 — 도커 불필요) — documents/mission/README.md 장면.
 
 시뮬레이터의 미션 배치 코드(main.Sim: 미션 지역 · QR 판 · 누운 퍽 · B 지역 · 장애물 · 사람)로 장면을 깔고,
 pole_cam(멀리 1~3m · 가까이 0.4~1m)과 gripper_cam(집기 직전 자세) 시점으로 렌더 → 정답 위치를 투영해 YOLO 라벨.

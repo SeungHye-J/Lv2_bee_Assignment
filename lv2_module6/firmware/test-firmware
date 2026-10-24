@@ -23,6 +23,7 @@ fi
 #   ./test-firmware --torque off --yes             # 전체 토크 해제 (손으로 자세 잡기)
 #   ./test-firmware --torque on --yes              # 전체 토크 켜기 (지금 자세를 목표로)
 #   ./test-firmware --torque 1,0,,,,,, --yes       # 조인트별 (C와 같은 순서, 빈칸=유지)
+#   ./test-firmware --reboot joint2,gripper --yes  # 모터 재부팅 (Hardware Error 풀기) — all이면 전체 (팔이 잠깐 힘 빠짐)
 #
 # 빈칸 규칙 (펌웨어·faker 공통): C의 빈 필드는 "유지" — 팔·그리퍼는 현재 목표 유지,
 #   바퀴는 정지(0). 전부 빈칸이면 바퀴 정지 + 팔 유지. S 읽기에는 영향 없음.
@@ -47,11 +48,12 @@ WHEEL_L=""
 WHEEL_R=""
 COUNT=""
 TORQUE=""
+REBOOT=""
 YES=0
 TIMEOUT=2
 
 usage() {
-  sed -n '6,22p' "$0"
+  sed -n '6,26p' "$0"
 }
 
 while (($#)); do
@@ -78,6 +80,7 @@ while (($#)); do
         *) TORQUE=$2 ;;
       esac
       shift 2 ;;                # C 전송 횟수 (1회 = 0.05s, 기본 hold/send 5·arm/gripper/wheel 20)
+    --reboot) REBOOT=$2; shift 2 ;;
     --yes) YES=1; shift ;;
     --timeout) TIMEOUT=$2; shift 2 ;;
     -h | --help) usage; exit 0 ;;
@@ -104,7 +107,7 @@ if pgrep -f 'ros2_control_node|controller_manager' >/dev/null 2>&1; then
   exit 2
 fi
 
-if [ -n "$ARM" ] || [ -n "$GRIPPER" ] || [ -n "$SEND" ] || [ -n "$WHEEL_L" ] || [ -n "$TORQUE" ] || [ "$HOLD" = 1 ]; then
+if [ -n "$ARM" ] || [ -n "$GRIPPER" ] || [ -n "$SEND" ] || [ -n "$WHEEL_L" ] || [ -n "$TORQUE" ] || [ -n "$REBOOT" ] || [ "$HOLD" = 1 ]; then
   [ -w "$PORT" ] || { echo "FAIL: 쓰기 권한 없음: $PORT"; exit 2; }
   if [ "$YES" != 1 ]; then
     echo "WARNING: 모터가 움직일 수 있습니다: $PORT"
@@ -201,6 +204,20 @@ printf 'joint4  : pos % .4f rad (%s deg)  vel % .4f rad/s  cur % .3f A\n' "${v[1
 printf 'joint5  : pos % .4f rad (%s deg)  vel % .4f rad/s  cur % .3f A\n' "${v[17]}" "$(deg "${v[17]}")" "${v[18]}" "${v[19]}"
 printf 'gripper : pos % .4f m    vel % .4f m/s    cur % .3f A\n' "${v[20]}" "${v[21]}" "${v[22]}"
 
+# E 줄 — 모터별 Hardware Error Status (0 정상 · −1 응답 없음 · 비트: 1 입력전압 4 과열 8 엔코더 16 전기충격 32 과부하)
+show_errors() {
+  local e
+  e=$(grep '^E,' "$tmp" | tr -d '\r' | awk -F, 'NF == 9' | tail -n 1 || true)
+  if [ -z "$e" ]; then say "모터 에러: E 줄 없음 (0.5초마다 옴 — 예전 펌웨어면 없음)"; return; fi
+  IFS=',' read -r -a ev <<<"$e"
+  local names=(wheel_left wheel_right joint1 joint2 joint3 joint4 joint5 gripper) out="" i
+  for i in 0 1 2 3 4 5 6 7; do
+    [ "${ev[$((i + 1))]}" = 0 ] || out+=" ${names[$i]}=${ev[$((i + 1))]}"
+  done
+  if [ -z "$out" ]; then say "모터 에러: 없음"; else say "모터 에러:$out  → ./test-firmware --reboot <모터> --yes"; fi
+}
+show_errors
+
 # 현재 자세를 유지하는 C 명령. 관절·그리퍼는 마지막 S의 위치를 그대로 쓴다.
 current_cmd() {
   printf 'C,0,0,%s,%s,%s,%s,%s,%s' \
@@ -276,7 +293,7 @@ if [ -n "$GRIPPER" ]; then
   say ""
   say "gripper: ${v[20]} → $GRIPPER m"
   say "전송: $cmd"
-  say "NOTE: Current-based Position의 Goal Current가 0이면 움직이지 않을 수 있습니다."
+  say "NOTE: 값은 URDF 규약(손가락 하나 m, 0 = 닫힘 · 0.0265 = 최대 열림). 쥐는 힘은 펌웨어 GRIPPER_GOAL_CURRENT_MA."
   send_repeated "$cmd" "${COUNT:-20}"
 fi
 
@@ -323,7 +340,30 @@ if [ -n "$TORQUE" ]; then
   send_repeated "$cmd" "${COUNT:-5}"
 fi
 
-if [ "$HOLD" = 1 ] || [ -n "$SEND" ] || [ -n "$ARM" ] || [ -n "$GRIPPER" ] || [ -n "$WHEEL_L" ] || [ -n "$TORQUE" ]; then
+if [ -n "$REBOOT" ]; then
+  case "$REBOOT" in
+    all|ALL|1) cmd="R,1" ;;
+    *)
+      _arr=( "" "" "" "" "" "" "" "" )
+      for _k in ${REBOOT//,/ }; do
+        _i=-1; _j=0
+        for _name in wheel_left wheel_right joint1 joint2 joint3 joint4 joint5 gripper; do
+          [ "$_k" = "$_name" ] && _i=$_j
+          _j=$((_j + 1))
+        done
+        if [ "$_i" -lt 0 ]; then echo "FAIL: 모르는 대상: $_k (wheel_left,wheel_right,joint1~5,gripper,all)"; exit 2; fi
+        _arr[$_i]=1
+      done
+      cmd="R,$(IFS=,; echo "${_arr[*]}")"
+      ;;
+  esac
+  say ""
+  say "재부팅: $cmd (한 번만 — 재부팅 후 팔은 천천히 현재 목표로)"
+  printf '%s\n' "$cmd" >"$PORT"
+  sleep 1.2
+fi
+
+if [ "$HOLD" = 1 ] || [ -n "$SEND" ] || [ -n "$ARM" ] || [ -n "$GRIPPER" ] || [ -n "$WHEEL_L" ] || [ -n "$TORQUE" ] || [ -n "$REBOOT" ]; then
   sleep 0.3
   read_status
   last2=$(complete_s_lines | tail -n 1 || true)
@@ -333,6 +373,7 @@ if [ "$HOLD" = 1 ] || [ -n "$SEND" ] || [ -n "$ARM" ] || [ -n "$GRIPPER" ] || [ 
     printf '확인 wheelL vel=% .4f  wheelR vel=% .4f  joint1=% .4f rad (%s deg)  joint2=% .4f rad (%s deg)  gripper=% .4f m\n' \
       "${v2[2]}" "${v2[4]}" "${v2[5]}" "$(deg "${v2[5]}")" "${v2[8]}" "$(deg "${v2[8]}")" "${v2[20]}"
   fi
+  show_errors
 fi
 
 say ""

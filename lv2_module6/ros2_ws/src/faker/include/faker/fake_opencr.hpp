@@ -20,6 +20,7 @@
 //   ✉️ ~/bumped (Bool) 20Hz — 이번 걸음에 벽에 막혔나
 //   ✉️ /cmd/fake_opencr/set_pose (geometry_msgs/PoseStamped) 구독 (외부 명령은 /cmd/*) — 위치 옮기기·초기화 (바퀴 속도 0)
 //   ⚙️ slip · friction · noise · comm_down · arm_grabbed — 실행 중 파라미터 변경 (ros2 param set · 시뮬레이터 버튼)
+//   ⚙️ hw_error (int[8], 프로토콜 순서) — 모터 Hardware Error 주입 (>0이면 그 모터 토크 꺼짐, R로 재부팅해야 풀림 — 펌웨어와 같음)
 #include <chrono>
 #include <cmath>
 #include <cstdint>
@@ -50,6 +51,10 @@ private:
   static bool parse_command(const std::string & line, std::array<double, 8> & v);
   // T 줄(토크 온/오프) 적용 — 전체(T,0) 또는 조인트별(T,1,0,,,,,,), 빈칸=유지
   void apply_torque_line(const std::string & line);
+  // R 줄(모터 재부팅) — 고른 모터의 에러를 지우고 토크 켜기 (펌웨어 apply_reboot_line)
+  void apply_reboot_line(const std::string & line);
+  void write_errors();  // E 줄 — 모터별 Hardware Error Status
+  void write_errors_locked();  // mutex_를 이미 잡은 쪽에서
   void write_state();
   void tick();
 
@@ -61,6 +66,8 @@ private:
   std::array<double, 2> wheel_cmd_{}, wheel_vel_{}, wheel_pos_{};
   std::array<double, 6> joint_cmd_{}, joint_pos_{}, joint_vel_{};
   std::array<bool, 8> torque_{true, true, true, true, true, true, true, true};  // 펌웨어 T 명령 상태
+  std::array<int, 8> hw_error_{};  // 주입된 Hardware Error (hw_error 파라미터, R로 지움)
+  std::chrono::steady_clock::time_point last_errors_{};
   std::chrono::steady_clock::time_point last_cmd_{}, last_state_{}, last_tick_{};
   long cmds_ = 0;
   bool bumped_ = false;

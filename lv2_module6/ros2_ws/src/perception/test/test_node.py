@@ -49,7 +49,7 @@ def test_empty_without_model():
 
 
 def test_mission_qr():
-    """QR 판이 보이는 영상을 넣으면 /mission_qr 로 문제 코드를 낸다 (MISSION.md §3-1)."""
+    """QR 판이 보이는 영상을 넣으면 /mission_qr 로 문제 코드를 낸다 (documents/mission/README.md)."""
     import cv2
     import numpy as np
     from sensor_msgs.msg import Image
@@ -502,3 +502,59 @@ def test_resolve_model_path(tmp_path):
     assert resolve_model_path("none.pt", d) == "none.pt"            # 폴더에 없으면 그대로 (로드 실패 경고)
     (tmp_path / "model.pt").unlink()
     assert resolve_model_path("", d) == ""                          # model.pt도 없으면 모델 없음
+
+
+# ---------- 표식 (발제 배포 표식: 퍽 AprilTag 0~11 · 장소 12~14 · 바코드) · 신호등 단계 구분
+def test_tags_and_markers():
+    """AprilTag 36h11 디코드 → 퍽 박스 안 번호 · 번호 → 색 / 신호등 두 색 이상 켜짐 = all / 태그 다른 퍽·장소는 다른 물체 · 번호 기억"""
+    import cv2
+    import numpy as np
+    from builtin_interfaces.msg import Time
+    from perception_node import classify_color, detect_tags, tag_color, tag_detector, tag_in_box, to_msg
+
+    dic = cv2.aruco.getPredefinedDictionary(cv2.aruco.DICT_APRILTAG_36h11)
+    img = np.full((240, 320, 3), 255, np.uint8)
+    img[40:100, 40:100] = cv2.cvtColor(cv2.aruco.generateImageMarker(dic, 2, 60), cv2.COLOR_GRAY2BGR)     # R3
+    img[40:120, 180:260] = cv2.cvtColor(cv2.aruco.generateImageMarker(dic, 13, 80), cv2.COLOR_GRAY2BGR)  # L2
+    tags = detect_tags(tag_detector(), img)
+    assert sorted(t[0] for t in tags) == [2, 13]
+    assert tag_in_box(tags, (30, 30, 110, 110), set(range(12))) == 2
+    assert tag_in_box(tags, (170, 30, 270, 130), set(range(12))) is None  # 장소 태그는 퍽 번호 아님
+    colors = {"red": [0, 1, 2, 3], "green": [4, 5, 6, 7], "blue": [8, 9, 10, 11]}
+    assert tag_color(2, colors) == "red" and tag_color(9, colors) == "blue" and tag_color(13, colors) == ""
+
+    roi = np.full((40, 14, 3), (40, 40, 40), np.uint8)
+    roi[2:10, 4:10] = (40, 40, 220)    # 빨강
+    roi[16:24, 4:10] = (40, 220, 230)  # 노랑
+    roi[30:38, 4:10] = (60, 180, 60)   # 초록
+    assert classify_color("traffic_light", roi) == "all"
+
+    os.environ.setdefault("ROS_DOMAIN_ID", "101")
+    rclpy.init()
+    try:
+        node = PerceptionNode()
+        a = node.fuse("gripper_cam", Time(), [{**_det((1.0, 0.0, 0.03), color="red"), "tag": 1},
+                                              {**_det((1.02, 0.0, 0.03), color="red"), "tag": 2}])
+        assert len(set(a)) == 2  # 붙은 같은 색 퍽 — 번호가 다르면 다른 물체
+        b = node.fuse("pole_front_cam", Time(sec=1), [{**_det((1.0, 0.0, 0.03), color="red"), "tag": None}])
+        assert b[0] in a and node.tracks[b[0]]["tag"] is not None  # 멀어서 못 읽은 관측이 아는 번호를 덮지 않음
+        msg = to_msg(a[0], node.to_map(node.tracks[a[0]]))
+        assert ("tag", "1") in [(kv.key, kv.value) for kv in msg.details]
+    finally:
+        rclpy.shutdown()
+
+
+def test_barcode_code128():
+    """장소 바코드(발제 P2-01, Code128) — zxing-cpp로 읽음 (OpenCV barcode는 EAN·UPC만이라 못 읽음). zxing-cpp 없으면 건너뜀"""
+    import cv2
+    import numpy as np
+    import pytest
+    zxingcpp = pytest.importorskip("zxingcpp")
+    from perception_node import barcode_detector
+
+    code = np.array(zxingcpp.create_barcode("P2-01", zxingcpp.BarcodeFormat.Code128).to_image(scale=2, add_quiet_zones=True))
+    scene = np.full((360, 640), 180, np.uint8)
+    scene[120:120 + code.shape[0], 200:200 + code.shape[1]] = code
+    ok, texts, _, points = barcode_detector()(cv2.cvtColor(scene, cv2.COLOR_GRAY2BGR))
+    assert ok and list(texts) == ["P2-01"]
+    assert np.asarray(points).reshape(-1, 4, 2).shape == (1, 4, 2)  # 꼭짓점 4개 — 위치(깊이) 구하는 데 씀

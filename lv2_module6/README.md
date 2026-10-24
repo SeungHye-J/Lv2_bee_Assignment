@@ -153,6 +153,7 @@ sequenceDiagram
 | 지도 모드 (스캔 ↔ 위치추정) | `/cmd/map_mode` (std_msgs/String MAPPING·LOCALIZATION) | state_manager → RTAB-Map 모드 전환 → `/state/map_mode` |
 | 원격 조종 | `/cmd/manual/cmd_vel` (TwistStamped) | manual_control → `/cmd_vel_manual` → twist_mux(자동보다 우선) → 안전 체인 → 바퀴 |
 | 팔·그리퍼 | `/cmd/manual/arm` (JointState: joint1~5 rad · gripper_left_joint m) | manual_control → JTC `/arm_controller/joint_trajectory` · 그리퍼 액션 |
+| 모터 재부팅 | `/cmd/manual/reboot_motors` (Empty) — 과부하 등 Hardware Error 풀기 | manual_control → 📞 `/beebotsystem/reboot_motors` → 펌웨어 `R` (에러 난 모터만) |
 | 비상정지 | `/cmd/e_stop` (std_msgs/Bool true) | state_manager → `/state/emergency` → twist_mux 잠금 — 자동·수동 바퀴 명령 전부 차단 |
 
 시뮬레이터 수동 조작 창(바퀴 버튼 · 로봇/팔 3D에서 관절 드래그) · 키보드(`ros2 run teleop_twist_keyboard teleop_twist_keyboard --ros-args -p stamped:=true -r cmd_vel:=/cmd/manual/cmd_vel`) · `ros2 topic pub` 어느 것으로도 보낼 수 있다. 수동 바퀴 명령도 안전 체인(velocity_smoother · collision_monitor)을 지난다.

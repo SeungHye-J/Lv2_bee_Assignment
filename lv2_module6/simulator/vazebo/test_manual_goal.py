@@ -19,6 +19,8 @@ def px(pt):
 
 p.reach = None  # 범위 없음 = 안 막음
 p.clamp_reach = lambda q: P.clamp_reach(p, q)
+p.active_reach = lambda: p.reach  # '손끝 방향 자유' 꺼짐 = 집기 자세 범위
+p.in_reach = lambda q, reach=None: P.in_reach(p, q, reach)
 p.goal, p.drag_from = np.array([0.20, 0.0, 0.15]), (0, 0)
 u, v = px([0.28, -0.05, 0.15])
 P.drag_goal(p, types.SimpleNamespace(x=u, y=v))

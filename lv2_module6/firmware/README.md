@@ -17,31 +17,40 @@ OpenCR 내장 IMU (MPU9250, cIMU)
 | --- | --- | --- |
 | SBC → OpenCR | `C,<바퀴L rad/s>,<바퀴R rad/s>,<joint1>,<joint2>,<joint3>,<joint4>,<joint5 rad>,<그리퍼 m>\n` (8개) | 제어 주기 (100Hz) |
 | SBC → OpenCR | `T,<8필드>` 또는 `T,0`·`T,1` — 토크 온/오프 (빈칸=유지, 관절별 가능) | 자세 실측·수동 정렬 |
-| OpenCR → SBC | `S,` 바퀴L pos·vel, 바퀴R pos·vel, joint1~5 pos·vel·전류A, 그리퍼 m·m/s·A, IMU qx·qy·qz·qw, gx·gy·gz rad/s, ax·ay·az m/s² `\n` (32개) | `STATE_PERIOD_MS` (25ms) |
+| SBC → OpenCR | `R,<8필드>` 또는 `R,1` — 모터 재부팅 (1=재부팅, 빈칸=그대로). Hardware Error(과부하·과열 등)는 재부팅으로만 풀린다. 재부팅 후 설정·토크 켜기, 팔은 느린 복귀 | 에러 났을 때 |
+| OpenCR → SBC | `E,<8 정수>` — 모터별 Hardware Error Status (0 정상 · −1 응답 없음 · 비트 1 입력전압 · 4 과열 · 8 엔코더 · 16 전기충격 · 32 과부하) | `MOTOR_CHECK_MS` (0.5 s) |
+| OpenCR → SBC | `S,` 바퀴L pos·vel, 바퀴R pos·vel, joint1~5 pos·vel·전류A, 그리퍼 m·m/s·A, IMU qx·qy·qz·qw, gx·gy·gz rad/s, ax·ay·az m/s² `\n` (32개) | `STATE_PERIOD_MS` (10ms = 100Hz) |
 
 `C` 필드별 단위와 펌웨어 변환:
 
 | 필드 | 값 | 단위 | 펌웨어 변환 |
 | --- | --- | --- | --- |
-| 바퀴L · 바퀴R | 속도 | rad/s (바퀴 각속도) | `rad_s_to_rpm(v × WHEEL_*_DIR)` → `setGoalVelocity(UNIT_RPM)` |
-| joint1~5 | 위치 | rad (0 = 서보 중앙) | `deg = ARM_DIR × rad × 180/π + 180` → `setGoalPosition(UNIT_DEGREE)` |
-| 그리퍼 | 손가락 벌림 | m (0 ~ 0.0265) | `m × GRIPPER_RAD_PER_M` → 위 관절식으로 deg |
+| 바퀴L · 바퀴R | 속도 | rad/s (바퀴 각속도) | `rpm(v × WHEEL_*_DIR) / 0.229` → Goal Velocity(104) — BulkWrite |
+| joint1~5 | 위치 | rad (0 = 서보 중앙) | `raw = 2048 + ARM_DIR × rad × 4096/2π` → Goal Position(116) — BulkWrite |
+| 그리퍼 | URDF `gripper_left_joint` (손가락 하나) | m, 0 = 닫힘 · + = 열림 | `config.h` 표(`GRIPPER_FINGER_M` ↔ `GRIPPER_SERVO_RAD`) 구간별 직선 → 서보 raw. 제원 스트로크 20~75 mm(손가락 0~27.5 mm, URDF 상한 26.5 mm) 전체. 간격 20~38 mm는 실측, 그 위는 실측 기울기로 늘린 값(TODO 끝까지 열어 실측) |
 
 - 빈칸 = 유지: 팔·그리퍼는 명령 생략, 바퀴는 0(정지).
 - 영점 오프셋은 펌웨어가 아니라 SBC가 처리한다: URDF `<ros2_control>` 관절 `<param name="offset">` → 보낼 때 `관절값 + offset`, 받을 때 `− offset` (단위 그대로 rad·m). 바퀴는 속도 명령이라 오프셋 없음.
+- 한 번도 읽지 못한 모터(부팅 때 12V 꺼짐 등)는 `S`에 `nan`으로 보낸다. SBC는 그런 `S`를 상태로 쓰지 않으므로(해석 실패로 셈) 활성화가 실패한다 — 0 raw(−π)를 실제 자세로 믿고 팔을 보내지 않게.
 - `S`도 같은 단위: 바퀴 누적 위치 rad·속도 rad/s, 관절 rad·rad/s·전류 A, 그리퍼 m·m/s·A.
 
 - watchdog: 마지막 **유효한** `C`부터 `COMMAND_TIMEOUT_MS`(500ms)가 지나면 바퀴 속도 0, 팔·그리퍼는 현재 자세 유지 (한 번).
   형식이 틀린 줄·빈 줄은 무시하고 타이머도 갱신하지 않는다.
 - SBC는 활성화 때 첫 `S`를 받아 실제 각도로 팔 명령을 맞춘다. 3초 안에 `S`가 없으면 활성화를 실패시킨다(실제 각도를 모르니 띄우지 않음). 팔 명령이 없으면(NaN) 팔 칸을 **빈칸(유지)**으로 보낸다 — 예전엔 초기 상태 0을 그대로 보내 시작하자마자 팔이 0 rad로 최고 속도로 튀었음.
 - 부팅 때 모터 하나라도 ping이 안 되면 `C`를 받지 않는다 (상태 `S`는 계속 보내 SBC가 원인을 볼 수 있게).
-- 그리퍼는 전류 기반 위치 모드 — 퍽을 쥐면 전류 한계에서 멈춘다.
+- 그리퍼는 전류 기반 위치 모드 — 퍽을 쥐면 `GRIPPER_GOAL_CURRENT_MA`(600 mA, TODO 실측)에서 멈춘다 (닫힘 한계를 넘는 명령으로 2 A를 버티지 않게).
+- 주기 구조 (2026-10-24 실기 시험: 개별 패킷이라 명령→측정 약 100 ms, S 60 ms 계단, C 100 Hz면 S 끊김 → 아래처럼 바꿈. **개선 후 실기 측정은 아직**)
+  - 서보 8개를 **BulkWrite**(목표 — 바퀴 속도·팔/그리퍼 위치를 주소가 달라도 한 패킷, 모든 서보가 같은 순간 반영) · **SyncRead**(Present Current~Position 연속 10 byte) 패킷 하나로.
+  - loop 한 번에 들어온 `C` 중 **마지막 하나만** 적용하고 S를 보낸다 — 밀린 C를 몰아 처리하던 것이 S를 굶기고 목표를 계단으로 튀게 했다(joint1 떨림 추정 원인).
+  - 부팅 때 모든 모터의 **Return Delay Time을 0**으로 (EEPROM, 다를 때만 씀).
+- 모터 에러: 펌웨어가 0.5 s마다 Hardware Error Status를 읽어 `E` 줄로 보낸다. 에러 난 모터는 토크가 안 켜지므로 자동 복구를 건너뛰고 재부팅을 기다린다(걸린 채 다시 힘을 주지 않게 자동 재부팅은 안 함). SBC는 진단 "OpenCR 연결"에 `모터 에러: joint2 과부하`처럼 띄우고, 서비스 `/beebotsystem/reboot_motors`(std_srvs/Trigger)를 부르거나 수동 모드에서 `/cmd/manual/reboot_motors`(std_msgs/Empty)를 보내면 **에러 난 모터만** `R`로 재부팅한다 (멀쩡한 관절까지 재부팅하면 팔이 떨어짐).
+- 12V 복구: 12V를 껐다 켜면 OpenCR은 USB 5V로 켜져 있고 모터만 재부팅돼 토크가 풀린다. 펌웨어가 `MOTOR_CHECK_MS`(0.5 s)마다 Torque Enable을 읽어 풀린 모터를 다시 설정하고 켠다. 팔은 그 사이 명령 자세와 멀어졌을 수 있어 **느린 속도(`RECOVER_PROFILE_VELOCITY` ≈ 0.48 rad/s)로 돌아간 뒤** 속도 한계를 푼다. `T,1`로 켤 때도 같다. 부팅 때 모터가 없었으면(12V 꺼짐) 1 s마다 다시 찾는다 — RESET 버튼 불필요.
 
 ## 준비
 
 - 모터 ID (DYNAMIXEL Wizard로 미리): 바퀴 왼쪽 **1** · 오른쪽 **2**, 팔 joint1~4 **11~14**, 손목 roll **15**, 그리퍼 **16**
   (OM-X 기본은 그리퍼가 15 — 손목을 끼우면서 16으로 옮긴다). 전부 1,000,000 bps · Protocol 2.0.
-- `config.h`에서 바퀴 방향, 관절 부호(`ARM_DIR`), 그리퍼 변환(`GRIPPER_RAD_PER_M`)을 실기에서 확인한다 (TODO).
+- `config.h`에서 바퀴 방향, 관절 부호(`ARM_DIR`), 그리퍼 실측표(`GRIPPER_FINGER_M`·`GRIPPER_SERVO_RAD`)·쥐는 전류를 실기에서 확인한다. 팔 영점은 펌웨어가 아니라 URDF `offset`.
 
 ## 설치·컴파일·업로드
 
@@ -136,6 +145,7 @@ bash ./test-firmware
 | `--send 'C,...'` | `C` 명령을 직접 전송 (빈 필드 `,,`는 유지 — 아래 규칙) |
 | `--torque on\|off` | 전체 토크 켜기/끄기 (`T,1` · `T,0`). 끄면 손으로 자세를 잡을 수 있다 |
 | `--torque <8필드>` | 조인트별 토크 (C와 같은 순서, 빈칸=지금 상태 유지, `1`=켜기 `0`=끄기) |
+| `--reboot <모터,…\|all>` | 모터 재부팅 `R` (예: `joint2,gripper`). 상태 출력에 `E`(모터 에러)도 같이 나온다. `all`은 팔이 잠깐 힘이 빠지니 받치고 |
 | `--yes` | 확인 프롬프트 없이 실행 |
 
 - `--arm`, `--gripper`, `--wheel`, `--send`는 실제로 모터를 움직인다. 주변을 비우고 작은 값부터 사용한다.

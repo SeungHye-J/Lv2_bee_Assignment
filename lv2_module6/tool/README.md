@@ -157,6 +157,7 @@ cd tool
 ./run-cli arm set joint1=0.0 joint2=0.4 joint3=-0.2
 ./run-cli arm delta joint2=+0.05
 ./run-cli arm home
+./run-cli arm reboot          # 과부하 등 Hardware Error 난 모터만 재부팅 (메뉴: 팔 → 5)
 
 ./run-cli gripper show
 ./run-cli gripper open
@@ -167,6 +168,7 @@ cd tool
 - `arm set`은 지정한 관절만 보내고, 나머지는 `manual_control`이 현재 각으로 채웁니다.
 - `MAPPING` 중에는 팔 명령이 스캔 자세 고정 때문에 거절됩니다. 그리퍼는 가능합니다.
 - 관절 한계는 `controller_manager`의 joint limiter가 최종 적용합니다.
+- `arm reboot`은 `/state/devices/<wheels·arm·gripper>`에서 모터 에러(`joint2:과부하`)를 보고, 있으면 `/cmd/manual/reboot_motors`를 보낸 뒤 풀릴 때까지(최대 8초) 기다립니다. 에러가 없으면 보내지 않습니다. MANUAL 모드에서만 동작하며, 팔 메뉴에도 에러가 빨간색으로 표시됩니다.
 
 ### 지도
 

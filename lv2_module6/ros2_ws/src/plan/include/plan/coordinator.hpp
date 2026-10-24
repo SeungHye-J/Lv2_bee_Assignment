@@ -6,7 +6,9 @@
 //         🎬 /gripper_controller/gripper_cmd, 📞 /score_grasps (grasp_scorer),
 //         📞 /clear_octomap · /apply_planning_scene (move_group), ✉️ /task_status → VLM·UI, ✉️ /robot_say → user_input
 // 규칙 (골격에 들어간 것):
-//   1. VLM 출력 검증 — 허용 동작(navigate·pick·place·say), 숫자 대상 id가 /tracked_objects에 있는지
+//   1. VLM 출력 검증 — 허용 동작(navigate·pick·place·inspect·say), 숫자 대상 id가 /tracked_objects에 있는지
+//   inspect <퍽 id> (신호등 암호 미션 — 퍽 윗면 16mm AprilTag는 gripper_cam이 위에서 봐야 읽힘): 멀면 다가가고 손끝을 퍽 윗면 위
+//     inspect_height_m로 (손가락 아래) → inspect_wait_s 기다림 → 다음 단계. 읽었는지(details tag)는 planner가 /tracked_objects로 본다
 //   4. 파지 재시도는 coordinator 몫 — grasp_scorer 후보를 점수순으로 최대 max_grasp_tries(2)개, 다 실패하면 FAILED
 //   5. 같은 단계 2회 연속 실패면 /robot_say로 알리고 정지
 //   적재함 (MISSION ③ MOVE_TO_B — 퍽을 실어 운반): target "tray"
@@ -128,6 +130,9 @@ private:
   // ---------- 🎬 move_group: 위로 이동 → 벌리기
   void execute_place(const geometry_msgs::msg::PoseStamped & target, std::function<void(bool)> done, double approach = 0.10);
 
+  // ---------- inspect: 퍽 위에서 gripper_cam으로 내려다보기 (윗면 태그 읽기)
+  void inspect(const SubGoal & g);
+
   // ---------- 적재함: 칸 위치 (base_footprint) 손끝 목표
   geometry_msgs::msg::PoseStamped tray_pose(size_t slot, double z) const;
 
@@ -161,6 +166,8 @@ private:
 
   int max_grasp_tries_, max_step_failures_, arm_plan_tries_;
   double reach_m_, approach_m_;
+  double inspect_height_m_, inspect_wait_s_;
+  rclcpp::TimerBase::SharedPtr inspect_timer_;
   std::vector<std::string> initial_joints_;
   std::vector<double> initial_pose_;
   double initial_tol_ = 0.05;

@@ -24,6 +24,7 @@ find_package(tf2 REQUIRED)
 find_package(tf2_ros REQUIRED)
 find_package(tf2_geometry_msgs REQUIRED)
 find_package(ament_index_cpp REQUIRED)
+find_package(std_srvs REQUIRED)
 
 rosidl_generate_interfaces(${PROJECT_NAME}
   msg/ArmSafetyEvent.msg
@@ -37,7 +38,7 @@ add_library(${PROJECT_NAME}_nodes STATIC src/arm_safety_monitor.cpp src/manual_c
 target_include_directories(${PROJECT_NAME}_nodes PUBLIC include)
 target_compile_features(${PROJECT_NAME}_nodes PUBLIC cxx_std_17)
 target_link_libraries(${PROJECT_NAME}_nodes PUBLIC rclcpp::rclcpp rclcpp_action::rclcpp_action ${sensor_msgs_TARGETS} ${action_msgs_TARGETS}
-  ${geometry_msgs_TARGETS} ${std_msgs_TARGETS} ${trajectory_msgs_TARGETS} ${control_msgs_TARGETS} ${msgs_cpp}
+  ${geometry_msgs_TARGETS} ${std_msgs_TARGETS} ${trajectory_msgs_TARGETS} ${control_msgs_TARGETS} ${msgs_cpp} ${std_srvs_TARGETS}
   diagnostic_updater::diagnostic_updater urdf::urdf tf2::tf2 tf2_ros::tf2_ros tf2_geometry_msgs::tf2_geometry_msgs
   ament_index_cpp::ament_index_cpp)
 foreach(node arm_safety_monitor manual_control body_filter)
@@ -50,7 +51,7 @@ install(TARGETS arm_safety_monitor manual_control body_filter DESTINATION lib/${
 add_library(beebot_system_hardware SHARED src/beebot_system_hardware.cpp)
 target_compile_features(beebot_system_hardware PUBLIC cxx_std_17)
 target_link_libraries(beebot_system_hardware hardware_interface::hardware_interface
-  pluginlib::pluginlib rclcpp::rclcpp rclcpp_lifecycle::rclcpp_lifecycle diagnostic_updater::diagnostic_updater)
+  pluginlib::pluginlib rclcpp::rclcpp rclcpp_lifecycle::rclcpp_lifecycle diagnostic_updater::diagnostic_updater ${std_srvs_TARGETS})
 pluginlib_export_plugin_description_file(hardware_interface control_plugins.xml)
 install(TARGETS beebot_system_hardware LIBRARY DESTINATION lib)
 

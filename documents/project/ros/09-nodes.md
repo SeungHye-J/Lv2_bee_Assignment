@@ -12,6 +12,7 @@
 | perception | 직접 | perception · ROS 2 노드 | 퍽·목표 구역·장애물 검출, 3D 위치, ID 추적, /tracked_objects |
 | user_input | 직접 | plan · ROS 2 노드 | 운영자 텍스트 명령 → /cmd/user_command, /robot_say 표시 |
 | vlm_task_planner | 직접 | plan · ROS 2 노드 | VLM 호출, 프롬프트, JSON 출력 파싱 → /sub_goals |
+| signal_decoder | 직접 | plan · ROS 2 노드 (C++) | 신호등 암호 미션 — /tracked_objects의 신호등 상태를 시간축으로 쌓아 1·2·3단계(색·개수 · 번호 합 · 목적지 태그)를 읽어 /mission_signal (단계 구분 = 세 색 동시 · 꺼짐 — 파라미터) |
 | explorer | 직접 | plan · ROS 2 노드 (C++) | 자동 탐사 — 조작 모드 EXPLORE일 때 /map 프론티어(빈 곳·모르는 곳 경계)를 골라 Nav2 /navigate_to_pose로 차례로 보냄, 끝나면 /explore/result |
 | coordinator | 직접 | plan · ROS 2 노드 (BT 권장: BehaviorTree.CPP) | 계획 검증, 액션 호출, 실행 규칙, 재시도, MTC 태스크 구성, 수동 모드면 멈춤 |
 | grasp_scorer | 직접 | ml · ROS 2 서비스 노드 | 모델 로드, IK 가능 후보만 채점, /score_grasps 응답 |
@@ -22,7 +23,7 @@
 | manual_control | 직접 | control · ROS 2 노드 | 수동 모드(/state/operation_mode), 원격 조종 → twist_mux, 팔·그리퍼 직접 명령 |
 | BeebotSystemHardware | 직접 | control · ros2_control SystemInterface 플러그인 | OpenCR와 USB 시리얼(C 명령 · S 상태), mock 모드 |
 | body_filter | 직접 | control · ROS 2 노드 | pole_front_cam 점구름에서 자기 몸(URDF collision) 점 제거 + `stride: 2`로 솎아 Nav2 |
-| state_manager | 직접 | manager · ROS 2 노드 | 로봇 상태의 주인 — /state/<이름>만 발행 (조작·지도 모드, RTAB-Map 전환) · `/state/devices`(장치 이름 목록) + `/state/devices/<이름>`(active/disconnected 상세) + `/state/topics`(전체 그래프) |
+| state_manager | 직접 | manager · ROS 2 노드 | 로봇 상태의 주인 — /state/<이름>만 발행 (조작·지도 모드, RTAB-Map 전환) · `/state/devices`(장치 이름 목록) + `/state/devices/<이름>`(active/disconnected/error 상세 — 팔·바퀴·그리퍼 모터 에러 포함) + `/state/topics`(전체 그래프) |
 | (OpenCR 펌웨어) beebot_opencr | 직접 | lv2_module6/firmware · Arduino | 다이나믹셀 8개 + IMU, 단위 변환, watchdog |
 | realsense2_camera ×2 (pole_front_cam, gripper_cam) | 제공 | Intel RealSense ROS 2 래퍼 | 장치를 USB 3로 열고 토픽 발행 — serial_no, camera_name, 해상도·fps, align_depth, pointcloud 켜기 |
 | robot_state_publisher | 제공 | ROS 2 기본 | URDF(urdf/<이름>/urdf.xacro — launch `urdf:=`, 기본 beebot_mesh) |
