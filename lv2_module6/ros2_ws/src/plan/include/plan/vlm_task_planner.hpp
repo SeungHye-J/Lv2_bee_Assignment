@@ -12,6 +12,9 @@
 // 신호등 암호 미션 (documents/mission/README.md)은 VLM 없이 규칙으로 — /mission_signal {색, 개수, 번호 합, 목적지 태그}가 오면
 //   번호(퍽 윗면 태그)를 아는 그 색 퍽 중 합이 맞는 조합(로봇에서 가까운 것 우선)을 골라 적재함에 싣고 목적지 장소(location, tag)로 →
 //   조합이 없으면 번호를 모르는 그 색(또는 색 모름) 퍽을 inspect하는 계획 → 끝나면 다시 판단. 목적지 태그를 아직 못 봤으면 기다림.
+// 수납 확인: 옮기기가 끝나면 바로, 그 뒤로는 verify_period_s마다 (AUTO · 하던 계획이 끝났을 때만) 목적지로 가서 본다 (look) →
+//   옮긴 태그 번호가 목적지 근처(verify_radius_m)에 다 있으면 끝 · 다른 곳에서 보이면 다시 옮김(recarry) · 안 보이면 알림(say).
+//   확인 계획(look·recarry)이 실패하면 재계획하지 않고 다음 주기에 다시. 새 명령·새 신호가 오면 확인 대상을 지운다.
 #include <atomic>
 #include <cstdint>
 #include <map>
@@ -66,10 +69,23 @@ struct SignalPlan {
   std::string kind;
   std::vector<SubGoal> goals;
   std::vector<uint32_t> inspect_ids;
+  std::vector<int> carry_tags;  // carry일 때 옮기는 퍽 번호 (수납 확인용)
   std::string why;
 };
 SignalPlan signal_plan(const TrackedObjectArray & objs, const plan::msg::MissionSignal & sig, double rx, double ry,
   const std::set<uint32_t> & inspected, int capacity);
+
+// 수납 확인 한 번 판단 — 목적지 장소(location, dest_tag) 근처 radius 안에 tags(옮긴 퍽 번호)가 다 있는지
+//   looked=false: wait(목적지 태그 못 봄) · look(목적지로 가서 근처의 번호 모르는 퍽 inspect)
+//   looked=true (look 끝난 뒤): ok(다 있음) · recarry(빠진 번호를 다른 곳에서 찾음 → 다시 옮김) · missing(못 찾음)
+struct VerifyPlan {
+  std::string kind;
+  std::vector<SubGoal> goals;
+  std::vector<int> missing;  // 목적지 근처에 없는 번호
+  std::string why;
+};
+VerifyPlan verify_plan(const TrackedObjectArray & objs, int dest_tag, const std::vector<int> & tags, double radius,
+  bool looked);
 
 // 계획 요청에 실을 로봇 위치 (map) — ok=false면 뺌
 struct RobotPose {
@@ -90,6 +106,8 @@ private:
   void make_plan();                            // 물체 확인 후 VLM 시도 (endpoint 없으면 템플릿 즉시)
   void make_template(const TrackedObjectArray & objs, const std::string & cmd);  // 고정 4단계 발행
   void make_signal_plan();                     // 신호등 암호 미션 — 규칙으로 (VLM 안 씀)
+  void make_verify_plan(bool looked);          // 수납 확인 — look 계획 · look 끝난 뒤 판단
+  void verify_tick();                          // verify_period_s 타이머
   void publish_plan(std::vector<SubGoal> goals, const char * how);
   void try_vlm_async();                        // 스냅샷 → 별 스레드 POST → 성공 발행·실패 템플릿
 
@@ -136,6 +154,15 @@ private:
   std::set<uint32_t> inspected_;        // 이번 미션에서 inspect한 퍽 (같은 퍽을 다시 보지 않게)
   std::string plan_kind_;               // 마지막으로 낸 계획 종류 (inspect면 끝난 뒤 이어서 판단)
   std::string signal_note_ = "-";       // 진단
+  std::atomic<uint32_t> done_plan_{0};  // 끝난(SUCCEEDED·FAILED) 마지막 plan_id — plan_id_와 같으면 하던 계획 없음
+  std::string mode_;                    // /state/operation_mode — 수납 확인은 AUTO일 때만
+  rclcpp::Subscription<std_msgs::msg::String>::SharedPtr mode_sub_;
+  double verify_period_s_, verify_radius_m_;
+  std::vector<int> carry_tags_;         // 마지막으로 낸 옮기기 계획의 퍽 번호 (성공하면 stored_tags_로)
+  int stored_dest_ = -1;                // 수납 확인 대상 — 목적지 장소 태그 (−1 = 없음)
+  std::vector<int> stored_tags_;        //   거기 있어야 할 퍽 번호
+  std::string verify_note_ = "없음";    // 진단
+  rclcpp::TimerBase::SharedPtr verify_timer_;
   std::vector<rclcpp::Subscription<sensor_msgs::msg::Image>::SharedPtr> image_subs_;
   diagnostic_updater::Updater diag_{this};
 };

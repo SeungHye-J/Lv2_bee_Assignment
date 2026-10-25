@@ -175,6 +175,7 @@ TEST(Signal, MissionPlan) {
   inspected = {2, 4};
   r = signal_plan(objs, sig, 0.0, 0.0, inspected, 4);
   ASSERT_EQ(r.kind, "carry") << r.why;
+  EXPECT_EQ(r.carry_tags, (std::vector<int>{2, 3}));
   EXPECT_EQ(r.goals[1].target, "1");
   EXPECT_EQ(r.goals[4].target, "2");
   EXPECT_EQ(r.goals[6].target, "9");
@@ -184,6 +185,35 @@ TEST(Signal, MissionPlan) {
   // 다 봤는데 합을 못 만들면 실패 (say)
   sig.sum = 6;
   EXPECT_EQ(signal_plan(objs, sig, 0.0, 0.0, inspected, 4).kind, "fail");
+}
+
+TEST(Signal, VerifyPlan) {
+  // 목적지 = 장소 태그 13인 물체 9 (x 2.0) · 옮긴 번호 2·3 · 반경 0.2
+  TrackedObjectArray objs;
+  objs.objects = {obj(9, "location", "", 13, 2.0), obj(1, "puck", "red", 2, 2.05), obj(2, "puck", "red", -1, 1.9),
+                  obj(5, "puck", "red", -1, 0.5)};
+  // 보러 가기 — 목적지로 navigate · 근처의 번호 모르는 퍽(2)만 inspect (멀리 있는 5는 안 봄)
+  auto r = verify_plan(objs, 13, {2, 3}, 0.2, false);
+  ASSERT_EQ(r.kind, "look");
+  ASSERT_EQ(r.goals.size(), 2u);
+  EXPECT_EQ(r.goals[0].target, "9");
+  EXPECT_EQ(r.goals[1].skill, "inspect");
+  EXPECT_EQ(r.goals[1].target, "2");
+  // 봤더니 2번 = 태그 3 → 다 있음
+  objs.objects[2] = obj(2, "puck", "red", 3, 1.9);
+  EXPECT_EQ(verify_plan(objs, 13, {2, 3}, 0.2, true).kind, "ok");
+  // 태그 3 퍽이 다른 곳(0.5)에 있으면 다시 옮김
+  objs.objects[2] = obj(2, "puck", "red", 3, 0.5);
+  r = verify_plan(objs, 13, {2, 3}, 0.2, true);
+  ASSERT_EQ(r.kind, "recarry") << r.why;
+  EXPECT_EQ(r.missing, (std::vector<int>{3}));
+  EXPECT_EQ(r.goals[1].target, "2");
+  EXPECT_EQ(r.goals.back().target, "9");
+  // 어디에도 안 보이면 missing · 목적지 태그가 안 보이면 wait
+  objs.objects.erase(objs.objects.begin() + 2);
+  EXPECT_EQ(verify_plan(objs, 13, {2, 3}, 0.2, true).kind, "missing");
+  objs.objects.erase(objs.objects.begin());
+  EXPECT_EQ(verify_plan(objs, 13, {2, 3}, 0.2, false).kind, "wait");
 }
 
 TEST(Coordinator, ApproachPose) {
