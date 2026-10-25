@@ -29,7 +29,7 @@ flowchart TD
         SEP["단계 구분 신호\n세 색 동시(all) 2초\n또는 꺼짐 3초"]
     end
 
-    RESULT["/mission_signal 발행\n{ color, count, sum, dest_tag, raw }"]
+    RESULT["/mission/signal 발행\n{ color, count, sum, dest_tag, raw }"]
 
     TL_FOUND --> WATCH
     WATCH --> SEP
@@ -50,7 +50,7 @@ flowchart TD
   [all 켜짐 2초]  ← 3단계 시작 신호
   노랑 ● 노랑 ●   → 목적지 tag=13
 
-결과: /mission_signal
+결과: /mission/signal
   color    = "red"
   count    = 2
   sum      = 5
@@ -72,7 +72,7 @@ flowchart TD
 ```mermaid
 flowchart LR
     MISS["깜빡임 놓침\n또는 노이즈"]
-    RAW["raw 문자열 그대로\n/mission_signal 발행"]
+    RAW["raw 문자열 그대로\n/mission/signal 발행"]
     VLM["vlm_task_planner\n판단 불가 시 say\n→ 사람 확인 요청"]
 
     MISS --> RAW --> VLM

@@ -34,9 +34,9 @@ TEST_F(RosTest, RejectsUnknownSkill) {
   auto probe = std::make_shared<rclcpp::Node>("probe");
   const auto latched = rclcpp::QoS(10).reliable().transient_local();
   auto objects_pub = probe->create_publisher<TrackedObjectArray>("/tracked_objects", rclcpp::QoS(5).reliable());
-  auto goals_pub = probe->create_publisher<SubGoalArray>("/sub_goals", latched);
+  auto goals_pub = probe->create_publisher<SubGoalArray>("/task/sub_goals", latched);
   TaskStatus::SharedPtr got;
-  auto sub = probe->create_subscription<TaskStatus>("/task_status", latched,
+  auto sub = probe->create_subscription<TaskStatus>("/task/status", latched,
     [&](TaskStatus::SharedPtr m) { got = m; });
   rclcpp::executors::SingleThreadedExecutor exec;
   exec.add_node(node);
@@ -71,10 +71,10 @@ TEST_F(RosTest, ManualModeStopsRunningPlan) {
   auto probe = std::make_shared<rclcpp::Node>("probe2");
   const auto latched = rclcpp::QoS(10).reliable().transient_local();
   auto objects_pub = probe->create_publisher<TrackedObjectArray>("/tracked_objects", rclcpp::QoS(5).reliable());
-  auto goals_pub = probe->create_publisher<SubGoalArray>("/sub_goals", latched);
+  auto goals_pub = probe->create_publisher<SubGoalArray>("/task/sub_goals", latched);
   auto mode_pub = probe->create_publisher<std_msgs::msg::String>("/state/operation_mode", rclcpp::QoS(1).reliable().transient_local());
   std::vector<TaskStatus> got;
-  auto sub = probe->create_subscription<TaskStatus>("/task_status", latched,
+  auto sub = probe->create_subscription<TaskStatus>("/task/status", latched,
     [&](TaskStatus::SharedPtr m) { got.push_back(*m); });
   rclcpp::executors::SingleThreadedExecutor exec;
   exec.add_node(node);

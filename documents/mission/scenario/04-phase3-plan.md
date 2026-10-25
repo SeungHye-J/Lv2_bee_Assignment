@@ -1,19 +1,19 @@
 # Phase 3 — vlm_task_planner 판단
 
-> 목적: `/mission_signal`을 받아 `/tracked_objects` 상태를 보고 실행 계획(`/sub_goals`)을 수립.
+> 목적: `/mission/signal`을 받아 `/tracked_objects` 상태를 보고 실행 계획(`/task/sub_goals`)을 수립.
 
 ## 전체 판단 트리
 
 ```mermaid
 flowchart TD
-    IN["/mission_signal 수신\n{ RED, count:2, sum:5, dest_tag:13 }"]
+    IN["/mission/signal 수신\n{ RED, count:2, sum:5, dest_tag:13 }"]
 
     Q_PUCK{"해당 색(RED) 퍽이\n/tracked_objects에 있음?"}
     Q_TAG{"번호 아는 퍽으로\n합=5인 2개 조합 존재?"}
     Q_DEST{"목적지 tag=13\n발견됨?"}
     Q_INSPECT{"번호 모르는\n퍽이 남아 있음?"}
 
-    CARRY["✅ 케이스 A\ncarry 계획 수립\n→ /sub_goals 발행"]
+    CARRY["✅ 케이스 A\ncarry 계획 수립\n→ /task/sub_goals 발행"]
     WAIT_DEST["⏳ 케이스 C\nwait\n목적지 발견 대기\n(explorer 계속)"]
     INSPECT["🔍 케이스 B\ninspect 계획 수립\n태그 읽기 후 재판단"]
     FAIL["❌ 케이스 D\nsay\n조합 불가 — 사람 개입"]
@@ -37,7 +37,7 @@ flowchart TD
 조합을 즉시 찾은 경우. 예: R3(tag=2) + R4(tag=3) = 5
 
 ```
-/sub_goals:
+/task/sub_goals:
   step 1:  navigate  R3_id          ← 퍽 R3 앞으로 이동
   step 2:  pick      R3_id          ← 집기
   step 3:  place     tray           ← 수납함 칸1에 싣기
@@ -56,11 +56,11 @@ sequenceDiagram
     participant VLM as vlm_task_planner
     participant CO as coordinator
 
-    VLM->>CO: /sub_goals [11 steps]
+    VLM->>CO: /task/sub_goals [11 steps]
     Note over CO: step 1~3: 퍽 R3 → 수납함
     Note over CO: step 4~6: 퍽 R4 → 수납함
     Note over CO: step 7~11: 목적지로 이동 → 수납함에서 꺼내 내려놓기 ×2
-    CO->>VLM: /task_status SUCCEEDED
+    CO->>VLM: /task/status SUCCEEDED
     VLM->>VLM: 수납 확인 시작 (Phase 5)
 ```
 
@@ -71,7 +71,7 @@ sequenceDiagram
 퍽은 보이지만 tag 번호를 아직 모르는 경우.
 
 ```
-/sub_goals:
+/task/sub_goals:
   step 1:  navigate  puck_A_id
   step 2:  inspect   puck_A_id   ← 팔을 퍽 윗면 0.15m 위 → gripper_cam이 16mm 태그 읽기
   step 3:  navigate  puck_B_id
@@ -85,10 +85,10 @@ sequenceDiagram
     participant CO as coordinator
     participant P as perception
 
-    VLM->>CO: /sub_goals [inspect × N]
+    VLM->>CO: /task/sub_goals [inspect × N]
     CO->>P: (팔을 퍽 윗면 위로) gripper_cam 촬영
     P->>VLM: /tracked_objects (details.tag 갱신)
-    CO->>VLM: /task_status SUCCEEDED
+    CO->>VLM: /task/status SUCCEEDED
     VLM->>VLM: 재판단 → 케이스 A 또는 D
 ```
 
@@ -128,7 +128,7 @@ flowchart LR
 
 ```mermaid
 flowchart LR
-    FAIL["/task_status FAILED"]
+    FAIL["/task/status FAILED"]
     RE{"max_replans\n초과?"}
     REPLAN["재계획\n(다른 퍽으로 교체 등)"]
     STOP["정지\nsay 알림"]

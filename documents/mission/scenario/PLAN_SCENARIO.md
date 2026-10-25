@@ -62,7 +62,7 @@ signal_decoder: /tracked_objects에서 traffic_light 상태 구독
     [3단계] 노랑 N번 깜빡임 → dest_tag = 11+N (1→12, 2→13, 3→14)
     단계 구분 = 세 색 동시(all) 2초 / 꺼짐 3초
 
-  → /mission_signal 발행:
+  → /mission/signal 발행:
       { color: "red", count: 2, sum: 5, dest_tag: 13, raw: "R R | R Y G G R | Y Y" }
 ```
 
@@ -70,7 +70,7 @@ signal_decoder: /tracked_objects에서 traffic_light 상태 구독
 
 ## Phase 3 — vlm_task_planner 판단
 
-`/mission_signal` 수신 시 vlm_task_planner가 `/tracked_objects` 상태를 보고 판단.
+`/mission/signal` 수신 시 vlm_task_planner가 `/tracked_objects` 상태를 보고 판단.
 
 ### 케이스 A: 조합 즉시 계산 가능
 
@@ -79,7 +79,7 @@ signal_decoder: /tracked_objects에서 traffic_light 상태 구독
       + 목적지 태그도 이미 발견됨
 
 판단 결과 (kind: carry):
-  /sub_goals 발행:
+  /task/sub_goals 발행:
     step 1: navigate(퍽 R3 위치)
     step 2: pick(R3)
     step 3: place tray          ← 수납함 칸1에 싣기
@@ -99,14 +99,14 @@ signal_decoder: /tracked_objects에서 traffic_light 상태 구독
 조건: 해당 색 퍽이 보이지만 태그 번호 미확인 상태
 
 판단 결과 (kind: inspect):
-  /sub_goals 발행:
+  /task/sub_goals 발행:
     step 1: navigate(퍽 A 위치)
     step 2: inspect(퍽 A)       ← 팔을 퍽 윗면 0.15m 위로 → gripper_cam이 16mm 태그 읽기
     step 3: navigate(퍽 B 위치)
     step 4: inspect(퍽 B)
     ...
 
-  inspector 완료 → /task_status SUCCEEDED
+  inspector 완료 → /task/status SUCCEEDED
   → vlm_task_planner 재판단 (케이스 A 또는 C)
 ```
 
@@ -116,7 +116,7 @@ signal_decoder: /tracked_objects에서 traffic_light 상태 구독
 조건: mission_signal은 받았으나 dest_tag(예: 13번)를 아직 못 봄
 
 판단 결과 (kind: wait):
-  /sub_goals 발행 안 함
+  /task/sub_goals 발행 안 함
   explorer가 계속 탐색
   → location tag=13 발견 시 vlm_task_planner 자동 재판단
 ```
@@ -134,7 +134,7 @@ signal_decoder: /tracked_objects에서 traffic_light 상태 구독
 
 ## Phase 4 — coordinator 실행
 
-`/sub_goals`를 받아 단계별 순서대로 실행.
+`/task/sub_goals`를 받아 단계별 순서대로 실행.
 
 ```
 [navigate 단계]
@@ -165,7 +165,7 @@ signal_decoder: /tracked_objects에서 traffic_light 상태 구독
 
 [실패 처리]
   같은 단계 max_step_failures(2)회 연속 실패
-  → /robot_say 알림 + 정지
+  → /robot/say 알림 + 정지
   → vlm_task_planner가 FAILED 수신 → max_replans(1)회 재계획
 ```
 
@@ -218,7 +218,7 @@ T+185s  60초 후 재확인 → 이상 없음 ✅
 
 | 상황 | 처리 |
 |------|------|
-| 신호 못 읽음 (깜빡임 놓침) | signal_decoder가 raw 그대로 `/mission_signal` — vlm_task_planner가 모호하면 say + 대기 |
+| 신호 못 읽음 (깜빡임 놓침) | signal_decoder가 raw 그대로 `/mission/signal` — vlm_task_planner가 모호하면 say + 대기 |
 | 퍽 집기 2회 실패 | coordinator → say("퍽을 잡을 수 없어요") → vlm_task_planner 재계획 1회 (다른 퍽으로 교체) |
 | 수납함 꽉 참 | tray_full 실패 → vlm_task_planner가 목적지 먼저 가서 내려놓는 계획으로 재수립 |
 | 목적지 끝내 못 찾음 | kind: wait → explorer 재탐색 → 없으면 say("목적지를 찾을 수 없어요") |

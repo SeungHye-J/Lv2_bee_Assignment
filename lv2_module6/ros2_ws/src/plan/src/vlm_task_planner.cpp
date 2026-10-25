@@ -540,12 +540,12 @@ VlmTaskPlanner::VlmTaskPlanner()
   verify_radius_m_ = declare_parameter<double>("verify_radius_m", 0.20);
   tf_buffer_ = std::make_unique<tf2_ros::Buffer>(get_clock());
   tf_listener_ = std::make_shared<tf2_ros::TransformListener>(*tf_buffer_);
-  goals_pub_ = create_publisher<SubGoalArray>("/sub_goals", rclcpp::QoS(10).reliable().transient_local());
+  goals_pub_ = create_publisher<SubGoalArray>("/task/sub_goals", rclcpp::QoS(10).reliable().transient_local());
   cmd_sub_ = create_subscription<std_msgs::msg::String>("/cmd/user_command", rclcpp::QoS(10).reliable(),
     [this](std_msgs::msg::String::ConstSharedPtr m) { on_command("명령", m->data); });
   // 장소에 붙은 바코드(작업 지시 문자열, 발제 P2-01 …) · QR — perception이 읽음. 명령과 똑같이 계획 (VLM이 해석)
   // 템플릿(VLM 없음): 가까운 퍽 1개를 장소(location)로
-  qr_sub_ = create_subscription<std_msgs::msg::String>("/mission_qr", rclcpp::QoS(1).reliable().transient_local(),
+  qr_sub_ = create_subscription<std_msgs::msg::String>("/mission/qr", rclcpp::QoS(1).reliable().transient_local(),
     [this](std_msgs::msg::String::ConstSharedPtr m) { on_command("QR 문제", m->data); });
   objects_sub_ = create_subscription<TrackedObjectArray>("/tracked_objects", rclcpp::QoS(5).reliable(),
     [this](TrackedObjectArray::ConstSharedPtr m) {
@@ -561,7 +561,7 @@ VlmTaskPlanner::VlmTaskPlanner()
       // 물체 집합이 바뀔 때만 재시도 — 같은 목록(빈 목록 포함)으로 매번 VLM을 때리면 초당 요청 폭주
       if (pending_ && changed) make_plan();  // 물체 목록보다 명령이 먼저 왔으면 지금 계획
     });
-  signal_sub_ = create_subscription<plan::msg::MissionSignal>("/mission_signal", rclcpp::QoS(1).reliable().transient_local(),
+  signal_sub_ = create_subscription<plan::msg::MissionSignal>("/mission/signal", rclcpp::QoS(1).reliable().transient_local(),
     [this](plan::msg::MissionSignal::ConstSharedPtr m) {
       RCLCPP_INFO(get_logger(), "신호등 미션: %s %d개 · 합 %d · 목적지 태그 %d", m->color.c_str(), m->count, m->sum, m->dest_tag);
       replans_ = 0;
@@ -581,7 +581,7 @@ VlmTaskPlanner::VlmTaskPlanner()
     rclcpp::QoS(1).reliable().transient_local(), [this](std_msgs::msg::String::ConstSharedPtr m) { mode_ = m->data; });
   if (verify_period_s_ > 0.0)
     verify_timer_ = create_wall_timer(std::chrono::duration<double>(verify_period_s_), [this]() { verify_tick(); });
-  status_sub_ = create_subscription<TaskStatus>("/task_status", rclcpp::QoS(10).reliable().transient_local(),
+  status_sub_ = create_subscription<TaskStatus>("/task/status", rclcpp::QoS(10).reliable().transient_local(),
     [this](TaskStatus::ConstSharedPtr m) { on_status(*m); });
   const auto sensor_qos = rclcpp::SensorDataQoS().keep_last(1);  // VLM은 최신 장면만 필요
   for (const std::string cam : {"pole_front_cam", "gripper_cam"}) {

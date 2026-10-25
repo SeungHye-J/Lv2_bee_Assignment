@@ -106,9 +106,9 @@ flowchart LR
 
 ```mermaid
 flowchart LR
-    SIGNAL["/mission_signal 수신\ndest_tag=13"]
+    SIGNAL["/mission/signal 수신\ndest_tag=13"]
     NO_DEST["location tag=13\n아직 없음"]
-    WAIT["vlm: kind=wait\n/sub_goals 발행 안 함"]
+    WAIT["vlm: kind=wait\n/task/sub_goals 발행 안 함"]
     EXPLORE["explorer 계속 탐색"]
     FOUND["tag=13 발견"]
     PLAN["vlm 재판단\n→ carry 계획 수립"]

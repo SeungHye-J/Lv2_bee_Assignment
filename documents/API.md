@@ -42,7 +42,7 @@ diagnostic_msgs/KeyValue[] details      # 클래스별 속성 — puck: posture 
 ```
 
 표식 (발제 「AprilTag와 바코드 실제 배포 표식」, tag36h11 — OpenCV aruco로 읽음): 퍽 윗면 16mm R1~R4 = 0~3 · G1~G4 = 4~7 · B1~B4 = 8~11 → 그 퍽의 `tag`(한 번 읽으면 기억 · gripper_cam이 위에서 봐야 읽힘 — coordinator `inspect`) ·
-장소 48mm L1~L3 = 12~14 → class `location` 물체 · 줄무늬 바코드(P2-01 …) = 장소 작업 지시 → class `barcode` 물체(`content`) + `/mission_qr`. 셋 다 안 보여도 기억.
+장소 48mm L1~L3 = 12~14 → class `location` 물체 · 줄무늬 바코드(P2-01 …) = 장소 작업 지시 → class `barcode` 물체(`content`) + `/mission/qr`. 셋 다 안 보여도 기억.
 
 물체 하나 = 추적 트랙 하나. 카메라마다 YOLO 박스 → 박스 중심 픽셀 + 박스 안 정렬 depth 중앙값으로 3D 점 1개 → 영상 시각의 TF로 map 변환 →
 **자기 몸이면 버림** — 3D: 팔 링크를 잇는 선분 6cm 안 · 차체 반경 0.2m 안 바닥 위 / 영상: 팔(TF 링크를 화면에 투영, 두께 4cm)과 겹치는 박스(퍽 제외 — 박스 일부만 팔이면 depth가 팔 뒤 바닥이라 3D로는 못 거름) → 같은 클래스·0.4m 안의 트랙에 1:1로 붙여 **칼만 갱신(두 카메라 융합)**. 포인트 클라우드는 쓰지 않는다 (객체 단위 융합). 구현: [perception_node.py](../lv2_module6/ros2_ws/src/perception/scripts/perception_node.py), 파라미터: [perception.yaml](../lv2_module6/ros2_ws/src/perception/config/perception.yaml).
@@ -131,7 +131,7 @@ float32 offset_m
 | `pick` | 물체 id · `"tray"` | 파지 후보(`/score_grasps`) 순서로 집기 · tray = 적재함에서 나중에 실은 것부터 꺼내기 |
 | `place` | 물체 id · `"tray"` | 그 물체 위에(relation `on`, 여러 개면 `place_spacing`씩 비킴) · tray = 적재함 다음 칸에 싣기 (최대 4칸) |
 | `inspect` | 퍽 id | 손끝을 퍽 윗면 위 `inspect_height_m`로 → `inspect_wait_s` 기다림 — gripper_cam이 윗면 16mm AprilTag(번호)를 읽게. 못 읽어도 성공 (읽었는지는 `details.tag`) |
-| `say` | 말할 내용 | `/robot_say`로 알림 |
+| `say` | 말할 내용 | `/robot/say`로 알림 |
 
 <a id="api-msg-subgoalarray"></a>
 ### plan/msg/SubGoalArray ([파일](../lv2_module6/ros2_ws/src/plan/msg/SubGoalArray.msg))
@@ -142,7 +142,7 @@ uint32 plan_id
 SubGoal[] goals
 ```
 
-- 내는 쪽: vlm_task_planner → `/sub_goals` (reliable + transient_local). 받는 쪽: coordinator.
+- 내는 쪽: vlm_task_planner → `/task/sub_goals` (reliable + transient_local). 받는 쪽: coordinator.
 
 <a id="api-msg-taskstatus"></a>
 ### plan/msg/TaskStatus ([파일](../lv2_module6/ros2_ws/src/plan/msg/TaskStatus.msg))
@@ -157,7 +157,7 @@ uint8 state
 string reason       # grasp_failed_all | nav_failed | arm_contact ...
 ```
 
-- 내는 쪽: coordinator → `/task_status` (reliable + transient_local). 받는 쪽: vlm_task_planner(FAILED면 재계획 · SUCCEEDED면 다음 판단 — inspect 뒤 다시 조합, 옮기기 뒤 수납 확인) · user_input(표시).
+- 내는 쪽: coordinator → `/task/status` (reliable + transient_local). 받는 쪽: vlm_task_planner(FAILED면 재계획 · SUCCEEDED면 다음 판단 — inspect 뒤 다시 조합, 옮기기 뒤 수납 확인) · user_input(표시).
 - reason (coordinator.cpp): 이동 `nav_failed` · `approach_failed` / 집기 `no_grasp` · `grasp_failed_all` · `arm_contact` / 놓기 `place_failed` · `place_no_target` / 적재함 `tray_full` · `tray_empty` · `tray_place_failed` · `tray_pick_failed` / 보기 `inspect_no_target` · `inspect_failed` / 멈춤 `manual_override`·`manual_mode` · `explore_override`·`explore_mode` · `estop`·`estop_blocked` · `cancelled` — `manual`·`explore`·`estop`·`cancelled`로 시작하면 planner는 재계획하지 않음.
 - 주의: [노드 사전](project/ros/10-catalog.md)의 reason 예시(`nav_blocked`)와 파일(`nav_failed`)이 다릅니다 — 파일이 정본.
 
@@ -172,7 +172,7 @@ int32 dest_tag    # 3단계: 목적지 장소 태그 번호 (노랑 1·2·3번 �
 string raw        # 읽은 깜빡임 그대로 (예: "R R | R Y G G R | Y Y") — 확인용
 ```
 
-- 내는 쪽: signal_decoder → `/mission_signal` (reliable + transient_local, 확정될 때마다). 받는 쪽: vlm_task_planner.
+- 내는 쪽: signal_decoder → `/mission/signal` (reliable + transient_local, 확정될 때마다). 받는 쪽: vlm_task_planner.
 - 신호등 미션 규칙은 [mission/README.md](mission/README.md). 단계 구분(세 색 동시 `separator_s` · 꺼짐 `gap_s`)·색 점수·목적지 태그는 [plan.yaml](../lv2_module6/ros2_ws/src/plan/config/plan.yaml) `signal_decoder` 파라미터 (발제 미정 — 제안값).
 
 <a id="api-msg-armsafetyevent"></a>
@@ -246,11 +246,11 @@ string message
 | 이름 | 타입 | 보내는 쪽 → 받는 쪽 | 주기 · QoS |
 | --- | --- | --- | --- |
 | `/cmd/user_command` | std_msgs/String | user_input → vlm_task_planner | 명령마다 · reliable |
-| `/mission_qr` | std_msgs/String | perception → vlm_task_planner | 장소 바코드(작업 지시 문자열, 예 `P2-01`) · QR — 읽은 내용이 바뀔 때만 · reliable + transient_local. VLM이 해석 |
-| `/mission_signal` | plan/MissionSignal | signal_decoder → vlm_task_planner | 신호등 암호 미션 답 {color, count, sum, dest_tag, raw} — 확정될 때마다 · reliable + transient_local. planner가 규칙으로 계획 (번호 모르면 inspect → 조합 → 적재함 → 목적지 장소 → **수납 확인**: 옮긴 직후와 `verify_period_s`마다 목적지로 가서 옮긴 번호가 `verify_radius_m` 안에 있는지 보고, 다른 곳에 있으면 다시 옮김 · 없으면 say) |
-| `/robot_say` | std_msgs/String | coordinator → user_input | 알릴 때 · reliable |
-| `/sub_goals` | plan/SubGoalArray | vlm_task_planner → coordinator | 계획마다 · reliable + transient_local. target = 물체 id · `"x,y"`(navigate) · **`"tray"`(pick·place — 로봇 뒤 적재함: place tray = 다음 칸에 싣기, pick tray = 나중에 실은 것부터 꺼내기, 최대 4칸)** · 퍽 id(inspect) · 말할 내용(say) |
-| `/task_status` | plan/TaskStatus | coordinator → vlm_task_planner, user_input | 단계 완료·실패 시 · reliable + transient_local |
+| `/mission/qr` | std_msgs/String | perception → vlm_task_planner | 장소 바코드(작업 지시 문자열, 예 `P2-01`) · QR — 읽은 내용이 바뀔 때만 · reliable + transient_local. VLM이 해석 |
+| `/mission/signal` | plan/MissionSignal | signal_decoder → vlm_task_planner | 신호등 암호 미션 답 {color, count, sum, dest_tag, raw} — 확정될 때마다 · reliable + transient_local. planner가 규칙으로 계획 (번호 모르면 inspect → 조합 → 적재함 → 목적지 장소 → **수납 확인**: 옮긴 직후와 `verify_period_s`마다 목적지로 가서 옮긴 번호가 `verify_radius_m` 안에 있는지 보고, 다른 곳에 있으면 다시 옮김 · 없으면 say) |
+| `/robot/say` | std_msgs/String | coordinator → user_input | 알릴 때 · reliable |
+| `/task/sub_goals` | plan/SubGoalArray | vlm_task_planner → coordinator | 계획마다 · reliable + transient_local. target = 물체 id · `"x,y"`(navigate) · **`"tray"`(pick·place — 로봇 뒤 적재함: place tray = 다음 칸에 싣기, pick tray = 나중에 실은 것부터 꺼내기, 최대 4칸)** · 퍽 id(inspect) · 말할 내용(say) |
+| `/task/status` | plan/TaskStatus | coordinator → vlm_task_planner, user_input | 단계 완료·실패 시 · reliable + transient_local |
 | `/speed_limit` | nav2_msgs/SpeedLimit | rl_nav_tuner → controller_server, rl_nav_correction | 프리셋 변경 시 · reliable |
 | `/arm_safety_event` | control/ArmSafetyEvent | arm_safety_monitor → coordinator | 접촉 시 |
 | `/motor_status` | control/MotorStatus | BeebotSystemHardware → state_manager | 모터별 Hardware Error (0 정상 · −1 응답 없음 · 비트 1 입력전압 4 과열 8 엔코더 16 전기충격 32 과부하) + 사람이 읽는 이름 — 바뀔 때만 · reliable + transient_local (펌웨어 `E` 줄) |
@@ -398,8 +398,8 @@ string message
 | 카메라·점구름·IMU | best_effort | volatile | 1~5 | 최신 값만 의미 있음 |
 | /cmd_vel 체인 | reliable | volatile | 1 | 명령 유실 방지, 오래된 명령은 버림 |
 | /map, /tf_static | reliable | transient_local | 1 | 늦게 붙어도 받음 |
-| /sub_goals, /task_status | reliable | transient_local | 10 | 재시작해도 마지막 계획 받음 |
-| /mission_signal, /mission_qr, /motor_status | reliable | transient_local | 1 | 바뀔 때만 냄 — 늦게 붙어도 마지막 값 |
+| /task/sub_goals, /task/status | reliable | transient_local | 10 | 재시작해도 마지막 계획 받음 |
+| /mission/signal, /mission/qr, /motor_status | reliable | transient_local | 1 | 바뀔 때만 냄 — 늦게 붙어도 마지막 값 |
 | /state/... | reliable | transient_local | 1 | state_manager가 바뀔 때만 냄 |
 | /tracked_objects | reliable | volatile | 5 | 누락 시 다음 값으로 충분 |
 

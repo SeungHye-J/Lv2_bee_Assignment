@@ -35,12 +35,12 @@ flowchart TD
         BTN["🧑 심판/운영자\n신호등 버튼 누름"]
         TL_START["신호등 점멸 시작"]
         SD["signal_decoder\n깜빡임 3단계 해석"]
-        SIG_OUT["/mission_signal\n{ color, count, sum, dest_tag }"]
+        SIG_OUT["/mission/signal\n{ color, count, sum, dest_tag }"]
     end
 
     subgraph P3["Phase 3 — 계획 수립"]
         VLM["vlm_task_planner 판단\n(4가지 케이스)"]
-        SUBGOALS["/sub_goals 발행"]
+        SUBGOALS["/task/sub_goals 발행"]
     end
 
     subgraph P4["Phase 4 — 실행"]
@@ -111,7 +111,7 @@ sequenceDiagram
     SD->>SD: 깜빡임 카운트
     SD->>SD: 단계 구분 (all 2초)
     SD->>SD: 3단계 완료
-    SD->>VLM: /mission_signal { RED, 2, 5, 13 }
+    SD->>VLM: /mission/signal { RED, 2, 5, 13 }
     VLM->>VLM: 케이스 판단 → 계획 수립
 ```
 

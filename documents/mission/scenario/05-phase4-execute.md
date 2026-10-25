@@ -1,12 +1,12 @@
 # Phase 4 — coordinator 실행
 
-> 목적: `/sub_goals`를 받아 navigate → pick → tray → place 순서로 물리적으로 실행.
+> 목적: `/task/sub_goals`를 받아 navigate → pick → tray → place 순서로 물리적으로 실행.
 
 ## 단계별 실행 흐름
 
 ```mermaid
 flowchart TD
-    IN["/sub_goals 수신"]
+    IN["/task/sub_goals 수신"]
     VALIDATE{"계획 검증\n허용 skill?\ntarget id 존재?"}
     REJECT["FAILED\ninvalid_plan"]
 
@@ -113,10 +113,10 @@ flowchart TD
     FAIL_STEP["단계 실패"]
     COUNT{"같은 단계\nmax_step_failures(2)회\n연속 실패?"}
     RETRY_S["재시도\n(실패 카운트++)"]
-    REPORT["/task_status FAILED\n/robot_say 알림\n정지"]
+    REPORT["/task/status FAILED\n/robot/say 알림\n정지"]
 
     FAIL_STEP --> COUNT
-    COUNT -->|"NO"| RETRY_S -->|"/task_status FAILED"| VLM_RE["vlm 재계획\n(max_replans 1회)"]
+    COUNT -->|"NO"| RETRY_S -->|"/task/status FAILED"| VLM_RE["vlm 재계획\n(max_replans 1회)"]
     COUNT -->|"YES"| REPORT
 ```
 

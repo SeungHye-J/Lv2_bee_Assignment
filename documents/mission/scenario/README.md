@@ -39,7 +39,7 @@
 버튼 누름 (심판)
  └→ 신호등 점멸 시작
  └→ signal_decoder 3단계 해석
- └→ /mission_signal { color, count, sum, dest_tag }
+ └→ /mission/signal { color, count, sum, dest_tag }
 
 계획 수립
  └→ 케이스 A: 조합 즉시 carry

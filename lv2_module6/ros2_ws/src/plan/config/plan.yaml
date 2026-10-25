@@ -42,7 +42,7 @@ coordinator:
     inspect_height_m: 0.15   # [m] 손끝을 퍽 윗면 위 이만큼 (16mm 태그 ≈ 50px — 한 칸 약 6px)
     inspect_wait_s: 1.0      # [s] 그 자리에서 기다림 (perception 추론 4Hz × 몇 장)
 
-signal_decoder:              # 신호등 암호 미션 (documents/mission/README.md) — 깜빡임 3단계 → /mission_signal
+signal_decoder:              # 신호등 암호 미션 (documents/mission/README.md) — 깜빡임 3단계 → /mission/signal
   ros__parameters:           #   단계 구분·점수 등은 MISSION §6 미정 — 제안값 (공지 나오면 여기만 바꿈)
     min_on_s: 0.15           # [s] 이보다 짧은 켜짐은 잡음
     separator_s: 2.0         # [s] 세 색 동시(all)가 이만큼 이어지면 단계 구분 (제안: 3초 켜짐)

@@ -112,7 +112,7 @@ flowchart TD
         SM2["🛠 state_manager\nmap_mode=LOCALIZATION\noperation_mode=AUTO"]
         CO["🛠 coordinator\nplan · 권형중\n부팅 직후 팔 → initial_pose\n(JTC 토픽, 3초 궤적)"]
         SD["🛠 signal_decoder\nplan · 권형중\n/tracked_objects 구독 대기"]
-        VLM["🛠 vlm_task_planner\nplan · 권형중\n/mission_signal 대기"]
+        VLM["🛠 vlm_task_planner\nplan · 권형중\n/mission/signal 대기"]
     end
 
     READY(["✅ 준비 완료\nmap→odom TF 안정\noperation_mode=AUTO"])
@@ -128,7 +128,7 @@ flowchart TD
 | `state_manager` | manager | **김현하** | 시스템 상태 초기화 | 파라미터 | `/state/map_mode` `/state/operation_mode` |
 | `coordinator` | plan | **권형중** | **팔 initial_pose 이동** | `/joint_states` | `/arm_controller/joint_trajectory` |
 | `signal_decoder` | plan | **권형중** | 감시 준비 (대기) | `/tracked_objects` | — |
-| `vlm_task_planner` | plan | **권형중** | 신호 대기 | `/mission_signal` | — |
+| `vlm_task_planner` | plan | **권형중** | 신호 대기 | `/mission/signal` | — |
 
 ---
 
@@ -167,7 +167,7 @@ flowchart LR
 | `body_filter` | control | **김현하** | 로봇 자체 점군 제거 | 포인트클라우드 | 필터링된 포인트클라우드 |
 | `perception` | perception | **전승혜** | YOLO·AprilTag 감지·추적 | 카메라 2대 | `/tracked_objects` |
 | `coordinator` | plan | **권형중** | **팔 scan_pose 유지** (SLAM 보조) | `/joint_states` `/state/map_mode` | `/arm_controller/joint_trajectory` |
-| `signal_decoder` | plan | **권형중** | traffic_light 발견 시 감시 시작 | `/tracked_objects` | (신호 시 `/mission_signal`) |
+| `signal_decoder` | plan | **권형중** | traffic_light 발견 시 감시 시작 | `/tracked_objects` | (신호 시 `/mission/signal`) |
 | `state_manager` | manager | **김현하** | EXPLORE 허용·AUTO 복귀 | `/cmd/operation_mode` `/explore/result` | `/state/operation_mode` |
 
 ---
@@ -187,13 +187,13 @@ sequenceDiagram
     CAM->>PER: 컬러 프레임
     PER->>SD: /tracked_objects<br/>(traffic_light.color = red|yellow|green|all|off)
     Note over SD: 깜빡임 카운트<br/>단계 구분(all 2초)<br/>잡음 필터(min_on_s 0.15s)
-    SD->>VLM: /mission_signal<br/>{color, count, sum, dest_tag, raw}
+    SD->>VLM: /mission/signal<br/>{color, count, sum, dest_tag, raw}
 ```
 
 | 노드 | 패키지 | 담당 | 역할 | 입력 | 출력 |
 |------|--------|------|------|------|------|
 | `perception` | perception | **전승혜** | 신호등 색 분류 (`classify_color`) | pole_front_cam | `/tracked_objects` (traffic_light) |
-| `signal_decoder` | plan | **권형중** | 3단계 깜빡임 해석, 잡음 필터링 | `/tracked_objects` | `/mission_signal` |
+| `signal_decoder` | plan | **권형중** | 3단계 깜빡임 해석, 잡음 필터링 | `/tracked_objects` | `/mission/signal` |
 
 ---
 
@@ -205,17 +205,17 @@ flowchart TD
         VLM2["🛠 vlm_task_planner\nplan · 권형중\n규칙 기반 판단\npick_combo() 조합 계산"]
     end
 
-    SIG["/mission_signal"]
+    SIG["/mission/signal"]
     OBJ["/tracked_objects"]
-    STATUS["/task_status (FAILED → 재계획)"]
-    SUBG["/sub_goals → coordinator"]
+    STATUS["/task/status (FAILED → 재계획)"]
+    SUBG["/task/sub_goals → coordinator"]
 
     SIG & OBJ & STATUS --> VLM2 --> SUBG
 ```
 
 | 노드 | 패키지 | 담당 | 역할 | 입력 | 출력 |
 |------|--------|------|------|------|------|
-| `vlm_task_planner` | plan | **권형중** | 미션 신호 해석, 조합 계산, 계획 수립 | `/mission_signal` `/tracked_objects` `/task_status` | `/sub_goals` |
+| `vlm_task_planner` | plan | **권형중** | 미션 신호 해석, 조합 계산, 계획 수립 | `/mission/signal` `/tracked_objects` `/task/status` | `/task/sub_goals` |
 
 > `vlm_endpoint`가 설정되면 ai-service(외부 LLM)에 POST /plan → SubGoalArray 수신.
 > 비어 있으면(기본·경기용) 규칙 템플릿만 사용.
@@ -254,13 +254,13 @@ flowchart TD
         end
     end
 
-    SUBG3["/sub_goals"] --> CO3
+    SUBG3["/task/sub_goals"] --> CO3
     CO3 -->|navigate| NAV3 --> RLN3 --> MUX3 --> COL3 --> CM3
     CO3 -->|pick/place| GS3 --> MV3 --> RLA3 --> CM3
     CO3 -->|그리퍼| GR3 --> CM3
     CM3 --> HW3 <-->|serial| OCR
     ASM3 -->|접촉 이벤트| CO3
-    CO3 --> STATUS3["/task_status"]
+    CO3 --> STATUS3["/task/status"]
 ```
 
 ### 단계별 담당 노드 상세
@@ -280,8 +280,8 @@ flowchart TD
 
 | 노드 | 패키지 | 담당 | 역할 | 입력 | 출력 |
 |------|--------|------|------|------|------|
-| `vlm_task_planner` | plan | **권형중** | 60초마다 목적지로 look/recarry 계획 | `/tracked_objects` `/task_status` | `/sub_goals` |
-| `coordinator` | plan | **권형중** | 목적지 이동 후 inspect 실행 | `/sub_goals` | `/navigate_to_pose` `/task_status` |
+| `vlm_task_planner` | plan | **권형중** | 60초마다 목적지로 look/recarry 계획 | `/tracked_objects` `/task/status` | `/task/sub_goals` |
+| `coordinator` | plan | **권형중** | 목적지 이동 후 inspect 실행 | `/task/sub_goals` | `/navigate_to_pose` `/task/status` |
 | `perception` | perception | **전승혜** | gripper_cam으로 퍽 tag 읽기 | gripper_cam | `/tracked_objects` (details.tag) |
 
 ---

@@ -122,11 +122,11 @@
 | 할 일 | 맡은 곳 | 상태 |
 | --- | --- | --- |
 | 신호등 상태 (빨·노·초·꺼짐 · 두 색 이상 동시 = `all`) | perception `classify_color` | 구현 |
-| 깜빡임 시퀀스 → 1·2·3단계 답 `/mission_signal` {color, count, sum, dest_tag} | **signal_decoder** (plan) — 단계 구분 = `all` 2초 · 꺼짐 3초, 점수·목적지 태그·확정 횟수는 plan.yaml | 구현 (§6 확정되면 파라미터만) |
+| 깜빡임 시퀀스 → 1·2·3단계 답 `/mission/signal` {color, count, sum, dest_tag} | **signal_decoder** (plan) — 단계 구분 = `all` 2초 · 꺼짐 3초, 점수·목적지 태그·확정 횟수는 plan.yaml | 구현 (§6 확정되면 파라미터만) |
 | 퍽 윗면 태그 → 그 퍽의 `details tag` (한 번 읽으면 기억 · 색도 태그 번호대로) | perception (OpenCV aruco — 새 라이브러리 없음, OpenCV 4.6·4.7+ 둘 다) | 구현 |
 | 16mm 태그 읽기 동작 — pole_front_cam(640×360)은 한 칸 1~2px라 못 읽음 | coordinator **`inspect <퍽 id>`** — 손끝을 퍽 윗면 위 0.15m로 (gripper_cam 한 칸 약 6px) | 구현 |
 | 장소 태그 → class `location` 물체 (`tag`) | perception | 구현 |
-| 바코드 → class `barcode` 물체 (`content`) + `/mission_qr` | perception (**zxing-cpp** — 발제 바코드는 Code128이라 OpenCV barcode(EAN·UPC만)로는 못 읽음) → planner → VLM이 해석 · 사람이 계획(ai-service backend human) | 구현 |
+| 바코드 → class `barcode` 물체 (`content`) + `/mission/qr` | perception (**zxing-cpp** — 발제 바코드는 Code128이라 OpenCV barcode(EAN·UPC만)로는 못 읽음) → planner → VLM이 해석 · 사람이 계획(ai-service backend human) | 구현 |
 | 조합 계산 · 계획 | vlm_task_planner 규칙 (VLM 안 씀): 번호 아는 그 색 퍽 중 합이 맞는 조합(가까운 것 우선) → 적재함에 싣고 목적지 장소로 · 없으면 번호 모르는 퍽 inspect → 다시 판단 · 목적지 태그 못 봤으면 대기 · 끝내 없으면 say | 구현 |
 | 수납 확인 (옮긴 퍽이 목적지에 그대로 있는지) | vlm_task_planner 규칙: 옮긴 직후 한 번 + `verify_period_s`(60초)마다 (AUTO · 하던 계획 없을 때) 목적지로 가서 근처 번호 모르는 퍽 inspect → 옮긴 번호가 `verify_radius_m`(0.2m) 안에 다 있으면 끝 · 다른 곳에 보이면 다시 옮김 · 안 보이면 say. 새 명령·신호가 오면 그만 | 구현 (실기 미확인) |
 | 퍽 크기 30×60mm | perception 크기 기본값 · coordinator 적재함 높이 | 반영 |
@@ -136,9 +136,9 @@
 데이터 흐름:
 
 ```text
-신호등 깜빡임 → perception (traffic_light color) → signal_decoder → /mission_signal
+신호등 깜빡임 → perception (traffic_light color) → signal_decoder → /mission/signal
 퍽 윗면 태그 → (inspect: gripper_cam이 내려다봄) → perception details tag (기억)
-장소 태그 → perception location (tag) · 장소 바코드 → perception barcode (content) · /mission_qr → VLM
-vlm_task_planner: 합이 맞는 조합 → /sub_goals [navigate → pick → place tray] × N → navigate(장소) → [pick tray → place 장소] × N
+장소 태그 → perception location (tag) · 장소 바코드 → perception barcode (content) · /mission/qr → VLM
+vlm_task_planner: 합이 맞는 조합 → /task/sub_goals [navigate → pick → place tray] × N → navigate(장소) → [pick tray → place 장소] × N
   → 수납 확인: navigate(장소) → [inspect 근처 퍽] → 옮긴 번호가 다 있나 (없으면 다시 옮김 · say) — 그 뒤 주기마다 반복
 ```
