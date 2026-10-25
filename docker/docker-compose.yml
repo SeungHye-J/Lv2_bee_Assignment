@@ -1,4 +1,6 @@
-# Lv2 module6 테스트베드 — ROS 2 Lyrical on Ubuntu 26.04
+# Lv2 module6 테스트베드 — ROS 2 Lyrical on Ubuntu 24.04 Noble (Jetson Orin Nano 동일 환경)
+# NVIDIA Isaac ROS Buildfarm CDN에서 noble용 ROS 2 Lyrical 패키지를 제공 (공식 apt에는 없음)
+#   참고: https://nvidia-isaac-ros.github.io/getting_started/isaac_ros_buildfarm_cdn.html
 # 사용법: docker/ 디렉토리 안에서 실행
 #   docker compose build
 #   docker compose up -d && docker compose exec lyrical bash
