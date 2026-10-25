@@ -43,7 +43,7 @@ OpenCR 내장 IMU (MPU9250, cIMU)
   - 서보 8개를 **BulkWrite**(목표 — 바퀴 속도·팔/그리퍼 위치를 주소가 달라도 한 패킷, 모든 서보가 같은 순간 반영) · **SyncRead**(Present Current~Position 연속 10 byte) 패킷 하나로.
   - loop 한 번에 들어온 `C` 중 **마지막 하나만** 적용하고 S를 보낸다 — 밀린 C를 몰아 처리하던 것이 S를 굶기고 목표를 계단으로 튀게 했다(joint1 떨림 추정 원인).
   - 부팅 때 모든 모터의 **Return Delay Time을 0**으로 (EEPROM, 다를 때만 씀).
-- 모터 에러: 펌웨어가 0.5 s마다 Hardware Error Status를 읽어 `E` 줄로 보낸다. 에러 난 모터는 토크가 안 켜지므로 자동 복구를 건너뛰고 재부팅을 기다린다(걸린 채 다시 힘을 주지 않게 자동 재부팅은 안 함). SBC는 진단 "OpenCR 연결"에 `모터 에러: joint2 과부하`처럼 띄우고, 서비스 `/beebotsystem/reboot_motors`(std_srvs/Trigger)를 부르거나 수동 모드에서 `/cmd/manual/reboot_motors`(std_msgs/Empty)를 보내면 **에러 난 모터만** `R`로 재부팅한다 (멀쩡한 관절까지 재부팅하면 팔이 떨어짐).
+- 모터 에러: 펌웨어가 0.5 s마다 Hardware Error Status를 읽어 `E` 줄로 보낸다. 에러 난 모터는 토크가 안 켜지므로 자동 복구를 건너뛰고 재부팅을 기다린다(걸린 채 다시 힘을 주지 않게 자동 재부팅은 안 함). SBC는 `/motor_status`(control/MotorStatus — 다른 노드가 읽는 값, state_manager → `/state/devices/arm` error)와 진단 "OpenCR 연결"(사람이 보는 것)에 `joint2 과부하`처럼 내고, 서비스 `/beebotsystem/reboot_motors`(std_srvs/Trigger)를 부르거나 수동 모드에서 `/cmd/manual/reboot_motors`(std_msgs/Empty)를 보내면 **에러 난 모터만** `R`로 재부팅한다 (멀쩡한 관절까지 재부팅하면 팔이 떨어짐).
 - 12V 복구: 12V를 껐다 켜면 OpenCR은 USB 5V로 켜져 있고 모터만 재부팅돼 토크가 풀린다. 펌웨어가 `MOTOR_CHECK_MS`(0.5 s)마다 Torque Enable을 읽어 풀린 모터를 다시 설정하고 켠다. 팔은 그 사이 명령 자세와 멀어졌을 수 있어 **느린 속도(`RECOVER_PROFILE_VELOCITY` ≈ 0.48 rad/s)로 돌아간 뒤** 속도 한계를 푼다. `T,1`로 켤 때도 같다. 부팅 때 모터가 없었으면(12V 꺼짐) 1 s마다 다시 찾는다 — RESET 버튼 불필요.
 
 ## 준비

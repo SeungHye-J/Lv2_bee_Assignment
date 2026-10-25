@@ -86,21 +86,14 @@ StateManager::StateManager(const rclcpp::NodeOptions & options)
     [this](sensor_msgs::msg::Imu::ConstSharedPtr) {
       last_seen_["imu"] = std::chrono::steady_clock::now();
     });
-  // 모터 Hardware Error — BeebotSystemHardware 진단 "OpenCR 연결"의 "모터 에러 <관절>" 값 (정상 = "정상")
-  diag_sub_ = create_subscription<diagnostic_msgs::msg::DiagnosticArray>("/diagnostics", rclcpp::QoS(10),
-    [this](diagnostic_msgs::msg::DiagnosticArray::ConstSharedPtr m) {
-      static const std::string key = "모터 에러 ";
-      for (const auto & st : m->status) {
-        bool found = false;
-        for (const auto & kv : st.values) {
-          if (kv.key.rfind(key, 0) != 0) continue;
-          found = true;
-          const auto joint = kv.key.substr(key.size());
-          if (kv.value == "정상") motor_error_.erase(joint);
-          else motor_error_[joint] = kv.value;
-        }
-        if (found) last_motor_diag_ = std::chrono::steady_clock::now();
+  // 모터 Hardware Error — BeebotSystemHardware가 바뀔 때마다 (transient_local — 늦게 떠도 마지막 값)
+  motor_sub_ = create_subscription<control::msg::MotorStatus>("/motor_status", rclcpp::QoS(1).reliable().transient_local(),
+    [this](control::msg::MotorStatus::ConstSharedPtr m) {
+      motor_error_.clear();
+      for (size_t i = 0; i < m->joints.size() && i < m->error.size(); ++i) {
+        if (m->error[i] != 0) motor_error_[m->joints[i]] = i < m->text.size() ? m->text[i] : std::to_string(m->error[i]);
       }
+      publish_devices();  // 2초 주기를 기다리지 않고 바로
     });
   device_timer_ = create_wall_timer(std::chrono::seconds(2), [this]() {
     publish_devices();
@@ -340,8 +333,6 @@ void StateManager::publish_devices() {
     }
     return true;
   };
-  // 모터 에러 진단이 3초 넘게 안 오면 모름 → 에러 없음으로 (진단이 원본)
-  if (std::chrono::steady_clock::now() - last_motor_diag_ > std::chrono::seconds(3)) motor_error_.clear();
   auto add_joints = [&](const std::string & name, const std::vector<std::string> & joints) {
     std::vector<std::string> details = joints;
     bool error = false;

@@ -38,6 +38,7 @@
 #include "hardware_interface/system_interface.hpp"
 #include "hardware_interface/types/hardware_interface_type_values.hpp"
 #include "rclcpp/rclcpp.hpp"
+#include "control/msg/motor_status.hpp"
 #include "std_srvs/srv/trigger.hpp"
 
 namespace control {
@@ -96,6 +97,11 @@ private:
   std::array<std::atomic<int>, 8> hw_error_{};  // 프로토콜 순서(바퀴L·R·joint1~5·그리퍼), −1 = 응답 없음
   std::atomic<uint32_t> reboot_mask_{0};         // 서비스가 고른 모터 — write()가 R 줄로 보냄
   rclcpp::Service<std_srvs::srv::Trigger>::SharedPtr reboot_srv_;
+  rclcpp::Publisher<control::msg::MotorStatus>::SharedPtr motor_pub_;  // /motor_status — 바뀔 때만 (state_manager가 읽음)
+  rclcpp::TimerBase::SharedPtr motor_timer_;                           // read()(실시간 루프)에서 발행하지 않으려고 따로 0.5초
+  std::array<int, 8> motor_sent_{};
+  bool motor_published_ = false;
+  void publish_motor_status();
 };
 
 }  // namespace control
