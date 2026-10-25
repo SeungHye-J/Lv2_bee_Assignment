@@ -33,6 +33,9 @@ geometry_msgs/PoseWithCovariance pose   # map 기준 — 두 카메라 융합 �
 geometry_msgs/Vector3 size              # m — x·y = 카메라 영상 박스 가로·세로 폭 환산 (map 축 아님), z = 클래스 기본값
 builtin_interfaces/Time last_seen       # 마지막 관측 영상 시각
 string[] cameras                        # 본 카메라 전부 (pole_front_cam | gripper_cam) — 오래 전에 본 것부터, 마지막 = 가장 최근
+                                        # 빈 배열([]) = 지도에 위치는 기억하지만 현재 어느 카메라에도 안 잡힘 (벽 뒤·시야 밖·집어 든 직후 등)
+                                        #   → pose(마지막 위치)·last_seen(마지막 시각)은 유효 — 그 위치로 navigate 가능
+                                        #   → 물체 삭제 정책: 퍽·location·barcode는 miss_count번 연속 미검출 시 삭제 / 사람·장애물·신호등은 TRACK_TIMEOUT_S(2초) 후 삭제
 int32[2] px                             # 마지막 카메라(cameras 끝) 영상 속 박스 중심 픽셀 [u, v] — VLM 이미지 마킹용
 string color                            # 퍽: red | orange | yellow | green | blue | purple | white | black | unknown (윗면 태그를 읽었으면 태그 번호대 색) · 신호등 상태: red | yellow | green | off | all(두 색 이상 동시) · 그 외 빈 값 (박스 가운데 HSV)
 diagnostic_msgs/KeyValue[] details      # 클래스별 속성 — puck: posture · tag(윗면 AprilTag 0~11) / location: tag(12~14) / barcode: content(작업 지시) / traffic_light: state · 그 외 빈 배열
@@ -54,7 +57,7 @@ diagnostic_msgs/KeyValue[] details      # 클래스별 속성 — puck: posture 
 | `pose.covariance` | 6×6 행 우선. **위치 3×3 블록**(인덱스 0~2·6~8·12~14) = 융합 위치 불확실성 [m²], 회전 대각(21·28·35) = 1e3(모름) | 관측 잡음만 반영 — 위의 앞면 쏠림(바이어스)은 안 들어감. 관측 σ: depth 축 `depth_sigma0 + depth_sigma_k·z²`, 가로·세로 `pixel_sigma·z/f` |
 | `size` | [m] x = 박스 가로 폭 · y = 박스 세로 높이 (픽셀 × 거리 / 초점거리), z = 클래스 기본값(퍽 0.06 — 발제 30×30×60mm, 누운 퍽 0.03 등). 크기를 못 재면 셋 다 클래스 기본값 | **map 축 크기가 아님** (카메라 영상 기준). 관측마다 칼만 이득 비율로 갱신 |
 | `last_seen` | 마지막으로 관측된 **영상 시각** (카메라 header.stamp) | `TrackedObjectArray.header.stamp`(발행 시각)과 다름 |
-| `cameras` | 이 트랙을 본 카메라 전부 `pole_front_cam` · `gripper_cam` — 마지막으로 본 시각 순, **끝 = 가장 최근에 본 카메라** | 비면 아직 본 적 없음(없는 경우 거의 없음). 따로 `camera` 필드는 없음 — `cameras[-1]` |
+| `cameras` | 이 트랙을 본 카메라 전부 `pole_front_cam` · `gripper_cam` — 마지막으로 본 시각 순, **끝 = 가장 최근에 본 카메라** | **빈 배열(`[]`) = 지도에 위치는 기억하고 있지만 현재 어느 카메라에도 잡히지 않음** (벽 뒤·시야 밖·집어 든 직후 등). 비어 있어도 `pose`(마지막 관측 위치)·`last_seen`(마지막 관측 시각)은 유효 — 그 위치로 navigate 가능. 따로 `camera` 필드는 없음 — `cameras[-1]`. **물체 종류별 삭제 정책**: 퍽·목표구역·QR판은 안 보여도 유지(옮겨졌다고 판단되면 `miss_count`번 연속 미검출 시 삭제) / 사람·장애물·신호등은 `TRACK_TIMEOUT_S`(2초) 안 보이면 삭제. 수신 측 판별 패턴: `cameras` 비어 있으면 "알고 있지만 현재 미관측" / `last_seen` 기준 경과 시간으로 얼마나 전에 봤는지 구분 |
 | `px` | `cameras` 끝 카메라 영상(640×480) 속 박스 중심 픽셀 `[u, v]` — VLM이 그 영상에 표시할 때 씀 (planner가 ai-service에 `camera` + `px {카메라: [u, v]}`로 보냄) | 다른 카메라 영상의 좌표가 아님 |
 | `color` | 퍽: `red` · `orange` · `yellow` · `green` · `blue` · `purple` · `white` · `black` · `unknown` / 신호등: `red` · `yellow` · `green` · `off` · `all`(두 색 이상 동시 — 신호등 미션 단계 구분) / 그 외 `""` | 박스 가운데(가장자리 20%씩 뺌 — 바닥 안 섞이게) HSV 다수결, 채도 없는 화소가 대부분이면 흰색·검정. 마지막 관측 값. 퍽 윗면 태그를 읽었으면 태그 번호대 색(R 0~3 · G 4~7 · B 8~11)이 우선 |
 | `details` | `puck`: `posture` · `tag` / `location`: `tag` / `barcode`: `content` / `traffic_light`: `state` | `tag`·`content`는 한 번 읽으면 기억 (멀어져 못 읽어도 덮지 않음) |
@@ -70,6 +73,46 @@ TrackedObject[] objects
 - 내는 쪽: perception → `/tracked_objects` (10Hz · reliable). 받는 쪽: vlm_task_planner · coordinator · grasp_scorer.
 - `header.stamp` = **발행 시각**(10Hz 타이머), `header.frame_id` = `map`. `objects` = 지금 살아 있는 트랙 전부 (id 오름차순, 없으면 빈 배열).
 - 같은 타입을 `/perception/<cam>/detections`로도 낸다 — **융합 전** 그 카메라 한 프레임 검출. `id` = 그 검출이 붙은 트랙 id, `pose.covariance` = 그 관측의 공분산, `header.stamp` = 영상 시각. 디버그·시뮬레이터 표시용 (받는 노드 없음).
+
+#### `cameras` 필드 활용 패턴
+
+`cameras` 빈 배열 여부로 **"현재 보이는지 / 지도에만 기억된 상태인지"** 를 구분할 수 있다.
+
+```
+cameras = ["pole_front_cam"]              → 지금 pole_front_cam에 잡힘
+cameras = ["pole_front_cam","gripper_cam"]→ 두 카메라 모두 잡힘 (끝이 가장 최근)
+cameras = []                              → 지도에 위치는 있지만 현재 어느 카메라에도 안 잡힘
+```
+
+수신 측 판별 예시 (Python):
+
+```python
+from rclpy.time import Time
+
+for obj in tracked_objects.objects:
+    # ① 지금 카메라에 잡히는 것만
+    if obj.cameras:
+        latest_cam = obj.cameras[-1]   # 가장 최근에 본 카메라
+
+    # ② 지도엔 알지만 지금 안 보이는 것 (벽 뒤·시야 밖·집어 든 직후)
+    if not obj.cameras:
+        # pose(마지막 위치)·last_seen(마지막 시각)은 여전히 유효
+        # → 그 위치로 navigate하면 가까이 갔을 때 cameras가 다시 채워짐
+        pass
+
+    # ③ 최근 N초 이내에 본 것 (now는 node.get_clock().now())
+    last = Time.from_msg(obj.last_seen)
+    age_s = (now - last).nanoseconds / 1e9
+    if age_s < 2.0:
+        pass  # 2초 이내 관측
+```
+
+물체 종류별 삭제 정책:
+
+| 클래스 | 안 보일 때 | 삭제 조건 |
+|--------|-----------|-----------|
+| `puck` · `location` · `barcode` · `goal_zone` | `cameras=[]` 유지 | `miss_count`번 연속 미검출 (그 자리가 잘 보이는데 없는 경우 — 옮겨지거나 집어 감) |
+| `person` · `obstacle` · `traffic_light` | `cameras=[]` 유지 | `TRACK_TIMEOUT_S`(2.0초) 안 보이면 트랙 삭제 |
 
 <a id="api-msg-subgoal"></a>
 ### plan/msg/SubGoal ([파일](../lv2_module6/ros2_ws/src/plan/msg/SubGoal.msg))

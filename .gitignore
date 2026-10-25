@@ -43,3 +43,4 @@ lv2_module6/firmware/build/
 /lv2_module6/simulator/yolo_job.log
 /log/
 /.playwright-mcp/
+/lv2_module6/simulator/dataset/
