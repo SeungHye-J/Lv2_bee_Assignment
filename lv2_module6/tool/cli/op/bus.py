@@ -7,11 +7,8 @@ from __future__ import annotations
 import argparse
 import math
 import os
-import select
 import sys
-import termios
 import time
-import tty
 from pathlib import Path
 
 import rclpy
@@ -22,9 +19,8 @@ from sensor_msgs.msg import JointState
 from std_msgs.msg import Bool, Empty, String
 
 from .consts import (ARM_JOINTS, DIAG_LEVELS, GRIPPER_CLOSE, GRIPPER_JOINT,
-                    GRIPPER_OPEN, WHEEL_JOINTS, _parse_bool_text,
-                    _parse_param_text, _param_value_to_py)
-from .terminal import BOLD, DIM, GREEN, RED, RESET, YELLOW, Terminal
+                    GRIPPER_OPEN, WHEEL_JOINTS)
+from .terminal import BOLD, DIM, GREEN, RED, YELLOW, Terminal
 
 try:
     from nav2_msgs.srv import SaveMap as SaveMapSrv
@@ -125,7 +121,7 @@ class Bus:
                 return True
         return bool(self.state.joints)
 
-    def ensure_manual(self, force: bool = False) -> bool:
+    def _wait_operation(self) -> None:
         # discovery가 느린 Jetson에서도 state 토픽을 놓치지 않게 최대 8초 대기
         # (status는 5초. 모드 gate는 더 길게 — 못 보면 거부라 재시도만 하면 됨)
         end = time.monotonic() + 8.0
@@ -133,6 +129,9 @@ class Bus:
             self._poll(0.2)
             if self.state.operation:
                 break
+
+    def ensure_manual(self, force: bool = False) -> bool:
+        self._wait_operation()
         if self.state.emergency:
             print('거부: 비상정지 중입니다 — 먼저 `estop off`', file=sys.stderr)
             return False
@@ -154,54 +153,35 @@ class Bus:
         return True
 
     def ensure_manual_or_switch(self, force: bool = False) -> bool | None:
-        """수동 명령 전 모드 확보. TTY면 MANUAL 전환을 물어보고 자동 전환한다.
+        """수동 명령 전 모드 확보. TTY면 MANUAL 전환을 먼저 묻고 바꾼다.
 
-        시뮬레이터("마지막 행동이 모드다")와 같은 사용감. 자동화(비TTY)·--force는
-        기존 동작 유지 (거부 또는 확인 생략 — manual_control이 최종 판단).
+        자동화(비TTY)·--force는 기존 동작 유지 (거부 또는 확인 생략 — manual_control이 최종 판단).
         True=진행 · False=차단(사유 출력됨) · None=사용자 취소(조용히).
         """
         if force:
             return self.ensure_manual(True)
-        if self.ensure_manual(False):
-            return True
-        if not sys.stdin.isatty():
-            return False
-        if not self.prompt.confirm('MANUAL 모드로 전환할까요?', default=True,
-                                   body=[f'현재 조작 모드: {self.state.operation or "알 수 없음"}']):
-            return None
-        self.cmd_mode(argparse.Namespace(mode='manual'))
-        return self.ensure_manual(False) or False
+        return self._switch_then(self.ensure_manual, ask=True)
 
-    def ensure_arm_or_switch(self, force: bool = False) -> bool:
+    def ensure_arm_or_switch(self, force: bool = False) -> bool | None:
         if force:
             return self.ensure_arm(True)
-        if self.ensure_arm(False):
-            return True
-        if not sys.stdin.isatty():
-            return False
-        if self.state.map_mode == 'MAPPING':
-            return False  # MAPPING 중 팔 거부는 전환으로 해결 안 됨 (위에서 안내됨)
-        if not self.prompt.confirm('MANUAL 모드로 전환할까요?', default=True,
-                                   body=[f'현재 조작 모드: {self.state.operation or "알 수 없음"}']):
-            return None
-        self.cmd_mode(argparse.Namespace(mode='manual'))
-        return self.ensure_arm(False) or False
+        # MAPPING 중 팔 거부는 모드 전환으로 풀리지 않으므로 묻지 않는다 (ensure_arm이 사유 출력)
+        self._wait_operation()
+        return self._switch_then(self.ensure_arm, ask=self.state.map_mode != 'MAPPING')
+
+    def _switch_then(self, check, ask: bool) -> bool | None:
+        # 거부 문구는 전환을 묻기 전이 아니라 최종 판정(check)에서만 찍는다 —
+        # 전환에 동의했는데 결과창에 '거부: 현재 조작 모드…'가 남지 않게.
+        self._wait_operation()
+        if (ask and sys.stdin.isatty() and not self.state.emergency
+                and self.state.operation != 'MANUAL'):
+            if not self.prompt.confirm('MANUAL 모드로 전환할까요?', default=True,
+                                       body=[f'현재 조작 모드: {self.state.operation or "알 수 없음"}']):
+                return None
+            self.cmd_mode(argparse.Namespace(mode='manual'))
+        return check(False)
 
     # -------------------------------------------------------------- 명령 전송
-
-    def prepare_manual(self) -> bool | None:
-        """True=진행 · False=차단(사유 출력됨) · None=사용자 취소(조용히)."""
-        self._poll(0.5)
-        if self.state.emergency:
-            print('거부: 비상정지 중입니다 — 먼저 비상정지를 해제하세요.')
-            return False
-        if self.state.operation == 'MANUAL':
-            return True
-        if not self.prompt.confirm('MANUAL 모드로 전환할까요?', default=True,
-                                   body=[f'현재 조작 모드: {self.state.operation or "알 수 없음"}']):
-            return None
-        self.cmd_mode(argparse.Namespace(mode='manual'))
-        return self.state.operation == 'MANUAL'
 
     def cmd_status(self, args) -> int:
         if isinstance(args.diagnostics, str) and args.diagnostics:  # 진단 항목 상세만 (상태 출력 없이)
@@ -337,8 +317,7 @@ class Bus:
             print('거부: teleop은 터미널에서 실행해야 합니다', file=sys.stderr)
             return 2
 
-        fd = sys.stdin.fileno()
-        old = termios.tcgetattr(fd)
+        from .dialogs import KeyReader
         linear = 0.0
         angular = 0.0
         lin_speed = args.linear
@@ -347,89 +326,65 @@ class Bus:
         key_count = 0
         last_key = '-'
         con = getattr(self.term, 'out', None) or sys.stdout  # 캡처를 우회해 화면에 직접
+        # 방향키도 w/x/a/d와 같게
+        alias = {'up': 'w', 'down': 'x', 'left': 'a', 'right': 'd', ' ': 's'}
         try:
-            tty.setcbreak(fd)
-            try:  # 시작 전 눌린 키 비우기 (타입어헤드 방지)
-                import fcntl as _fc
-                _fl = _fc.fcntl(fd, _fc.F_GETFL)
-                _fc.fcntl(fd, _fc.F_SETFL, _fl | os.O_NONBLOCK)
-                try:
-                    while os.read(fd, 1024):
-                        pass
-                except OSError:
-                    pass
-                finally:
-                    _fc.fcntl(fd, _fc.F_SETFL, _fl)
-            except Exception:
-                pass
-            while rclpy.ok():
-                now = time.monotonic()
-                cols, rows = self.term.size()
-                w = min(cols - 4, 62)
-                left = max(1, (cols - w) // 2 + 1)
-                top = max(1, (rows - 9) // 2 + 1)
-                wl = self.state.joint_vel.get('wheel_left_joint')
-                wr = self.state.joint_vel.get('wheel_right_joint')
-                actual = (f'실제 좌{wl:+.2f} 우{wr:+.2f} rad/s'
-                          if wl is not None and wr is not None else '실제 ? (joint_states 무응답)')
-                estop = ' · E-STOP' if self.state.emergency else ''
-                key_txt = f'키 {last_key} ×{key_count}' if key_count else '키 입력 대기 중'
-                sent_at = time.strftime('%H:%M:%S', time.localtime(last_send)) if last_send else '--:--:--'
-                rows_txt = ['텔레오퍼 (w/x/a/d · e/c 속도 · q 종료)',
-                            f'모드: {self.state.operation or "-"}{estop}',
-                            f'명령 v={linear:+.2f} m/s ω={angular:+.2f} rad/s',
-                            actual,
-                            f'{key_txt} · 전송 {sent_at}',
-                            f'설정 선속도 {lin_speed:.2f} m/s']
-                con.write(f'\033[{top};{left}H┌' + '─' * (w - 2) + '┐')
-                for i, s in enumerate(rows_txt):
-                    con.write(f'\033[{top + 1 + i};{left}H│' + self.term.fit(s, w - 2) + '│')
-                con.write(f'\033[{top + 1 + len(rows_txt)};{left}H└' + '─' * (w - 2) + '┘')
-                con.flush()
-                now = time.monotonic()
-                if now - last_send >= 0.1:
-                    self._send_velocity(linear, angular)
-                    last_send = now
-                ready, _, _ = select.select([sys.stdin], [], [], 0.1)
-                if not ready:
+            with KeyReader(self.term) as keys:  # cbreak + 시작 전 눌린 키 비우기
+                while rclpy.ok():
+                    cols, rows = self.term.size()
+                    w = min(cols - 4, 62)
+                    left = max(1, (cols - w) // 2 + 1)
+                    top = max(1, (rows - 9) // 2 + 1)
+                    wl = self.state.joint_vel.get('wheel_left_joint')
+                    wr = self.state.joint_vel.get('wheel_right_joint')
+                    actual = (f'실제 좌{wl:+.2f} 우{wr:+.2f} rad/s'
+                              if wl is not None and wr is not None else '실제 ? (joint_states 무응답)')
+                    estop = ' · E-STOP' if self.state.emergency else ''
+                    key_txt = f'키 {last_key} ×{key_count}' if key_count else '키 입력 대기 중'
+                    sent_at = time.strftime('%H:%M:%S', time.localtime(last_send)) if last_send else '--:--:--'
+                    rows_txt = ['텔레오퍼',
+                                f'모드: {self.state.operation or "-"}{estop}',
+                                f'명령 v={linear:+.2f} m/s ω={angular:+.2f} rad/s',
+                                actual,
+                                f'{key_txt} · 전송 {sent_at}',
+                                f'설정 선속도 {lin_speed:.2f} m/s',
+                                self.term.paint('w/x/a/d·방향키 이동 · s/space 정지 · e/c 속도 · q/Esc 종료', DIM)]
+                    con.write(f'\033[{top};{left}H┌' + '─' * (w - 2) + '┐')
+                    for i, line in enumerate(rows_txt):
+                        con.write(f'\033[{top + 1 + i};{left}H│' + self.term.fit(line, w - 2) + '│')
+                    con.write(f'\033[{top + 1 + len(rows_txt)};{left}H└' + '─' * (w - 2) + '┘')
+                    con.flush()
+                    now = time.monotonic()
+                    if now - last_send >= 0.1:
+                        self._send_velocity(linear, angular)
+                        last_send = now
+                    key = keys.read(0.1)
                     self._poll(0.01)
-                    continue
-                try:
-                    raw = os.read(fd, 1)
-                except OSError:
-                    continue
-                if raw == b'':
-                    break
-                # buffered read는 select와 어긋나 키가 씹히므로 os.read 직접 사용
-                key = raw.decode('ascii', errors='ignore')
-                if not key:
-                    continue
-                if key in ('q', '\x03'):
-                    break
-                key_count += 1
-                last_key = key if key.strip() else 'space'
-                if key == 'w':
-                    linear, angular = lin_speed, 0.0
-                elif key == 'x':
-                    linear, angular = -lin_speed, 0.0
-                elif key == 'a':
-                    linear, angular = 0.0, ang_speed
-                elif key == 'd':
-                    linear, angular = 0.0, -ang_speed
-                elif key in ('s', ' '):
-                    linear = angular = 0.0
-                elif key == 'e':
-                    lin_speed = min(lin_speed + 0.05, 0.50)
-                elif key == 'c':
-                    lin_speed = max(lin_speed - 0.05, 0.02)
-                elif key == 'h':
-                    pass  # 도움말은 상단 고정줄에 항상 표시
-                self._poll(0.01)
+                    if key is None:
+                        continue
+                    if key in ('q', 'Q', 'esc', 'eof', '\x03'):
+                        break
+                    key = alias.get(key, key)
+                    key_count += 1
+                    last_key = 'space' if key == 's' else key
+                    if key == 'w':
+                        linear, angular = lin_speed, 0.0
+                    elif key == 'x':
+                        linear, angular = -lin_speed, 0.0
+                    elif key == 'a':
+                        linear, angular = 0.0, ang_speed
+                    elif key == 'd':
+                        linear, angular = 0.0, -ang_speed
+                    elif key == 's':
+                        linear = angular = 0.0
+                    elif key == 'e':
+                        lin_speed = min(lin_speed + 0.05, 0.50)
+                    elif key == 'c':
+                        lin_speed = max(lin_speed - 0.05, 0.02)
         finally:
-            termios.tcsetattr(fd, termios.TCSADRAIN, old)
             self._send_velocity(0.0, 0.0)
             self._poll(0.2)
-            print('\n바퀴 정지')
+            print('텔레오퍼 종료 — 바퀴 정지')
         return 0
 
     # --------------------------------------------------------------------- arm
@@ -670,14 +625,13 @@ class Bus:
             launch_args, desc = f'map:=saved map_name:={name}', f'LOCALIZATION(지도 {name})'
         else:
             launch_args, desc = 'map:=saved', 'LOCALIZATION(최근 지도)'
-        print(f'안내: 지금은 COURSE(정지 지도)라 바로 전환이 안 됩니다.', file=sys.stderr)
-        print(f'안내: launch 재시작으로 {desc} 모드로 갈아탑니다: all {launch_args}', file=sys.stderr)
-        if not self.prompt.confirm('재시작할까요?', default=False):
+        if not self.prompt.confirm('재시작할까요?', default=False, body=[
+                '지금은 COURSE(정지 지도)라 바로 전환이 안 됩니다.',
+                f'launch 재시작으로 {desc} 모드로 갈아탑니다: all {launch_args}']):
             return 1
         return self._map_do_restart(launch_args)
 
     def _map_do_restart(self, launch_args: str) -> int:
-        import argparse as _ap
         # cmd_restart는 target만 받으므로 full 텍스트를 직접 보낸다
         from std_msgs.msg import String as _String
         pub = self.node.create_publisher(_String, '/cmd/restart', 10)
@@ -864,102 +818,6 @@ class Bus:
             return None
         return list(res.values)
 
-    def param_act_list(self, node_name: str, node_ns: str) -> int:
-        cli = self.param_client(node_name, node_ns)
-        if cli is None:
-            print('거부: parameter_client 사용 불가', file=sys.stderr)
-            return 1
-        print(f'  {node_ns}{node_name} 파라미터 조회 중…')
-        if not cli.wait_for_services(timeout_sec=5.0):
-            print('거부: 파라미터 서비스 무응답 (노드 종료/비활성?)', file=sys.stderr)
-            return 1
-        names = self.param_list_names(cli)
-        if names is None:
-            print('거부: 목록 조회 실패', file=sys.stderr)
-            return 1
-        if not names:
-            print('  (파라미터 없음)')
-            return 0
-        descs = self.param_describe(cli, names) or []
-        vals = self.param_get_vals(cli, names) or []
-        for i, pname in enumerate(names):
-            ptype = descs[i].type if i < len(descs) else ParameterType.PARAMETER_NOT_SET
-            ro = descs[i].read_only if i < len(descs) else False
-            py = _param_value_to_py(ptype, vals[i]) if i < len(vals) else None
-            ro_txt = ' [읽기전용]' if ro else ''
-            print(f'  {pname} = {py!r} [{_PARAM_TYPE_NAMES.get(ptype, ptype)}]{ro_txt}')
-        print(f'  ({len(names)}개)')
-        return 0
-
-    def param_act_get(self, node_name: str, node_ns: str) -> int | None:
-        pname = self.prompt.modal_input('파라미터 보기', ['이름을 입력 (Esc=취소)'], '이름>')
-        if pname is None:
-            return None  # Esc=그냥 닫기
-        pname = pname.strip()
-        if not pname:
-            print('거부: 이름이 비었습니다', file=sys.stderr)
-            return 2
-        cli = self.param_client(node_name, node_ns)
-        if cli is None or not cli.wait_for_services(timeout_sec=5.0):
-            print('거부: 파라미터 서비스 무응답', file=sys.stderr)
-            return 1
-        descs = self.param_describe(cli, [pname])
-        vals = self.param_get_vals(cli, [pname])
-        if not descs or not vals:
-            print('거부: 조회 실패 (없는 이름?)', file=sys.stderr)
-            return 1
-        print(f'  {pname} = {_param_value_to_py(descs[0].type, vals[0])!r} '
-              f'[{_PARAM_TYPE_NAMES.get(descs[0].type, "?")}]'
-              + (' [읽기전용]' if descs[0].read_only else ''))
-        return 0
-
-    def param_act_set(self, node_name: str, node_ns: str) -> int | None:
-        pname = self.prompt.modal_input('파라미터 설정', ['이름을 입력 (Esc=취소)'], '이름>')
-        if pname is None:
-            return None  # Esc=그냥 닫기
-        pname = pname.strip()
-        if not pname:
-            print('거부: 이름이 비었습니다', file=sys.stderr)
-            return 2
-        cli = self.param_client(node_name, node_ns)
-        if cli is None or not cli.wait_for_services(timeout_sec=5.0):
-            print('거부: 파라미터 서비스 무응답', file=sys.stderr)
-            return 1
-        descs = self.param_describe(cli, [pname])
-        vals = self.param_get_vals(cli, [pname])
-        if not descs or not vals:
-            print('거부: 조회 실패 (없는 이름?)', file=sys.stderr)
-            return 1
-        ptype = descs[0].type
-        if descs[0].read_only:
-            print(f'거부: 읽기전용 파라미터입니다: {pname}', file=sys.stderr)
-            return 1
-        current = _param_value_to_py(ptype, vals[0])
-        print(f'  현재: {pname} = {current!r} [{_PARAM_TYPE_NAMES.get(ptype, "?")}]')
-        raw = self.prompt.modal_input('새 값', ['bool/int/double/문자열, 배열은 쉼표 구분 (Esc=취소)'], '값>')
-        if raw is None:
-            return None  # Esc=그냥 닫기
-        raw = raw.strip()
-        try:
-            new_val = _parse_param_text(raw, ptype)
-        except (ValueError, TypeError) as exc:
-            print(f'거부: {exc}', file=sys.stderr)
-            return 2
-        print(f'  변경: {current!r} → {new_val!r}')
-        if not self.prompt.confirm(f'{pname} 값을 바꾸겠습니까?', default=False):
-            return 0
-        try:
-            res = self.param_wait(cli.set_parameters([Parameter(pname, value=new_val)]))
-        except Exception as exc:
-            print(f'거부: 설정 호출 실패: {exc}', file=sys.stderr)
-            return 1
-        if res is None or not getattr(res, 'results', None):
-            print('거부: 설정 응답 없음', file=sys.stderr)
-            return 1
-        ok = bool(res.results[0].successful)
-        print(f'  {"성공" if ok else "실패: " + (res.results[0].reason or "?")}')
-        return 0 if ok else 1
-
     def param_act_reset(self, node_name: str, node_ns: str) -> int | None:
         """yaml 기본값으로 되돌리기 — config 파일의 ros__parameters를 그대로 올림.
         중첩 dict 등 rclpy 파라미터에 못 들어가는 값은 건너뛴다."""
@@ -971,7 +829,6 @@ class Bus:
         if not defaults:
             print(f'거부: {path}에 {node_name} 기본값 없음', file=sys.stderr)
             return 1
-        print(f'  파일: {path} ({len(defaults)}개)')
         cli = self.param_client(node_name, node_ns)
         if cli is None or not cli.wait_for_services(timeout_sec=5.0):
             print('거부: 파라미터 서비스 무응답', file=sys.stderr)
@@ -984,12 +841,14 @@ class Bus:
                 params.append(Parameter(k, v))
             else:
                 skipped.append(k)
-        if skipped:
-            print(f'  건너뜀 (복합 타입): {", ".join(skipped)}')
         if not params:
             print('거부: 올릴 수 있는 값이 없음', file=sys.stderr)
             return 1
-        if not self.prompt.confirm(f'{node_name} 파라미터 {len(params)}개를 yaml 기본값으로 되돌릴까요?', default=False):
+        body = [f'파일: {path} ({len(defaults)}개)']
+        if skipped:
+            body.append(f'건너뜀 (복합 타입): {", ".join(skipped)}')
+        if not self.prompt.confirm(f'{node_name} 파라미터 {len(params)}개를 yaml 기본값으로 되돌릴까요?',
+                                   default=False, body=body):
             return None  # Esc/아니오=그냥 닫기
         try:
             res = self.param_wait(cli.set_parameters(params))

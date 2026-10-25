@@ -5,12 +5,10 @@ term=Terminal, state=StateStore(상태바용), poll=ROS 콜백 돌리기.
 from __future__ import annotations
 
 import math
-import os
 import sys
 import time
 
-from .consts import ARM_JOINTS, GRIPPER_JOINT, WHEEL_JOINTS
-from .defs import BACK, MAIN, QUIT, REFRESH, STAY
+from .consts import ARM_JOINTS, DIAG_LEVELS, GRIPPER_JOINT, WHEEL_JOINTS
 from .dialogs import Dialog, run_select
 from .terminal import BOLD, CYAN, DIM, GREEN, RED, RESET, YELLOW, Terminal
 
@@ -18,13 +16,12 @@ from .terminal import BOLD, CYAN, DIM, GREEN, RED, RESET, YELLOW, Terminal
 class Ui:
     def __init__(self, term: Terminal, state, poll):
         self.term = term
-        self.term.out = self.console = sys.stdout  # 화면 출력은 여기로만 — capture(sys.stdout 교체)에 안 잡힘
+        # 화면 그리기 전용 — capture()가 sys.stdout을 가로채도 UI는 여기로 쓴다
+        self.term.out = self.console = sys.stdout
         self.state = state
         self._poll = poll
-        self._linebuf = ""
         self._sel_idx = 0
         self._frame_size = None
-        self.console = sys.stdout  # 화면 그리기 전용 — capture()가 sys.stdout을 가로채도 UI는 여기로 씀
 
     @property
     def operation(self) -> str:
@@ -35,7 +32,7 @@ class Ui:
         return self.state.map_mode
 
     def capture(self):
-        """with 블록 안의 print()를 가로챈다. 메뉴 실행 결과를 결과 모달에 넣기용.
+        """with 블록 안의 print()를 가로챈다. 메뉴 실행 결과를 결과창에 넣기용.
         (Ui 자체 그리기는 self.console이라 영향 없음)"""
         import contextlib
         import io
@@ -48,84 +45,43 @@ class Ui:
 
         return _cap()
 
-    def pause(self, back_label: str | None = None, refresh: bool = False) -> str:
-        """결과 화면에서 Enter/r/b/m/q를 받는다 (팝업). 안내는 맨 아랫줄에 있다."""
-        hints = ['Enter 계속']
-        key = self.modal_key('일시정지', hints)
-        if key == 'q':
-            return QUIT
-        if key == 'm':
-            return MAIN
-        if key == 'b' and back_label:
-            return BACK
-        if key == 'r' and refresh:
-            return REFRESH
-        return STAY
-
     def confirm(self, prompt: str, default: bool = False, body: list[str] | None = None) -> bool:
+        """예/아니오 — y 예 · n/Esc/◀ 아니오 · Enter 기본값. 경고·맥락은 body에 (확인 전에 보이게)."""
         suffix = 'Y/n' if default else 'y/N'
-        lines = list(body or []) + ([prompt] if body else [prompt])
-        lines.append(f'[{suffix}] (y/n · Enter=기본 · Esc=아니오)')
+        lines = list(body or []) + ([''] if body else []) + [
+            prompt, self.term.paint(f'[{suffix}]  y 예 · n/Esc 아니오 · Enter 기본', DIM)]
         key = self.modal_key('확인', lines)
-        if key in ('y', 'Y'):
-            return True
-        if key in ('n', 'N'):
-            return False
         if key == 'enter':
             return default
-        return False
+        return key == 'y'
 
     def read_float(self, prompt: str, current: float,
-                       positive: bool = False) -> tuple[float, bool]:
-        raw = self.modal_input('값 입력', [prompt, f'현재: {current:g} (Enter=유지 · Esc=취소)'],
-                                   '값>', default='')
+                   positive: bool = False) -> tuple[float, bool]:
+        """숫자 한 개 — (값, 확정). Enter 빈칸=현재값 유지 · Esc=(current, False)."""
+        def check(raw: str) -> str | None:
+            if not raw.strip():
+                return None
+            try:
+                value = float(raw)
+            except ValueError:
+                return f'숫자가 아님: {raw!r}'
+            if not math.isfinite(value):
+                return '유한한 숫자가 아님'
+            if positive and value <= 0.0:
+                return '0보다 커야 합니다'
+            if not positive and value < 0:
+                return '0 이상이어야 합니다'
+            return None
+
+        raw = self.modal_input('값 입력', [prompt, f'현재: {current:g} (빈칸 Enter=유지)'],
+                               '값>', validate=check)
         if raw is None:
             return current, False
-        raw = raw.strip()
-        if not raw:
-            return current, True
-        try:
-            value = float(raw)
-        except ValueError:
-            print(f'거부: 숫자가 아님: {raw!r}')
-            return current, False
-        if not math.isfinite(value):
-            print('거부: 유한한 숫자가 아님')
-            return current, False
-        if positive and value <= 0.0:
-            print('거부: 0보다 커야 합니다')
-            return current, False
-        if not positive and value < 0:
-            print('거부: 0 이상이어야 합니다')
-            return current, False
-        return value, True
-
-    def invalid(self, choice: str):
-        print(self.term.paint(f'알 수 없는 선택: {choice}', RED))
-        time.sleep(0.45)
+        return (float(raw) if raw.strip() else current), True
 
     def reset_selection(self) -> None:
         """메뉴 진입 시 포커스 초기화 (항상 첫 항목)."""
         self._sel_idx = 0
-
-    @staticmethod
-    def _drain(fd: int) -> None:
-        """입력 버퍼 비우기 — 이전 화면에서 친 키가 다음 다이얼로그로 새는 것(타입어헤드) 방지."""
-        import fcntl
-        import errno
-        try:
-            flags = fcntl.fcntl(fd, fcntl.F_GETFL)
-            fcntl.fcntl(fd, fcntl.F_SETFL, flags | os.O_NONBLOCK)
-            try:
-                while os.read(fd, 1024):
-                    pass
-            except OSError as e:
-                if e.errno not in (errno.EAGAIN, errno.EWOULDBLOCK):
-                    pass
-            finally:
-                fcntl.fcntl(fd, fcntl.F_SETFL, flags)
-        except Exception:
-            pass
 
     def _erase_rect(self, left: int, top: int, w: int, h: int) -> None:
         """박스 잔상 지우기 (리사이즈 전 위치)."""
@@ -135,9 +91,9 @@ class Ui:
         self.console.flush()
 
     def modal_input(self, title: str, body: list[str], prompt: str,
-                    default: str = '') -> str | None:
-        """한 줄 입력 — Enter 확인 · Esc/◀ 취소(None)."""
-        return Dialog(self, title, body).input(prompt, default)
+                    default: str = '', validate=None) -> str | None:
+        """한 줄 입력 — Enter 확인 · Esc/◀ 취소(None). validate는 Dialog.input 참고."""
+        return Dialog(self, title, body).input(prompt, default, validate)
 
     def modal_key(self, title: str, body: list[str]) -> str | None:
         """단일 키 확인 — Enter='enter' · Esc/◀=None · 문자 그대로."""
@@ -150,7 +106,7 @@ class Ui:
     def select(self, title: str, items: list[tuple[str, str]], center: list[str],
                    back: bool = True, main: bool = True,
                    timeout: float | None = None) -> str:
-        """↑↓ 이동 · Enter 실행 · 숫자 포커스 · Esc/◀ 뒤로 · m 메인 · q 종료."""
+        """메뉴 선택 — 키 규약은 dialogs.py docstring."""
         return run_select(self, title, items, center, back, main, timeout)
 
     def draw(self, title: str, left: list[str], center: list[str],
@@ -175,7 +131,8 @@ class Ui:
                 self.console.write(self.term.fit(line, cols) + '\n')
             for line in center:
                 self.console.write(self.term.fit(line, cols) + '\n')
-            self.footer(back=back, main=main)
+            self.console.write('-' * cols + '\n')
+            self.console.write(self.term.fit(self.hints_line(back=back, main=main), cols) + '\n')
             self.console.flush()
             self._frame_size = size
             return
@@ -186,7 +143,8 @@ class Ui:
             self.console.write('\033[H')
             self.console.flush()
         top = [self.term.fit(ln, cols) for ln in self.top_lines(title, cols)]
-        lw = min(32, max(24, cols // 3))
+        # 왼쪽(메뉴) 폭은 라벨에 맞춘다 — 최소 24, 최대 화면 절반
+        lw = max(24, min(cols // 2, max([self.term.disp_len(l) for l in left] + [0]) + 1))
         cw = cols - lw - 4
         body_h = max(1, rows - 1 - len(top) - 2)
         left_lines = list(left)
@@ -212,37 +170,15 @@ class Ui:
             self.console.write('\n')
         self.console.flush()
 
-    def header(self, title: str):
-        self._poll(0.35)
-        self.term.clear()
-        cols, _ = self.term.size()
-        width = min(64, cols)
-        for line in self.top_lines(title, width):
-            self.console.write(self.term.fit(line, width) + '\n')
-        self.console.flush()
-
-    def footer(self, back: bool = True, main: bool = True):
-        cols, _ = self.term.size()
-        self.console.write('-' * min(64, cols) + '\n')
-        hints = []
-        if back:
-            hints.append('◀/b) 뒤로')
-        hints.append('r) 새로고침')
-        if main:
-            hints.append('m) 메인 메뉴')
-        hints.append('q) 종료')
-        self.console.write('  ' + '   '.join(hints) + '\n')
-        self.console.flush()
-
     def hints_line(self, back: bool = True, main: bool = True) -> str:
-        hints = []
+        """하단 고정 키 안내 — 모든 메뉴 공통 (최상위면 뒤로·메인 없음)."""
+        hints = ['↑↓ 이동', 'Enter 실행', '번호 포커스']
         if back:
-            hints.append('◀/b) 뒤로')
-        hints.append('r) 새로고침')
+            hints.append('Esc/◀ 뒤로')
         if main:
-            hints.append('m) 메인 메뉴')
-        hints.append('q) 종료')
-        return '  ' + '   '.join(hints)
+            hints.append('m 메인')
+        hints += ['r 새로고침', 'q 종료']
+        return '  ' + ' · '.join(hints)
 
     def top_lines(self, title: str, width: int = 64) -> list[str]:
         """상단 고정 영역 6줄: 타이틀 3 + 상태바 2 + 구분선 1."""

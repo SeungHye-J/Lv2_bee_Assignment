@@ -1,7 +1,11 @@
 """단일 키 입력·다이얼로그 코어.
 
 Ui.select/modal_input/modal_key/pager가 모두 이 구현을 공유한다.
-규약: Enter=확인/실행 · Esc=취소/닫기 · ◀=뒤로 · ↑↓=이동/스크롤 · 숫자=포커스.
+규약 (모든 화면 공통):
+  메뉴   ↑↓ 이동 · Enter 실행 · 항목 키(숫자·글자) 포커스 · Esc/◀/b 뒤로 · m 메인 · r 새로고침 · q 종료
+  확인   y 예 · n/Esc/◀ 아니오 · Enter 기본값
+  입력   Enter 확인(검증 실패면 창 안에 사유, 그대로 다시 입력) · Esc/◀ 취소
+  결과창 ↑↓/PgUp/PgDn 스크롤 · Enter/Esc/◀ 닫기
 """
 from __future__ import annotations
 
@@ -12,14 +16,19 @@ import termios
 import time
 import tty
 
-from .defs import BACK, MAIN, MENU_REFRESH_S, TIMEOUT
+from .terminal import DIM, RED
+from .defs import BACK, MAIN, MENU_REFRESH_S, QUIT, STAY, TIMEOUT
+
+# 메뉴에서 항목 키로 못 쓰는 글자 (내비게이션 전용)
+NAV_KEYS = ('b', 'm', 'q', 'r')
 
 
 class KeyReader:
     """cbreak 터미널에서 키 하나를 읽는다. 방향키·UTF-8도 지원."""
 
-    def __init__(self, term):
+    def __init__(self, term, flush: bool = True):
         self.term = term
+        self.flush = flush
         self.fd = None
         self._old = None
 
@@ -27,11 +36,13 @@ class KeyReader:
         self.fd = sys.stdin.fileno()
         self._old = termios.tcgetattr(self.fd)
         tty.setcbreak(self.fd)
-        # 이전 화면에서 누른 키가 새 다이얼로그에 새지 않게
-        try:
-            termios.tcflush(self.fd, termios.TCIFLUSH)
-        except Exception:
-            pass
+        # 이전 화면에서 누른 키가 새 다이얼로그에 새지 않게 (y가 확인창을 미리 넘기는 등).
+        # 메뉴는 flush=False — 2초마다 다시 그릴 때마다 비우면 그 사이 누른 키가 사라진다.
+        if self.flush:
+            try:
+                termios.tcflush(self.fd, termios.TCIFLUSH)
+            except Exception:
+                pass
         return self
 
     def __exit__(self, exc_type, exc, tb):
@@ -112,16 +123,21 @@ class Dialog:
         return min(max(cols - 4, 20), max(20, content))
 
     def draw(self, mode: str, buf: str = '', prompt: str = '', off: int = 0,
-             h: int = 0) -> None:
+             h: int = 0, error: str = '') -> None:
         cols, rows = self.ui.term.size()
         extra = self.ui.term.disp_len(prompt) + 2 if mode == 'input' else 0
         w = self._width(extra)
         lines = self.lines
         if mode == 'pager':
             vis = self.body[off:off + h]
-            content = lines + vis + ['↑↓ 스크롤 · Enter/Esc 닫기']
+            pos = (f'{off + 1}-{min(off + h, len(self.body))}/{len(self.body)} · '
+                   if len(self.body) > h else '')
+            content = [self.title, ''] + vis + [self.ui.term.paint(
+                f'{pos}↑↓ 스크롤 · Enter/Esc 닫기', DIM)]
         elif mode == 'input':
-            content = lines + [prompt + buf, 'Enter 확인 · Esc 취소']
+            content = lines + [prompt + ' ' + buf + '▏',
+                               self.ui.term.paint(error, RED) if error else '',
+                               self.ui.term.paint('Enter 확인 · Esc 취소', DIM)]
         else:
             content = lines
         left = max(1, (cols - w) // 2 + 1)
@@ -138,26 +154,34 @@ class Dialog:
         self.ui.console.write(f'\033[{top + hbox};{left}H└' + '─' * (w - 2) + '┘')
         self.ui.console.flush()
 
-    def input(self, prompt: str, default: str = '') -> str | None:
-        """한 줄 입력 — Enter 확인(빈칸=default) · Esc/◀ 취소(None)."""
+    def input(self, prompt: str, default: str = '', validate=None) -> str | None:
+        """한 줄 입력 — Enter 확인(빈칸=default) · Esc/◀ 취소(None).
+
+        validate(text) → 거부 사유 문자열(None=통과). 거부면 창을 닫지 않고 사유를 보여준다.
+        """
         if not sys.stdin.isatty():
             try:
                 raw = input(f'{prompt} ').strip()
                 return raw if raw else default
             except EOFError:
                 return None
-        buf = ''
+        buf, error = '', ''
         with KeyReader(self.ui.term) as keys:
             while True:
-                self.draw('input', buf, prompt)
+                self.draw('input', buf, prompt, error=error)
                 k = keys.read(0.1)
                 self.ui._poll(0.01)
                 if k is None:
                     continue
                 if k == 'enter':
-                    return buf if buf else default
+                    value = buf if buf else default
+                    error = (validate(value) or '') if validate else ''
+                    if not error:
+                        return value
+                    continue
                 if k in ('esc', 'left'):
                     return None
+                error = ''
                 if k == 'backspace':
                     buf = buf[:-1]
                 elif k == 'ctrl_u':
@@ -198,7 +222,7 @@ class Dialog:
         if not sys.stdin.isatty():
             self.ui.console.write('\n'.join(lines) + '\n')
             self.ui.console.flush()
-            return 'stay'
+            return STAY
         off = 0
         try:
             _, rows = shutil.get_terminal_size()
@@ -214,7 +238,7 @@ class Dialog:
                 if k is None:
                     continue
                 if k in ('enter', 'esc', 'left', 'eof'):
-                    return 'stay'
+                    return STAY
                 if k == 'up':
                     off = max(0, off - 1)
                 elif k == 'down':
@@ -232,7 +256,7 @@ class Dialog:
 def run_select(ui, title: str, items: list[tuple[str, str]], center: list[str],
                back: bool = True, main: bool = True,
                timeout: float | None = None) -> str:
-    """메뉴 선택 — ↑↓ 이동 · Enter 실행 · 숫자 포커스 · Esc/◀ 뒤로 · m 메인 · q 종료."""
+    """메뉴 선택 — 규약은 모듈 docstring. 반환: 항목 key | BACK | MAIN | QUIT | TIMEOUT."""
     if not items:
         return BACK
     if timeout is None:
@@ -242,14 +266,13 @@ def run_select(ui, title: str, items: list[tuple[str, str]], center: list[str],
         return items[0][0]
     dbuf = ''
     ddeadline = 0.0
-    with KeyReader(ui.term) as keys:
+    with KeyReader(ui.term, flush=False) as keys:
         end = time.monotonic() + timeout
         while True:
             left = []
             for i, (key, label) in enumerate(items):
                 row = f"  {'❯' if i == idx else ' '} {key}) {label}"
                 left.append(ui.term.paint(row, '\033[7m\033[36m\033[1m') if i == idx else row)
-            left += ['', '  ↑↓ 이동 · Enter 실행 · 숫자 포커스 · ◀ 뒤로 · m 메인 · q 종료']
             ui.draw(title, left, center, back=back, main=main, poll=False)
             ui._sel_idx = idx
             while True:
@@ -262,21 +285,17 @@ def run_select(ui, title: str, items: list[tuple[str, str]], center: list[str],
                     continue
                 if k == 'enter':
                     return items[idx][0]
-                if k in ('q', 'Q'):
-                    return 'q'
-                if k in ('b', 'B'):
-                    return BACK
+                if k in ('q', 'Q', 'eof'):
+                    return QUIT
+                if k in ('b', 'B', 'esc', 'left'):
+                    return BACK if back else TIMEOUT
                 if k in ('m', 'M'):
-                    return MAIN
+                    return MAIN if main else TIMEOUT
                 if k in ('r', 'R'):
                     return TIMEOUT
-                if k in ('esc', 'left'):
-                    return BACK
                 if k in ('up', 'down'):
                     idx = (idx - 1 if k == 'up' else idx + 1) % len(items)
                     break
-                if k in ('eof',):
-                    return 'q'
                 if isinstance(k, str) and len(k) == 1 and k.isdigit():
                     now = time.monotonic()
                     if now - ddeadline > 1.0:
@@ -293,5 +312,11 @@ def run_select(ui, title: str, items: list[tuple[str, str]], center: list[str],
                         idx = exact[0]
                         break
                     dbuf = ''
+                elif isinstance(k, str) and len(k) == 1 and k.lower() not in NAV_KEYS:
+                    dbuf = ''
+                    hit = [i for i, (key, _) in enumerate(items) if key == k.lower()]
+                    if hit:
+                        idx = hit[0]
+                        break
                 else:
                     dbuf = ''

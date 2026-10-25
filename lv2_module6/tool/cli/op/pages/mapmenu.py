@@ -1,7 +1,8 @@
 """지도 메뉴 + 전환 + 저장."""
 from __future__ import annotations
 
-from .base import Menu, MenuItem, Page
+from ..defs import STAY
+from .base import InfoItem, Menu, MenuItem, Page
 
 
 class MapStatusItem(MenuItem):
@@ -12,7 +13,7 @@ class MapStatusItem(MenuItem):
 
     def run(self):
         self.bus.cmd_map(self.bus.map_args('status'))
-        return 'stay'
+        return STAY
 
 
 class MapListItem(MenuItem):
@@ -23,7 +24,7 @@ class MapListItem(MenuItem):
 
     def run(self):
         self.bus.cmd_map(self.bus.map_args('list'))
-        return 'stay'
+        return STAY
 
 
 class MapModeItem(MenuItem):
@@ -39,9 +40,9 @@ class MapModeItem(MenuItem):
     def run(self):
         if not self.ui.confirm(f'{self._desc} 모드로 전환할까요?', default=False,
                               body=[f'현재: {self.state.map_mode or "-"}']):
-            return 'stay'
+            return STAY
         self.bus.cmd_map(self.bus.map_args('mode', name=self._mode))
-        return 'stay'
+        return STAY
 
 
 class MapMenu(Menu):
@@ -96,9 +97,9 @@ class SwitchTargetItem(MenuItem):
     def run(self):
         if not self.ui.confirm(f'지도 "{self._name}"(으)로 전환할까요?', default=False,
                               body=[f'현재: {self.state.values.get("map_name") or "-"}']):
-            return 'stay'
+            return STAY
         self.bus.cmd_map(self.bus.map_args('switch', name=self._name))
-        return 'stay'
+        return STAY
 
 
 class SwitchNameItem(MenuItem):
@@ -108,13 +109,16 @@ class SwitchNameItem(MenuItem):
         return '이름 직접 입력'
 
     def run(self):
-        name = self.ui.modal_input('지도 이름', ['전환할 지도 폴더 이름 (Esc=취소)'], '이름>')
-        if name is not None:
-            name = name.strip()
-        if not name:
-            return 'stay'
+        name = self.ui.modal_input('지도 이름', ['전환할 지도 폴더 이름'], '이름>',
+                                   validate=lambda t: None if t.strip() else '이름이 비었습니다')
+        if name is None:
+            return STAY
+        name = name.strip()
+        if not self.ui.confirm(f'지도 "{name}"(으)로 전환할까요?', default=False,
+                               body=[f'현재: {self.state.values.get("map_name") or "-"}']):
+            return STAY
         self.bus.cmd_map(self.bus.map_args('switch', name=name))
-        return 'stay'
+        return STAY
 
 
 class MapSwitchMenu(Menu):
@@ -125,7 +129,7 @@ class MapSwitchMenu(Menu):
         items: list[MenuItem] = [SwitchTargetItem(self.app, str(i + 1), n)
                                  for i, n in enumerate(maps)]
         if not items:
-            items = [_NoMapItem(self.app)]
+            items = [InfoItem(self.app, '지도 목록 없음')]
         return items + [SwitchNameItem(self.app)]
 
     def center(self):
@@ -134,37 +138,19 @@ class MapSwitchMenu(Menu):
                 f' 모드: {st.map_mode or "-"}']
 
 
-class _NoMapItem(MenuItem):
-    key = '1'
-
-    def label(self):
-        return '지도 목록 없음'
-
-    def run(self):
-        return 'stay'
-
-
 class MapSavePage(Page):
     title = '지도 저장'
 
     def show(self) -> str:
-        from ..defs import BACK, MAIN, QUIT
-        st = self.state
-        name = st.values.get('map_name') or ''
-        default = self.bus.default_map_dir() / (name or '<지도이름>') / 'map'
-        self.ui.header('지도 저장')
-        print(f'  현재 지도: {name or "-"}')
-        print(f'  기본 경로: {default}')
-        if not self.ui.confirm('현재 /map을 저장할까요?', default=False):
-            return 'stay'
-        raw = self.ui.modal_input('저장 경로', ['(Enter=기본 · Esc=뒤로)'], '경로>')
+        name = self.state.values.get('map_name') or ''
+        default = self.bus.default_map_dir() / name / 'map' if name else None
+        raw = self.ui.modal_input(
+            '지도 저장',
+            [f'현재 지도: {name or "-"}',
+             f'기본 경로: {default or "(없음 — 경로를 입력해야 함)"}',
+             '현재 /map을 이 경로로 저장합니다 (빈칸 Enter = 기본 경로)'], '경로>',
+            validate=lambda t: None if t.strip() or name else '현재 지도 이름이 없습니다 — 경로를 입력하세요')
         if raw is None:
-            return BACK
-        raw = raw.strip()
-        if raw.lower() in ('b', 'back'):
-            return BACK
-        if not name and not raw:
-            print('거부: 현재 지도 이름이 없습니다 — 저장 경로를 입력하세요.')
-            return 'stay'
-        self.bus.cmd_map(self.bus.map_args('save', file=raw or None))
-        return 'stay'
+            return STAY
+        self.bus.cmd_map(self.bus.map_args('save', file=raw.strip() or None))
+        return STAY

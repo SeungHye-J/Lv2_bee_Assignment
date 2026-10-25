@@ -2,6 +2,13 @@
 
 메뉴 항목은 MenuItem 객체다: 라벨·노출 조건·실행을 캡슐화해서
 키 문자열 if-chain 없이 다형성으로 동작한다.
+
+흐름 규약 (모든 메뉴 공통):
+  - 항목 run()은 BACK/MAIN/QUIT/STAY만 돌려준다. 화면 이동은 반환값으로만.
+    BACK은 그 항목이 연 하위 화면이 닫혔다는 뜻 — 부모 메뉴는 그대로 남는다.
+  - 실행 중 print()는 전부 Menu가 가로채 결과창(pager)에 보여준다 — 다이얼로그보다 먼저
+    알려야 할 경고·맥락은 print가 아니라 confirm(body=...)/modal_input(body=...)에 넣는다.
+  - 취소(Esc·아니오)는 아무 출력 없이 STAY.
 """
 from __future__ import annotations
 
@@ -9,11 +16,11 @@ from abc import ABC, abstractmethod
 
 import rclpy
 
-from ..defs import BACK, MAIN, QUIT, TIMEOUT
+from ..defs import BACK, MAIN, QUIT, STAY, TIMEOUT
 
 
 class Page(ABC):
-    """한 화면. show()는 BACK/MAIN/QUIT 중 하나를 돌려준다."""
+    """한 화면. show()는 BACK/MAIN/QUIT/STAY 중 하나를 돌려준다."""
 
     title: str = ''
 
@@ -32,8 +39,6 @@ class Page(ABC):
 class MenuItem(ABC):
     """메뉴 항목 한 개 — 라벨·노출·실행을 한 몸에."""
 
-    #: True면 실행 중 print를 가로채지 않는다 (자체 화면을 그리는 항목용)
-    raw_ui = False
     key: str = ''
 
     def __init__(self, app):
@@ -56,7 +61,7 @@ class MenuItem(ABC):
 
 
 class GoMenu(MenuItem):
-    """서브메뉴 진입 항목."""
+    """하위 화면 진입 항목."""
 
     def __init__(self, app, key: str, label: str, page):
         super().__init__(app)
@@ -68,27 +73,29 @@ class GoMenu(MenuItem):
         return self._label
 
     def run(self) -> str:
-        if self._page is None:
-            return 'stay'
-        return run_page(self.ui, self._page)
+        return self._page.show() if self._page is not None else STAY
 
 
-def run_page(ui, page) -> str:
-    """서브 페이지 실행 — print 출력은 가로채서 결과 모달에 넣는다."""
-    with ui.capture() as (buf_out, buf_err):
-        result = page.show()
-    out = (buf_out.getvalue() + buf_err.getvalue()).strip('\n')
-    if out:
-        nav = ui.pager('실행 결과', out)
-        if nav in (MAIN, QUIT):
-            return nav
-        if nav == BACK:
-            return BACK
-    return result if result in (MAIN, QUIT, BACK) else 'stay'
+class InfoItem(MenuItem):
+    """고를 게 없을 때 보여주는 안내 한 줄 (Enter는 아무 일도 안 함)."""
+
+    def __init__(self, app, text: str, key: str = '1'):
+        super().__init__(app)
+        self.key = key
+        self._text = text
+
+    def label(self) -> str:
+        return self._text
+
+    def run(self) -> str:
+        return STAY
 
 
 class Menu(Page):
     """방향키 메뉴 — items()의 MenuItem들을 보여주고 고른 항목의 run()을 실행."""
+
+    #: 최상위 메뉴 — 뒤로·메인 없음
+    root = False
 
     def items(self) -> list[MenuItem]:
         return []
@@ -102,35 +109,24 @@ class Menu(Page):
             self.app.poll(0.2)
             visible = [i for i in self.items() if i.visible()]
             if not visible:
-                return 'stay'
+                return STAY
             keys = [(it.key, it.label()) for it in visible]
-            choice = self.ui.select(self.title, keys, self.center())
+            choice = self.ui.select(self.title, keys, self.center(),
+                                    back=not self.root, main=not self.root)
             if choice == TIMEOUT:
                 continue
-            if choice == BACK:
-                return BACK
-            if choice == MAIN:
-                return MAIN
-            if choice in ('q', 'quit', 'exit'):
-                return QUIT
+            if choice in (BACK, MAIN, QUIT):
+                return choice
             item = next((it for it in visible if it.key == choice), None)
             if item is None:
                 continue
-            if item.raw_ui:
+            # 실행 중 print는 화면을 스크롤시키므로 가로채서 결과창에 넣는다.
+            with self.ui.capture() as (buf_out, buf_err):
                 result = item.run()
-            else:
-                # 실행 중 print는 화면을 스크롤시키므로 가로채서 결과 모달에 넣는다.
-                # 모달이 b/m/q 내비까지 맡으므로 뒤따르는 일시정지는 붙이지 않는다.
-                with self.ui.capture() as (buf_out, buf_err):
-                    result = item.run()
-                out = (buf_out.getvalue() + buf_err.getvalue()).strip('\n')
-                if out:
-                    nav = self.ui.pager('실행 결과', out)
-                    if nav in (MAIN, QUIT):
-                        return nav
-                    if nav == BACK:
-                        return BACK
+            out = (buf_out.getvalue() + buf_err.getvalue()).strip('\n')
+            if out:
+                self.ui.pager(item.label(), out)
+            # 하위 화면의 BACK은 '그 화면을 닫음'이라 여기는 그대로 남는다 (두 단계 뒤로 가지 않게)
             if result in (MAIN, QUIT):
                 return result
-            if result == BACK:
-                return BACK
+        return QUIT

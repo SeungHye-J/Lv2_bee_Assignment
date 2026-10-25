@@ -3,9 +3,9 @@ from __future__ import annotations
 
 import argparse
 
-from ..defs import MAIN, QUIT
+from ..defs import STAY
 from ..terminal import BOLD, GREEN, RED
-from .base import Menu, MenuItem
+from .base import InfoItem, Menu, MenuItem
 
 
 class ModeItem(MenuItem):
@@ -21,15 +21,16 @@ class ModeItem(MenuItem):
         return f'{self._target:<10} — {self._desc}'
 
     def run(self):
-        if self._target == 'AUTO' and not self.ui.confirm(
-                'AUTO로 바꾸면 자동 주행이 시작될 수 있습니다. 전환할까요?'):
-            return 'stay'
+        body = [f'현재: {self.state.operation or "-"}']
+        if self._target == 'AUTO':
+            body.append('AUTO로 바꾸면 자동 주행이 시작될 수 있습니다.')
         if self._target == 'EXPLORE' and self.state.map_mode != 'MAPPING':
-            print('WARN: EXPLORE는 지도 모드 MAPPING에서만 허용됩니다.')
-            if not self.ui.confirm('그래도 EXPLORE로 전환할까요?'):
-                return 'stay'
+            body.append(f'주의: EXPLORE는 지도 모드 MAPPING에서만 허용됩니다 (지금 {self.state.map_mode or "-"}).')
+        if self._target != 'MANUAL' and not self.ui.confirm(
+                f'{self._target}로 전환할까요?', default=False, body=body):
+            return STAY
         self.bus.cmd_mode(argparse.Namespace(mode=self._target.lower()))
-        return 'stay'
+        return STAY
 
 
 class ModeMenu(Menu):
@@ -60,7 +61,7 @@ class EstopRefreshItem(MenuItem):
 
     def run(self):
         self.bus.cmd_estop(argparse.Namespace(state='status'))
-        return 'stay'
+        return STAY
 
 
 class EstopOnItem(MenuItem):
@@ -70,13 +71,9 @@ class EstopOnItem(MenuItem):
         return '비상정지 ON'
 
     def run(self):
-        if self.state.emergency:
-            print('이미 비상정지 ON입니다.')
-            return 'stay'
-        if not self.ui.confirm('비상정지를 ON 할까요?', default=False):
-            return 'stay'
+        # 멈추는 쪽은 묻지 않는다 — 확인창이 정지를 늦추면 안 됨
         self.bus.cmd_estop(argparse.Namespace(state='on'))
-        return 'stay'
+        return STAY
 
 
 class EstopOffItem(MenuItem):
@@ -86,8 +83,11 @@ class EstopOffItem(MenuItem):
         return '비상정지 OFF'
 
     def run(self):
+        if not self.ui.confirm('비상정지를 해제할까요?', default=False,
+                               body=['해제하면 바퀴·팔 명령이 다시 통합니다. 주변을 확인하세요.']):
+            return STAY
         self.bus.cmd_estop(argparse.Namespace(state='off'))
-        return 'stay'
+        return STAY
 
 
 class EstopMenu(Menu):
@@ -98,7 +98,8 @@ class EstopMenu(Menu):
 
     def center(self):
         est = self.term.paint('ON', RED + BOLD) if self.state.emergency else self.term.paint('OFF', GREEN)
-        return ['[비상정지]', f' 현재: {est}', '', ' ON은 바퀴 명령 차단']
+        return ['[비상정지]', f' 현재: {est}', '', ' ON은 바로 적용 (확인 없음) · 바퀴 명령 차단',
+                ' OFF는 확인 후 해제']
 
 
 class RestartItem(MenuItem):
@@ -114,9 +115,9 @@ class RestartItem(MenuItem):
 
     def run(self):
         if not self.ui.confirm(f'{self._target} 노드를 재시작할까요?', default=False):
-            return 'stay'
+            return STAY
         self.bus.cmd_restart(argparse.Namespace(target=self._target, yes=True))
-        return 'stay'
+        return STAY
 
 
 class RestartAllItem(MenuItem):
@@ -126,18 +127,15 @@ class RestartAllItem(MenuItem):
         return '전체 스택 재시작'
 
     def run(self):
-        print('WARN: 전체 스택이 재시작됩니다. 운영 중인 로봇에서는 주의하세요.')
-        if not self.ui.confirm('정말 전체 스택을 재시작할까요?', default=False):
-            return 'stay'
         confirm = self.ui.modal_input(
-            '재시작 확인', ['확인을 위해 RESTART를 입력 (Esc=취소)'], '확인>')
+            '전체 스택 재시작',
+            ['전체 스택이 재시작됩니다. 운영 중인 로봇에서는 주의하세요.',
+             '계속하려면 RESTART를 입력'], '확인>',
+            validate=lambda t: None if t.strip() == 'RESTART' else 'RESTART를 정확히 입력하세요')
         if confirm is None:
-            return 'stay'
-        if confirm.strip() != 'RESTART':
-            print('취소: 입력이 일치하지 않습니다.')
-            return 'stay'
+            return STAY
         self.bus.cmd_restart(argparse.Namespace(target='all', yes=True))
-        return 'stay'
+        return STAY
 
 
 class RestartNameItem(MenuItem):
@@ -147,27 +145,17 @@ class RestartNameItem(MenuItem):
         return '노드 이름 직접 입력'
 
     def run(self):
-        target = self.ui.modal_input('노드 이름', ['재시작할 노드 (all=전체 · Esc=취소)'], '이름>')
+        target = self.ui.modal_input('노드 이름', ['재시작할 노드 (all=전체)'], '이름>')
         if target is not None:
             target = target.strip()
         if not target:
-            return 'stay'
+            return STAY
         if target == 'all':
             return RestartAllItem(self.app).run()
         if not self.ui.confirm(f'{target} 노드를 재시작할까요?', default=False):
-            return 'stay'
+            return STAY
         self.bus.cmd_restart(argparse.Namespace(target=target, yes=True))
-        return 'stay'
-
-
-class _NoRestartItem(MenuItem):
-    key = '1'
-
-    def label(self):
-        return '재시작 가능한 노드 없음'
-
-    def run(self):
-        return 'stay'
+        return STAY
 
 
 class RestartMenu(Menu):
@@ -179,7 +167,7 @@ class RestartMenu(Menu):
         items: list[MenuItem] = [RestartItem(self.app, str(i + 1), n)
                                  for i, n in enumerate(restartable)]
         if not items:
-            items = [_NoRestartItem(self.app)]
+            items = [InfoItem(self.app, '재시작 가능한 노드 없음')]
         return items + [RestartAllItem(self.app), RestartNameItem(self.app)]
 
     def center(self):

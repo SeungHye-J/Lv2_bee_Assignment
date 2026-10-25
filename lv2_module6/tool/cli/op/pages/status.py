@@ -5,9 +5,9 @@ import os
 import subprocess
 from pathlib import Path
 
-from ..defs import MAIN, QUIT
+from ..defs import BACK, MAIN, QUIT, STAY
 from ..terminal import DIM, GREEN, RED, YELLOW
-from .base import GoMenu, Menu, MenuItem, Page
+from .base import GoMenu, InfoItem, Menu, MenuItem, Page
 
 
 class ShowAllItem(MenuItem):
@@ -18,7 +18,7 @@ class ShowAllItem(MenuItem):
 
     def run(self):
         self.bus.cmd_status(self.bus.status_args())
-        return 'stay'
+        return STAY
 
 
 class ShowOpStateItem(MenuItem):
@@ -29,7 +29,7 @@ class ShowOpStateItem(MenuItem):
 
     def run(self):
         self.bus.show_operation_state()
-        return 'stay'
+        return STAY
 
 
 class ShowJointsItem(MenuItem):
@@ -40,18 +40,7 @@ class ShowJointsItem(MenuItem):
 
     def run(self):
         self.bus.show_joints()
-        return 'stay'
-
-
-class ShowDiagItem(MenuItem):
-    key = '5'
-
-    def label(self):
-        return '진단 (/diagnostics_agg)'
-
-    def run(self):
-        self.bus.cmd_status(self.bus.status_args(diagnostics=True))
-        return 'stay'
+        return STAY
 
 
 class ShowTopicsItem(MenuItem):
@@ -62,7 +51,7 @@ class ShowTopicsItem(MenuItem):
 
     def run(self):
         self.bus.cmd_status(self.bus.status_args(topics=True))
-        return 'stay'
+        return STAY
 
 
 class StatusMenu(Menu):
@@ -71,7 +60,9 @@ class StatusMenu(Menu):
     def items(self):
         return [ShowAllItem(self.app), ShowOpStateItem(self.app),
                 GoMenu(self.app, '3', '장치 상태 / 상세', self.app.screen('2')),
-                ShowJointsItem(self.app), ShowDiagItem(self.app), ShowTopicsItem(self.app)]
+                ShowJointsItem(self.app),
+                GoMenu(self.app, '5', '진단 (항목별 상세)', DiagnosticsMenu(self.app)),
+                ShowTopicsItem(self.app)]
 
     def center(self):
         st = self.state
@@ -104,19 +95,6 @@ class DiagItem(MenuItem):
         return DiagDetailPage(self.app, self._name).show()
 
 
-class _EmptyItem(MenuItem):
-    def __init__(self, app, key: str, text: str):
-        super().__init__(app)
-        self.key = key
-        self._text = text
-
-    def label(self):
-        return self._text
-
-    def run(self):
-        return 'stay'
-
-
 class DiagnosticsMenu(Menu):
     """진단 목록 (문제 있는 것 먼저) → 번호를 고르면 그 항목의 key-value 상세."""
 
@@ -125,14 +103,14 @@ class DiagnosticsMenu(Menu):
     def items(self):
         entries = self.bus.diag_entries()
         if not entries:
-            return [_EmptyItem(self.app, '1', '진단 없음 (/diagnostics_agg 대기 중 — bringup 확인)')]
+            return [InfoItem(self.app, '진단 없음 (/diagnostics_agg 대기 중 — bringup 확인)')]
         return [DiagItem(self.app, str(i), name, lv, msg)
                 for i, (name, lv, msg) in enumerate(entries, 1)]
 
     def center(self):
         entries = self.bus.diag_entries()
         bad = sum(1 for _, lv, _ in entries if lv >= 1)
-        return ([f'[진단 {len(entries)}개 · 주의 {bad}]', ' Enter = 그 항목 상세 (값 전부)',
+        return ([f'[진단 {len(entries)}개 · 주의 {bad}]', ' Enter = 그 항목 상세 (값 전부, 2초마다 갱신)',
                  ' 레벨: ● OK · ● WARN · ● ERROR · ● STALE(보고 끊김)']
                 + self.ui.center_summary())
 
@@ -146,39 +124,28 @@ class DiagDetailPage(Page):
         self.title = f'진단 · {app.bus.diag_short(name)}'
 
     def show(self) -> str:
-        from ..defs import BACK, MAIN, QUIT, TIMEOUT
         while True:
             choice = self.ui.select(self.title, [('r', '새로고침 (자동 갱신)')],
                                     self.bus.diag_detail_lines(self._name))
-            if choice == TIMEOUT:
-                continue
-            if choice == BACK:
-                return BACK
-            if choice == MAIN:
-                return MAIN
-            if choice in ('q', 'quit', 'exit'):
-                return QUIT
-        return QUIT
+            if choice in (BACK, MAIN, QUIT):
+                return choice
 
 
 class RvizPage(Page):
     title = 'RViz'
 
     def show(self) -> str:
-        self.ui.header('RViz')
         if not (os.environ.get('DISPLAY') or os.environ.get('WAYLAND_DISPLAY')):
             print('거부: DISPLAY/WAYLAND_DISPLAY가 없습니다 — GUI가 있는 터미널에서 실행하세요.')
-            result = self.ui.pause(back_label='메인 메뉴')
-            return result if result in (MAIN, QUIT) else 'stay'
+            return STAY
         script = Path(__file__).resolve().parent.parent.parent / 'run-rviz'
-        print('  카메라/점구름은 Best Effort, queue 1로 구독합니다.')
-        print(f'  실행: {script}')
         if not script.is_file():
             print(f'거부: 실행 파일 없음: {script}')
-            result = self.ui.pause(back_label='메인 메뉴')
-            return result if result in (MAIN, QUIT) else 'stay'
-        if not self.ui.confirm('RViz를 새 창으로 열까요?', default=True):
-            return 'stay'
+            return STAY
+        if not self.ui.confirm('RViz를 새 창으로 열까요?', default=True,
+                               body=['카메라/점구름은 Best Effort, queue 1로 구독합니다.',
+                                     f'실행: {script}']):
+            return STAY
         log = Path('/tmp/operator_tool_rviz.log')
         try:
             with log.open('ab') as out:
@@ -187,8 +154,6 @@ class RvizPage(Page):
                     stdout=out, stderr=out, start_new_session=True)
         except OSError as exc:
             print(f'RViz 실행 실패: {exc}')
-            result = self.ui.pause(back_label='메인 메뉴')
-            return result if result in (MAIN, QUIT) else 'stay'
+            return STAY
         print(f'RViz 시작: pid {proc.pid} · 로그 {log}')
-        result = self.ui.pause(back_label='메인 메뉴')
-        return result if result in (MAIN, QUIT) else 'stay'
+        return STAY
