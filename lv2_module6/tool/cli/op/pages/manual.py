@@ -6,27 +6,30 @@ import math
 import sys
 
 from ..consts import ARM_JOINTS, GRIPPER_JOINT, GRIPPER_OPEN
-from ..defs import MAIN, QUIT
+from ..defs import BACK, MAIN, QUIT, STAY
 from ..terminal import RED, YELLOW
 from .base import GoMenu, Menu, MenuItem
 
 
+def _finite(raw: str) -> str | None:
+    """modal_input 검증 — 유한한 숫자만."""
+    try:
+        value = float(raw)
+    except ValueError:
+        return f'숫자가 아님: {raw!r}'
+    return None if math.isfinite(value) else '유한한 숫자가 아님'
+
+
 class TeleopItem(MenuItem):
     key = '1'
-    raw_ui = True  # 자체 화면 + 키 입력 — 출력 가로채기 금지
 
     def label(self):
-        return '텔레오퍼 (w/x/a/d · e/c 속도)'
+        return '텔레오퍼 (w/x/a/d·방향키 · e/c 속도)'
 
     def run(self):
-        ready = self.bus.prepare_manual()
-        if ready is None:
-            return 'stay'  # 사용자 취소 — 조용히 메뉴로
-        if not ready:
-            return 'stay'
         self.bus.cmd_teleop(argparse.Namespace(
             linear=self.bus.linear, angular=self.bus.angular, force=False))
-        return 'stay'
+        return STAY
 
 
 class DriveItem(MenuItem):
@@ -42,17 +45,10 @@ class DriveItem(MenuItem):
         return self._label
 
     def run(self):
-        ready = True
-        if self._direction != 'stop':
-            ready = self.bus.prepare_manual()
-        if ready is None:
-            return 'stay'  # 사용자 취소 — 조용히 메뉴로
-        if not ready:
-            return 'stay'
         self.bus.cmd_drive(argparse.Namespace(
             direction=self._direction, speed=self.bus.linear,
             angular=self.bus.angular, duration=self.bus.duration, force=False))
-        return 'stay'
+        return STAY
 
 
 class ManualMenu(Menu):
@@ -100,8 +96,7 @@ class FloatSettingItem(MenuItem):
                                        positive=self._positive)
         if ok:
             self._set(value)
-        # 거부 사유는 read_float이 찍고 결과 모달에 나옴
-        return 'stay'
+        return STAY
 
 
 class DriveSettingsMenu(Menu):
@@ -132,7 +127,7 @@ class ArmShowItem(MenuItem):
 
     def run(self):
         self.bus.cmd_arm(argparse.Namespace(action='show', targets=[], force=False))
-        return 'stay'
+        return STAY
 
 
 class ArmMoveItem(MenuItem):
@@ -150,44 +145,36 @@ class ArmMoveItem(MenuItem):
         st = self.state
         items = [(n, f'{n} = {st.joints[n]:+.3f} rad' if n in st.joints else n)
                  for n in ARM_JOINTS]
-        name = self.ui.select('관절 선택', items, ['[관절 고르기]', ' ↑↓ + Enter · b 뒤로 · q 종료'])
-        from ..defs import BACK, TIMEOUT
-        if name in (BACK, 'q', TIMEOUT) or name not in ARM_JOINTS:
-            return None
-        return name
+        while True:
+            name = self.ui.select('관절 선택', items, ['[관절 고르기]', ' Esc = 취소'])
+            if name in ARM_JOINTS:
+                return name
+            if name in (BACK, MAIN, QUIT):
+                return None
 
     def run(self):
-        import math
         st = self.state
         if not any(n in st.joints for n in ARM_JOINTS):
             print('/joint_states에 팔 관절이 없습니다 — bringup/OpenCR 확인', file=sys.stderr)
-            return 'stay'
-        ready = self.bus.prepare_manual()
-        if ready is None:
-            return 'stay'  # 사용자 취소 — 조용히 메뉴로
-        if not ready:
-            return 'stay'
+            return STAY
+        if not self.bus.ensure_arm_or_switch():
+            return STAY
         while True:
             name = self._pick_joint()
             if name is None:
-                return 'stay'
+                return STAY
             label = '변화량 [rad]' if self._delta else '목표 [rad]'
-            raw = self.ui.modal_input('값 입력', [f'{name} {label} (Esc=취소)'], '값>')
-            if raw is None:
-                continue  # Esc=값 입력만 닫고 관절 선택으로 복귀
-            try:
-                value = float(raw.strip())
-            except ValueError:
-                print(f'거부: 숫자가 아님: {raw!r}')
-                return 'stay'
-            if not math.isfinite(value):
-                print('거부: 유한한 숫자가 아님')
-                return 'stay'
-            break
+            cur = f'현재 {st.joints[name]:+.3f} rad' if name in st.joints else '현재 ?'
+            raw = self.ui.modal_input('값 입력', [f'{name} {label}', cur], '값>',
+                                      validate=_finite)
+            if raw is not None:
+                value = float(raw)
+                break
+            # Esc = 값 입력만 닫고 관절 선택으로 복귀
         action = 'delta' if self._delta else 'set'
         self.bus.cmd_arm(argparse.Namespace(
             action=action, targets=[f'{name}={value:g}'], force=False))
-        return 'stay'
+        return STAY
 
 
 class ArmHomeItem(MenuItem):
@@ -197,16 +184,14 @@ class ArmHomeItem(MenuItem):
         return '홈 (모든 팔 관절 0)'
 
     def run(self):
-        print('WARN: 현재 자세와 주변을 확인하세요. joint2가 URDF 한계 밖이면 홈 이동이 위험합니다.')
-        ready = self.bus.prepare_manual()
-        if ready is None:
-            return 'stay'  # 사용자 취소 — 조용히 메뉴로
-        if not ready:
-            return 'stay'
-        if not self.ui.confirm('모든 팔 관절을 0으로 이동할까요?', default=False):
-            return 'stay'
+        if not self.bus.ensure_arm_or_switch():
+            return STAY
+        if not self.ui.confirm('모든 팔 관절을 0으로 이동할까요?', default=False,
+                               body=['현재 자세와 주변을 확인하세요.',
+                                     'joint2가 URDF 한계 밖이면 홈 이동이 위험합니다.']):
+            return STAY
         self.bus.cmd_arm(argparse.Namespace(action='home', targets=[], force=False))
-        return 'stay'
+        return STAY
 
 
 class ArmRebootItem(MenuItem):
@@ -216,13 +201,8 @@ class ArmRebootItem(MenuItem):
         return '모터 재부팅 (과부하 등 Hardware Error 풀기)'
 
     def run(self):
-        ready = self.bus.prepare_manual()
-        if ready is None:
-            return 'stay'  # 사용자 취소 — 조용히 메뉴로
-        if not ready:
-            return 'stay'
         self.bus.cmd_reboot()
-        return 'stay'
+        return STAY
 
 
 class ArmMenu(Menu):
@@ -259,7 +239,7 @@ class GripperShowItem(MenuItem):
 
     def run(self):
         self.bus.cmd_gripper(argparse.Namespace(action='show', value=None, force=False))
-        return 'stay'
+        return STAY
 
 
 class GripperOpenItem(MenuItem):
@@ -269,13 +249,8 @@ class GripperOpenItem(MenuItem):
         return '열기'
 
     def run(self):
-        ready = self.bus.prepare_manual()
-        if ready is None:
-            return 'stay'  # 사용자 취소 — 조용히 메뉴로
-        if not ready:
-            return 'stay'
         self.bus.cmd_gripper(argparse.Namespace(action='open', value=None, force=False))
-        return 'stay'
+        return STAY
 
 
 class GripperCloseItem(MenuItem):
@@ -285,13 +260,8 @@ class GripperCloseItem(MenuItem):
         return '닫기'
 
     def run(self):
-        ready = self.bus.prepare_manual()
-        if ready is None:
-            return 'stay'  # 사용자 취소 — 조용히 메뉴로
-        if not ready:
-            return 'stay'
         self.bus.cmd_gripper(argparse.Namespace(action='close', value=None, force=False))
-        return 'stay'
+        return STAY
 
 
 class GripperPositionItem(MenuItem):
@@ -304,16 +274,11 @@ class GripperPositionItem(MenuItem):
         raw = self.ui.modal_input(
             '그리퍼 위치', [f'0=닫힘, {GRIPPER_OPEN}=열림 (Esc=뒤로)'], '위치 [m]>')
         if raw is None:
-            return 'stay'
+            return STAY
         if raw.strip().lower() in ('b', 'back', ''):
-            return 'stay'
-        ready = self.bus.prepare_manual()
-        if ready is None:
-            return 'stay'  # 사용자 취소 — 조용히 메뉴로
-        if not ready:
-            return 'stay'
+            return STAY
         self.bus.cmd_gripper(argparse.Namespace(action='position', value=raw.strip(), force=False))
-        return 'stay'
+        return STAY
 
 
 class GripperMenu(Menu):

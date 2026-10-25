@@ -72,9 +72,11 @@ def _seed(app: ot.OperatorTool):
          'gripper_left_joint', 'wheel_left_joint', 'wheel_right_joint'],
         [0.0, -0.5, 0.8, 0.4, 0.0, 0.026, 1.2, 1.2],
         [0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.5, 0.5])
-    st.on_diagnostics([fake_ros.DiagnosticStatus(
-        level=0, name='beebot: 상태', message='정상',
-        values=[fake_ros.KeyValue(key='모드', value='AUTO')])])
+    st.on_diagnostics([
+        fake_ros.DiagnosticStatus(level=0, name='beebot: 상태', message='정상',
+                                  values=[fake_ros.KeyValue(key='모드', value='AUTO')]),
+        fake_ros.DiagnosticStatus(level=1, name='beebot: opencr', message='모터 에러 없음 · S 줄 지연',
+                                  values=[fake_ros.KeyValue(key='받은 S 줄', value='48 Hz')])])
     st.on_say('컵 가져왔어요')
     try:
         st.on_objects([1, 2, 3])
