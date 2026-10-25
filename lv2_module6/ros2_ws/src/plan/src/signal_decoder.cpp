@@ -84,7 +84,7 @@ SignalDecoderNode::SignalDecoderNode()
   p.dest_tags.assign(dest.begin(), dest.end());
   p.confirm = static_cast<int>(declare_parameter<int64_t>("confirm", p.confirm));
   dec_ = SignalDecoder(p);
-  pub_ = create_publisher<MissionSignal>("/mission_signal", rclcpp::QoS(1).reliable().transient_local());
+  pub_ = create_publisher<MissionSignal>("/mission/signal", rclcpp::QoS(1).reliable().transient_local());
   sub_ = create_subscription<perception::msg::TrackedObjectArray>("/tracked_objects", rclcpp::QoS(5).reliable(),
     [this](perception::msg::TrackedObjectArray::ConstSharedPtr m) { on_objects(*m); });
   diag_.setHardwareID("beebot");

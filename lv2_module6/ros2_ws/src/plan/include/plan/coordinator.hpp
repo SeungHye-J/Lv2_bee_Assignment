@@ -1,16 +1,16 @@
 #pragma once
 
 // coordinator (🛠 직접 작성, 담당: 권형중) — 설계: documents/project/ros/03-plan.md "coordinator가 지키는 실행 규칙"
-//   입력: /sub_goals (VLM 계획), /tracked_objects (대상 id 검증), /arm_safety_event (팔 접촉)
+//   입력: /task/sub_goals (VLM 계획), /tracked_objects (대상 id 검증), /arm_safety_event (팔 접촉)
 //   출력: 🎬 /navigate_to_pose (Nav2), 🎬 /plan_kinematic_path + /execute_trajectory (move_group),
 //         🎬 /gripper_controller/gripper_cmd, 📞 /score_grasps (grasp_scorer),
-//         📞 /clear_octomap · /apply_planning_scene (move_group), ✉️ /task_status → VLM·UI, ✉️ /robot_say → user_input
+//         📞 /clear_octomap · /apply_planning_scene (move_group), ✉️ /task/status → VLM·UI, ✉️ /robot/say → user_input
 // 규칙 (골격에 들어간 것):
 //   1. VLM 출력 검증 — 허용 동작(navigate·pick·place·inspect·say), 숫자 대상 id가 /tracked_objects에 있는지
 //   inspect <퍽 id> (신호등 암호 미션 — 퍽 윗면 16mm AprilTag는 gripper_cam이 위에서 봐야 읽힘): 멀면 다가가고 손끝을 퍽 윗면 위
 //     inspect_height_m로 (손가락 아래) → inspect_wait_s 기다림 → 다음 단계. 읽었는지(details tag)는 planner가 /tracked_objects로 본다
 //   4. 파지 재시도는 coordinator 몫 — grasp_scorer 후보를 점수순으로 최대 max_grasp_tries(2)개, 다 실패하면 FAILED
-//   5. 같은 단계 2회 연속 실패면 /robot_say로 알리고 정지
+//   5. 같은 단계 2회 연속 실패면 /robot/say로 알리고 정지
 //   적재함 (MISSION ③ MOVE_TO_B — 퍽을 실어 운반): target "tray"
 //     place tray = 다음 빈 칸에 싣기 · pick tray = 마지막에 실은 것부터 꺼내기 (칸 = tray_slots, base_footprint 기준 — MoveIt 실측으로
 //     손끝 아래 방향이 닿는 곳). 몇 개 실렸는지 tray_count로 센다 (노드가 다시 뜨면 0). 꽉 차면 tray_full · 비면 tray_empty로 실패

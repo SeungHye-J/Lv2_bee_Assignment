@@ -256,10 +256,10 @@ ros2 topic echo /state/devices/arm --once --qos-durability transient_local --fie
 
 ```bash
 # signal_decoder가 읽은 답 {color, count, sum, dest_tag, raw}
-ros2 topic echo /mission_signal --once --qos-durability transient_local
+ros2 topic echo /mission/signal --once --qos-durability transient_local
 # planner가 낸 계획 · coordinator 진행 (FAILED면 reason)
-ros2 topic echo /sub_goals --once --qos-durability transient_local
-ros2 topic echo /task_status --qos-durability transient_local
+ros2 topic echo /task/sub_goals --once --qos-durability transient_local
+ros2 topic echo /task/status --qos-durability transient_local
 # planner 판단 이유 — "신호등 미션"(carry·inspect·wait·fail) · "수납 확인"(look·ok·recarry·missing)
 ~/Lv2_bee_Assignment/lv2_module6/tool/run-cli status --diagnostics vlm_task_planner
 ```

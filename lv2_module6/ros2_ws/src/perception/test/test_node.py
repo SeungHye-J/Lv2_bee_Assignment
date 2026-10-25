@@ -49,7 +49,7 @@ def test_empty_without_model():
 
 
 def test_mission_qr():
-    """QR 판이 보이는 영상을 넣으면 /mission_qr 로 문제 코드를 낸다 (documents/mission/README.md)."""
+    """QR 판이 보이는 영상을 넣으면 /mission/qr 로 문제 코드를 낸다 (documents/mission/README.md)."""
     import cv2
     import numpy as np
     from sensor_msgs.msg import Image
@@ -81,7 +81,7 @@ def test_mission_qr():
         t.transform.rotation.w = 1.0
         tfb.sendTransform(t)
         got = []
-        node.create_subscription(String, "/mission_qr", lambda m: got.append(m.data),
+        node.create_subscription(String, "/mission/qr", lambda m: got.append(m.data),
                                  node.qr_pub.qos_profile)
         node.on_frame("pole_front_cam", msg, depth_msg)  # 동기화된 컬러·depth 쌍
         end = node.get_clock().now() + rclpy.duration.Duration(seconds=4)

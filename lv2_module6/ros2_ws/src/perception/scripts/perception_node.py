@@ -25,7 +25,7 @@
     퍽 윗면 16mm — R1~R4 = 0~3 · G1~G4 = 4~7 · B1~B4 = 8~11 → 그 퍽 트랙의 details tag (한 번 읽으면 기억, 색도 태그 기준)
       (16mm는 pole_front_cam으로는 안 읽힘 — gripper_cam이 위에서 내려다봐야 함: coordinator inspect)
     장소 48mm — L1~L3 = 12~14 → class location 물체 (details tag, 안 보여도 기억)
-    바코드(줄무늬, P2-01 등) = 장소에 붙은 작업 지시 문자열 → class barcode 물체 (details content, 위치 = 붙은 곳) + /mission_qr
+    바코드(줄무늬, P2-01 등) = 장소에 붙은 작업 지시 문자열 → class barcode 물체 (details content, 위치 = 붙은 곳) + /mission/qr
   신호등 상태: red · yellow · green · off · all(두 색 이상 동시에 켜짐 — 신호등 미션 단계 구분 신호)
 """
 import os
@@ -570,12 +570,12 @@ class PerceptionNode(Node):
         self.synced = {}       # cam → 동기화된 컬러·depth 쌍 수
         self.tf_fallback = 0   # 영상 시각 TF가 없어 최신 TF로 대신한 횟수
         self.self_dropped = 0  # 자기 몸(팔·차체)이라 버린 검출 수
-        # QR 문제 (documents/mission/README.md §3-1): A 지역 QR 판을 읽어 /mission_qr 로 — 모델 없이도 동작
+        # QR 문제 (documents/mission/README.md §3-1): A 지역 QR 판을 읽어 /mission/qr 로 — 모델 없이도 동작
         self.qr = cv2.QRCodeDetector()
         self.qr_text = ""
         self.qr_seen = 0.0   # 마지막으로 QR을 읽은 시각 — QR_GAP_S 넘게 안 보였다 다시 보이면 같은 내용도 재발행 (다음 미션 지역)
         self.qr_pub = self.create_publisher(
-            String, "/mission_qr",
+            String, "/mission/qr",
             QoSProfile(depth=1, reliability=QoSReliabilityPolicy.RELIABLE,
                        durability=QoSDurabilityPolicy.TRANSIENT_LOCAL, history=QoSHistoryPolicy.KEEP_LAST))
 
@@ -950,7 +950,7 @@ class PerceptionNode(Node):
             return
         self.read_barcodes()
 
-    # ---------- 바코드 (2Hz) — 장소에 붙은 작업 지시 문자열 (발제 P2-01 …). 물체(barcode, 위치 = 붙은 곳)로 기억 + /mission_qr
+    # ---------- 바코드 (2Hz) — 장소에 붙은 작업 지시 문자열 (발제 P2-01 …). 물체(barcode, 위치 = 붙은 곳)로 기억 + /mission/qr
     def read_barcodes(self):
         if self.barcode is None:
             return

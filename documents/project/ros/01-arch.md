@@ -72,12 +72,12 @@ flowchart TB
     COST ---|"🧩 planner·controller<br/>서버 안 플러그인<br/>(같은 프로세스)"| NAV
     PER -->|"✉️ /tracked_objects<br/>(perception/<br/>TrackedObjectArray)"| VLM
     PER -->|"✉️ /tracked_objects<br/>신호등 상태 (color)"| SD
-    SD -->|"✉️ /mission_signal<br/>(plan/MissionSignal)"| VLM
-    PER -->|"✉️ /mission_qr<br/>장소 바코드 지시<br/>(std_msgs/String)"| VLM
+    SD -->|"✉️ /mission/signal<br/>(plan/MissionSignal)"| VLM
+    PER -->|"✉️ /mission/qr<br/>장소 바코드 지시<br/>(std_msgs/String)"| VLM
     PER -->|"✉️ /tracked_objects<br/>(perception/<br/>TrackedObjectArray)"| CO
     PER -->|"✉️ /tracked_objects<br/>대상 퍽 위치·크기<br/>(perception/<br/>TrackedObjectArray)"| GS
-    VLM -->|"✉️ /sub_goals<br/>(plan/<br/>SubGoalArray)"| CO
-    CO -->|"✉️ /task_status<br/>(plan/<br/>TaskStatus)"| VLM
+    VLM -->|"✉️ /task/sub_goals<br/>(plan/<br/>SubGoalArray)"| CO
+    CO -->|"✉️ /task/status<br/>(plan/<br/>TaskStatus)"| VLM
     CO -.->|"📞 /score_grasps<br/>(ml/srv/<br/>ScoreGrasps)"| GS
     COST -->|"✉️ /local_costmap/costmap<br/>통로 폭·최근접 장애물<br/>(nav_msgs/OccupancyGrid)"| NT
     EKF -->|"✉️ /odometry/filtered<br/>현재 속도<br/>(nav_msgs/Odometry)"| NT
@@ -109,7 +109,7 @@ flowchart TB
     CM -->|"✉️ /joint_states<br/>(sensor_msgs/JointState)"| ASM
     ASM -.->|"📞 cancel_goal<br/>이상 시에만<br/>(action_msgs/srv/<br/>CancelGoal)"| CM
     ASM -->|"✉️ /arm_safety_event<br/>(control/<br/>ArmSafetyEvent)"| CO
-    CO -->|"✉️ /robot_say<br/>(std_msgs/String)"| UI
+    CO -->|"✉️ /robot/say<br/>(std_msgs/String)"| UI
     CM -->|"🔌 USB 시리얼 C · R 줄<br/>→ OpenCR BulkWrite<br/>Goal Velocity·Position<br/>(Dynamixel Protocol 2.0)"| HW
     HW -->|"🔌 S 줄 ← SyncRead<br/>Present Pos·Vel·Current<br/>+ IMU · E 줄 모터 에러"| CM
     classDef std fill:#c8e6c9,stroke:#2e7d32,color:#1b1b1b;
@@ -138,7 +138,7 @@ flowchart TB
 ```
 
 - **상태는 state_manager 하나가 낸다.** 운영자의 `/cmd/operation_mode`·`/cmd/e_stop`·`/cmd/map_mode`를 받아 `/state/...`로 내고, 하드웨어 원본 사실(`/motor_status` — 펌웨어 `E` 줄)을 모아 `/state/devices/<이름>`(모터 에러면 `error`)을 만든다. 과부하·과열 모터는 수동 모드에서 `/cmd/manual/reboot_motors` → manual_control → 📞 `/beebotsystem/reboot_motors` → 펌웨어 `R`로만 풀린다.
-- **신호등 암호 미션은 VLM 없이 규칙으로.** signal_decoder가 `/tracked_objects`의 신호등 상태를 시간축으로 쌓아 `/mission_signal`을 내면, vlm_task_planner가 퍽 번호 합 조합 → 적재함 → 목적지 → 수납 확인까지 계획한다 (아래 흐름). 일반 명령·장소 바코드 지시(`/mission_qr`)는 호스트 ai-service(VLM 또는 사람이 웹 페이지에서)가 계획한다.
+- **신호등 암호 미션은 VLM 없이 규칙으로.** signal_decoder가 `/tracked_objects`의 신호등 상태를 시간축으로 쌓아 `/mission/signal`을 내면, vlm_task_planner가 퍽 번호 합 조합 → 적재함 → 목적지 → 수납 확인까지 계획한다 (아래 흐름). 일반 명령·장소 바코드 지시(`/mission/qr`)는 호스트 ai-service(VLM 또는 사람이 웹 페이지에서)가 계획한다.
 - **수동 조작은 manual_control → twist_mux.** 수동 모드(/cmd/operation_mode → state_manager)면 coordinator가 진행 중 이동·팔 goal을 취소하고 멈추고(/state/operation_mode), 운영자의 바퀴 명령은 twist_mux에서 자동보다 우선한다. 수동이어도 velocity_smoother·collision_monitor를 지나며, /cmd/e_stop은 twist_mux 잠금으로 모든 바퀴 명령을 막는다.
 - **모든 🛠 노드는 /diagnostics로 자기 상태를 낸다.** diagnostic_updater(OK·WARN·ERROR + 값)를 bringup의 diagnostic_aggregator가 계층별로 묶어 /diagnostics_agg로 — 도식에는 생략.
 - **물리 하드웨어는 노란 영역, 토픽은 내지 않는다.** 장치(육각형)는 신호가 오가는 곳 가까이에 두고 같은 노란 "물리 하드웨어" 영역으로 표시했다 — 센서 쪽(카메라)과 구동 쪽(OpenCR·모터·IMU). RealSense 카메라 2대는 🔌 USB 3로 realsense2_camera 드라이버 노드에 붙고, 토픽은 드라이버 노드가 발행한다. 모터·IMU는 OpenCR → hardware interface(controller_manager) 경로로 같은 원칙을 따른다.
@@ -166,7 +166,7 @@ flowchart TB
    <sub>화살표: pole_front_cam → realsense2_camera · realsense2_camera → perception</sub>
 4. **무엇이 어디 있나** — ✉️ /tracked_objects — 퍽 id 3, 목표 구역 id 5, 장애물 id 7. VLM은 계획에, coordinator는 id 검증에 씁니다.
    <sub>화살표: perception → vlm_task_planner · perception → coordinator</sub>
-5. **VLM이 순서만 정한다** — ✉️ /sub_goals [navigate(퍽 앞) → pick(퍽) → navigate(목표 구역) → place(목표 구역)]. 어떻게 움직일지는 정하지 않습니다.
+5. **VLM이 순서만 정한다** — ✉️ /task/sub_goals [navigate(퍽 앞) → pick(퍽) → navigate(목표 구역) → place(목표 구역)]. 어떻게 움직일지는 정하지 않습니다.
    <sub>화살표: vlm_task_planner → coordinator</sub>
 6. **이동 시작** — coordinator가 검증 후 퍽 앞 (3.45, 0.9)을 계산해 🎬 /navigate_to_pose 액션을 보냅니다. 팔은 stow.
    <sub>화살표: coordinator → Nav2</sub>
@@ -202,25 +202,25 @@ flowchart TB
    <sub>화살표: controller_manager → arm_safety_monitor · arm_safety_monitor → coordinator</sub>
 22. **목표 구역에 가서 내려놓기** — 퍽을 든 채 footprint를 키우고 이동 → place → detach. 경로는 위 이동 단계와 같습니다.
    <sub>화살표: coordinator → Nav2 · coordinator → MoveIt Task Constructor</sub>
-23. **완료 보고** — ✉️ /task_status 완료 — VLM은 다음 명령을 기다립니다.
+23. **완료 보고** — ✉️ /task/status 완료 — VLM은 다음 명령을 기다립니다.
    <sub>화살표: coordinator → vlm_task_planner</sub>
-24. **운영자에게 알림** — ✉️ /robot_say → 💬 "퍽을 옮겼어요". 끝.
+24. **운영자에게 알림** — ✉️ /robot/say → 💬 "퍽을 옮겼어요". 끝.
    <sub>화살표: coordinator → user_input · user_input → 사람</sub>
 
 ### 신호등 암호 미션 — 신호부터 수납 확인까지
 
 규칙: [mission/README.md](../../mission/README.md). 파라미터: [plan.yaml](../../../lv2_module6/ros2_ws/src/plan/config/plan.yaml).
 
-1. **신호를 읽는다** — perception이 신호등 색(`red`·`yellow`·`green`·`off`, 세 색 동시 = `all`)을 `/tracked_objects`에 싣고, signal_decoder가 깜빡임을 시간축으로 쌓아 세 단계(색·개수 · 번호 합 · 목적지 태그)를 읽어 ✉️ /mission_signal (예: red 2개 · 합 5 · 장소 13).
+1. **신호를 읽는다** — perception이 신호등 색(`red`·`yellow`·`green`·`off`, 세 색 동시 = `all`)을 `/tracked_objects`에 싣고, signal_decoder가 깜빡임을 시간축으로 쌓아 세 단계(색·개수 · 번호 합 · 목적지 태그)를 읽어 ✉️ /mission/signal (예: red 2개 · 합 5 · 장소 13).
    <sub>화살표: perception → signal_decoder · signal_decoder → vlm_task_planner</sub>
 2. **번호를 아는 퍽으로 조합** — planner가 번호(퍽 윗면 AprilTag, `details.tag`)를 아는 그 색 퍽 중 개수·합이 맞는 조합을 고른다 (모든 부분집합, 로봇에서 가까운 것 우선).
 3. **모르면 보러 간다** — 조합이 없으면 번호 모르는 그 색 퍽마다 `inspect` (손끝을 퍽 윗면 0.15m 위로 → gripper_cam이 16mm 태그를 읽음). 끝나면(SUCCEEDED) 2로 돌아가 다시 판단. 목적지 장소 태그를 아직 못 봤으면 기다림, 다 봐도 조합이 없으면 say.
    <sub>화살표: vlm_task_planner → coordinator · coordinator → MoveIt Task Constructor · perception → vlm_task_planner</sub>
-4. **옮긴다** — ✉️ /sub_goals [navigate(퍽) → pick(퍽) → place(tray)] × N → navigate(장소) → [pick(tray) → place(장소)] × N. 적재함 최대 4칸.
+4. **옮긴다** — ✉️ /task/sub_goals [navigate(퍽) → pick(퍽) → place(tray)] × N → navigate(장소) → [pick(tray) → place(장소)] × N. 적재함 최대 4칸.
    <sub>화살표: vlm_task_planner → coordinator · coordinator → Nav2 · coordinator → MoveIt Task Constructor</sub>
 5. **수납 확인 — 옮긴 직후** — 옮기기가 SUCCEEDED면 planner가 바로 확인 계획: navigate(장소) → 장소 근처(`verify_radius_m` 0.2m) 번호 모르는 퍽만 inspect. 끝나면 옮긴 번호가 장소 근처에 다 있는지 본다.
    <sub>화살표: coordinator → vlm_task_planner · vlm_task_planner → coordinator</sub>
-6. **빠졌으면** — 빠진 번호가 다른 곳에서 보이면 다시 옮김(recarry → 끝나면 5), 어디에도 안 보이면 ✉️ /robot_say로 알림.
+6. **빠졌으면** — 빠진 번호가 다른 곳에서 보이면 다시 옮김(recarry → 끝나면 5), 어디에도 안 보이면 ✉️ /robot/say로 알림.
    <sub>화살표: vlm_task_planner → coordinator · coordinator → user_input</sub>
 7. **그 뒤 주기적으로** — `verify_period_s`(60초)마다 5를 반복한다. 단 AUTO(/state/operation_mode)이고 하던 계획이 끝났을 때만. 확인 계획이 실패하면 재계획하지 않고 다음 주기에. 새 명령·새 신호가 오면 확인 대상을 지운다.
 
@@ -277,9 +277,9 @@ flowchart TB
    <sub>화살표: coordinator → MoveIt Task Constructor</sub>
 3. **2순위 C 재시도 → 또 실패** — VLM을 부르지 않고 coordinator가 직접 다음 후보로. 실행 세부는 coordinator의 권한입니다.
    <sub>화살표: coordinator → MoveIt Task Constructor</sub>
-4. **재계획 요청** — ✉️ /task_status (step 2, FAILED, reason: grasp_failed_all). 후보를 다 써서 이제 VLM 차례입니다.
+4. **재계획 요청** — ✉️ /task/status (step 2, FAILED, reason: grasp_failed_all). 후보를 다 써서 이제 VLM 차례입니다.
    <sub>화살표: coordinator → vlm_task_planner</sub>
-5. **VLM이 새 계획** — 지금 보이는 물체(/tracked_objects)를 다시 보고 ✉️ /sub_goals — 예) [navigate(퍽 옆, 퍽 방향으로 정렬), pick(퍽 3), navigate(목표 구역), place].
+5. **VLM이 새 계획** — 지금 보이는 물체(/tracked_objects)를 다시 보고 ✉️ /task/sub_goals — 예) [navigate(퍽 옆, 퍽 방향으로 정렬), pick(퍽 3), navigate(목표 구역), place].
    <sub>화살표: perception → vlm_task_planner · vlm_task_planner → coordinator</sub>
 6. **새 계획 실행 — 다른 방향으로 이동** — 검증 후 팔을 접고 🎬 /navigate_to_pose 새 접근 위치. 4축 팔은 퍽이 팔 평면 안에 있어야 옆 파지가 되므로 방향이 중요합니다.
    <sub>화살표: coordinator → Nav2</sub>
@@ -287,7 +287,7 @@ flowchart TB
    <sub>화살표: realsense2_camera → grasp_scorer · coordinator → grasp_scorer</sub>
 8. **다시 집기 → 성공** — 🎬 /execute_task_solution 후보 D → 퍽 attach. 성공하면 원래 계획대로 목표 구역으로 옮기러 이어갑니다.
    <sub>화살표: coordinator → MoveIt Task Constructor</sub>
-9. **재계획도 실패하면 — 알리고 정지** — pick 단계가 두 번째로 실패(같은 단계 2회 연속)하면 ✉️ /robot_say → 💬 "퍽을 잡을 수 없어요" 후 정지. 이건 재계획을 해 보고도 안 될 때만입니다.
+9. **재계획도 실패하면 — 알리고 정지** — pick 단계가 두 번째로 실패(같은 단계 2회 연속)하면 ✉️ /robot/say → 💬 "퍽을 잡을 수 없어요" 후 정지. 이건 재계획을 해 보고도 안 될 때만입니다.
    <sub>화살표: coordinator → user_input · user_input → 사람</sub>
 
 ### 이동 실패 → 복구 → 재계획
@@ -298,13 +298,13 @@ flowchart TB
    <sub>화살표: Nav2 → rl_nav_correction · rl_nav_correction → velocity_smoother · velocity_smoother → collision_monitor · collision_monitor → controller_manager</sub>
 3. **복구도 실패 → ABORTED** — 정해진 재시도 횟수를 넘기면 NavigateToPose가 ABORTED로 끝나고, 결과가 coordinator에 돌아옵니다.
    <sub>화살표: coordinator → Nav2</sub>
-4. **실패 보고** — ✉️ /task_status (step 1, FAILED, reason: nav_failed). VLM은 FAILED를 받으면 재계획합니다.
+4. **실패 보고** — ✉️ /task/status (step 1, FAILED, reason: nav_failed). VLM은 FAILED를 받으면 재계획합니다.
    <sub>화살표: coordinator → vlm_task_planner</sub>
-5. **재계획** — ✉️ /sub_goals 다시 — 예) "퍽 반대편으로 접근", "장애물를 피해 다른 방향". coordinator가 다시 검증합니다.
+5. **재계획** — ✉️ /task/sub_goals 다시 — 예) "퍽 반대편으로 접근", "장애물를 피해 다른 방향". coordinator가 다시 검증합니다.
    <sub>화살표: vlm_task_planner → coordinator</sub>
 6. **새 목표로 재시도** — 🎬 /navigate_to_pose (새 접근 위치).
    <sub>화살표: coordinator → Nav2</sub>
-7. **또 실패하면 알리고 정지** — 같은 단계가 2회 연속 실패하면 ✉️ /robot_say → 💬 "목표까지 갈 수 없어요".
+7. **또 실패하면 알리고 정지** — 같은 단계가 2회 연속 실패하면 ✉️ /robot/say → 💬 "목표까지 갈 수 없어요".
    <sub>화살표: coordinator → user_input · user_input → 사람</sub>
 
 

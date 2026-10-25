@@ -2,7 +2,7 @@
 
 // signal_decoder (🛠 직접 작성) — 신호등 암호 미션(documents/mission/README.md) 1·2·3단계를 시간축으로 읽는다
 //   입력: ✉️ /tracked_objects — class traffic_light의 color (perception: red | yellow | green | off | all(두 색 이상 동시에 켜짐))
-//   출력: ✉️ /mission_signal (plan/MissionSignal, reliable + transient_local) → vlm_task_planner — 확정될 때마다
+//   출력: ✉️ /mission/signal (plan/MissionSignal, reliable + transient_local) → vlm_task_planner — 확정될 때마다
 //         ✉️ /diagnostics
 //   읽는 법 (MISSION §2):
 //     1단계 한 색이 N번 → 그 색 퍽 N개 · 2단계 깜빡인 색 점수의 합 = 태그 번호 합 · 3단계 노랑 1·2·3번 → 목적지 태그 12·13·14

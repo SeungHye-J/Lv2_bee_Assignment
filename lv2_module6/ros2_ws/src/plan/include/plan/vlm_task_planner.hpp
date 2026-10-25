@@ -1,15 +1,15 @@
 #pragma once
 
 // vlm_task_planner (🛠 직접 작성, 담당: 권형중) — 설계: documents/project/ros/03-plan.md
-//   입력: /cmd/user_command (명령), /mission_qr (장소 바코드 작업 지시 — perception), /tracked_objects (지금 보이는 물체),
-//         /task_status (FAILED면 재계획), /mission_signal (신호등 암호 미션 — signal_decoder)
-//   출력: /sub_goals (plan/SubGoalArray, reliable + transient_local) → coordinator
+//   입력: /cmd/user_command (명령), /mission/qr (장소 바코드 작업 지시 — perception), /tracked_objects (지금 보이는 물체),
+//         /task/status (FAILED면 재계획), /mission/signal (신호등 암호 미션 — signal_decoder)
+//   출력: /task/sub_goals (plan/SubGoalArray, reliable + transient_local) → coordinator
 // VLM은 "무엇을, 어떤 순서로"만 정한다. 어떻게 움직일지·파지 후보 재시도는 coordinator 몫.
 // VLM 경로: vlm_endpoint가 비어 있지 않으면 호스트 ai-service에 POST /plan (계약: lv2_module6/ai-service/README)
 //   → SubGoalArray 발행. 실패·타임아웃·검증 실패면 템플릿으로 폴백.
 //   컨테이너는 network_mode: host라 127.0.0.1이 호스트다. endpoint가 비면(기본·CI) 템플릿만.
 // 재계획은 명령 하나당 max_replans(기본 1)회 — coordinator의 "같은 단계 2회 연속 실패면 정지"와 짝.
-// 신호등 암호 미션 (documents/mission/README.md)은 VLM 없이 규칙으로 — /mission_signal {색, 개수, 번호 합, 목적지 태그}가 오면
+// 신호등 암호 미션 (documents/mission/README.md)은 VLM 없이 규칙으로 — /mission/signal {색, 개수, 번호 합, 목적지 태그}가 오면
 //   번호(퍽 윗면 태그)를 아는 그 색 퍽 중 합이 맞는 조합(로봇에서 가까운 것 우선)을 골라 적재함에 싣고 목적지 장소(location, tag)로 →
 //   조합이 없으면 번호를 모르는 그 색(또는 색 모름) 퍽을 inspect하는 계획 → 끝나면 다시 판단. 목적지 태그를 아직 못 봤으면 기다림.
 // 수납 확인: 옮기기가 끝나면 바로, 그 뒤로는 verify_period_s마다 (AUTO · 하던 계획이 끝났을 때만) 목적지로 가서 본다 (look) →
@@ -102,7 +102,7 @@ private:
 
   static std::string find_in(const TrackedObjectArray & objs, const std::string & cls);
 
-  void on_command(const char * source, const std::string & text);  // /cmd/user_command · /mission_qr 공통
+  void on_command(const char * source, const std::string & text);  // /cmd/user_command · /mission/qr 공통
   void make_plan();                            // 물체 확인 후 VLM 시도 (endpoint 없으면 템플릿 즉시)
   void make_template(const TrackedObjectArray & objs, const std::string & cmd);  // 고정 4단계 발행
   void make_signal_plan();                     // 신호등 암호 미션 — 규칙으로 (VLM 안 씀)

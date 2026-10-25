@@ -65,9 +65,9 @@ Coordinator::Coordinator()
   tf_buffer_ = std::make_unique<tf2_ros::Buffer>(get_clock());
   tf_listener_ = std::make_shared<tf2_ros::TransformListener>(*tf_buffer_);
   const auto latched = rclcpp::QoS(10).reliable().transient_local();
-  status_pub_ = create_publisher<TaskStatus>("/task_status", latched);
-  say_pub_ = create_publisher<std_msgs::msg::String>("/robot_say", rclcpp::QoS(10).reliable());
-  goals_sub_ = create_subscription<SubGoalArray>("/sub_goals", latched,
+  status_pub_ = create_publisher<TaskStatus>("/task/status", latched);
+  say_pub_ = create_publisher<std_msgs::msg::String>("/robot/say", rclcpp::QoS(10).reliable());
+  goals_sub_ = create_subscription<SubGoalArray>("/task/sub_goals", latched,
     [this](SubGoalArray::ConstSharedPtr m) { on_plan(*m); });
   objects_sub_ = create_subscription<TrackedObjectArray>("/tracked_objects", rclcpp::QoS(5).reliable(),
     [this](TrackedObjectArray::ConstSharedPtr m) {
