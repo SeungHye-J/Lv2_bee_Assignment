@@ -20,11 +20,13 @@ flowchart TB
     end
     subgraph S1["① 작업 계획"]
         UI["🛠️ user_input<br/>텍스트 명령 입력"]
-        VLM["🛠️ vlm_task_planner"]
+        SD["🛠️ signal_decoder<br/>신호등 깜빡임 해석"]
+        VLM["🛠️ vlm_task_planner<br/>규칙(신호등 미션·수납 확인)<br/>· VLM(명령·바코드)"]
     end
     subgraph S2["② 임무 관리"]
         CO["🛠️ coordinator"]
         MAN["🛠️ manual_control<br/>수동 조작"]
+        SM["🛠️ state_manager<br/>상태 /state/*"]
     end
     subgraph S3["③ 앞단 판단 보조"]
         GS["🛠️ grasp_scorer"]
@@ -69,6 +71,9 @@ flowchart TB
     PC -->|"✉️ /pole_front_cam/depth<br/>/color/points<br/>(sensor_msgs/<br/>PointCloud2)"| COST
     COST ---|"🧩 planner·controller<br/>서버 안 플러그인<br/>(같은 프로세스)"| NAV
     PER -->|"✉️ /tracked_objects<br/>(perception/<br/>TrackedObjectArray)"| VLM
+    PER -->|"✉️ /tracked_objects<br/>신호등 상태 (color)"| SD
+    SD -->|"✉️ /mission_signal<br/>(plan/MissionSignal)"| VLM
+    PER -->|"✉️ /mission_qr<br/>장소 바코드 지시<br/>(std_msgs/String)"| VLM
     PER -->|"✉️ /tracked_objects<br/>(perception/<br/>TrackedObjectArray)"| CO
     PER -->|"✉️ /tracked_objects<br/>대상 퍽 위치·크기<br/>(perception/<br/>TrackedObjectArray)"| GS
     VLM -->|"✉️ /sub_goals<br/>(plan/<br/>SubGoalArray)"| CO
@@ -87,8 +92,12 @@ flowchart TB
     NAV -->|"✉️ /cmd_vel_nav · /plan<br/>(geometry_msgs/<br/>TwistStamped ·<br/>nav_msgs/Path)"| RLN
     CM -->|"✉️ /odom · /imu<br/>실제 속도·각속도<br/>(nav_msgs/Odometry ·<br/>sensor_msgs/Imu)"| RLN
     RLN -->|"✉️ /cmd_vel_corrected<br/>(geometry_msgs/<br/>TwistStamped)"| MUX
-    U -->|"✉️ /cmd/operation_mode ·<br/>/cmd/manual/cmd_vel · /cmd/manual/arm<br/>· /cmd/e_stop"| MAN
-    MAN -->|"✉️ /state/operation_mode<br/>AUTO · MANUAL<br/>(std_msgs/String)"| CO
+    U -->|"✉️ /cmd/manual/cmd_vel ·<br/>/cmd/manual/arm ·<br/>/cmd/manual/reboot_motors"| MAN
+    U -->|"✉️ /cmd/operation_mode ·<br/>/cmd/e_stop · /cmd/map_mode"| SM
+    SM -->|"✉️ /state/operation_mode<br/>AUTO · MANUAL · EXPLORE<br/>(std_msgs/String)"| CO
+    SM -->|"✉️ /state/operation_mode"| MAN
+    CM -->|"✉️ /motor_status<br/>모터 Hardware Error<br/>(control/MotorStatus)"| SM
+    MAN -.->|"📞 /beebotsystem/reboot_motors<br/>(std_srvs/srv/Trigger)"| CM
     MAN -->|"✉️ /cmd_vel_manual<br/>(geometry_msgs/<br/>TwistStamped)"| MUX
     MAN -->|"✉️ /arm_controller<br/>/joint_trajectory ·<br/>🎬 gripper_cmd"| CM
     MUX -->|"✉️ /cmd_vel_mux<br/>(geometry_msgs/<br/>TwistStamped)"| VS
@@ -101,15 +110,15 @@ flowchart TB
     ASM -.->|"📞 cancel_goal<br/>이상 시에만<br/>(action_msgs/srv/<br/>CancelGoal)"| CM
     ASM -->|"✉️ /arm_safety_event<br/>(control/<br/>ArmSafetyEvent)"| CO
     CO -->|"✉️ /robot_say<br/>(std_msgs/String)"| UI
-    CM -->|"🔌 쓰기 SyncWrite<br/>Goal Position·Velocity<br/>(Dynamixel Protocol 2.0)"| HW
-    HW -->|"🔌 읽기 SyncRead<br/>Present Pos·Vel·Current<br/>+ IMU (OpenCR)"| CM
+    CM -->|"🔌 USB 시리얼 C · R 줄<br/>→ OpenCR BulkWrite<br/>Goal Velocity·Position<br/>(Dynamixel Protocol 2.0)"| HW
+    HW -->|"🔌 S 줄 ← SyncRead<br/>Present Pos·Vel·Current<br/>+ IMU · E 줄 모터 에러"| CM
     classDef std fill:#c8e6c9,stroke:#2e7d32,color:#1b1b1b;
     classDef rl fill:#ffe0b2,stroke:#e65100,color:#1b1b1b;
     classDef ai fill:#d1c4e9,stroke:#4527a0,color:#1b1b1b;
     classDef hw fill:#fff9c4,stroke:#f9a825,color:#1b1b1b;
     classDef safe fill:#ffcdd2,stroke:#c62828,color:#1b1b1b;
     classDef ext fill:#ffffff,stroke:#8A97A0,stroke-dasharray:4 3,color:#475569;
-    class PER,CO,PC,GC,UI std;
+    class PER,CO,PC,GC,UI,SD,SM std;
     class VLM ai;
     class GS,NT,RLA,RLN rl;
     class MTC,NAV,RTAB,EKF,COST,CM std;
@@ -128,6 +137,8 @@ flowchart TB
     style SHA fill:#fffde7,stroke:#f9a825,stroke-width:2px
 ```
 
+- **상태는 state_manager 하나가 낸다.** 운영자의 `/cmd/operation_mode`·`/cmd/e_stop`·`/cmd/map_mode`를 받아 `/state/...`로 내고, 하드웨어 원본 사실(`/motor_status` — 펌웨어 `E` 줄)을 모아 `/state/devices/<이름>`(모터 에러면 `error`)을 만든다. 과부하·과열 모터는 수동 모드에서 `/cmd/manual/reboot_motors` → manual_control → 📞 `/beebotsystem/reboot_motors` → 펌웨어 `R`로만 풀린다.
+- **신호등 암호 미션은 VLM 없이 규칙으로.** signal_decoder가 `/tracked_objects`의 신호등 상태를 시간축으로 쌓아 `/mission_signal`을 내면, vlm_task_planner가 퍽 번호 합 조합 → 적재함 → 목적지 → 수납 확인까지 계획한다 (아래 흐름). 일반 명령·장소 바코드 지시(`/mission_qr`)는 호스트 ai-service(VLM 또는 사람이 웹 페이지에서)가 계획한다.
 - **수동 조작은 manual_control → twist_mux.** 수동 모드(/cmd/operation_mode → state_manager)면 coordinator가 진행 중 이동·팔 goal을 취소하고 멈추고(/state/operation_mode), 운영자의 바퀴 명령은 twist_mux에서 자동보다 우선한다. 수동이어도 velocity_smoother·collision_monitor를 지나며, /cmd/e_stop은 twist_mux 잠금으로 모든 바퀴 명령을 막는다.
 - **모든 🛠 노드는 /diagnostics로 자기 상태를 낸다.** diagnostic_updater(OK·WARN·ERROR + 값)를 bringup의 diagnostic_aggregator가 계층별로 묶어 /diagnostics_agg로 — 도식에는 생략.
 - **물리 하드웨어는 노란 영역, 토픽은 내지 않는다.** 장치(육각형)는 신호가 오가는 곳 가까이에 두고 같은 노란 "물리 하드웨어" 영역으로 표시했다 — 센서 쪽(카메라)과 구동 쪽(OpenCR·모터·IMU). RealSense 카메라 2대는 🔌 USB 3로 realsense2_camera 드라이버 노드에 붙고, 토픽은 드라이버 노드가 발행한다. 모터·IMU는 OpenCR → hardware interface(controller_manager) 경로로 같은 원칙을 따른다.
@@ -175,7 +186,7 @@ flowchart TB
    <sub>화살표: velocity_smoother → collision_monitor · realsense2_camera → collision_monitor</sub>
 14. **최종 /cmd_vel** — diff_drive_controller가 바퀴 속도로 바꿉니다 (좌 2.72, 우 5.76 rad/s).
    <sub>화살표: collision_monitor → controller_manager</sub>
-15. **모터로** — 100Hz로 쓰기(SyncWrite) · 읽기(SyncRead). 퍽 앞에 도착하면 Nav2 액션 결과가 "성공".
+15. **모터로** — 100Hz로 OpenCR에 `C` 줄 → 펌웨어가 한 패킷 BulkWrite, SyncRead 결과를 `S` 줄(10ms)로. 퍽 앞에 도착하면 Nav2 액션 결과가 "성공".
    <sub>화살표: controller_manager → OpenCR → 다이나믹셀 · OpenCR → 다이나믹셀 → controller_manager</sub>
 16. **어떻게 잡을까** — /tracked_objects로 대상 퍽을 찾고 gripper_cam 근접 점구름으로 후보를 매김. 📞 /score_grasps → [B 0.87, C 0.62, A 0.41].
    <sub>화살표: gripper_cam → realsense2_camera · realsense2_camera → grasp_scorer · perception → grasp_scorer · coordinator → grasp_scorer</sub>
@@ -195,6 +206,23 @@ flowchart TB
    <sub>화살표: coordinator → vlm_task_planner</sub>
 24. **운영자에게 알림** — ✉️ /robot_say → 💬 "퍽을 옮겼어요". 끝.
    <sub>화살표: coordinator → user_input · user_input → 사람</sub>
+
+### 신호등 암호 미션 — 신호부터 수납 확인까지
+
+규칙: [mission/README.md](../../mission/README.md). 파라미터: [plan.yaml](../../../lv2_module6/ros2_ws/src/plan/config/plan.yaml).
+
+1. **신호를 읽는다** — perception이 신호등 색(`red`·`yellow`·`green`·`off`, 세 색 동시 = `all`)을 `/tracked_objects`에 싣고, signal_decoder가 깜빡임을 시간축으로 쌓아 세 단계(색·개수 · 번호 합 · 목적지 태그)를 읽어 ✉️ /mission_signal (예: red 2개 · 합 5 · 장소 13).
+   <sub>화살표: perception → signal_decoder · signal_decoder → vlm_task_planner</sub>
+2. **번호를 아는 퍽으로 조합** — planner가 번호(퍽 윗면 AprilTag, `details.tag`)를 아는 그 색 퍽 중 개수·합이 맞는 조합을 고른다 (모든 부분집합, 로봇에서 가까운 것 우선).
+3. **모르면 보러 간다** — 조합이 없으면 번호 모르는 그 색 퍽마다 `inspect` (손끝을 퍽 윗면 0.15m 위로 → gripper_cam이 16mm 태그를 읽음). 끝나면(SUCCEEDED) 2로 돌아가 다시 판단. 목적지 장소 태그를 아직 못 봤으면 기다림, 다 봐도 조합이 없으면 say.
+   <sub>화살표: vlm_task_planner → coordinator · coordinator → MoveIt Task Constructor · perception → vlm_task_planner</sub>
+4. **옮긴다** — ✉️ /sub_goals [navigate(퍽) → pick(퍽) → place(tray)] × N → navigate(장소) → [pick(tray) → place(장소)] × N. 적재함 최대 4칸.
+   <sub>화살표: vlm_task_planner → coordinator · coordinator → Nav2 · coordinator → MoveIt Task Constructor</sub>
+5. **수납 확인 — 옮긴 직후** — 옮기기가 SUCCEEDED면 planner가 바로 확인 계획: navigate(장소) → 장소 근처(`verify_radius_m` 0.2m) 번호 모르는 퍽만 inspect. 끝나면 옮긴 번호가 장소 근처에 다 있는지 본다.
+   <sub>화살표: coordinator → vlm_task_planner · vlm_task_planner → coordinator</sub>
+6. **빠졌으면** — 빠진 번호가 다른 곳에서 보이면 다시 옮김(recarry → 끝나면 5), 어디에도 안 보이면 ✉️ /robot_say로 알림.
+   <sub>화살표: vlm_task_planner → coordinator · coordinator → user_input</sub>
+7. **그 뒤 주기적으로** — `verify_period_s`(60초)마다 5를 반복한다. 단 AUTO(/state/operation_mode)이고 하던 계획이 끝났을 때만. 확인 계획이 실패하면 재계획하지 않고 다음 주기에. 새 명령·새 신호가 오면 확인 대상을 지운다.
 
 ### 베이스 속도 명령 한 주기 (20Hz)
 

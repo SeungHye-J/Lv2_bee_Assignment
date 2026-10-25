@@ -28,6 +28,7 @@ find_package(std_srvs REQUIRED)
 
 rosidl_generate_interfaces(${PROJECT_NAME}
   msg/ArmSafetyEvent.msg
+  msg/MotorStatus.msg
   DEPENDENCIES std_msgs)
 rosidl_get_typesupport_target(msgs_cpp ${PROJECT_NAME} rosidl_typesupport_cpp)
 include_directories(include)
@@ -51,7 +52,8 @@ install(TARGETS arm_safety_monitor manual_control body_filter DESTINATION lib/${
 add_library(beebot_system_hardware SHARED src/beebot_system_hardware.cpp)
 target_compile_features(beebot_system_hardware PUBLIC cxx_std_17)
 target_link_libraries(beebot_system_hardware hardware_interface::hardware_interface
-  pluginlib::pluginlib rclcpp::rclcpp rclcpp_lifecycle::rclcpp_lifecycle diagnostic_updater::diagnostic_updater ${std_srvs_TARGETS})
+  pluginlib::pluginlib rclcpp::rclcpp rclcpp_lifecycle::rclcpp_lifecycle diagnostic_updater::diagnostic_updater ${std_srvs_TARGETS}
+  ${msgs_cpp})
 pluginlib_export_plugin_description_file(hardware_interface control_plugins.xml)
 install(TARGETS beebot_system_hardware LIBRARY DESTINATION lib)
 

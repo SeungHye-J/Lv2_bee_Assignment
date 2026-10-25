@@ -424,8 +424,9 @@ def to_msg(tid, tr):
     o.pose.covariance = [float(v) for v in cov.ravel()]
     o.size.x, o.size.y, o.size.z = (float(v) for v in tr["size"])
     o.last_seen = tr["last_seen"]
-    o.camera = tr.get("camera", "")
-    o.cameras = sorted(tr.get("seen", {}).keys()) or ([o.camera] if o.camera else [])
+    # 본 카메라를 마지막 본 시각 순으로 — 끝은 px를 잰 카메라 (같은 시각이면 시각만으론 순서를 모름)
+    seen, last = tr.get("seen", {}), tr.get("camera", "")
+    o.cameras = [c for c in sorted(seen, key=seen.get) if c != last] + ([last] if last else [])
     o.px = [int(v) for v in tr.get("px", (0, 0))]
     o.color = tr.get("color", "")
     details = []

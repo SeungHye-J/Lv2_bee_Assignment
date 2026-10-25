@@ -63,6 +63,11 @@ CallbackReturn BeebotSystemHardware::on_configure(const rclcpp_lifecycle::State 
     diag_->setHardwareID("beebot");
     diag_->add("OpenCR 연결", [this](diagnostic_updater::DiagnosticStatusWrapper & s) { report(s); });
   }
+  if (!motor_pub_ && get_node()) {  // 모터 에러 전용 토픽 — 진단(사람용 문자열) 대신 다른 노드가 기대는 값
+    motor_pub_ = get_node()->create_publisher<control::msg::MotorStatus>(
+      "/motor_status", rclcpp::QoS(1).reliable().transient_local());
+    motor_timer_ = get_node()->create_wall_timer(std::chrono::milliseconds(500), [this]() { publish_motor_status(); });
+  }
   if (!reboot_srv_ && get_node()) {  // ~/reboot_motors — Hardware Error(과부하 등) 난 모터만 재부팅 (펌웨어 R)
     reboot_srv_ = get_node()->create_service<std_srvs::srv::Trigger>(
       "~/reboot_motors", [this](const std_srvs::srv::Trigger::Request::SharedPtr req,
@@ -247,6 +252,22 @@ bool BeebotSystemHardware::apply_state(const std::string & text) {
   }
   for (const auto * field : IMU_FIELDS) set_state(imu_ + "/" + field, v[i++]);
   return true;
+}
+
+void BeebotSystemHardware::publish_motor_status() {
+  std::array<int, MOTORS> now{};
+  for (size_t i = 0; i < MOTORS; ++i) now[i] = hw_error_[i].load();
+  if (motor_published_ && now == motor_sent_) return;  // 바뀔 때만 (transient_local이라 늦게 붙어도 마지막 값)
+  control::msg::MotorStatus m;
+  m.header.stamp = get_node()->now();
+  for (size_t i = 0; i < MOTORS; ++i) {
+    m.joints.push_back(motor_name(i));
+    m.error.push_back(now[i]);
+    m.text.push_back(now[i] == 0 ? "정상" : error_text(now[i]));
+  }
+  motor_pub_->publish(m);
+  motor_sent_ = now;
+  motor_published_ = true;
 }
 
 bool BeebotSystemHardware::apply_errors(const std::string & text) {

@@ -128,6 +128,7 @@
 | 장소 태그 → class `location` 물체 (`tag`) | perception | 구현 |
 | 바코드 → class `barcode` 물체 (`content`) + `/mission_qr` | perception (**zxing-cpp** — 발제 바코드는 Code128이라 OpenCV barcode(EAN·UPC만)로는 못 읽음) → planner → VLM이 해석 · 사람이 계획(ai-service backend human) | 구현 |
 | 조합 계산 · 계획 | vlm_task_planner 규칙 (VLM 안 씀): 번호 아는 그 색 퍽 중 합이 맞는 조합(가까운 것 우선) → 적재함에 싣고 목적지 장소로 · 없으면 번호 모르는 퍽 inspect → 다시 판단 · 목적지 태그 못 봤으면 대기 · 끝내 없으면 say | 구현 |
+| 수납 확인 (옮긴 퍽이 목적지에 그대로 있는지) | vlm_task_planner 규칙: 옮긴 직후 한 번 + `verify_period_s`(60초)마다 (AUTO · 하던 계획 없을 때) 목적지로 가서 근처 번호 모르는 퍽 inspect → 옮긴 번호가 `verify_radius_m`(0.2m) 안에 다 있으면 끝 · 다른 곳에 보이면 다시 옮김 · 안 보이면 say. 새 명령·신호가 오면 그만 | 구현 (실기 미확인) |
 | 퍽 크기 30×60mm | perception 크기 기본값 · coordinator 적재함 높이 | 반영 |
 | 바코드 지시의 놓는 방식 (주사위 모양 배치 · 눕히기) | — | **없음** — 지금 skill로는 표현 못 함 (VLM은 say로 알림) |
 | 시뮬레이터 (깜빡임 신호등 · 퍽/장소 태그 · 바코드 판) | simulator | **없음** |
@@ -139,4 +140,5 @@
 퍽 윗면 태그 → (inspect: gripper_cam이 내려다봄) → perception details tag (기억)
 장소 태그 → perception location (tag) · 장소 바코드 → perception barcode (content) · /mission_qr → VLM
 vlm_task_planner: 합이 맞는 조합 → /sub_goals [navigate → pick → place tray] × N → navigate(장소) → [pick tray → place 장소] × N
+  → 수납 확인: navigate(장소) → [inspect 근처 퍽] → 옮긴 번호가 다 있나 (없으면 다시 옮김 · say) — 그 뒤 주기마다 반복
 ```

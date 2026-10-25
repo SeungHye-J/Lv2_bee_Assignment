@@ -184,6 +184,8 @@ def test_fuse_two_cameras():
         assert len(node.tracks) == 1
         tr = next(iter(node.tracks.values()))
         assert set(tr["seen"]) == {"pole_front_cam", "gripper_cam"} and tr["camera"] == "gripper_cam"
+        from perception_node import to_msg
+        assert list(to_msg(a[0], tr).cameras) == ["pole_front_cam", "gripper_cam"]  # 끝 = 마지막(px) 카메라
         # 한 카메라만 믿었으면 5cm — 융합하면 상대 카메라의 정확한 가로 방향이 depth 축 오차를 잡아 준다
         assert np.linalg.norm(tr["p"] - truth) < 0.02, tr["p"]
         sz_one = r_cam[2, 2]

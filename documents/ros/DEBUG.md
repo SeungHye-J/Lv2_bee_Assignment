@@ -227,7 +227,46 @@ ros2 lifecycle get /bt_navigator
 
 ```bash
 ros2 topic echo /diagnostics_agg --once
+# 같은 내용을 CLI로 — 요약 / 항목 하나의 값 전부
+~/Lv2_bee_Assignment/lv2_module6/tool/run-cli status --diagnostics
+~/Lv2_bee_Assignment/lv2_module6/tool/run-cli status --diagnostics signal_decoder
 ```
+
+진단(`/diagnostics`)은 사람이 보는 것이다. 노드끼리는 아래 전용 토픽을 쓴다 — 진단 문자열과 토픽 값이 다르면 토픽이 맞다.
+
+### 모터(DYNAMIXEL) 에러
+
+```bash
+# 모터별 Hardware Error — 0 정상 · -1 응답 없음 · 비트 1 입력전압 4 과열 8 엔코더 16 전기충격 32 과부하
+ros2 topic echo /motor_status --once --qos-durability transient_local
+# state_manager가 그걸로 만든 장치 상태 — error + "joint2:과부하"
+ros2 topic echo /state/devices/arm --once --qos-durability transient_local --field data
+```
+
+과부하·과열은 모터가 토크를 끄고 **재부팅으로만** 풀린다. 원인(걸림·무게)을 없앤 뒤 수동 모드에서:
+
+```bash
+~/Lv2_bee_Assignment/lv2_module6/tool/run-cli mode manual
+~/Lv2_bee_Assignment/lv2_module6/tool/run-cli arm reboot        # = ros2 topic pub --once /cmd/manual/reboot_motors std_msgs/msg/Empty {}
+```
+
+12V가 꺼졌다 켜진 경우(토크 꺼짐)는 펌웨어가 0.5초마다 확인해 천천히 다시 켠다 — [firmware/README.md](../../lv2_module6/firmware/README.md).
+
+### 신호등 미션·계획
+
+```bash
+# signal_decoder가 읽은 답 {color, count, sum, dest_tag, raw}
+ros2 topic echo /mission_signal --once --qos-durability transient_local
+# planner가 낸 계획 · coordinator 진행 (FAILED면 reason)
+ros2 topic echo /sub_goals --once --qos-durability transient_local
+ros2 topic echo /task_status --qos-durability transient_local
+# planner 판단 이유 — "신호등 미션"(carry·inspect·wait·fail) · "수납 확인"(look·ok·recarry·missing)
+~/Lv2_bee_Assignment/lv2_module6/tool/run-cli status --diagnostics vlm_task_planner
+```
+
+- 신호가 안 잡힘: `/tracked_objects`에 `traffic_light`가 있고 `color`가 바뀌는지 (`all` = 세 색 동시 — 단계 구분). 단계 구분 시간은 `plan.yaml` `signal_decoder`.
+- 계속 `wait`: 목적지 장소 태그(`location`, tag 12~14)를 아직 못 봤다. 퍽 번호(`details.tag`)는 gripper_cam이 위에서 봐야 읽힌다 (`inspect`).
+- 수납 확인은 옮긴 직후 한 번, 그 뒤 `verify_period_s`(기본 60초)마다 AUTO이고 하던 계획이 없을 때만 돈다.
 
 `state_manager` 진단도 확인:
 

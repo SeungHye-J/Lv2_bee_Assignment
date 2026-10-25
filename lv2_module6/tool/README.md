@@ -17,7 +17,15 @@ tool/
     ├── start.sh
     ├── stop.sh
     ├── restart.sh
-    └── operator_tool.py
+    ├── operator_tool.py   # 얇은 App: 배선 + argparse + main
+    └── op/                # 실제 구현
+        ├── terminal.py    # 터미널 원자 연산 (크기·색·표시너비)
+        ├── defs.py        # 메뉴 내비게이션 상수
+        ├── consts.py      # 로봇 상수 + 파라미터/인자 변환
+        ├── state.py       # StateStore — ROS 상태 보관
+        ├── ui.py          # Ui — 4분할 프레임 + 방향키 선택 + 모달 입력
+        ├── bus.py         # Bus — 발행·전송·대기·명령 실행
+        └── pages/         # Page → Menu → 각 메뉴 화면 + ParamTool
 ```
 
 `run-cli`/`run-rviz`는 `start|stop|restart`를 받아 각 폴더의 스크립트를 실행한다.
@@ -75,6 +83,7 @@ cd tool
 
 - 번호를 고르고 Enter
 - `status`, `devices`, `teleop`처럼 명령 이름을 입력해도 됩니다
+- 메인 메뉴 `11) 진단 (상세)`: 진단 목록(문제 있는 것 먼저, ● 초록 OK · 노랑 WARN · 빨강 ERROR) → 번호를 고르면 그 항목의 값 전부를 2초마다 갱신해서 보여 줌 (신호등 미션 진행 · 모터 에러 등)
 - 상단 상태바(조작·지도·E-STOP·장치 + 인지·임무·진단 2단)는 입력 없이 2초마다 자동 새로고침됩니다
 - 화면은 4분할입니다: 상단 상태바 고정 · 왼쪽 메뉴 · 중앙 내용 · 하단 힌트+입력 고정.
   터미널 크기에 맞춰 다시 계산하므로 창을 넓히면 다음 그리기부터 반영됩니다
@@ -102,7 +111,9 @@ cd tool
 
 ```bash
 ./run-cli status
-./run-cli status --diagnostics
+./run-cli status --diagnostics                    # 진단 요약 (항목마다 레벨 · 한 줄 메시지)
+./run-cli status --diagnostics signal_decoder     # 이름에 그 글자가 든 항목 상세 — 레벨 · 메시지 · 값 전부
+./run-cli status --diagnostics opencr             # 예: OpenCR 연결 · 모터 에러 · 받은 S 줄
 ./run-cli status --topics
 ```
 
