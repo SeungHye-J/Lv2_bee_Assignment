@@ -363,6 +363,7 @@ string message
 | 이름 | 타입 | 호출 → 서버 | 용도 |
 | --- | --- | --- | --- |
 | `/score_grasps` | ml/srv/ScoreGrasps | coordinator → grasp_scorer | pick 직전 1회 |
+| `/collision_monitor/toggle` | nav2_msgs/srv/Toggle | manual_control → collision_monitor | `/state/operation_mode`가 MANUAL이면 끔(속도 명령 그대로 통과 — 근접 정지 없음) · 나가면 켬. 비상정지 잠금(twist_mux)·가속 제한(velocity_smoother)은 수동도 그대로. collision_monitor가 다시 뜨면 다시 보냄 |
 | `/beebotsystem/set_arm_torque` | std_srvs/srv/SetBool | manual_control → BeebotSystemHardware | 운영 모드 TEACH에 들어가면 팔(joint1~5)·그리퍼 토크 끔 · 나가면 JTC·그리퍼 목표를 지금 값으로 맞춘 뒤 켬 (펌웨어 `T`, 바퀴 그대로). 직접 부르면 켤 때 팔이 예전 목표로 튈 수 있음 — `/cmd/operation_mode TEACH`로 |
 | `/beebotsystem/reboot_motors` | std_srvs/srv/Trigger | manual_control(`/cmd/manual/reboot_motors`) → BeebotSystemHardware | Hardware Error 난 DYNAMIXEL만 재부팅 (펌웨어 `R` 줄) — 운영자는 토픽 `/cmd/manual/reboot_motors`로 (수동 모드에서만) |
 | `/plan_kinematic_path` | moveit_msgs/srv/GetMotionPlan | coordinator → move_group | pick·place·inspect 단계마다 팔 궤적 계획 → `/execute_trajectory` |
