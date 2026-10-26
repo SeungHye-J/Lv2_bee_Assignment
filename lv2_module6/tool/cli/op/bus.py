@@ -727,6 +727,146 @@ class Bus:
         print(f'재시작 요청: {data}')
         return 0
 
+    # ------------------------------------------------------------------- node
+
+    LIFECYCLE_STATES = {0: 'unknown', 1: 'unconfigured', 2: 'inactive', 3: 'active', 4: 'finalized'}
+
+    def node_rows(self) -> list[dict]:
+        """노드 목록 — 그래프(실행 중 ROS 노드) + state_manager 재시작 목록(pid) 합침.
+        lifecycle = <노드>/get_state 서비스가 있으면 True (Nav2 수명주기 노드)."""
+        self._poll(0.3)
+        pids: dict[str, str] = {}
+        for line in (self.state.values.get('restartable') or '').splitlines():
+            parts = line.split()
+            if parts:
+                pids[parts[0]] = parts[1] if len(parts) > 1 else '?'
+        me = self.node.get_name()
+        graph: set[str] = set()
+        try:
+            for n, ns in self.node.get_node_names_and_namespaces():
+                if n != me and not n.startswith('_'):
+                    graph.add(n if ns in ('/', '') else f'{ns.strip("/")}/{n}')
+        except Exception:
+            pass
+        try:
+            services = {name for name, _ in self.node.get_service_names_and_types()}
+        except Exception:
+            services = set()
+        rows = []
+        for name in sorted(graph | set(pids)):
+            rows.append({'name': name, 'pid': pids.get(name), 'alive': name in graph,
+                         'lifecycle': f'/{name}/get_state' in services})
+        return rows
+
+    def lifecycle_state(self, name: str, timeout: float = 2.0) -> str | None:
+        """수명주기 노드 상태 (active · inactive · unconfigured …), 응답 없으면 None."""
+        try:
+            from lifecycle_msgs.srv import GetState
+        except ImportError:
+            return None
+        cli = self.node.create_client(GetState, f'/{name}/get_state')
+        try:
+            if not cli.wait_for_service(timeout_sec=timeout):
+                return None
+            res = self.param_wait(cli.call_async(GetState.Request()), timeout)
+            return self.LIFECYCLE_STATES.get(res.current_state.id, res.current_state.label) if res else None
+        finally:
+            self.node.destroy_client(cli)
+
+    def lifecycle_activate(self, name: str) -> bool:
+        """수명주기 노드를 active까지 — unconfigured면 configure → activate, inactive면 activate.
+        lifecycle_manager가 기동 중 응답 시간 초과로 멈춘 경우(bond 없음)를 사람이 이어 주는 용도."""
+        try:
+            from lifecycle_msgs.msg import Transition
+            from lifecycle_msgs.srv import ChangeState
+        except ImportError:
+            print('lifecycle_msgs 없음', file=sys.stderr)
+            return False
+        steps = {'unconfigured': [(Transition.TRANSITION_CONFIGURE, 'configure'), (Transition.TRANSITION_ACTIVATE, 'activate')],
+                 'inactive': [(Transition.TRANSITION_ACTIVATE, 'activate')], 'active': []}
+        state = self.lifecycle_state(name)
+        if state not in steps:
+            print(f'{name}: 상태 {state or "응답 없음"} — 활성화할 수 없음', file=sys.stderr)
+            return False
+        cli = self.node.create_client(ChangeState, f'/{name}/change_state')
+        try:
+            for tid, label in steps[state]:
+                req = ChangeState.Request()
+                req.transition.id = tid
+                res = self.param_wait(cli.call_async(req), 15.0)
+                if not res or not res.success:
+                    print(f'{name}: {label} 실패 ({"시간 초과" if not res else "거절"}) — 그 노드 로그 확인', file=sys.stderr)
+                    return False
+                print(f'{name}: {label} OK')
+        finally:
+            self.node.destroy_client(cli)
+        print(f'{name}: {self.lifecycle_state(name) or "?"}')
+        return True
+
+    def node_status_lines(self, name: str) -> list[str]:
+        row = next((r for r in self.node_rows() if r['name'] == name), None)
+        lines = [f'[{name}]']
+        if row is None:
+            return lines + [' 그래프에도 재시작 목록에도 없음 (안 떠 있음)']
+        lines.append(f' 실행: {"그래프에 보임" if row["alive"] else "그래프에 안 보임 (죽었거나 디스커버리 늦음)"}'
+                     f' · pid {row["pid"] or "-"}{"" if row["pid"] else " (state_manager 재시작 목록에 없음)"}')
+        if row['lifecycle']:
+            lines.append(f' 수명주기: {self.lifecycle_state(name) or "응답 없음"} (active가 아니면 3) 활성화)')
+        try:
+            ns = '/'
+            pubs = self.node.get_publisher_names_and_types_by_node(name.split('/')[-1], ns)
+            subs = self.node.get_subscriber_names_and_types_by_node(name.split('/')[-1], ns)
+            lines.append(f' 발행 {len(pubs)}개 · 구독 {len(subs)}개')
+        except Exception:
+            pass
+        diags = [d for d in self.state.diagnostics if name in d]
+        for d in diags[:6]:
+            level, message = self.state.diagnostics[d]
+            lines.append(f' 진단 {self.diag_short(d)}: {DIAG_LEVELS.get(level, "?")} {message}')
+        return lines
+
+    def node_restart(self, name: str) -> int:
+        """state_manager로 재시작 → 수명주기 노드면 다시 뜬 뒤 active까지."""
+        rows = {r['name']: r for r in self.node_rows()}
+        row = rows.get(name)
+        if row and not row['pid']:
+            print(f'거부: {name}은 state_manager 재시작 목록에 없음 (이 launch 밖 노드)', file=sys.stderr)
+            return 1
+        old_pid = row['pid'] if row else None
+        self.cmd_restart(argparse.Namespace(target=name, yes=True))
+        if not (row and row['lifecycle']):
+            return 0
+        print(f'{name}: 수명주기 노드 — 다시 뜰 때까지 기다린 뒤 활성화')
+        end = time.monotonic() + 20.0
+        while time.monotonic() < end and rclpy.ok():
+            self._poll(1.0)
+            new = {r['name']: r for r in self.node_rows()}.get(name)
+            if new and new['pid'] and new['pid'] != old_pid and self.lifecycle_state(name, 1.0):
+                return 0 if self.lifecycle_activate(name) else 1
+        print(f'FAIL: {name} 20초 안에 다시 안 뜸 — /tmp/restart_{name}.log 확인', file=sys.stderr)
+        return 1
+
+    def cmd_node(self, args) -> int:
+        if args.action == 'list':
+            for r in self.node_rows():
+                life = f' [{self.lifecycle_state(r["name"], 1.0) or "?"}]' if r['lifecycle'] else ''
+                print(f'{r["name"]:<32} {"●" if r["alive"] else "✗"} pid {r["pid"] or "-":<8}{life}')
+            return 0
+        if not args.name:
+            print('노드 이름이 필요합니다', file=sys.stderr)
+            return 2
+        if args.action == 'status':
+            print('\n'.join(self.node_status_lines(args.name)))
+            return 0
+        if args.action == 'activate':
+            return 0 if self.lifecycle_activate(args.name) else 1
+        if args.action == 'restart':
+            if not args.yes:
+                print('거부: 재시작은 확인 후 --yes를 붙이세요', file=sys.stderr)
+                return 2
+            return self.node_restart(args.name)
+        return 2
+
     # ------------------------------------------------------------------- menu
 
     def param_nodes(self) -> list[tuple[str, str]]:
