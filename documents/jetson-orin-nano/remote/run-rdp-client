@@ -1,17 +1,18 @@
 #!/usr/bin/env bash
-# run-client — Jetson 원격 화면 클라이언트
+# run-rdp-client — 모니터 없는 Jetson 원격 데스크톱 클라이언트 (RDP)
 #
-# 이 스크립트는 PC에서 실행한다. Jetson에서는 run-server를 사용한다.
-# SSH 터널(localhost:5900 -> Jetson:127.0.0.1:5900)을 열고 Remmina/VNC Viewer를 실행한다.
+# 이 스크립트는 PC에서 실행한다. Jetson은 run-rdp-server로 xrdp를 한 번 설정해 둔다.
+# SSH 터널(localhost:3389 -> Jetson:127.0.0.1:3389)을 열고 Remmina RDP를 실행한다.
+# (모니터·더미 플러그가 있는 Jetson의 실제 화면 공유는 run-vnc-server / run-vnc-client — VNC)
 set -euo pipefail
 
 SSH_TARGET="${SSH_TARGET:-bee@bee.local}"
-LOCAL_PORT="${LOCAL_PORT:-5900}"
-REMOTE_PORT="${REMOTE_PORT:-5900}"
+LOCAL_PORT="${LOCAL_PORT:-3389}"
+REMOTE_PORT="${REMOTE_PORT:-3389}"
 ACTION=start
-NO_VNC=0
+NO_CLIENT=0
 
-CONTROL_DIR="${XDG_RUNTIME_DIR:-/tmp}/bee-vnc-$(id -u)"
+CONTROL_DIR="${XDG_RUNTIME_DIR:-/tmp}/bee-rdp-$(id -u)"
 CONTROL_PATH="${CONTROL_DIR}/ssh-%r@%h:%p"
 SSH_OPTS=(
   -o ControlMaster=auto
@@ -25,32 +26,32 @@ SSH_OPTS=(
 usage() {
   cat <<'EOF'
 사용법:
-  ./run-client [옵션]
-  ./run-client --start
-  ./run-client --status
-  ./run-client --stop
-  ./run-client --restart
+  ./run-rdp-client [옵션]
+  ./run-rdp-client --start
+  ./run-rdp-client --status
+  ./run-rdp-client --stop
+  ./run-rdp-client --restart
 
 옵션:
-  -H, --host USER@HOST   SSH 대상 (기본 bee@bee.local)
-  -l, --local-port N     PC 쪽 터널 포트 (기본 5900)
-  -r, --remote-port N    Jetson 쪽 VNC 포트 (기본 5900)
-      --no-vnc           VNC 클라이언트를 띄우지 않고 터널만 열기
-      --start            터널 열기 + VNC 실행 (기본 동작)
+  -H, --host USER@HOST   SSH 대상 (기본 bee@bee.local) — RDP 사용자도 USER
+  -l, --local-port N     PC 쪽 터널 포트 (기본 3389)
+  -r, --remote-port N    Jetson 쪽 xrdp 포트 (기본 3389)
+      --no-client        Remmina를 띄우지 않고 터널만 열기
+      --start            터널 열기 + Remmina 실행 (기본 동작)
       --status           터널 상태 확인
       --stop             SSH 터널 종료
       --restart          터널 종료 후 다시 시작
   -h, --help             이 도움말
 
 환경변수:
-  SSH_TARGET, LOCAL_PORT
-  REMOTE_PORT
+  SSH_TARGET, LOCAL_PORT, REMOTE_PORT
 
 예:
-  ./run-client
-  ./run-client --host bee@10.2.12.110
-  ./run-client --local-port 5901   # PC의 5900이 이미 사용 중일 때
-  ./run-client --no-vnc            # 터널만 열기
+  ./run-rdp-client
+  ./run-rdp-client --host bee@10.2.12.110
+  ./run-rdp-client --local-port 13389   # PC의 3389가 이미 사용 중일 때
+
+접속하면 xrdp 로그인 창: 세션 Xorg · 사용자 bee · Jetson 계정 비밀번호
 EOF
 }
 
@@ -80,10 +81,10 @@ show_status() {
     echo "ssh master : not running"
   fi
   if port_in_use; then
-    echo "local port  : LISTEN"
+    echo "local port : LISTEN"
     ss -ltnpH "sport = :${LOCAL_PORT}" 2>/dev/null || true
   else
-    echo "local port  : closed"
+    echo "local port : closed"
   fi
 }
 
@@ -112,27 +113,22 @@ stop_tunnel() {
   fi
 }
 
-launch_vnc() {
+launch_rdp() {
+  local user="${SSH_TARGET%%@*}"
+  [[ "$user" == "$SSH_TARGET" ]] && user="$USER"
   if command -v remmina >/dev/null 2>&1; then
-    echo "Remmina 실행: vnc://localhost:${LOCAL_PORT}"
-    remmina -c "vnc://localhost:${LOCAL_PORT}" &
-    return 0
-  fi
-
-  if command -v vncviewer >/dev/null 2>&1; then
-    echo "VNC Viewer 실행: localhost:${LOCAL_PORT}"
-    vncviewer "localhost:${LOCAL_PORT}" &
+    echo "Remmina 실행: rdp://${user}@localhost:${LOCAL_PORT}"
+    echo "xrdp 로그인 창: 세션 Xorg · 사용자 ${user} · Jetson 계정 비밀번호"
+    remmina -c "rdp://${user}@localhost:${LOCAL_PORT}" &
     return 0
   fi
 
   cat >&2 <<EOF
-VNC 클라이언트가 없습니다. 설치:
-  sudo apt install -y remmina remmina-plugin-vnc
-또는:
-  sudo apt install -y tigervnc-viewer
+RDP 클라이언트가 없습니다. 설치:
+  sudo apt install -y remmina remmina-plugin-rdp
 
-터널은 열려 있으므로 VNC 클라이언트에서 직접 접속해도 됩니다:
-  localhost:${LOCAL_PORT}
+터널은 열려 있으므로 RDP 클라이언트에서 직접 접속해도 됩니다:
+  localhost:${LOCAL_PORT} (사용자 ${user})
 EOF
   return 1
 }
@@ -142,7 +138,7 @@ while [[ $# -gt 0 ]]; do
     -H|--host)        need_value "$1" "${2:-}"; SSH_TARGET="$2"; shift 2 ;;
     -l|--local-port)  need_value "$1" "${2:-}"; LOCAL_PORT="$2"; shift 2 ;;
     -r|--remote-port) need_value "$1" "${2:-}"; REMOTE_PORT="$2"; shift 2 ;;
-    --no-vnc)         NO_VNC=1; shift ;;
+    --no-client)      NO_CLIENT=1; shift ;;
     --start)          ACTION=start; shift ;;
     --status)         ACTION=status; shift ;;
     --stop)           ACTION=stop; shift ;;
@@ -162,26 +158,16 @@ chmod 700 "$CONTROL_DIR"
 
 start_action() {
   start_tunnel
-  if [[ "$NO_VNC" -eq 1 ]]; then
-    echo "터널만 열었습니다. VNC 주소: localhost:${LOCAL_PORT}"
+  if [[ "$NO_CLIENT" -eq 1 ]]; then
+    echo "터널만 열었습니다. RDP 주소: localhost:${LOCAL_PORT}"
   else
-    launch_vnc
+    launch_rdp
   fi
 }
 
 case "$ACTION" in
-  status)
-    show_status
-    ;;
-  stop)
-    stop_tunnel
-    ;;
-  restart)
-    stop_tunnel
-    sleep 1
-    start_action
-    ;;
-  start)
-    start_action
-    ;;
+  status)  show_status ;;
+  stop)    stop_tunnel ;;
+  restart) stop_tunnel; sleep 1; start_action ;;
+  start)   start_action ;;
 esac

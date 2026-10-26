@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
-# run-server — Jetson 화면 공유 서버 (x11vnc)
+# run-vnc-server — Jetson 화면 공유 서버 (x11vnc)
 #
-# 이 스크립트는 Jetson에서 실행한다. PC에서는 run-client를 사용한다.
+# 이 스크립트는 Jetson에서 실행한다. PC에서는 run-vnc-client를 사용한다.
 # 기본값: DISPLAY=:0, 127.0.0.1:5900, VNC 비밀번호 ~/.vnc/passwd
 set -euo pipefail
 
@@ -18,11 +18,11 @@ SPEEDS="${X11VNC_SPEEDS:-dsl}"
 WIREFRAME="${X11VNC_WIREFRAME:-1}"
 SB_SECS="${X11VNC_SB:-15}"
 # 저해상도 기본값: 전송량을 줄이기 위해 960x540으로 축소 전송한다.
-# 원래 해상도로 쓰려면 X11VNC_SCALE=off ./run-server 또는 --scale off
+# 원래 해상도로 쓰려면 X11VNC_SCALE=off ./run-vnc-server 또는 --scale off
 SCALE="${X11VNC_SCALE:-960x540}"
 # 실제 X 출력 해상도 변경 (물리 모니터에도 같이 적용됨).
 # 기본 1280x720으로 자동 적용. 변경하지 않으려면 keep/off/none 또는 빈 값.
-# 예: ./run-server --restart --xrandr keep
+# 예: ./run-vnc-server --restart --xrandr keep
 XRANDR_MODE="${X11VNC_XRANDR_MODE:-1280x720}"
 XRANDR_OUTPUT="${X11VNC_OUTPUT:-}"
 XRANDR_EXPLICIT=0
@@ -33,11 +33,11 @@ FOREGROUND=0
 usage() {
   cat <<'EOF'
 사용법:
-  ./run-server [옵션]
-  ./run-server --start
-  ./run-server --status
-  ./run-server --stop
-  ./run-server --restart
+  ./run-vnc-server [옵션]
+  ./run-vnc-server --start
+  ./run-vnc-server --status
+  ./run-vnc-server --stop
+  ./run-vnc-server --restart
 
 옵션:
   -d, --display :N        X display (기본 :0)
