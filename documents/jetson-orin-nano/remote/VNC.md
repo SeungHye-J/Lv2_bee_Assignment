@@ -1,7 +1,8 @@
-# 원격 데스크톱 — VNC (x11vnc, 모니터 있을 때)
+# 원격 데스크톱 — VNC (x11vnc, 기본 방법)
 
-Jetson에 **모니터(또는 HDMI/DP 더미 플러그)가 있고 로그인된 실제 화면**을 그대로 공유한다. GPU로 그린
-화면이라 RViz도 쓸 만하다. 모니터가 없으면 [RDP.md](RDP.md)를 쓴다.
+Jetson의 **로그인된 실제 데스크톱(`:0`)** 을 그대로 공유한다. GPU로 그린 화면이라 RViz도 쓸 만하다.
+모니터가 없어도 된다 — `run-vnc-server --headless`를 한 번 하면 X에 가상 모니터가 꽂힌다([0장](#0-모니터-없이-headless-한-번)).
+VNC가 안 될 때만 [RDP.md](RDP.md).
 
 [← README.md](README.md) (SSH 키 등록 · 방법 고르기)
 
@@ -23,11 +24,48 @@ PC    : SSH 터널로 Jetson의 5900에 연결 → Remmina VNC로 화면 표시
 
 ### 설정 순서
 
-1. **Jetson**: 자동 로그인 또는 모니터에서 `bee`로 그래픽 로그인
+1. **Jetson**: 자동 로그인 또는 모니터에서 `bee`로 그래픽 로그인 (모니터 없으면 `--headless` 한 번)
 2. **Jetson**: `x11vnc` 설치 및 VNC 비밀번호 생성
 3. **Jetson**: `x11vnc` 실행 (`127.0.0.1:5900`)
 4. **PC**: SSH 터널 열기
 5. **PC**: Remmina VNC → `localhost:5900`
+
+## 0. 모니터 없이: --headless (한 번)
+
+모니터 없이 부팅하면 Jetson X(nvidia, `AllowEmptyInitialConfiguration`)는 640x480 빈 화면으로 뜨지만
+**GNOME이 모니터 0개라 아무것도 그리지 않는다 → VNC가 검은 화면**이다(실측 10/26). `xrandr --setmonitor`로
+가상 모니터를 등록해도 GNOME은 무시한다(실측). 그래서 nvidia 드라이버 옵션으로 DP(`DFP-0`)에 모니터가
+꽂힌 것처럼 만든다 = **소프트웨어 더미 플러그**. 하드웨어 더미 플러그는 필요 없다.
+
+Jetson에서 한 번 (sudo 비밀번호 필요 — GDM 재시작, SSH에서 띄운 ROS는 그대로):
+
+```bash
+~/run-vnc-server --headless
+# 15초쯤 뒤 (GDM 재시작으로 x11vnc가 꺼짐)
+~/run-vnc-server
+```
+
+`--headless`가 하는 일:
+
+1. 가짜 모니터 정보 `/etc/X11/edid-bee-virtual.bin` (EDID 128바이트 — 이름 `BEE-VIRTUAL`, 1920x1080·1280x720)
+2. `/etc/X11/xorg.conf`의 nvidia Device 섹션에 두 줄 (원본 `xorg.conf.run-vnc.bak`):
+   ```text
+   Option "ConnectedMonitor" "DFP-0"
+   Option "CustomEDID" "DFP-0:/etc/X11/edid-bee-virtual.bin"
+   ```
+3. GDM 재시작 → 자동 로그인 데스크톱이 가상 모니터 위에 뜬다
+
+확인 (`run-vnc-server`가 해상도를 1280x720으로 바꾼다):
+
+```bash
+grep -E "BEE-VIRTUAL|DFP-0" /var/log/Xorg.0.log | tail -3     # BEE-VIRTUAL (DFP-0): connected
+DISPLAY=:0 XAUTHORITY=/run/user/1000/gdm/Xauthority xrandr --listmonitors   # Monitors: 1 · DP-0
+```
+
+- 재부팅해도 유지된다. 재부팅·GDM 재시작 뒤에는 x11vnc만 다시 띄운다(`~/run-vnc-server`).
+- 진짜 모니터를 꽂아 쓸 때는 `~/run-vnc-server --headless-undo` (가상 EDID가 진짜 모니터 정보를 덮으므로).
+- 데스크톱이 안 뜨면 SSH로 `~/run-vnc-server --headless-undo` → 원래대로.
+- 자동 로그인이 켜져 있어야 한다([2장](#2-키보드-없이-로그인-gdm-자동-로그인)). RDP(`run-rdp-server`)를 설정했었다면 먼저 `~/run-rdp-server --undo`.
 
 ## 빠른 실행 (스크립트)
 
@@ -251,9 +289,10 @@ pkill x11vnc
 
 > `run-vnc-server` 기본값은 저부하 프리셋이다: 실제 출력 해상도 `1280x720` 자동
 > 적용(물리 모니터에도 같이 적용됨), `-scale 960x540`, `-speeds dsl`,
-> `-wireframe`, `-sb 15`. 자동 변경을 끄려면 `./run-vnc-server --restart
-> --xrandr keep`. 색상 깊이(8/16-bit)는 VNC 프로토콜상 클라이언트가
-> 정하므로 서버에서 강제할 수 없다. Remmina 쪽에서 낮춘다(아래 참고).
+> `-wireframe`, `-sb 15`, **GNOME 애니메이션 끄기**(`--animations on`으로 다시 켬). 자동 변경을 끄려면
+> `./run-vnc-server --restart --xrandr keep`. 색상 깊이(8/16-bit)는 VNC 프로토콜상 클라이언트가
+> 정하므로 서버에서 강제할 수 없다 — `run-vnc-client`가 **기본으로 16bpp · 품질 medium** 접속 설정 파일로
+> Remmina를 띄운다 (`--bpp 8`, `--quality poor`로 더 낮춤 · `--plain`이면 Remmina 기본값).
 
 1920x1080 화면을 32-bit로 보내면 VNC가 느려지기 쉽다. Jetson에서 실제 해상도를
 1280x720으로 낮추면 가장 효과가 크다.
@@ -359,9 +398,8 @@ Authorization required, but no authorization protocol specified
 xset: unable to open display ":0"
 ```
 
-> 모니터·더미 플러그가 없으면 자동 로그인을 해도 공유할 화면 출력이 없다
-> (`run-vnc-server`가 "연결된 디스플레이 출력을 찾지 못했습니다"로 멈춤) → [RDP.md](RDP.md).
-> 또 RDP(`run-rdp-server`)를 설정하면 자동 로그인이 꺼진다 — VNC로 돌아오려면 `~/run-rdp-server --undo`.
+> 모니터가 없으면 자동 로그인만으로는 GNOME이 화면을 안 그린다(검은 화면) — [0장](#0-모니터-없이-headless-한-번) `--headless`.
+> RDP(`run-rdp-server`)를 설정하면 자동 로그인이 꺼진다 — VNC로 돌아오려면 `~/run-rdp-server --undo`.
 
 Jetson이 부팅될 때 `bee`로 자동 로그인하게 만든다. 보안상 **임시방편**으로만
 사용하고, 원격 접속이 확인되면 자동 로그인은 끄는 것을 권장한다.
@@ -418,13 +456,14 @@ ssh -t bee@bee.local 'sudo systemctl restart gdm'
 ## 3. 체크리스트
 
 ```text
-[ ] Jetson 모니터(또는 더미 플러그)에서 bee 그래픽 로그인 (또는 자동 로그인)
+[ ] (모니터 없음) Jetson ~/run-vnc-server --headless 한 번 → Xorg.0.log에 BEE-VIRTUAL connected
+[ ] Jetson 자동 로그인(또는 모니터에서 bee 그래픽 로그인)
 [ ] Jetson 데스크톱 터미널에서 echo $DISPLAY → :0, XDG_SESSION_TYPE=x11
 [ ] x11vnc -storepasswd로 ~/.vnc/passwd 생성
 [ ] Jetson ./run-vnc-server (또는 x11vnc ... -localhost)
 [ ] ss -ltnp | grep 5900 확인
 [ ] PC ./run-vnc-client (또는 ssh -N -L 5900:127.0.0.1:5900 bee@bee.local → remmina -c vnc://localhost:5900)
-[ ] (느리면) Jetson 1280x720 + Remmina 8-bit 색상
+[ ] (그래도 느리면) ./run-vnc-client --bpp 8 --quality poor
 ```
 
 문제가 생기면 먼저 확인할 것:

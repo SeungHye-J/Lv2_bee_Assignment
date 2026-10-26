@@ -20,22 +20,25 @@ IP는 DHCP로 바뀔 수 있으므로 가능하면 `bee.local` 또는 고정 IP�
 
 ## 방법 고르기
 
+**기본은 VNC다** — 모니터가 있든 없든. 모니터가 없으면 `run-vnc-server --headless`가 X에 가상 모니터를
+한 번 꽂아 둔다(소프트웨어 더미 플러그). 어느 쪽이든 GPU로 그린 실제 데스크톱이라 RViz도 쓸 만하다.
+
 | 상황 | 방식 | 문서 | 스크립트 |
 | --- | --- | --- | --- |
-| Jetson에 모니터(또는 HDMI/DP 더미 플러그)가 있음 — 실제 화면을 그대로, GPU 가속 | **VNC** (x11vnc) | [VNC.md](VNC.md) | `run-vnc-server` (Jetson) · `run-vnc-client` (PC) |
-| 모니터 없음 — 접속마다 가상 화면 (GPU 없이 그려서 느림) | **RDP** (xrdp) | [RDP.md](RDP.md) | `run-rdp-server` (Jetson, 한 번) · `run-rdp-client` (PC) |
+| **기본** — 모니터 있음, 또는 모니터 없음(`--headless` 한 번) · GPU로 그린 실제 화면 | **VNC** (x11vnc) | [VNC.md](VNC.md) | `run-vnc-server` (Jetson) · `run-vnc-client` (PC) |
+| VNC가 안 될 때 — 접속마다 가상 화면 (GPU 없이 CPU로 그려서 느림) | RDP (xrdp) | [RDP.md](RDP.md) | `run-rdp-server` (Jetson, 한 번) · `run-rdp-client` (PC) |
 | 위 둘이 안 될 때 | NoMachine | [3장](#3-nomachine-모니터-없이-jetson--pc) | — |
 | 터미널만 (operator_tool) | SSH | [2장](#2-ssh-접속과-operator_tool) | — |
 
 ```text
-run-vnc-server   # Jetson에서 실행 — x11vnc 시작/중지/상태 (모니터·더미 플러그 있을 때)
+run-vnc-server   # Jetson에서 실행 — x11vnc 시작/중지/상태 · 모니터 없으면 --headless 한 번 (기본 방법)
 run-vnc-client   # PC에서 실행 — SSH 터널 + Remmina VNC
-run-rdp-server   # Jetson에서 한 번 — 모니터 없이 RDP(xrdp) 설정
+run-rdp-server   # Jetson에서 한 번 — RDP(xrdp) 설정 (VNC가 안 될 때)
 run-rdp-client   # PC에서 실행 — SSH 터널 + Remmina RDP
 ```
 
-> VNC(실제 화면 공유)와 RDP(xrdp)는 함께 쓰기 어렵다: `run-rdp-server`가 GDM 자동 로그인을 끄므로
-> 모니터 없이는 VNC로 공유할 화면이 없다. 모니터를 꽂고 로그인하면 VNC를 쓸 수 있다.
+> VNC와 RDP(xrdp)는 함께 쓰지 않는다: `run-rdp-server`가 GDM 자동 로그인을 끄고, 같은 사용자의 GNOME은
+> 하나만 뜰 수 있어서 VNC로 공유할 데스크톱이 없어진다. RDP에서 VNC로 돌아오려면 `~/run-rdp-server --undo`.
 
 ## 1. PC: SSH 키 등록
 
@@ -100,14 +103,8 @@ RealSense 영상이나 OpenGL 화면은 전달이 느릴 수 있다.
 
 ## 3. NoMachine (모니터 없이 Jetson + PC)
 
-모니터가 없는 Jetson에서 데스크톱을 쓸 때의 대안이다. x11vnc는 이미 떠 있는 실제
-화면(`:0`)을 공유할 뿐이라 모니터가 없으면 쓸 수 없다(`run-vnc-server`가 "연결된 디스플레이
-출력을 찾지 못했습니다"로 멈춤). NoMachine은 실제 화면이 없으면 **자기 가상 화면을 만들어**
-데스크톱을 띄운다.
-
-> 가장 확실한 방법은 HDMI/DP **더미 플러그**(헤드리스 플러그)다. 꽂으면 Jetson이 모니터가
-> 있다고 여겨 x11vnc(`run-vnc-server`)를 그대로 쓸 수 있고, GPU 가속도 된다.
-> NoMachine 가상 화면은 소프트웨어 렌더링일 수 있어 RViz 같은 3D는 느릴 수 있다.
+VNC(`--headless`)와 RDP가 모두 안 될 때의 대안이다(Jetson에서 아직 미검증). NoMachine은 실제 화면이 없으면
+**자기 가상 화면을 만들어** 데스크톱을 띄운다. 소프트웨어 렌더링일 수 있어 RViz 같은 3D는 느릴 수 있다.
 
 ### 3.1 설치
 
@@ -186,8 +183,8 @@ ssh -t bee@bee.local 'sudo systemctl set-default graphical.target && sudo system
 ```text
 [ ] ssh-copy-id로 공개키 등록
 [ ] ssh bee@bee.local 접속 성공
-[ ] (모니터 있음) VNC.md 체크리스트
-[ ] (모니터 없음) RDP.md 체크리스트
+[ ] VNC.md 체크리스트 (모니터 없으면 run-vnc-server --headless 한 번)
+[ ] (VNC 불가) RDP.md 체크리스트
 [ ] (둘 다 불가) NoMachine 설치 → gdm 중지 → PC NoMachine 4000 접속
 ```
 

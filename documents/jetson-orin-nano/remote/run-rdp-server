@@ -15,6 +15,8 @@ XSESSIONRC="$HOME/.xsessionrc"
 XSESSIONRC_BASH="$HOME/.xsessionrc.bash"
 MARK="# setup-rdp"   # 설정 파일에 남기는 표시 (--undo가 이걸로 찾음 — 바꾸지 말 것)
 ACTION=install
+# GNOME 애니메이션 (기본 off — xrdp는 CPU로 그려서 효과 큼). on이면 다시 켬, keep이면 안 건드림
+ANIMATIONS="${RDP_ANIMATIONS:-off}"
 RESTART_GDM=1
 
 usage() {
@@ -23,9 +25,11 @@ usage() {
   ./run-rdp-server           설치·설정 (xrdp + GNOME 세션, 자동 로그인 끔, GNOME RDP 끔)
   ./run-rdp-server --status  상태만 확인
   ./run-rdp-server --undo    되돌리기 (xrdp 끔, 자동 로그인 복구)
+  ./run-rdp-server --tune    가볍게만 (GNOME 애니메이션 끄기, sudo 불필요)
 
 옵션:
       --no-gdm-restart     GDM을 재시작하지 않음 (자동 로그인 해제는 다음 부팅부터)
+      --animations MODE    GNOME 애니메이션 (기본 off, on: 다시 켬, keep: 안 건드림)
   -h, --help               이 도움말
 
 PC에서 접속:
@@ -47,6 +51,7 @@ show_status() {
   echo "xrdp     : $(systemctl is-active xrdp 2>/dev/null || true) / $(systemctl is-enabled xrdp 2>/dev/null || true)"
   echo "3389     :"; ss -ltnpH 'sport = :3389' 2>/dev/null | sed 's/^/  /' || true
   echo "autologin: $(grep -E '^[[:space:]]*AutomaticLoginEnable' "$GDM_CONF" 2>/dev/null || echo '(꺼짐)')"
+  echo "anim     : $(DBUS_SESSION_BUS_ADDRESS="${DBUS_SESSION_BUS_ADDRESS:-unix:path=/run/user/$(id -u)/bus}" gsettings get org.gnome.desktop.interface enable-animations 2>/dev/null || echo '?')"
   echo "wayland  : $(grep -E '^[[:space:]]*WaylandEnable' "$GDM_CONF" 2>/dev/null || echo '(기본)')"
   echo "sessions :"; loginctl list-sessions --no-legend 2>/dev/null | sed 's/^/  /' || true
 }
@@ -81,6 +86,26 @@ EOF
   echo "${XSESSIONRC} → ${XSESSIONRC_BASH} (bash일 때만 불러옴)"
 }
 
+# GNOME 애니메이션 끄기 — 원격 화면은 바뀐 픽셀을 전부 보내야 해서 애니메이션이 곧 전송량·지연
+#   (xrdp 가상 화면은 GPU 없이 CPU로 그리기까지 함). 사용자 설정(dconf)이라 모니터 로그인·xrdp 세션 모두에 남는다.
+#   SSH에서도 되게 세션 버스(/run/user/UID/bus)를 찾아 쓴다. 다시 켜기: --animations on
+apply_animations() {
+  case "${ANIMATIONS,,}" in keep|"") return 0 ;; esac
+  local val=false
+  [[ "${ANIMATIONS,,}" =~ ^(on|true|1)$ ]] && val=true
+  if ! command -v gsettings >/dev/null 2>&1; then
+    echo "경고: gsettings 없음 — 애니메이션 설정 건너뜀" >&2
+    return 0
+  fi
+  local bus="${DBUS_SESSION_BUS_ADDRESS:-}"
+  [[ -z "$bus" && -S "/run/user/$(id -u)/bus" ]] && bus="unix:path=/run/user/$(id -u)/bus"
+  if DBUS_SESSION_BUS_ADDRESS="$bus" gsettings set org.gnome.desktop.interface enable-animations "$val" 2>/dev/null; then
+    echo "GNOME 애니메이션: ${val}"
+  else
+    echo "경고: GNOME 애니메이션 설정 실패 (세션 버스 없음?) — 건너뜀" >&2
+  fi
+}
+
 install_rdp() {
   sudo -v || die "sudo 권한이 필요합니다."
 
@@ -105,6 +130,9 @@ export XDG_CURRENT_DESKTOP=ubuntu:GNOME
 export XDG_CONFIG_DIRS=/etc/xdg/xdg-ubuntu:/etc/xdg
 EOF
   fi
+
+  step "GNOME 애니메이션 (${ANIMATIONS}) — 가상 화면은 CPU로 그려서 애니메이션이 느림의 큰 원인"
+  apply_animations
 
   step "색 관리 인증 팝업 막기 (${POLKIT_RULE})"
   sudo tee "$POLKIT_RULE" >/dev/null <<'EOF'
@@ -141,8 +169,12 @@ EOF
 
 undo_rdp() {
   sudo -v || die "sudo 권한이 필요합니다."
-  step "xrdp 끄기"
-  sudo systemctl disable --now xrdp 2>/dev/null || true
+  step "xrdp 끄기 (남은 xrdp 세션도 — 같은 사용자 GNOME이 남아 있으면 자동 로그인 데스크톱이 뜨다 죽는다, 실측 10/26)"
+  sudo systemctl disable --now xrdp xrdp-sesman 2>/dev/null || true
+  local s
+  for s in $(loginctl list-sessions --no-legend 2>/dev/null | awk '{print $1}'); do
+    [[ "$(loginctl show-session "$s" -p Service --value 2>/dev/null)" == xrdp-sesman ]] && sudo loginctl terminate-session "$s"
+  done
   step "자동 로그인 복구"
   restore_autologin
   step "설정 파일 정리"
@@ -164,6 +196,8 @@ while [[ $# -gt 0 ]]; do
   case "$1" in
     --status)          ACTION=status; shift ;;
     --undo)            ACTION=undo; shift ;;
+    --tune)            ACTION=tune; shift ;;
+    --animations)      [[ -n "${2:-}" ]] || die "--animations 값 필요 (off|on|keep)"; ANIMATIONS="$2"; shift 2 ;;
     --no-gdm-restart)  RESTART_GDM=0; shift ;;
     -h|--help)         usage; exit 0 ;;
     *)                 die "알 수 없는 옵션: $1 (--help 참고)" ;;
@@ -173,5 +207,6 @@ done
 case "$ACTION" in
   status)  show_status ;;
   undo)    undo_rdp ;;
+  tune)    apply_animations ;;
   install) install_rdp ;;
 esac

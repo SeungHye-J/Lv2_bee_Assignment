@@ -1,8 +1,12 @@
-# 원격 데스크톱 — RDP (xrdp, 모니터 없을 때)
+# 원격 데스크톱 — RDP (xrdp, VNC가 안 될 때)
 
-Jetson에 **모니터가 없을 때** 쓴다. Jetson은 `run-rdp-server`로 한 번 설정하고, PC는 `run-rdp-client`로
+> **기본은 [VNC.md](VNC.md)** — 모니터가 없어도 `run-vnc-server --headless`로 GPU로 그린 실제 데스크톱을
+> 쓸 수 있다(실측 10/26). RDP는 그게 안 될 때의 대안이다. RDP를 설정하면 자동 로그인이 꺼져 VNC를 못 쓰고,
+> VNC로 돌아가려면 `~/run-rdp-server --undo`.
+
+Jetson에 **모니터가 없고 VNC가 안 될 때** 쓴다. Jetson은 `run-rdp-server`로 한 번 설정하고, PC는 `run-rdp-client`로
 접속한다. xrdp는 RDP 접속마다 **자기 가상 X 화면**을 만들어서 모니터·Wayland·nvidia 드라이버와 상관없이 된다.
-대신 GPU 없이 CPU로 그려서 느리다([5장](#5-느릴-때)). 모니터·더미 플러그가 있으면 [VNC.md](VNC.md)가 빠르다.
+대신 GPU 없이 CPU로 그려서 느리다([5장](#5-느릴-때)). [VNC.md](VNC.md)가 빠르다.
 
 [← README.md](README.md) (SSH 키 등록 · 방법 고르기)
 
@@ -68,7 +72,8 @@ ssh -t bee@bee.local '~/run-rdp-server --undo'  # 되돌리기 (xrdp 끔, 자동
 
 ## 4. 주의 · 안 될 때
 
-- 자동 로그인을 끄므로 x11vnc(`run-vnc-server`)는 모니터(또는 더미 플러그)를 꽂고 로그인했을 때만 쓴다.
+- 자동 로그인을 끄므로 그동안 VNC(`run-vnc-server`)는 못 쓴다 — VNC로 돌아가려면 `~/run-rdp-server --undo`
+  (xrdp · xrdp-sesman · 남은 xrdp 세션까지 정리, 자동 로그인 복구).
 - xrdp 화면은 GPU 없이 그린다 — 느리면 [5장](#5-느릴-때).
 - 검은 화면이면 bee의 다른 그래픽 세션이 남았는지 `loginctl list-sessions`로 확인하고 로그아웃 뒤 다시 접속한다.
 - 로그인하자마자 끊기면 `sudo tail -30 /var/log/xrdp-sesman.log`(`Window manager … exited quickly`)와
@@ -82,20 +87,21 @@ ssh -t bee@bee.local '~/run-rdp-server --undo'  # 되돌리기 (xrdp 끔, 자동
 `Accelerated: no`). GNOME 셸의 효과·애니메이션까지 CPU가 그리고, 같은 CPU를 ROS 노드와 나눠 쓴다.
 효과가 큰 순서:
 
-1. **GNOME 애니메이션 끄기** — RDP 세션의 터미널에서 (모니터 로그인에도 같이 적용됨):
-   ```bash
-   gsettings set org.gnome.desktop.interface enable-animations false
-   ```
-2. **Remmina 설정 낮추기** — 연결 편집(또는 접속 중 도구 막대):
+1. **GNOME 애니메이션 끄기** — `run-rdp-server`가 **기본으로 끈다** (설치 때, 또는 sudo 없이
+   `~/run-rdp-server --tune`). 사용자 설정이라 모니터 로그인에도 같이 적용된다.
+   다시 켜기: `~/run-rdp-server --tune --animations on`
+2. **Remmina 설정 낮추기** — `run-rdp-client`가 **기본으로** 접속 설정 파일을 만들어 접속한다:
    ```text
-   해상도      : 1280x720 (사용자 지정)
-   색 깊이     : 16 bpp
-   품질        : 보통(Medium) 또는 낮음(Poor)
+   해상도      : 1280x720        (--size WxH)
+   색 깊이     : 16 bpp          (--bpp 8|15|16|24|32)
+   품질        : medium          (--quality poor|medium|good|best)
    네트워크    : LAN
    ```
+   더 가볍게 `./run-rdp-client --quality poor`, 선명하게 `./run-rdp-client --size 1920x1080 --bpp 24 --quality good`,
+   Remmina 기본값 그대로 `./run-rdp-client --plain`.
 3. **가벼운 데스크톱** — xrdp 세션만 GNOME 대신 XFCE (`sudo apt install -y xfce4` 후
    `~/.xsessionrc`의 GNOME 환경 줄 대신 `~/.xsession`에 `startxfce4`). GNOME 셸보다 훨씬 가볍다 (아직 Jetson에서 미검증).
-4. RViz처럼 3D가 많은 화면은 RDP로 보지 말고 더미 플러그 + [VNC.md](VNC.md) (GPU로 그림).
+4. RViz처럼 3D가 많은 화면은 RDP로 보지 말고 [VNC.md](VNC.md) (`--headless` — GPU로 그림).
 
 ## 6. 체크리스트
 
@@ -104,7 +110,7 @@ ssh -t bee@bee.local '~/run-rdp-server --undo'  # 되돌리기 (xrdp 끔, 자동
 [ ] ~/run-rdp-server --status 에서 xrdp active · 3389 LISTEN 확인
 [ ] PC ./run-rdp-client → 사용자 bee · 비밀번호 · 도메인 비움
 [ ] xrdp 창에서 세션 Xorg 로그인
-[ ] (느리면) 애니메이션 끄기 · Remmina 16bpp · 1280x720
+[ ] (그래도 느리면) ./run-rdp-client --quality poor · RViz는 VNC (--headless)
 ```
 
 문제가 생기면 먼저 확인할 것:
