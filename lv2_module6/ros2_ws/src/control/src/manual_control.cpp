@@ -25,6 +25,8 @@ ManualControl::ManualControl()
   reboot_sub_ = create_subscription<std_msgs::msg::Empty>("/cmd/manual/reboot_motors", 10,
     [this](std_msgs::msg::Empty::ConstSharedPtr) { on_reboot(); });
   torque_cli_ = create_client<std_srvs::srv::SetBool>(declare_parameter<std::string>("torque_service", "/beebotsystem/set_arm_torque"));
+  cm_toggle_ = create_client<nav2_msgs::srv::Toggle>(
+    declare_parameter<std::string>("collision_monitor_toggle", "/collision_monitor/toggle"));
   js_sub_ = create_subscription<sensor_msgs::msg::JointState>("/joint_states", 10,
     [this](sensor_msgs::msg::JointState::ConstSharedPtr m) {
       for (size_t i = 0; i < m->name.size() && i < m->position.size(); ++i) current_[m->name[i]] = m->position[i];
@@ -41,6 +43,7 @@ ManualControl::ManualControl()
     s.add("모터 재부팅 요청 수", reboot_count_);
     s.add("마지막 모터 재부팅", reboot_result_);
     s.add("마지막 팔 토크", torque_result_);
+    s.add("collision_monitor", cm_result_);
     s.add("마지막 바퀴 명령 [s 전]", vel_count_ ? (now() - last_vel_).seconds() : -1.0);
   });
 }
@@ -61,6 +64,7 @@ void ManualControl::set_mode(const std::string & mode) {
   }
   teach_ = teach;
   RCLCPP_WARN(get_logger(), "운영 모드 → %s", mode_.c_str());
+  sync_collision_monitor();
 }
 
 void ManualControl::on_cmd_vel(const TwistStamped & in) {
@@ -136,6 +140,33 @@ void ManualControl::call_torque(bool on) {
 
 void ManualControl::watchdog() {
   if (moving_ && (now() - last_vel_).seconds() > cmd_timeout_s_) stop_base();
+  sync_collision_monitor();
+}
+
+void ManualControl::sync_collision_monitor() {
+  if (!cm_toggle_->service_is_ready()) {
+    cm_applied_ = -1;  // 다시 보이면 (재시작이면 기본 켜짐) 원하는 상태를 또 보냄
+    return;
+  }
+  const int want = manual_ ? 0 : 1;
+  if (cm_pending_ && std::chrono::steady_clock::now() - cm_sent_ < std::chrono::seconds(3)) return;
+  if (cm_applied_ == want) return;
+  cm_pending_ = true;
+  cm_sent_ = std::chrono::steady_clock::now();
+  auto req = std::make_shared<nav2_msgs::srv::Toggle::Request>();
+  req->enable = want == 1;
+  cm_toggle_->async_send_request(req, [this, want](rclcpp::Client<nav2_msgs::srv::Toggle>::SharedFuture f) {
+    cm_pending_ = false;
+    const auto res = f.get();
+    if (!res->success) {
+      cm_result_ = "거절: " + res->message;
+      RCLCPP_WARN(get_logger(), "collision_monitor %s 실패: %s", want ? "켜기" : "끄기", res->message.c_str());
+      return;
+    }
+    cm_applied_ = want;
+    cm_result_ = want ? "켬 (자동)" : "끔 (MANUAL — 근접 정지 없이 통과)";
+    RCLCPP_WARN(get_logger(), "collision_monitor %s", cm_result_.c_str());
+  });
 }
 
 void ManualControl::stop_base() {
