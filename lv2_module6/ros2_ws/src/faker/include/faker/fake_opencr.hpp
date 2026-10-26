@@ -53,7 +53,7 @@ private:
   void apply_torque_line(const std::string & line);
   // R 줄(모터 재부팅) — 고른 모터의 에러를 지우고 토크 켜기 (펌웨어 apply_reboot_line)
   void apply_reboot_line(const std::string & line);
-  void write_errors();  // E 줄 — 모터별 Hardware Error Status
+  void write_errors();  // E 줄 — 모터별 Hardware Error Status + H 줄 — 모터 온도 (고정값)
   void write_errors_locked();  // mutex_를 이미 잡은 쪽에서
   void write_state();
   void tick();

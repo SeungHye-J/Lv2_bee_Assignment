@@ -13,7 +13,9 @@ static const std::array<const char *, 10> IMU_FIELDS = {
   "angular_velocity.x", "angular_velocity.y", "angular_velocity.z",
   "linear_acceleration.x", "linear_acceleration.y", "linear_acceleration.z"};
 static constexpr size_t STATE_VALUES = WHEELS.size() * 2 + ARM.size() * 3 + IMU_FIELDS.size();  // 32
-static constexpr size_t MOTORS = WHEELS.size() + ARM.size();  // 8 — E·R 필드 순서
+static constexpr size_t MOTORS = WHEELS.size() + ARM.size();  // 8 — E·H·R 필드 순서
+// 모터 온도 경고 — XM430 Temperature Limit 기본 80 °C (넘으면 과열 Hardware Error로 토크가 꺼짐) 전에 알림
+static constexpr int TEMP_WARN_C = 70;
 static const char * motor_name(size_t i) { return i < WHEELS.size() ? WHEELS[i] : ARM[i - WHEELS.size()]; }
 
 // DYNAMIXEL Hardware Error Status 비트 → 사람이 읽는 이름
@@ -28,6 +30,7 @@ static std::string error_text(int e) {
 CallbackReturn BeebotSystemHardware::on_init(const hardware_interface::HardwareComponentInterfaceParams & params) {
   if (SystemInterface::on_init(params) != CallbackReturn::SUCCESS) return CallbackReturn::ERROR;
   const auto & hp = info_.hardware_parameters;
+  for (auto & t : hw_temp_) t = -1;  // H 줄을 받기 전엔 모름 (0 °C로 보이지 않게)
   mock_ = hp.count("mock") && (hp.at("mock") == "true" || hp.at("mock") == "True");
   mock_effort_ = hp.count("mock_effort") ? std::stod(hp.at("mock_effort")) : 0.0;
   port_ = hp.count("port") ? hp.at("port") : "/dev/opencr";
@@ -128,11 +131,17 @@ void BeebotSystemHardware::report(diagnostic_updater::DiagnosticStatusWrapper & 
   else if (age > 0.5) s.summary(DiagnosticStatus::ERROR, "OpenCR 상태(S) 수신 없음");
   else s.summary(DiagnosticStatus::OK, "연결됨 " + port_);
   std::string errors;
+  std::string hot;
   for (size_t i = 0; i < MOTORS; ++i) {
     const int e = hw_error_[i].load();
     if (e != 0) errors += (errors.empty() ? "" : ", ") + std::string(motor_name(i)) + " " + error_text(e);
     s.add(std::string("모터 에러 ") + motor_name(i), e == 0 ? std::string("정상") : error_text(e));
+    const int t = hw_temp_[i].load();
+    if (t >= TEMP_WARN_C) hot += (hot.empty() ? "" : ", ") + std::string(motor_name(i)) + " " + std::to_string(t) + "°C";
+    s.add(std::string("모터 온도 ") + motor_name(i), t < 0 ? std::string("모름") : std::to_string(t) + " °C");
   }
+  if (!mock_ && !hot.empty())
+    s.mergeSummary(DiagnosticStatus::WARN, "모터 온도 높음: " + hot + " (" + std::to_string(TEMP_WARN_C) + "°C 이상 — 80°C면 과열로 멈춤)");
   if (!mock_ && !errors.empty())
     s.mergeSummary(DiagnosticStatus::ERROR, "모터 에러: " + errors + " → ~/reboot_motors 서비스로 재부팅");
   s.add("mock", mock_);
@@ -203,6 +212,7 @@ return_type BeebotSystemHardware::read_serial() {
   for (size_t nl; (nl = rx_.find('\n')) != std::string::npos; rx_.erase(0, nl + 1)) {
     if (rx_.compare(0, 2, "S,") == 0) last = rx_.substr(2, nl - 2);
     else if (rx_.compare(0, 2, "E,") == 0 && !apply_errors(rx_.substr(2, nl - 2))) ++bad_;
+    else if (rx_.compare(0, 2, "H,") == 0 && !apply_temperatures(rx_.substr(2, nl - 2))) ++bad_;
   }
   if (rx_.size() > 4096) rx_.clear();  // 줄바꿈 없는 쓰레기가 쌓이지 않게
   if (!last.empty()) {
@@ -255,18 +265,20 @@ bool BeebotSystemHardware::apply_state(const std::string & text) {
 }
 
 void BeebotSystemHardware::publish_motor_status() {
-  std::array<int, MOTORS> now{};
-  for (size_t i = 0; i < MOTORS; ++i) now[i] = hw_error_[i].load();
-  if (motor_published_ && now == motor_sent_) return;  // 바뀔 때만 (transient_local이라 늦게 붙어도 마지막 값)
+  std::array<int, MOTORS> now{}, temp{};
+  for (size_t i = 0; i < MOTORS; ++i) now[i] = hw_error_[i].load(), temp[i] = hw_temp_[i].load();
+  if (motor_published_ && now == motor_sent_ && temp == temp_sent_) return;  // 바뀔 때만 (transient_local이라 늦게 붙어도 마지막 값)
   control::msg::MotorStatus m;
   m.header.stamp = get_node()->now();
   for (size_t i = 0; i < MOTORS; ++i) {
     m.joints.push_back(motor_name(i));
     m.error.push_back(now[i]);
     m.text.push_back(now[i] == 0 ? "정상" : error_text(now[i]));
+    m.temperature.push_back(temp[i]);
   }
   motor_pub_->publish(m);
   motor_sent_ = now;
+  temp_sent_ = temp;
   motor_published_ = true;
 }
 
@@ -278,6 +290,18 @@ bool BeebotSystemHardware::apply_errors(const std::string & text) {
     const long e = std::strtol(field.c_str(), &end, 10);
     if (end == field.c_str()) return false;
     hw_error_[i] = static_cast<int>(e);
+  }
+  return i == MOTORS;
+}
+
+bool BeebotSystemHardware::apply_temperatures(const std::string & text) {
+  std::stringstream ss(text);
+  size_t i = 0;
+  for (std::string field; std::getline(ss, field, ',') && i < MOTORS; ++i) {
+    char * end = nullptr;
+    const long t = std::strtol(field.c_str(), &end, 10);
+    if (end == field.c_str()) return false;
+    hw_temp_[i] = static_cast<int>(t);
   }
   return i == MOTORS;
 }

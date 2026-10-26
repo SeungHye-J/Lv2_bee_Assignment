@@ -13,6 +13,7 @@
 //   재부팅: R,<8필드> = 관절별 DYNAMIXEL Reboot(1=재부팅) · R,1 = 전체. 과부하·과열 등 Hardware Error는 Reboot로만 풀린다.
 //         재부팅 후 모드·Return Delay·전류를 다시 설정하고 토크를 켠다 (팔은 느린 속도로 명령 자세 복귀).
 //     OpenCR → SBC  E,<8 정수>\n  모터별 Hardware Error Status (0 = 정상, -1 = 응답 없음) — MOTOR_CHECK_MS마다
+//     OpenCR → SBC  H,<8 정수>\n  모터별 Present Temperature °C (-1 = 응답 없음) — E 바로 뒤, MOTOR_CHECK_MS마다
 //   watchdog: 마지막 유효 C부터 COMMAND_TIMEOUT_MS 지나면 바퀴 속도 0, 팔·그리퍼는 현재 자세 유지 (한 번)
 //
 // 주기 구조 (2026-10-24 실기 시험: 개별 패킷이라 S가 60 ms 계단·C 100 Hz면 S 끊김 → 아래로 바꿈)
@@ -50,6 +51,7 @@ bool torque_state[MOTOR_COUNT] = {true, true, true, true, true, true, true, true
 int32_t goal_raw[MOTOR_COUNT] = {};        // 마지막 위치 목표 (복구 완료 판정)
 uint32_t recover_since[MOTOR_COUNT] = {};  // 0이 아니면 느린 속도로 복귀 중
 int16_t hw_error[MOTOR_COUNT] = {};        // Hardware Error Status (−1 = 응답 없음) — E 줄로 보고
+int16_t hw_temp[MOTOR_COUNT] = {};         // Present Temperature °C (−1 = 응답 없음) — H 줄로 보고
 
 // ---- SyncRead: Present Current(126, 2) · Velocity(128, 4) · Position(132, 4)
 struct __attribute__((packed)) Present
@@ -384,6 +386,24 @@ void read_error(size_t i)
     hw_error[i] = dxl.read(motor_id(i), ADDR_HARDWARE_ERROR, 1, &err, 1) == 1 ? err : -1;
 }
 
+// 온도는 빨리 안 변해서 S(10 ms)에 넣지 않고 E와 같은 0.5 s에 따로 읽는다 (모터당 1 byte 읽기 — 버스 부담 작음)
+void read_temperature(size_t i)
+{
+    uint8_t temp = 0;
+    hw_temp[i] = dxl.read(motor_id(i), ADDR_PRESENT_TEMPERATURE, 1, &temp, 1) == 1 ? temp : -1;
+}
+
+void send_temperatures()
+{
+    Serial.print('H');
+    for (size_t i = 0; i < MOTOR_COUNT; ++i)
+    {
+        Serial.print(',');
+        Serial.print(hw_temp[i]);
+    }
+    Serial.println();
+}
+
 // R 명령 — 고른 모터를 DYNAMIXEL Reboot → 다시 응답하면 설정·토크 켜기 (팔은 느린 복귀)
 void apply_reboot_line(char *text)
 {
@@ -450,6 +470,7 @@ void check_motors()
             }
         }
         read_error(i);
+        read_temperature(i);  // 과열(Hardware Error)로 멈추기 전에 SBC가 오르는 걸 보게
         if (!torque_state[i] || hw_error[i] != 0)
             continue;  // Hardware Error면 토크가 안 켜진다 — R로 재부팅해야 함 (E 줄로 SBC에 알림)
         uint8_t enabled = 0;
@@ -457,6 +478,7 @@ void check_motors()
             setup_motor(i, true);  // 재부팅된 모터 — 모드·Return Delay·쥐는 전류 다시, 팔은 느린 복귀
     }
     send_errors();
+    send_temperatures();
 }
 
 void print_value(float value)

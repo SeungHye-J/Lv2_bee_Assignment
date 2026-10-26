@@ -19,6 +19,7 @@ OpenCR 내장 IMU (MPU9250, cIMU)
 | SBC → OpenCR | `T,<8필드>` 또는 `T,0`·`T,1` — 토크 온/오프 (빈칸=유지, 관절별 가능) | 자세 실측·수동 정렬 |
 | SBC → OpenCR | `R,<8필드>` 또는 `R,1` — 모터 재부팅 (1=재부팅, 빈칸=그대로). Hardware Error(과부하·과열 등)는 재부팅으로만 풀린다. 재부팅 후 설정·토크 켜기, 팔은 느린 복귀 | 에러 났을 때 |
 | OpenCR → SBC | `E,<8 정수>` — 모터별 Hardware Error Status (0 정상 · −1 응답 없음 · 비트 1 입력전압 · 4 과열 · 8 엔코더 · 16 전기충격 · 32 과부하) | `MOTOR_CHECK_MS` (0.5 s) |
+| OpenCR → SBC | `H,<8 정수>` — 모터별 Present Temperature °C (−1 응답 없음). `E` 바로 뒤. SBC가 `/motor_status`의 `temperature`·진단(70 °C 이상 WARN)으로 낸다. 80 °C(Temperature Limit)를 넘으면 과열 Hardware Error로 멈춘다 | `MOTOR_CHECK_MS` (0.5 s) |
 | OpenCR → SBC | `S,` 바퀴L pos·vel, 바퀴R pos·vel, joint1~5 pos·vel·전류A, 그리퍼 m·m/s·A, IMU qx·qy·qz·qw, gx·gy·gz rad/s, ax·ay·az m/s² `\n` (32개) | `STATE_PERIOD_MS` (10ms = 100Hz) |
 
 `C` 필드별 단위와 펌웨어 변환:
@@ -148,7 +149,7 @@ bash ./test-firmware
 | `--send 'C,...'` | `C` 명령을 직접 전송 (빈 필드 `,,`는 유지 — 아래 규칙) |
 | `--torque on\|off` | 전체 토크 켜기/끄기 (`T,1` · `T,0`). 끄면 손으로 자세를 잡을 수 있다 |
 | `--torque <8필드>` | 조인트별 토크 (C와 같은 순서, 빈칸=지금 상태 유지, `1`=켜기 `0`=끄기) |
-| `--reboot <모터,…\|all>` | 모터 재부팅 `R` (예: `joint2,gripper`). 상태 출력에 `E`(모터 에러)도 같이 나온다. `all`은 팔이 잠깐 힘이 빠지니 받치고 |
+| `--reboot <모터,…\|all>` | 모터 재부팅 `R` (예: `joint2,gripper`). 상태 출력에 `E`(모터 에러)·`H`(모터 온도)도 같이 나온다. `all`은 팔이 잠깐 힘이 빠지니 받치고 |
 | `--yes` | 확인 프롬프트 없이 실행 |
 
 - `--arm`, `--gripper`, `--wheel`, `--send`는 실제로 모터를 움직인다. 주변을 비우고 작은 값부터 사용한다.

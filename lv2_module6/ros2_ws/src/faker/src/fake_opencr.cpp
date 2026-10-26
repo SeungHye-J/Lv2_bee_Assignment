@@ -17,7 +17,8 @@ constexpr double ACCEL_MAX = 8.0;
 constexpr double JOINT_VEL_MAX = 4.8;
 constexpr double GRIPPER_VEL_MAX = 0.05;
 constexpr double COMMAND_TIMEOUT = 0.5;
-constexpr double ERROR_PERIOD = 0.5;    // 펌웨어 MOTOR_CHECK_MS — E 줄 주기
+constexpr double ERROR_PERIOD = 0.5;    // 펌웨어 MOTOR_CHECK_MS — E·H 줄 주기
+constexpr int FAKE_TEMP_C = 35;         // H 줄 모터 온도 (실기 상온 부하 정도 — 시뮬레이션은 발열 모델 없음)
 constexpr double STATE_PERIOD = 0.010;  // 펌웨어 STATE_PERIOD_MS (10ms) — S는 부팅 직후부터 C와 무관하게 항상
 }  // namespace
 
@@ -272,6 +273,8 @@ void FakeOpenCR::write_errors() {
 void FakeOpenCR::write_errors_locked() {
   std::string line = "E";
   for (int e : hw_error_) line += "," + std::to_string(e);
+  line += "\nH";  // 펌웨어처럼 E 바로 뒤에 모터 온도
+  for (size_t i = 0; i < hw_error_.size(); ++i) line += "," + std::to_string(FAKE_TEMP_C);
   line += '\n';
   std::ofstream out(serial_in_, std::ios::app);
   if (out) out << line << std::flush;

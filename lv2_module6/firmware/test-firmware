@@ -218,6 +218,23 @@ show_errors() {
 }
 show_errors
 
+# H 줄 — 모터별 온도 °C (−1 응답 없음, 0.5초마다 · E 바로 뒤). 70 °C 이상이면 표시 (80 °C면 과열로 멈춤)
+show_temperatures() {
+  local h
+  h=$(grep '^H,' "$tmp" | tr -d '\r' | awk -F, 'NF == 9' | tail -n 1 || true)
+  if [ -z "$h" ]; then say "모터 온도: H 줄 없음 (0.5초마다 옴 — 예전 펌웨어면 없음)"; return; fi
+  IFS=',' read -r -a hv <<<"$h"
+  local names=(wheel_left wheel_right joint1 joint2 joint3 joint4 joint5 gripper) out="" hot="" i t
+  for i in 0 1 2 3 4 5 6 7; do
+    t=${hv[$((i + 1))]}
+    out+=" ${names[$i]}=${t}"
+    [ "$t" -ge 70 ] 2>/dev/null && hot+=" ${names[$i]}"
+  done
+  say "모터 온도 °C:$out"
+  [ -z "$hot" ] || say "  ⚠ 70 °C 이상:$hot (80 °C면 과열 에러로 멈춤)"
+}
+show_temperatures
+
 # 현재 자세를 유지하는 C 명령. 관절·그리퍼는 마지막 S의 위치를 그대로 쓴다.
 current_cmd() {
   printf 'C,0,0,%s,%s,%s,%s,%s,%s' \

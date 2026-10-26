@@ -4,6 +4,7 @@
 #   OpenCR 펌웨어(lv2_module6/firmware/beebot_opencr)와 같은 프로토콜을 주고받는지 본다.
 #   1. SBC → OpenCR: output/hardware/serial에 "C,…" 명령 줄이 쌓이는가 (값 8개)
 #   2. OpenCR → SBC: input/hardware/serial에 "S,…" 상태 줄(값 32개, joint1=0.5)을 넣으면 /joint_states joint1이 0.5가 되는가
+#   3. OpenCR → SBC: "E,…"(모터 에러) · "H,…"(모터 온도 °C) 줄을 넣으면 /motor_status error · temperature로 나오는가
 # NOTE: set -u 사용 금지 — setup.bash가 미설정 변수를 참조해서 죽음.
 # shellcheck disable=SC1091
 if [ -z "$BASH_VERSION" ]; then exec bash "$0" "$@"; fi   # sh(dash)로 실행해도 bash로 재실행
@@ -46,10 +47,20 @@ ros2 launch ros_system ros_system.launch.py mock_hardware:=false \
 
 # OpenCR 흉내: 0.05초마다 상태 줄 (바퀴L 0.1rad, joint1 0.5rad, IMU 정지)
 S_LINE="S,0.1,0,0.2,0,0.5,0,0.1,0,0,0.1,0,0,0.1,0,0,0.1,0,0,0.1,0.01,0,0.05,0,0,0,1,0,0,0,0,0,9.81"
-(for _ in $(seq 400); do echo "$S_LINE" >> "$DEBUG_DIR/input/hardware/serial"; sleep 0.05; done) & FEED_PID=$!
+# 펌웨어처럼 0.5초마다 E(모터 에러 — joint2 과부하 32) · H(모터 온도 — joint1 41 °C)
+E_LINE="E,0,0,0,32,0,0,0,0"
+H_LINE="H,30,31,41,33,34,35,36,37"
+(for k in $(seq 400); do
+   echo "$S_LINE" >> "$DEBUG_DIR/input/hardware/serial"
+   [ $((k % 10)) = 0 ] && printf '%s\n%s\n' "$E_LINE" "$H_LINE" >> "$DEBUG_DIR/input/hardware/serial"
+   sleep 0.05
+ done) & FEED_PID=$!
 
 JS=$(timeout 60 ros2 topic echo --once --filter 'len(m.position) > 0 and abs(m.position[list(m.name).index("joint1")] - 0.5) < 1e-6' \
   /joint_states sensor_msgs/msg/JointState 2>/dev/null)
+MS=$(timeout 30 ros2 topic echo --once --qos-durability transient_local --qos-reliability reliable \
+  --filter 'len(m.temperature) == 8 and m.temperature[2] == 41 and m.error[3] == 32' \
+  /motor_status control/msg/MotorStatus 2>/dev/null)
 sleep 1
 kill "$FEED_PID" 2>/dev/null
 kill -INT "$LAUNCH_PID" 2>/dev/null
@@ -62,4 +73,5 @@ echo "--- output/hardware/serial: C 줄 ${C_LINES}개, 마지막: $C_LAST"
 [ "$C_LINES" -ge 10 ] || { echo "FAIL: SBC → OpenCR 명령(C) 없음"; grep -E "BeebotSystem|OpenCR|ERROR" /tmp/hardware.log | tail -20; exit 1; }
 [ "$(echo "$C_LAST" | tr ',' '\n' | wc -l)" = 9 ] || { echo "FAIL: C 줄 값 개수가 8이 아님"; exit 1; }
 [ -n "$JS" ] || { echo "FAIL: OpenCR → SBC 상태(S)가 /joint_states에 안 옴"; grep -E "BeebotSystem|OpenCR|ERROR" /tmp/hardware.log | tail -20; exit 1; }
-echo "PASS: hardware (BeebotSystemHardware ↔ 가상 시리얼: C 명령 송신 · S 상태 → /joint_states)"
+[ -n "$MS" ] || { echo "FAIL: OpenCR → SBC 모터 에러(E)·온도(H)가 /motor_status에 안 옴"; grep -E "BeebotSystem|OpenCR|ERROR" /tmp/hardware.log | tail -20; exit 1; }
+echo "PASS: hardware (BeebotSystemHardware ↔ 가상 시리얼: C 명령 송신 · S 상태 → /joint_states · E·H → /motor_status)"
