@@ -12,8 +12,13 @@ static const std::array<const char *, 10> IMU_FIELDS = {
   "orientation.x", "orientation.y", "orientation.z", "orientation.w",
   "angular_velocity.x", "angular_velocity.y", "angular_velocity.z",
   "linear_acceleration.x", "linear_acceleration.y", "linear_acceleration.z"};
-static constexpr size_t STATE_VALUES = WHEELS.size() * 2 + ARM.size() * 3 + IMU_FIELDS.size();  // 32
-static constexpr size_t MOTORS = WHEELS.size() + ARM.size();  // 8 — E·R 필드 순서
+static constexpr size_t MOTORS = WHEELS.size() + ARM.size();  // 8 — E·R 필드 · S 온도 순서
+// S 값 개수: 바퀴 pos·vel + 팔·그리퍼 pos·vel·A + IMU 10 = 32, 그 뒤 모터 온도 °C 8 = 40.
+// 온도 없는 예전 펌웨어(32)도 받는다 — 온도만 모름(−1)으로 (업로드 전에 로봇이 안 뜨지 않게)
+static constexpr size_t STATE_VALUES_NO_TEMP = WHEELS.size() * 2 + ARM.size() * 3 + IMU_FIELDS.size();  // 32
+static constexpr size_t STATE_VALUES = STATE_VALUES_NO_TEMP + MOTORS;  // 40
+// 모터 온도 경고 — XM430 Temperature Limit 기본 80 °C (넘으면 과열 Hardware Error로 토크가 꺼짐) 전에 알림
+static constexpr int TEMP_WARN_C = 70;
 static const char * motor_name(size_t i) { return i < WHEELS.size() ? WHEELS[i] : ARM[i - WHEELS.size()]; }
 
 // DYNAMIXEL Hardware Error Status 비트 → 사람이 읽는 이름
@@ -28,6 +33,7 @@ static std::string error_text(int e) {
 CallbackReturn BeebotSystemHardware::on_init(const hardware_interface::HardwareComponentInterfaceParams & params) {
   if (SystemInterface::on_init(params) != CallbackReturn::SUCCESS) return CallbackReturn::ERROR;
   const auto & hp = info_.hardware_parameters;
+  for (auto & t : hw_temp_) t = -1;  // S 온도를 받기 전엔 모름 (0 °C로 보이지 않게)
   mock_ = hp.count("mock") && (hp.at("mock") == "true" || hp.at("mock") == "True");
   mock_effort_ = hp.count("mock_effort") ? std::stod(hp.at("mock_effort")) : 0.0;
   port_ = hp.count("port") ? hp.at("port") : "/dev/opencr";
@@ -72,6 +78,11 @@ CallbackReturn BeebotSystemHardware::on_configure(const rclcpp_lifecycle::State 
     reboot_srv_ = get_node()->create_service<std_srvs::srv::Trigger>(
       "~/reboot_motors", [this](const std_srvs::srv::Trigger::Request::SharedPtr req,
                                 std_srvs::srv::Trigger::Response::SharedPtr res) { reboot_motors(req, res); });
+  }
+  if (!torque_srv_ && get_node()) {  // ~/set_arm_torque — 팔(joint1~5)·그리퍼 토크 끄기·켜기 (펌웨어 T) — 손으로 자세 잡기
+    torque_srv_ = get_node()->create_service<std_srvs::srv::SetBool>(
+      "~/set_arm_torque", [this](const std_srvs::srv::SetBool::Request::SharedPtr req,
+                                 std_srvs::srv::SetBool::Response::SharedPtr res) { set_arm_torque(req, res); });
   }
   return mock_ || open_port() ? CallbackReturn::SUCCESS : CallbackReturn::ERROR;
 }
@@ -128,13 +139,21 @@ void BeebotSystemHardware::report(diagnostic_updater::DiagnosticStatusWrapper & 
   else if (age > 0.5) s.summary(DiagnosticStatus::ERROR, "OpenCR 상태(S) 수신 없음");
   else s.summary(DiagnosticStatus::OK, "연결됨 " + port_);
   std::string errors;
+  std::string hot;
   for (size_t i = 0; i < MOTORS; ++i) {
     const int e = hw_error_[i].load();
     if (e != 0) errors += (errors.empty() ? "" : ", ") + std::string(motor_name(i)) + " " + error_text(e);
     s.add(std::string("모터 에러 ") + motor_name(i), e == 0 ? std::string("정상") : error_text(e));
+    const int t = hw_temp_[i].load();
+    if (t >= TEMP_WARN_C) hot += (hot.empty() ? "" : ", ") + std::string(motor_name(i)) + " " + std::to_string(t) + "°C";
+    s.add(std::string("모터 온도 ") + motor_name(i), t < 0 ? std::string("모름") : std::to_string(t) + " °C");
   }
+  if (!mock_ && !hot.empty())
+    s.mergeSummary(DiagnosticStatus::WARN, "모터 온도 높음: " + hot + " (" + std::to_string(TEMP_WARN_C) + "°C 이상 — 80°C면 과열로 멈춤)");
   if (!mock_ && !errors.empty())
     s.mergeSummary(DiagnosticStatus::ERROR, "모터 에러: " + errors + " → ~/reboot_motors 서비스로 재부팅");
+  if (!mock_ && !arm_torque_.load()) s.mergeSummary(DiagnosticStatus::WARN, "팔·그리퍼 토크 꺼짐 (손으로 자세 잡기)");
+  s.add("팔·그리퍼 토크", arm_torque_.load() ? "켬" : "끔");
   s.add("mock", mock_);
   s.add("port", port_);
   s.add("마지막 S [s 전]", mock_ ? 0.0 : age);
@@ -228,7 +247,7 @@ bool BeebotSystemHardware::apply_state(const std::string & text) {
     if (end == field.c_str()) return false;
     v.push_back(d);
   }
-  if (v.size() != STATE_VALUES) return false;
+  if (v.size() != STATE_VALUES && v.size() != STATE_VALUES_NO_TEMP) return false;
   // 펌웨어는 한 번도 못 읽은 모터(부팅 때 12V 꺼짐 등)를 nan으로 보낸다 — 모르는 자세를 상태로 쓰지 않는다
   for (size_t k = 0; k < WHEELS.size() * 2 + ARM.size() * 3; ++k) if (std::isnan(v[k])) return false;
   size_t i = 0;
@@ -251,22 +270,26 @@ bool BeebotSystemHardware::apply_state(const std::string & text) {
     set_state(std::string(name) + "/effort", v[i++]);
   }
   for (const auto * field : IMU_FIELDS) set_state(imu_ + "/" + field, v[i++]);
+  if (v.size() == STATE_VALUES)
+    for (size_t k = 0; k < MOTORS; ++k) hw_temp_[k] = static_cast<int>(std::lround(v[i++]));  // °C, −1 = 모름
   return true;
 }
 
 void BeebotSystemHardware::publish_motor_status() {
-  std::array<int, MOTORS> now{};
-  for (size_t i = 0; i < MOTORS; ++i) now[i] = hw_error_[i].load();
-  if (motor_published_ && now == motor_sent_) return;  // 바뀔 때만 (transient_local이라 늦게 붙어도 마지막 값)
+  std::array<int, MOTORS> now{}, temp{};
+  for (size_t i = 0; i < MOTORS; ++i) now[i] = hw_error_[i].load(), temp[i] = hw_temp_[i].load();
+  if (motor_published_ && now == motor_sent_ && temp == temp_sent_) return;  // 바뀔 때만 (transient_local이라 늦게 붙어도 마지막 값)
   control::msg::MotorStatus m;
   m.header.stamp = get_node()->now();
   for (size_t i = 0; i < MOTORS; ++i) {
     m.joints.push_back(motor_name(i));
     m.error.push_back(now[i]);
     m.text.push_back(now[i] == 0 ? "정상" : error_text(now[i]));
+    m.temperature.push_back(temp[i]);
   }
   motor_pub_->publish(m);
   motor_sent_ = now;
+  temp_sent_ = temp;
   motor_published_ = true;
 }
 
@@ -304,7 +327,29 @@ void BeebotSystemHardware::reboot_motors(const std_srvs::srv::Trigger::Request::
   RCLCPP_WARN(get_logger(), "%s", res->message.c_str());
 }
 
+void BeebotSystemHardware::set_arm_torque(const std_srvs::srv::SetBool::Request::SharedPtr req,
+                                          std_srvs::srv::SetBool::Response::SharedPtr res) {
+  if (mock_) {
+    res->success = false;
+    res->message = "mock — 토크 없음";
+    return;
+  }
+  torque_req_ = req->data ? 1 : 0;  // write()가 다음 주기에 T 줄로 보냄 (시리얼 쓰기는 제어 주기 한 곳에서만)
+  res->success = true;
+  res->message = req->data ? "팔·그리퍼 토크 켬 (지금 자세를 목표로)" : "팔·그리퍼 토크 끔 — 손으로 자세를 잡을 수 있음 (팔이 처질 수 있으니 잡고 있을 것)";
+  RCLCPP_WARN(get_logger(), "%s", res->message.c_str());
+}
+
 return_type BeebotSystemHardware::write_serial() {
+  if (const int t = torque_req_.exchange(-1); t >= 0) {  // T,<바퀴L>,<바퀴R>,<j1>…<j5>,<그리퍼> — 바퀴 빈칸 = 그대로
+    std::string line = "T,,";
+    for (size_t i = 0; i < ARM.size(); ++i) line += t ? ",1" : ",0";  // joint1~5 + 그리퍼
+    line += '\n';
+    if (::write(fd_, line.data(), line.size()) < 0 && errno != EAGAIN)
+      RCLCPP_ERROR(get_logger(), "OpenCR T 쓰기 실패: %s", strerror(errno));
+    else
+      arm_torque_ = t != 0;
+  }
   if (const uint32_t mask = reboot_mask_.exchange(0)) {  // R,<8필드> — 고른 모터만 1
     std::string r = "R";
     for (size_t i = 0; i < MOTORS; ++i) r += (mask & (1u << i)) ? ",1" : ",";

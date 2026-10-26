@@ -1657,7 +1657,7 @@ class App:
         self.serial_tail = {'cmd': FileTail(DEBUG / 'output' / 'hardware' / 'serial', back=4096),
                             'state': FileTail(DEBUG / 'input' / 'hardware' / 'serial', back=4096)}
         for key, title in (('cmd', 'SBC → OpenCR  C 명령 (8값: 바퀴L·R rad/s · joint1~5 rad · 그리퍼 m)'),
-                           ('state', 'OpenCR → SBC  S 상태 (32값: 바퀴 · 관절 pos·vel·A · 그리퍼 · IMU)')):
+                           ('state', 'OpenCR → SBC  S 상태 (40값: 바퀴 · 관절 pos·vel·A · 그리퍼 · IMU · 모터 온도)')):
             tk.Label(serial_box, text=title, anchor=tk.W, justify=tk.LEFT, font=('Menlo', 9), fg='#555', wraplength=330).pack(fill=tk.X)
             t = tk.Text(serial_box, height=7, width=46, wrap=tk.NONE, font=('Menlo', 9), bg='#111', fg='#9f9')
             t.pack(fill=tk.BOTH, expand=True)

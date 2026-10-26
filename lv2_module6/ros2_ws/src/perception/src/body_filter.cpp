@@ -1,5 +1,5 @@
-// body_filter 구현 — 설명·선언은 include/control/body_filter.hpp, main은 body_filter_main.cpp
-#include "control/body_filter.hpp"
+// body_filter 구현 — 설명·선언은 include/perception/body_filter.hpp, main은 body_filter_main.cpp
+#include "perception/body_filter.hpp"
 
 #include <cmath>
 #include <cstring>
@@ -10,7 +10,7 @@
 #include "tf2_geometry_msgs/tf2_geometry_msgs.hpp"
 #include "urdf/model.hpp"
 
-namespace control {
+namespace perception {
 
 using diagnostic_msgs::msg::DiagnosticStatus;
 
@@ -193,4 +193,4 @@ void BodyFilter::on_cloud(const PointCloud2 & in) {
   pub_->publish(out);
 }
 
-}  // namespace control
+}  // namespace perception

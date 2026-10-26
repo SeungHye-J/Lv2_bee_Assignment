@@ -1,6 +1,7 @@
 # 원격 처리 (SSH 키 · Linux 데스크톱)
 
-`SETTING.md`에서 분리한 Jetson 원격 접속 문서다. SSH 키 등록부터 x11vnc, GNOME RDP, NoMachine까지 정리한다.
+`SETTING.md`에서 분리한 Jetson 원격 접속 문서다. SSH 키 등록과 공통 사항은 여기, 원격 데스크톱은
+방식별 문서(VNC · RDP)로 나눈다.
 
 [← SETTING.md](../SETTING.md)
 
@@ -17,132 +18,27 @@ Jetson 사용자: bee
 
 IP는 DHCP로 바뀔 수 있으므로 가능하면 `bee.local` 또는 고정 IP를 사용한다.
 
-## 한눈에 보기
+## 방법 고르기
 
-| 구분 | Jetson (화면을 공유하는 쪽) | PC (화면을 보는 쪽) |
-| --- | --- | --- |
-| 역할 | 실제 Ubuntu 데스크톱을 가진 서버 | 원격 화면을 보는 클라이언트 |
-| 필요한 것 | `x11vnc`, 로그인된 데스크톱 | SSH 클라이언트, Remmina + VNC 플러그인 |
-| 실행하는 것 | `x11vnc` | SSH 터널, Remmina |
-| 주소 | `127.0.0.1:5900` | `localhost:5900` |
+**기본은 VNC다** — 모니터가 있든 없든. 모니터가 없으면 `run-vnc-server --headless`가 X에 가상 모니터를
+한 번 꽂아 둔다(소프트웨어 더미 플러그). 어느 쪽이든 GPU로 그린 실제 데스크톱이라 RViz도 쓸 만하다.
 
-핵심은 간단하다.
-
-```text
-Jetson: Ubuntu 데스크톱 로그인 → x11vnc가 :0 화면을 공유
-PC    : SSH 터널로 Jetson의 5900에 연결 → Remmina VNC로 화면 표시
-```
-
-### 설정 순서
-
-1. **Jetson**: 자동 로그인 또는 모니터에서 `bee`로 그래픽 로그인
-2. **Jetson**: `x11vnc` 설치 및 VNC 비밀번호 생성
-3. **Jetson**: `x11vnc` 실행 (`127.0.0.1:5900`)
-4. **PC**: SSH 터널 열기
-5. **PC**: Remmina VNC → `localhost:5900`
-
-## 빠른 실행 (스크립트)
-
-같은 폴더에 두 스크립트가 있다.
+| 상황 | 방식 | 문서 | 스크립트 |
+| --- | --- | --- | --- |
+| **기본** — 모니터 있음, 또는 모니터 없음(`--headless` 한 번) · GPU로 그린 실제 화면 | **VNC** (x11vnc) | [VNC.md](VNC.md) | `run-vnc-server` (Jetson) · `run-vnc-client` (PC) |
+| VNC가 안 될 때 — 접속마다 가상 화면 (GPU 없이 CPU로 그려서 느림) | RDP (xrdp) | [RDP.md](RDP.md) | `run-rdp-server` (Jetson, 한 번) · `run-rdp-client` (PC) |
+| 위 둘이 안 될 때 | NoMachine | [3장](#3-nomachine-모니터-없이-jetson--pc) | — |
+| 터미널만 (operator_tool) | SSH | [2장](#2-ssh-접속과-operator_tool) | — |
 
 ```text
-run-server   # Jetson에서 실행 — x11vnc 시작/중지/상태
-run-client   # PC에서 실행 — SSH 터널 + Remmina
+run-vnc-server   # Jetson에서 실행 — x11vnc 시작/중지/상태 · 모니터 없으면 --headless 한 번 (기본 방법)
+run-vnc-client   # PC에서 실행 — SSH 터널 + Remmina VNC
+run-rdp-server   # Jetson에서 한 번 — RDP(xrdp) 설정 (VNC가 안 될 때)
+run-rdp-client   # PC에서 실행 — SSH 터널 + Remmina RDP
 ```
 
-### Jetson: run-server
-
-Jetson에 스크립트를 복사해서 실행한다.
-
-```bash
-scp documents/jetson-orin-nano/remote/run-server bee@bee.local:~/run-server
-ssh bee@bee.local 'chmod +x ~/run-server && ~/run-server'
-```
-
-이미 Jetson에 저장소가 있으면 그 경로에서 실행해도 된다.
-
-```bash
-cd ~/Lv2_bee_Assignment/documents/jetson-orin-nano/remote
-./run-server
-```
-
-기본 동작:
-
-```text
-주소      : 127.0.0.1:5900
-display   : :0
-비밀번호  : ~/.vnc/passwd
-백그라운드 실행, 로그 ~/.vnc/x11vnc.log
-```
-
-자주 쓰는 명령:
-
-```bash
-./run-server --start
-./run-server --status
-./run-server --stop
-./run-server --restart
-./run-server --restart --xrandr 1280x720   # 실제 출력 해상도 변경 (모니터에도 적용)
-./run-server --scale 1280x720
-./run-server --foreground
-```
-
-`run-server`는 항상 `-localhost`로 실행한다. PC에서 직접 `10.2.12.110:5900`으로
-붙는 방식이 아니므로 아래 `run-client`의 SSH 터널이 필요하다.
-
-### PC: run-client
-
-PC에서 실행한다.
-
-```bash
-cd documents/jetson-orin-nano/remote
-./run-client
-```
-
-기본 동작:
-
-```text
-SSH 대상   : bee@bee.local
-PC 포트    : localhost:5900
-Jetson VNC : 127.0.0.1:5900
-```
-
-SSH 키가 이미 등록되어 있어야 한다. 접속 대상이 다르면:
-
-```bash
-./run-client --host bee@10.2.12.110
-```
-
-PC의 5900 포트가 이미 사용 중이면:
-
-```bash
-./run-client --local-port 5901
-```
-
-터널만 열고 VNC 클라이언트는 직접 실행하려면:
-
-```bash
-./run-client --no-vnc
-```
-
-상태/종료:
-
-```bash
-./run-client --start
-./run-client --status
-./run-client --stop
-./run-client --restart
-```
-
-VNC 비밀번호는 Jetson 로그인 비밀번호가 아니라 `x11vnc -storepasswd`에서 만든
-비밀번호다.
-
-## 꼭 구분할 것
-
-- `x11vnc`는 **Jetson에서만** 실행한다. PC에서 실행하는 프로그램이 아니다.
-- SSH 터널과 Remmina는 **PC에서만** 실행한다.
-- `-localhost`를 쓰면 Jetson의 5900은 외부에 열리지 않는다. 그래서 PC에서 SSH 터널이 필요하다.
-- VNC 비밀번호는 `x11vnc -storepasswd`에서 만든 비밀번호다. Jetson 로그인 비밀번호와 다르다.
+> VNC와 RDP(xrdp)는 함께 쓰지 않는다: `run-rdp-server`가 GDM 자동 로그인을 끄고, 같은 사용자의 GNOME은
+> 하나만 뜰 수 있어서 VNC로 공유할 데스크톱이 없어진다. RDP에서 VNC로 돌아오려면 `~/run-rdp-server --undo`.
 
 ## 1. PC: SSH 키 등록
 
@@ -205,401 +101,91 @@ cd ~/Lv2_bee_Assignment/lv2_module6/tool
 X11 포워딩은 전체 데스크톱이 아니라 앱 하나를 PC 화면에 띄우는 방식이다.
 RealSense 영상이나 OpenGL 화면은 전달이 느릴 수 있다.
 
-## 3. Jetson: x11vnc로 화면 공유
+## 3. NoMachine (모니터 없이 Jetson + PC)
 
-Jetson에 모니터가 연결되어 있고, 실제로 로그인한 GNOME 화면을 그대로 공유할 때
-사용한다. **Jetson 모니터에서 `bee`로 로그인한 상태여야 한다.** GDM 로그인 화면은
-일반 사용자 권한으로 공유하지 않는다.
+VNC(`--headless`)와 RDP가 모두 안 될 때의 대안이다(Jetson에서 아직 미검증). NoMachine은 실제 화면이 없으면
+**자기 가상 화면을 만들어** 데스크톱을 띄운다. 소프트웨어 렌더링일 수 있어 RViz 같은 3D는 느릴 수 있다.
 
-Jetson에 `x11vnc`를 설치한다.
+### 3.1 설치
 
-```bash
-sudo apt update
-sudo apt install -y x11vnc
-```
-
-Jetson 모니터의 데스크톱 터미널에서 데스크톱이 X11인지 확인한다.
+nomachine.com → Download → Linux **ARM64(aarch64) DEB**를 받아 Jetson으로 복사한다.
 
 ```bash
-echo "DISPLAY=$DISPLAY"
-echo "XDG_SESSION_TYPE=$XDG_SESSION_TYPE"
+# PC에서
+scp nomachine_*_arm64.deb bee@bee.local:~
+# Jetson에서
+sudo apt install ./nomachine_*_arm64.deb
+systemctl status nxserver --no-pager      # 설치하면 자동 실행
+ss -ltnp | grep 4000                       # 4000 포트 확인
 ```
 
-`DISPLAY=:0`, `XDG_SESSION_TYPE=x11`이면 아래 명령을 그대로 쓸 수 있다.
-Wayland 세션이면 x11vnc 대신 NoMachine이나 GNOME RDP를 사용한다.
+PC에도 NoMachine(Linux x86_64 DEB 등)을 설치한다.
 
-VNC 비밀번호 파일을 만든다. `~/.vnc/passwd`가 생성된다.
+### 3.2 모니터 없을 때: GDM 끄고 가상 화면 쓰기
+
+모니터 없이 부팅하면 GDM이 출력 없는 X 화면을 띄워 두는 경우가 있다. 이때 NoMachine이
+그 화면에 붙어서 검은 화면·로고만 보인다. GDM을 끄면 NoMachine이 자기 가상 화면을 만든다.
 
 ```bash
-mkdir -p ~/.vnc
-x11vnc -storepasswd
+ssh -t bee@bee.local 'sudo systemctl stop gdm && sudo /etc/NX/nxserver --restart'
 ```
 
-Jetson에서 x11vnc를 실행한다.
-
-```bash
-x11vnc -display :0 -auth guess -forever -shared \
-  -rfbauth ~/.vnc/passwd -localhost
-```
-
-- `-display :0` : 실제 GNOME 데스크톱
-- `-auth guess` : Xauthority 자동 탐색
-- `-forever` : 클라이언트가 끊겨도 서버 유지
-- `-shared` : 여러 클라이언트 동시 접속 허용
-- `-localhost` : 로컬에서만 listen. 원격은 SSH 터널로 접속
-- `-rfbauth` : VNC 비밀번호 파일
-
-`-auth guess`가 실패하면 실제 Xauthority 경로를 지정한다.
-
-```bash
-# 예: 사용자 세션의 Xauthority
-x11vnc -display :0 -auth "$HOME/.Xauthority" -forever -shared \
-  -rfbauth ~/.vnc/passwd -localhost
-```
-
-Jetson에서 5900 포트가 열렸는지 확인한다.
-
-```bash
-ss -ltnp | grep 5900
-```
-
-### PC: SSH 터널 + VNC 접속
-
-PC에서 SSH 터널을 연다. 이 터미널은 접속 중 계속 열어 둔다.
-
-```bash
-ssh -N -L 5900:127.0.0.1:5900 bee@bee.local
-```
-
-이 명령의 의미:
+PC NoMachine에서 접속한다.
 
 ```text
-PC의 localhost:5900
-  → SSH 터널
-  → Jetson의 127.0.0.1:5900 (x11vnc)
+호스트: bee.local (또는 10.2.12.110)
+포트  : 4000 (프로토콜 NX)
+사용자: bee / Jetson 계정 비밀번호
 ```
 
-PC에 VNC 클라이언트를 설치한다.
+"Create a new virtual desktop"(또는 새 데스크톱 만들기)가 나오면 선택한다.
 
-```bash
-sudo apt install -y remmina remmina-plugin-vnc
-# 또는
-sudo apt install -y tigervnc-viewer
-```
-
-#### Remmina 명령어로 바로 접속
-
-SSH 터널이 열려 있는 상태에서:
-
-```bash
-remmina -c vnc://localhost:5900
-```
-
-`vnc://`를 반드시 붙인다. `rdp://`가 아니고, 웹 브라우저 주소창에 넣는 것도 아니다.
-
-터널을 백그라운드로 열고 Remmina까지 한 번에 실행하려면:
-
-```bash
-ssh -f -N -L 5900:127.0.0.1:5900 bee@bee.local
-remmina -c vnc://localhost:5900
-```
-
-이미 5900 터널이 떠 있으면 두 번째 줄만 실행한다.
-포트가 이미 사용 중이면 터널 포트를 5901로 바꾸고:
-
-```bash
-ssh -N -L 5901:127.0.0.1:5900 bee@bee.local
-remmina -c vnc://localhost:5901
-```
-
-VNC 클라이언트에서 직접 주소를 입력할 때는:
-
-```text
-localhost:5900
-```
-
-`x11vnc -storepasswd`에서 설정한 VNC 비밀번호를 입력하면 Jetson의 전체 데스크톱이
-나온다.
-
-종료는 x11vnc를 실행한 Jetson 터미널에서 `Ctrl-C`, 또는:
-
-```bash
-pkill x11vnc
-```
-
-### 성능: 해상도 낮추기
-
-> `run-server` 기본값은 저부하 프리셋이다: 실제 출력 해상도 `1280x720` 자동
-> 적용(물리 모니터에도 같이 적용됨), `-scale 960x540`, `-speeds dsl`,
-> `-wireframe`, `-sb 15`. 자동 변경을 끄려면 `./run-server --restart
-> --xrandr keep`. 색상 깊이(8/16-bit)는 VNC 프로토콜상 클라이언트가
-> 정하므로 서버에서 강제할 수 없다. Remmina 쪽에서 낮춘다(아래 참고).
-
-1920x1080 화면을 32-bit로 보내면 VNC가 느려지기 쉽다. Jetson에서 실제 해상도를
-1280x720으로 낮추면 가장 효과가 크다.
-
-Jetson SSH에서:
-
-```bash
-export DISPLAY=:0
-export XAUTHORITY=/run/user/1000/gdm/Xauthority
-
-# 현재 연결된 출력 이름 확인 (예: DP-0)
-xrandr --current
-
-# 1280x720으로 변경
-xrandr --output DP-0 --mode 1280x720
-```
-
-출력 이름은 `xrandr --current`의 `connected primary` 줄에서 확인한다.
-예시에서는 `DP-0`을 사용했다.
-
-해상도를 바꾼 뒤 x11vnc를 재시작한다.
-
-```bash
-pkill x11vnc
-
-x11vnc -display :0 -auth guess -forever -shared \
-  -rfbauth ~/.vnc/passwd -localhost \
-  -wait 20 -defer 40
-```
-
-다시 1920x1080으로 되돌리려면:
-
-```bash
-export DISPLAY=:0
-export XAUTHORITY=/run/user/1000/gdm/Xauthority
-xrandr --output DP-0 --mode 1920x1080
-```
-
-해상도 자체를 바꾸지 않고 VNC 서버에서만 축소하려면 `-scale`을 사용한다.
-
-```bash
-x11vnc -display :0 -auth guess -forever -shared \
-  -rfbauth ~/.vnc/passwd -localhost \
-  -scale 1280x720 -wait 20 -defer 40
-```
-
-Remmina 쪽에서도 연결 편집 → **고급 설정**에서:
-
-```text
-색상 깊이(Color depth): 8-bit 또는 16-bit
-품질(Quality): Low/Poor
-Tight encoding: 켬
-```
-
-로 맞추면 전송량이 크게 줄어든다.
-`colordepth=32`는 가능하면 피한다.
-
-> `-localhost`를 빼고 `0.0.0.0`에 열면 Wi-Fi/LAN의 다른 PC가 바로 접속할 수 있다.
-> 보안상 권장하지 않으며, 외부 공유기 포트 포워딩은 절대 하지 않는다.
-> 원격지에서 써야 하면 SSH 터널이나 Tailscale/WireGuard를 사용한다.
-
-### x11vnc 자동 시작 (선택)
-
-로그인 후 자동으로 x11vnc를 띄우려면 systemd 사용자 서비스를 만든다.
-먼저 `x11vnc -storepasswd`로 `~/.vnc/passwd`를 만들어 둔다.
-
-```bash
-mkdir -p ~/.config/systemd/user
-
-cat > ~/.config/systemd/user/x11vnc.service <<'EOF'
-[Unit]
-Description=x11vnc desktop sharing
-After=graphical-session.target
-
-[Service]
-ExecStart=/usr/bin/x11vnc -display :0 -auth guess -forever -shared -rfbauth %h/.vnc/passwd -localhost
-Restart=on-failure
-RestartSec=2
-
-[Install]
-WantedBy=default.target
-EOF
-
-systemctl --user daemon-reload
-systemctl --user enable --now x11vnc.service
-systemctl --user status x11vnc.service
-```
-
-자동 시작을 끄려면:
-
-```bash
-systemctl --user disable --now x11vnc.service
-```
-
-## 4. Jetson: 키보드/모니터 없이 GDM 로그인
-
-x11vnc는 `bee`가 GNOME 데스크톱에 **이미 로그인한 뒤에만** 사용할 수 있다.
-GDM 로그인 화면은 `gdm` 사용자 권한으로 실행되므로, SSH에서 `bee`로 x11vnc를
-띄우면 보통 다음처럼 실패한다.
-
-```text
-Authorization required, but no authorization protocol specified
-xset: unable to open display ":0"
-```
-
-키보드 없이 Jetson 데스크톱에 로그인해야 하면 아래 두 방법 중 하나를 쓴다.
-
-### 4.1 RDP Remote Login (권장)
-
-Jetson의 GDM 로그인 화면 자체를 RDP로 보는 방법이다. `sudo` 권한이 필요하다.
-`grdctl --system`은 TTY가 없으면 polkit 인증 오류가 날 수 있으므로 `ssh -t`를 쓴다.
-
-```bash
-ssh -t bee@bee.local \
-  'sudo grdctl --system rdp enable && sudo grdctl --system status'
-```
-
-RDP가 3389 포트를 열었는지 확인한다.
-
-```bash
-ssh bee@bee.local 'ss -ltnp | grep 3389'
-```
-
-포트가 안 열리면 서비스를 재시작하고 로그를 확인한다.
-
-```bash
-ssh -t bee@bee.local \
-  'sudo systemctl restart gnome-remote-desktop.service && sudo journalctl -u gnome-remote-desktop -n 50 --no-pager'
-```
-
-PC에서 RDP 클라이언트를 설치한다.
-
-```bash
-sudo apt install -y remmina remmina-plugin-rdp
-```
-
-Jetson의 3389 포트를 외부에 직접 열지 않으려면 PC에서 SSH 터널을 연다.
-
-```bash
-ssh -N -L 3389:localhost:3389 bee@bee.local
-```
-
-Remmina에서 접속한다.
-
-```text
-프로토콜: RDP - 원격 데스크톱 프로토콜
-서버: localhost:3389
-사용자: bee
-비밀번호: Jetson 계정 비밀번호
-```
-
-GDM 로그인 화면이 나오면 `bee`로 로그인한다. 이제 키보드 없이 전체 Ubuntu
-데스크톱을 사용할 수 있다.
-
-SSH 터널 없이 같은 LAN에서 직접 붙을 때는 서버를 `10.2.12.110:3389`로 지정한다.
-다만 RDP 포트를 외부 인터넷에 노출하지 않는다.
-
-RDP가 검은 화면이거나 GNOME/Xorg 조합에서 불안정하면 아래 자동 로그인 또는
-NoMachine을 사용한다.
-
-### 4.2 임시 GDM 자동 로그인 (RDP가 안 될 때)
-
-Jetson이 부팅될 때 `bee`로 자동 로그인하게 만든다. 보안상 **임시방편**으로만
-사용하고, 원격 접속이 확인되면 자동 로그인은 끄는 것을 권장한다.
-
-```bash
-ssh -t bee@bee.local 'sudo nano /etc/gdm3/custom.conf'
-```
-
-`[daemon]` 아래에 추가한다.
+가상 화면 해상도·자동 생성은 `/usr/NX/etc/server.cfg`에서 바꿀 수 있다
+(주석 `#`을 지우고 값 수정 → `sudo /etc/NX/nxserver --restart`).
 
 ```ini
-[daemon]
-AutomaticLoginEnable=True
-AutomaticLogin=bee
+CreateDisplay 1
+DisplayOwner "bee"
+DisplayGeometry 1280x720
 ```
 
-저장한 뒤 GDM을 재시작한다.
+### 3.3 부팅할 때부터 GDM 안 띄우기 (잘 되면)
 
 ```bash
-ssh -t bee@bee.local 'sudo systemctl restart gdm'
+ssh -t bee@bee.local 'sudo systemctl set-default multi-user.target'
 ```
 
-잠시 기다린 뒤 `bee`의 그래픽 세션이 생겼는지 확인한다.
+모니터를 다시 꽂아 쓸 때는 되돌린다.
 
 ```bash
-ssh bee@bee.local 'loginctl list-sessions; ps -eo pid,user,args | grep "[X]org"'
+ssh -t bee@bee.local 'sudo systemctl set-default graphical.target && sudo systemctl start gdm'
 ```
 
-`seat0` 세션이 `active`이고 Xorg 프로세스가 보이면 x11vnc를 실행할 수 있다.
-`DISPLAY=:0`은 Jetson 모니터의 데스크톱 터미널에서 확인한다.
+### 3.4 안 될 때
 
-```bash
-x11vnc -display :0 -auth guess -forever -shared \
-  -rfbauth ~/.vnc/passwd -localhost
-```
+- 검은 화면·NVIDIA 로고만 나옴: `systemctl status gdm`이 아직 active인지 확인 → 3.2
+- 접속 자체가 안 됨: `ss -ltnp | grep 4000`, `sudo /etc/NX/nxserver --status`
+- 로그: `sudo tail -50 /usr/NX/var/log/nxserver.log`
+- 4000 포트를 외부 인터넷에 열지 않는다. LAN 밖에서는 SSH 터널(`ssh -N -L 4000:localhost:4000 bee@bee.local` → `localhost:4000`)
 
-PC에서:
-
-```bash
-ssh -N -L 5900:localhost:5900 bee@bee.local
-```
-
-Remmina VNC로 `localhost:5900`에 접속한다.
-
-자동 로그인을 끄려면 `custom.conf`에서 두 줄을 제거하거나 주석 처리한 뒤:
-
-```bash
-ssh -t bee@bee.local 'sudo systemctl restart gdm'
-```
-
-> 자동 로그인은 Jetson에 물리적으로 접근할 수 있는 사람에게 데스크톱을 바로
-> 넘긴다. 공용 로봇이나 외부 네트워크에 연결된 장비에서는 오래 켜 두지 않는다.
-
-## 5. NoMachine 대안 (Jetson + PC)
-
-NoMachine은 Jetson ARM64용 `.deb`를 제공하며, 전체 데스크톱을 비교적 쾌적하게
-사용할 수 있다.
-
-```text
-nomachine.com → ARM64 .deb 다운로드
-```
-
-Jetson에서:
-
-```bash
-sudo apt install ./nomachine_*_arm64.deb
-sudo systemctl enable --now nxserver
-systemctl status nxserver --no-pager
-```
-
-PC에 NoMachine 클라이언트를 설치하고 접속한다.
-
-```text
-호스트: 10.2.12.110
-포트: 4000
-사용자: bee
-```
-
-## 6. 원격 GUI와 ROS 주의사항
+## 4. 원격 GUI와 ROS 주의사항
 
 - `operator_tool`은 SSH 터미널에서 실행하는 것이 가장 가볍다.
 - RViz를 Jetson에서 띄우고 x11vnc/RDP/NoMachine으로 화면만 보는 방식이
   Wi-Fi에서 RealSense raw 영상을 직접 전송하지 않아 유리하다.
-- PC에서 RViz가 직접 ROS 토픽을 구독하게 하려면 `ROS_LOCALHOST_ONLY`를 끄고
-  `ROS_DOMAIN_ID=88`을 맞춰야 한다. 이 경우 카메라/점구름 트래픽이 Wi-Fi를 탄다.
-- Jetson 로컬에서만 ROS를 쓰려면 `ROS_LOCALHOST_ONLY=1`을 유지해도 되고,
-  원격 데스크톱으로 화면만 보면 된다.
+- Jetson은 ROS를 기기 안에서만 쓴다 — `FASTDDS_DEFAULT_PROFILES_FILE=…/ros2_ws/fastdds_local.xml`(공유 메모리만, [SETTING.md](../SETTING.md) 5).
+  RViz는 Jetson에서 띄우고 원격 데스크톱으로 화면만 본다.
+- PC에서 RViz가 직접 토픽을 구독해야 할 때만 Jetson 프로파일을 `fastdds.xml`(UDP 포함)로 바꾸고 PC와 `ROS_DOMAIN_ID`를 같게.
+  이 경우 카메라/점구름 트래픽이 Wi-Fi를 탄다.
 
-## 7. 원격 접속 체크리스트
+## 5. 공통 체크리스트
 
 ```text
 [ ] ssh-copy-id로 공개키 등록
 [ ] ssh bee@bee.local 접속 성공
-[ ] (모니터 있음) Jetson 모니터에서 bee 그래픽 로그인
-[ ] (모니터 없음) RDP remote login 활성화 → GDM 원격 로그인
-[ ] (모니터 없음) ss -ltnp | grep 3389 확인
-[ ] (모니터 없음) Remmina RDP → localhost:3389
-[ ] (RDP 불가) AutomaticLogin + gdm 재시작
-[ ] Jetson 데스크톱 터미널에서 echo $DISPLAY → :0, XDG_SESSION_TYPE=x11
-[ ] x11vnc -storepasswd로 ~/.vnc/passwd 생성
-[ ] x11vnc ... -localhost 실행
-[ ] ss -ltnp | grep 5900 확인
-[ ] PC에서 ssh -N -L 5900:127.0.0.1:5900 bee@bee.local
-[ ] remmina -c vnc://localhost:5900
-[ ] (느리면) Jetson 1280x720 + Remmina 8-bit 색상
+[ ] VNC.md 체크리스트 (모니터 없으면 run-vnc-server --headless 한 번)
+[ ] (VNC 불가) RDP.md 체크리스트
+[ ] (둘 다 불가) NoMachine 설치 → gdm 중지 → PC NoMachine 4000 접속
 ```
 
 문제가 생기면 먼저 확인할 것:
@@ -608,15 +194,6 @@ PC에 NoMachine 클라이언트를 설치하고 접속한다.
 # SSH 키
 ssh -v bee@bee.local
 
-# RDP remote login
-ss -ltnp | grep 3389
-systemctl status gnome-remote-desktop --no-pager
-
-# x11vnc 로그/포트
-ss -ltnp | grep 5900
-ps -ef | grep '[x]11vnc'
-
 # 데스크톱 세션
-echo "$DISPLAY $XDG_SESSION_TYPE"
 loginctl list-sessions
 ```

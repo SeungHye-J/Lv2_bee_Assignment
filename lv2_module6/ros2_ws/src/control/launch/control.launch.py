@@ -23,5 +23,4 @@ def generate_launch_description():
     return LaunchDescription([
         node('arm_safety_monitor'),
         node('manual_control'),
-        node('body_filter'),
     ])

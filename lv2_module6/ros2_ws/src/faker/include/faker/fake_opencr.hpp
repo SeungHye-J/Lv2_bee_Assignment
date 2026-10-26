@@ -5,7 +5,7 @@
 //   C 읽기: <serial_out> (debug/output/hardware/serial) — "C,<바퀴L·R rad/s>,<joint1~5 rad>,<그리퍼 m>" 8 필드,
 //     빈 필드(`,,`)는 유지(NaN) — 팔·그리퍼는 명령 생략(현재 유지), 바퀴는 0(정지).
 //     줄마다 엄격 검사 후 적용 (틀린 줄은 버림 — 결과 = 마지막 유효 줄). 예: C,1,,0.4,,,,,
-//   S 쓰기: <serial_in> (debug/input/hardware/serial) — "S,<32값>" 25ms마다 항상 (펌웨어처럼 C와 무관 — 통신 끊김일 때만 멈춤)
+//   S 쓰기: <serial_in> (debug/input/hardware/serial) — "S,<40값>"(끝 8개 = 모터 온도 °C) 25ms마다 항상 (펌웨어처럼 C와 무관 — 통신 끊김일 때만 멈춤)
 //     바퀴 pos·vel ×2 · 관절 pos·vel·A ×6(joint1~5 + gripper_left) · 쿼터니언 · 자이로 · 가속도
 // 물리 (한 걸음 dt):
 //   바퀴: 명령 속도로 가속 (한계 ACCEL_MAX × friction) → 엔코더는 회전 그대로,

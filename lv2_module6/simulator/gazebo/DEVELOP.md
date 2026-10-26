@@ -138,7 +138,7 @@ lv2_module6/develop/arm/arm.sh [컨트롤러]              # rqt 팔 슬라이�
 - **도로형 신호등**: 상단 방의 동서 통행로 위에 **갠트리 (상부 빔 + 양쪽 기둥)**를 세우고, 차량 신호등처럼 하우징을 매달았습니다. 렌즈는 로봇이 지나오는 서쪽을 향해 도로를 따라 보입니다. `gazebo/traffic_lights.py`가 `GZ_TRAFFIC_INTERVAL`(기본 3초)마다 **빨강→초록→주황**으로 바꾸고, 색별 발광 구는 미리 만든 뒤 켜진 색만 렌즈 앞으로 옮깁니다. 두 신호등은 위상이 엇갈립니다. `/gz_traffic/markers`, `/gz_traffic/info` 발행.
 - **동적 장애물**: `gazebo/dynamic_obstacles.py`는 로봇이 **실제로 이동 중일 때만** 빈 후보 지점에서 **퍽과 구분되는 사람 형상**을 소환해 천천히 움직입니다. `/gz/cmd_vel` 속도 명령이 살아 있을 때만 이동 중으로 보고, 정지하거나 미션 수행 자세로 멈추면 active를 모두 `remove`합니다. `GZ_DYNAMIC_LIFETIME`(기본 12초) 뒤에도 제거하며, 미션 앞쪽/신호등 갠트리 주변은 후보에서 제외하므로 맵에 누적되지 않습니다. `/gz_dynamic/markers`, `/gz_dynamic/info` 발행. `GZ_DYNAMIC_COUNT=0`이면 꺼집니다.
 - **수동 액터 GUI**: `gazebo/gui_plugin`이 Gazebo GUI에 **사람/박스/퍽/신호등 소환**과 **수동 모델 삭제** 버튼을 붙입니다. 같은 패널의 **환경** 탭에서 바닥·벽·파노라마를 골라 현재 월드 모델을 즉시 교체할 수 있고, 최초 기본값은 `none`입니다. `start.sh`가 플러그인을 자동 빌드하고 `gui.config`를 `gz sim --gui-config`로 넘깁니다. 소환 버튼은 `/tmp/beebot_scene.json`의 빈 후보 지점에 바로 생성하고, 임의 위치에 직접 놓고 싶으면 Gazebo 기본 **Spawn/드래그 앤 드롭**을 쓰면 됩니다. 수동 모델은 `dynamic_obstacles.py`의 자동 수명 관리 대상이 아니므로 삭제 버튼으로 정리합니다. QML만 수정했으면 `gazebo`를 다시 실행하세요.
-- **카메라/점구름 성능**: Gazebo RGBD는 RealSense D435 운용 모드인 **640×360 @ 15 Hz**로 낮췄습니다. 추가로 `control/body_filter`의 `stride: 2`가 원본 점구름에서 2점당 1점만 남겨 Nav2·collision_monitor로 보냅니다. 필요하면 `ros2_ws/src/control/config/control.yaml`의 `stride`를 조정하고, 카메라 해상도/레이트는 `urdf/default/urdf.xacro`의 RGBD 센서에서 바꾼 뒤 `colcon build`로 `ros_system`을 다시 설치하세요.
+- **카메라/점구름 성능**: Gazebo RGBD는 RealSense D435 운용 모드인 **640×360 @ 15 Hz**로 낮췄습니다. 추가로 `perception/body_filter`의 `stride`가 원본 점구름을 솎아(stride점당 1점) Nav2·collision_monitor로 보냅니다. 필요하면 `ros2_ws/src/perception/config/perception.yaml`의 `body_filter.stride`를 조정하고, 카메라 해상도/레이트는 `urdf/default/urdf.xacro`의 RGBD 센서에서 바꾼 뒤 `colcon build`로 `ros_system`을 다시 설치하세요.
 - **미션/물체 환경변수**: `GZ_MISSION`, `GZ_MISSION_SITES=all|single`, `GZ_PUCK_COUNT`(총량, 기본 9), `GZ_PUCK_MM`, `GZ_TAG_SIZE_MM`, `GZ_MISSION_TAG_MM`, `GZ_MISSION_CENTER="0.35 2.75"`(single 전용), `GZ_MISSION_WALL=north|south|east|west`, `GZ_MISSION_SEED`, `GZ_OBSTACLE_BOXES`, `GZ_OBSTACLE_CYLINDERS`, `GZ_OBSTACLE_BOX_MM="300 300 600"`(cm로 키울 때), `GZ_OBSTACLE_CYLINDER_MM`, `GZ_OBSTACLE_STATIC=1`, `GZ_OBSTACLE_SEED`, `GZ_TRAFFIC_INTERVAL=3.0`, `GZ_DYNAMIC_COUNT=3`, `GZ_DYNAMIC_LIFETIME=12`, `GZ_DYNAMIC_RESPAWN=1`, `GZ_DYNAMIC_SPEED=0.16`, `GZ_DYNAMIC_MM="220 220 600"`.
 - **진짜 위치**: `gazebo/publish_poses.py`가 `/world/default/pose/info`의 실제 모델 pose를 읽어 `/gz_obstacles/markers`(MarkerArray)와 `/gz_obstacles/poses`(PoseArray)로 발행합니다 (frame `world`). 퍽·장애물·벽 태그·목표 구역·신호등 하우징이 들어 있고, 동적 퍽이 밀리면 마커도 실제 pose를 따라갑니다. `base_footprint→world` TF도 같이 내므로 `rviz`의 `Gazebo Obstacles` display에서 기본 fixed frame으로 보입니다. 동적 장애물/신호등은 각각 `Dynamic Obstacles`·`Traffic Lights` display로 분리됩니다. 월드 좌표를 고정해서 보려면 RViz Fixed Frame을 `world`로 두십시오. `rviz`로 새 display를 읽습니다.
 - **미션 정보**: `/gz_mission/info` (`std_msgs/String`, JSON, transient_local)에 활성 미션 이름·설명·태그 ID, **분산된 stations 목록**(위치/퍽/태그/구역), 목표 구역, 태그 매핑이 들어 있습니다. 예: `ros2 topic echo --once /gz_mission/info`.
@@ -271,8 +271,8 @@ perception::msg::TrackedObjectArray msg;
 
 | 파일 | 노드 |
 | --- | --- |
-| `perception/config/perception.yaml` | perception |
-| `control/config/control.yaml` | arm_safety_monitor · manual_control · body_filter |
+| `perception/config/perception.yaml` | perception · body_filter |
+| `control/config/control.yaml` | arm_safety_monitor · manual_control |
 | `manager/config/manager.yaml` | state_manager (지도 모드 시작 값 — faker가 `map:=`에 맞춰 덮어씀) |
 | `ml/config/ml.yaml` | grasp_scorer · rl_nav_tuner · rl_nav_correction |
 | `plan/config/plan.yaml` | user_input · vlm_task_planner · coordinator · explorer(자동 탐사) |
@@ -299,10 +299,10 @@ Python 노드(perception)는 **pytest**(`ament_cmake_pytest` + `test/test_node.p
 | 패키지 | 테스트 | 확인하는 것 |
 | --- | --- | --- |
 | perception | `test/test_node.py` (pytest, YOLO 없이 빈 발행·진단) | 모델 없이도 노드가 떠서 빈 `/tracked_objects`가 나온다 · QR · 색 분류 · 영상 시각 TF(없으면 최신으로) · 두 카메라 융합(오차 축소 · 1:1 배정 · 클래스 분리) |
+| perception | `test/test_body_filter.cpp` | URDF 충돌 상자(+padding) 안의 점은 빠지고 밖의 점만 `points_filtered`로 나간다 |
 | control | `test/test_arm_safety_monitor.cpp` | 전류 과다가 0.1초 넘게 이어지면 `/arm_safety_event` |
 | control | `test/test_manual_control.cpp` | `/state/operation_mode`가 MANUAL일 때만 `/cmd/manual/cmd_vel` → `/cmd_vel_manual` |
 | manager | `test/test_state_manager.cpp` | `/cmd/operation_mode` → `/state/operation_mode` · `/cmd/map_mode` → RTAB-Map 응답 뒤 `/state/map_mode` (서버 없거나 COURSE면 그대로) |
-| control | `test/test_body_filter.cpp` | URDF 충돌 상자(+padding) 안의 점은 빠지고 밖의 점만 `points_filtered`로 나간다 |
 | ml | `test/test_rl_nav_correction.cpp` | 보정 출력이 `/speed_limit` 상한으로 잘린다 |
 | plan | `test/test_explorer.cpp` | 프론티어(빈 칸·모르는 칸 경계)를 덩어리로 묶어 중심 칸을 고르고, 작은 덩어리·모르는 곳 없는 지도는 빈 결과 |
 | plan | `test/test_coordinator.cpp` | 허용 안 된 동작이 든 계획은 FAILED로 거부 · 수동 모드로 바뀌면 진행 중 계획을 멈춤(manual_override) |
