@@ -16,7 +16,7 @@ coordinator:
   ros__parameters:
     # 시작 자세 — bringup 직후 한 번 팔을 이 자세로 (MoveIt 없이 JTC 토픽, 3초 궤적).
     #   0 = 서보 영점(팔 곧게 위). 다시 잡으려면 run-cli 팔 → 6 (TEACH로 손으로 잡으면 initial_pose·initial_gripper 줄을 보여 줌 → 여기 붙여 넣기).
-    #   (예전 실측 [-0.0898, -1.8069, 1.3432, 1.6473, -0.0268]은 joint2가 URDF 한계 ±1.5 밖이라 도달 못 하고 계속 밀었음)
+    #   (예전 실측 [-0.0898, -1.8069, 1.3432, 1.6473, -0.0268]은 한계 안이었지만 실기에서 도달 못 하고 계속 밀어 과부하 — 그래서 재전송 1회 제한)
     #   MAPPING/EXPLORE면 스캔 자세가 우선이라 건너뛴다. false면 자동 이동 안 함.
     #   실행 중 끄기: ros2 param set /coordinator initial_pose_enabled false (가는 중이면 그 자리에서 멈춤)
     initial_pose_enabled: true
