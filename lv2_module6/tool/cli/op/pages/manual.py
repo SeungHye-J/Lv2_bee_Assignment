@@ -194,6 +194,29 @@ class ArmHomeItem(MenuItem):
         return STAY
 
 
+class ArmInitialItem(MenuItem):
+    key = '7'
+
+    def label(self):
+        return '시작 자세로 (plan.yaml initial_pose · initial_gripper)'
+
+    def run(self):
+        if not self.bus.ensure_arm_or_switch():
+            return STAY
+        pose = self.bus.initial_pose()
+        if pose is None:
+            return STAY
+        targets, gripper, source = pose
+        body = [f'출처: {source}', '  '.join(f'{n}={v:+.3f}' for n, v in targets.items())]
+        if gripper is not None:
+            body.append(f'그리퍼 {gripper:.4f} m')
+        body.append('현재 자세와 주변을 확인하세요 (MoveIt 없이 직선 보간 — 충돌 회피 안 함).')
+        if not self.ui.confirm('시작 자세로 이동할까요?', default=False, body=body):
+            return STAY
+        self.bus.cmd_arm(argparse.Namespace(action='initial', targets=[], force=False))
+        return STAY
+
+
 class ArmRebootItem(MenuItem):
     key = '5'
 
@@ -236,7 +259,8 @@ class ArmMenu(Menu):
                 ArmMoveItem(self.app, '3', True),
                 ArmHomeItem(self.app),
                 ArmRebootItem(self.app),
-                ArmPoseCaptureItem(self.app)]
+                ArmPoseCaptureItem(self.app),
+                ArmInitialItem(self.app)]
 
     def center(self):
         st = self.state

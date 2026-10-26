@@ -179,6 +179,7 @@ cd tool
 ./run-cli arm set joint1=0.0 joint2=0.4 joint3=-0.2
 ./run-cli arm delta joint2=+0.05
 ./run-cli arm home
+./run-cli arm initial       # 시작 자세로 — 떠 있는 coordinator의 initial_pose·initial_gripper (없으면 plan.yaml) (메뉴: 팔 → 7)
 ./run-cli arm reboot          # 과부하 등 Hardware Error 난 모터만 재부팅 (메뉴: 팔 → 5)
 ./run-cli mode teach          # TEACH: 팔(joint1~5)·그리퍼 토크 끔 — 손으로 자세 잡기 (팔이 처지니 잡고 있을 것)
 ./run-cli arm capture         # 지금 팔·그리퍼 자세를 plan.yaml initial_pose·initial_gripper 줄로 출력 (파일은 안 고침)

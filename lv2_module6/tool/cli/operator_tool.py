@@ -230,8 +230,9 @@ def build_parser() -> argparse.ArgumentParser:
     teleop.add_argument('--force', action='store_true', help='MANUAL 상태 확인을 건너뜀 (위험)')
 
     arm = sub.add_parser('arm', help='팔 관절 수동 명령 (MANUAL 모드)')
-    arm.add_argument('action', type=str.lower, choices=('show', 'set', 'delta', 'home', 'reboot', 'capture'),
-                     help='reboot = Hardware Error(과부하 등) 난 모터만 재부팅 (/cmd/manual/reboot_motors) · '
+    arm.add_argument('action', type=str.lower, choices=('show', 'set', 'delta', 'home', 'initial', 'reboot', 'capture'),
+                     help='initial = plan.yaml 시작 자세(initial_pose·initial_gripper)로 · '
+                          'reboot = Hardware Error(과부하 등) 난 모터만 재부팅 (/cmd/manual/reboot_motors) · '
                           'capture = 지금 팔·그리퍼 자세를 plan.yaml initial_pose·initial_gripper 형식으로 출력 (보통 mode teach로 손으로 잡은 뒤)')
     arm.add_argument('targets', nargs='*', help='관절 목표: joint1=0.0 joint2=0.4 (all=0.0 가능)')
     arm.add_argument('--force', action='store_true', help='MANUAL/MAPPING 확인을 건너뜀 (위험)')

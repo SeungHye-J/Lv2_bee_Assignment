@@ -462,6 +462,26 @@ class Bus:
             print(f'    initial_gripper: {gripper:.4f}')
         return 0
 
+    def initial_pose(self) -> tuple[dict[str, float], float | None, str] | None:
+        """시작 자세 — 떠 있는 coordinator 파라미터(지금 적용 중인 값)를 먼저, 없으면 plan.yaml.
+        반환: ({관절: rad}, 그리퍼 m 또는 None(음수 = 안 건드림), 출처)"""
+        cli = self.param_client('coordinator', '/')
+        if cli is not None and cli.wait_for_services(timeout_sec=2.0):
+            vals = self.param_get_vals(cli, ['initial_pose_joints', 'initial_pose', 'initial_gripper'])
+            if vals and len(vals) == 3 and list(vals[0].string_array_value) and list(vals[1].double_array_value):
+                g = vals[2].double_value
+                return (dict(zip(vals[0].string_array_value, vals[1].double_array_value)),
+                        g if g >= 0.0 else None, 'coordinator 파라미터')
+        try:
+            import yaml
+            p = yaml.safe_load(self.PLAN_YAML.read_text())['coordinator']['ros__parameters']
+            g = float(p.get('initial_gripper', -1.0))
+            return (dict(zip(p['initial_pose_joints'], map(float, p['initial_pose']))),
+                    g if g >= 0.0 else None, str(self.PLAN_YAML))
+        except Exception as exc:
+            print(f'시작 자세를 못 읽음 (coordinator 없음 · {self.PLAN_YAML}: {exc})', file=sys.stderr)
+            return None
+
     def cmd_arm(self, args) -> int:
         if args.action == 'reboot':
             return self.cmd_reboot(args.force)
@@ -481,6 +501,15 @@ class Bus:
 
         if args.action == 'home':
             targets = {name: 0.0 for name in ARM_JOINTS}
+        elif args.action == 'initial':
+            pose = self.initial_pose()
+            if pose is None:
+                return 1
+            targets, gripper, source = pose
+            print(f'시작 자세 ({source}): ' + '  '.join(f'{n}={self._rad_deg(v)}' for n, v in targets.items()) +
+                  (f'  그리퍼={gripper:.4f}m' if gripper is not None else ''))
+            if gripper is not None:
+                self._send_gripper(gripper)
         else:
             try:
                 targets = self._parse_targets(args.targets)
