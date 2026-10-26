@@ -13,7 +13,7 @@ fi
 #   ./test-firmware --hold --yes            # 현재 자세 유지 명령을 한 번 보냄
 #   ./test-firmware --send 'C,0,0,0,0,0,0,0,0' --yes
 #   ./test-firmware --arm joint1 0.05 --yes # joint1만 현재 자세에서 +0.05 rad
-#   ./test-firmware --gripper 0.005 --yes   # 그리퍼 폭 5 mm
+#   ./test-firmware --gripper 0.005 --yes   # 손가락 하나 5 mm 이동 → 간격 30 mm (= 20 + 2×5, 퍽 크기)
 #   ./test-firmware --wheel 0.3 --yes       # 양쪽 바퀴 0.3 rad/s (팔·그리퍼는 현재 유지)
 #   ./test-firmware --wheel 0.3 -0.3 --yes  # 좌 0.3 · 우 -0.3 rad/s (제자리 회전)
 #   ./test-firmware --l-wheel 0.3 --yes     # 왼쪽만 0.3 rad/s (오른쪽은 정지)

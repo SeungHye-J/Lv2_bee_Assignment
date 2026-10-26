@@ -37,6 +37,9 @@ OpenCR 내장 IMU (MPU9250, cIMU)
 - watchdog: 마지막 **유효한** `C`부터 `COMMAND_TIMEOUT_MS`(500ms)가 지나면 바퀴 속도 0, 팔·그리퍼는 현재 자세 유지 (한 번).
   형식이 틀린 줄·빈 줄은 무시하고 타이머도 갱신하지 않는다.
 - SBC는 활성화 때 첫 `S`를 받아 실제 각도로 팔 명령을 맞춘다. 3초 안에 `S`가 없으면 활성화를 실패시킨다(실제 각도를 모르니 띄우지 않음). 팔 명령이 없으면(NaN) 팔 칸을 **빈칸(유지)**으로 보낸다 — 예전엔 초기 상태 0을 그대로 보내 시작하자마자 팔이 0 rad로 최고 속도로 튀었음.
+- 부팅 때 토크: 전원이 켜지면 모터 8개를 찾아 동작 모드·Return Delay를 맞추고 **토크를 전부 켠다** — 바퀴는 목표 속도 0,
+  팔·그리퍼는 목표 = **지금 위치**(켜는 순간 튀지 않게 그 자세 유지). 첫 `C`가 오기 전에는 움직이지 않는다(watchdog이 걸린 채 시작).
+  토크를 켜고 끄는 명령(`T`)은 SBC(`BeebotSystemHardware`)가 보내지 않는다 — `test-firmware --torque`로 사람이 쓴다.
 - 부팅 때 모터 하나라도 ping이 안 되면 `C`를 받지 않는다 (상태 `S`는 계속 보내 SBC가 원인을 볼 수 있게).
 - 그리퍼는 전류 기반 위치 모드 — 퍽을 쥐면 `GRIPPER_GOAL_CURRENT_MA`(600 mA, TODO 실측)에서 멈춘다 (닫힘 한계를 넘는 명령으로 2 A를 버티지 않게).
 - 주기 구조 (2026-10-24 실기 시험: 개별 패킷이라 명령→측정 약 100 ms, S 60 ms 계단, C 100 Hz면 S 끊김 → 아래처럼 바꿈. **개선 후 실기 측정은 아직**)
@@ -108,7 +111,7 @@ chmod +x test-firmware          # 최초 1회 (Permission denied 방지)
 
 ./test-firmware --hold --yes     # 현재 자세 유지 명령
 ./test-firmware --arm joint1 0.05 --yes
-./test-firmware --gripper 0.005 --yes
+./test-firmware --gripper 0.005 --yes          # 손가락 간격 30 mm (= 20 + 2×5 mm)
 ./test-firmware --wheel 0.3 --yes       # 양쪽 바퀴 0.3 rad/s (팔·그리퍼 현재 유지)
 ./test-firmware --l-wheel 0.3 --yes     # 왼쪽만 (오른쪽 정지)
 ./test-firmware --r-wheel 0.3 --yes     # 오른쪽만 (왼쪽 정지)
@@ -138,7 +141,7 @@ bash ./test-firmware
 | `--lines <n>` | `--raw`에서 보여줄 줄 수 (기본 3) |
 | `--hold` | 현재 자세를 유지하는 `C` 명령 전송 |
 | `--arm <joint> <rad>` | 현재 자세에서 해당 관절만 delta만큼 이동 |
-| `--gripper <m>` | 그리퍼 폭을 m로 이동 |
+| `--gripper <m>` | 그리퍼를 `C`와 같은 값으로 이동 — 손가락 **하나**의 이동량 m (0 = 닫힘). 손가락 간격 = 20 mm + 2 × 값 (예: 0.005 → 30 mm) |
 | `--wheel <vl> [vr]` | 바퀴 속도 rad/s (vr 생략 시 양쪽 동일, 팔·그리퍼는 S 현재값 유지) |
 | `--l-wheel <v>` / `--r-wheel <v>` | 한쪽 바퀴만 속도 (반대쪽은 정지) |
 | `--count <n>` | `C` 전송 횟수, 1회 = 0.05초 (기본: `--hold`·`--send` 5회, `--arm`·`--gripper`·바퀴 20회, 최대 1200) |
