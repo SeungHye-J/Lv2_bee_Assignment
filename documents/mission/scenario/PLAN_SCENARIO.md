@@ -1,7 +1,7 @@
 # Plan 시나리오 — 신호등 암호 미션
 
 > 설계 전제: [mission/README.md](README.md) · [project/ros/00-overview.md](../project/ros/00-overview.md)
-> 담당 패키지: `plan` (vlm_task_planner · coordinator · signal_decoder · explorer)
+> 담당 패키지: `plan` (vlm_task_planner · coordinator · explorer) — 신호 해석 signal_decoder는 `perception` (인지가 해석해 `/mission/signal`로 냄)
 
 ---
 

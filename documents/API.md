@@ -162,7 +162,7 @@ string reason       # grasp_failed_all | nav_failed | arm_contact ...
 - 주의: [노드 사전](project/ros/10-catalog.md)의 reason 예시(`nav_blocked`)와 파일(`nav_failed`)이 다릅니다 — 파일이 정본.
 
 <a id="api-msg-missionsignal"></a>
-### plan/msg/MissionSignal ([파일](../lv2_module6/ros2_ws/src/plan/msg/MissionSignal.msg))
+### perception/msg/MissionSignal ([파일](../lv2_module6/ros2_ws/src/perception/msg/MissionSignal.msg))
 
 ```text
 string color      # 1단계: 옮길 퍽 색 (red | green | yellow — 깜빡인 색)
@@ -172,8 +172,8 @@ int32 dest_tag    # 3단계: 목적지 장소 태그 번호 (노랑 1·2·3번 �
 string raw        # 읽은 깜빡임 그대로 (예: "R R | R Y G G R | Y Y") — 확인용
 ```
 
-- 내는 쪽: signal_decoder → `/mission/signal` (reliable + transient_local, 확정될 때마다). 받는 쪽: vlm_task_planner.
-- 신호등 미션 규칙은 [mission/README.md](mission/README.md). 단계 구분(세 색 동시 `separator_s` · 꺼짐 `gap_s`)·색 점수·목적지 태그는 [plan.yaml](../lv2_module6/ros2_ws/src/plan/config/plan.yaml) `signal_decoder` 파라미터 (발제 미정 — 제안값).
+- 내는 쪽: signal_decoder (perception — 인지가 신호를 해석해 미션 토픽으로 냄. `/mission/qr`와 같은 자리) → `/mission/signal` (reliable + transient_local, 확정될 때마다). 받는 쪽: vlm_task_planner.
+- 신호등 미션 규칙은 [mission/README.md](mission/README.md). 단계 구분(세 색 동시 `separator_s` · 꺼짐 `gap_s`)·색 점수·목적지 태그는 [perception.yaml](../lv2_module6/ros2_ws/src/perception/config/perception.yaml) `signal_decoder` 파라미터 (발제 미정 — 제안값).
 
 <a id="api-msg-armsafetyevent"></a>
 ### control/msg/ArmSafetyEvent ([파일](../lv2_module6/ros2_ws/src/control/msg/ArmSafetyEvent.msg))
@@ -248,7 +248,7 @@ string message
 | --- | --- | --- | --- |
 | `/cmd/user_command` | std_msgs/String | user_input → vlm_task_planner | 명령마다 · reliable |
 | `/mission/qr` | std_msgs/String | perception → vlm_task_planner | 장소 바코드(작업 지시 문자열, 예 `P2-01`) · QR — 읽은 내용이 바뀔 때만 · reliable + transient_local. VLM이 해석 |
-| `/mission/signal` | plan/MissionSignal | signal_decoder → vlm_task_planner | 신호등 암호 미션 답 {color, count, sum, dest_tag, raw} — 확정될 때마다 · reliable + transient_local. planner가 규칙으로 계획 (번호 모르면 inspect → 조합 → 적재함 → 목적지 장소 → **수납 확인**: 옮긴 직후와 `verify_period_s`마다 목적지로 가서 옮긴 번호가 `verify_radius_m` 안에 있는지 보고, 다른 곳에 있으면 다시 옮김 · 없으면 say) |
+| `/mission/signal` | perception/MissionSignal | signal_decoder (perception) → vlm_task_planner | 신호등 암호 미션 답 {color, count, sum, dest_tag, raw} — 확정될 때마다 · reliable + transient_local. planner가 규칙으로 계획 (번호 모르면 inspect → 조합 → 적재함 → 목적지 장소 → **수납 확인**: 옮긴 직후와 `verify_period_s`마다 목적지로 가서 옮긴 번호가 `verify_radius_m` 안에 있는지 보고, 다른 곳에 있으면 다시 옮김 · 없으면 say) |
 | `/robot/say` | std_msgs/String | coordinator → user_input | 알릴 때 · reliable |
 | `/task/sub_goals` | plan/SubGoalArray | vlm_task_planner → coordinator | 계획마다 · reliable + transient_local. target = 물체 id · `"x,y"`(navigate) · **`"tray"`(pick·place — 로봇 뒤 적재함: place tray = 다음 칸에 싣기, pick tray = 나중에 실은 것부터 꺼내기, 최대 4칸)** · 퍽 id(inspect) · 말할 내용(say) |
 | `/task/status` | plan/TaskStatus | coordinator → vlm_task_planner, user_input | 단계 완료·실패 시 · reliable + transient_local |

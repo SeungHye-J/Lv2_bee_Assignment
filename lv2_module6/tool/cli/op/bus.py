@@ -1085,7 +1085,7 @@ class Bus:
 
     @staticmethod
     def diag_short(name: str) -> str:
-        """/diagnostics_agg 이름 '/Beebot/계획·임무/signal_decoder: 상태' → '계획·임무 / signal_decoder: 상태'"""
+        """/diagnostics_agg 이름 '/Beebot/인지/signal_decoder: 상태' → '인지 / signal_decoder: 상태'"""
         parts = [p for p in name.split('/') if p and p != 'Beebot']
         return ' / '.join(parts) or name
 

@@ -122,7 +122,7 @@
 | 할 일 | 맡은 곳 | 상태 |
 | --- | --- | --- |
 | 신호등 상태 (빨·노·초·꺼짐 · 두 색 이상 동시 = `all`) | perception `classify_color` | 구현 |
-| 깜빡임 시퀀스 → 1·2·3단계 답 `/mission/signal` {color, count, sum, dest_tag} | **signal_decoder** (plan) — 단계 구분 = `all` 2초 · 꺼짐 3초, 점수·목적지 태그·확정 횟수는 plan.yaml | 구현 (§6 확정되면 파라미터만) |
+| 깜빡임 시퀀스 → 1·2·3단계 답 `/mission/signal` {color, count, sum, dest_tag} | **signal_decoder** (perception — 인지가 해석해 미션 토픽으로 냄, plan은 받아서 계획만) — 단계 구분 = `all` 2초 · 꺼짐 3초, 점수·목적지 태그·확정 횟수는 perception.yaml | 구현 (§6 확정되면 파라미터만) |
 | 퍽 윗면 태그 → 그 퍽의 `details tag` (한 번 읽으면 기억 · 색도 태그 번호대로) | perception (OpenCV aruco — 새 라이브러리 없음, OpenCV 4.6·4.7+ 둘 다) | 구현 |
 | 16mm 태그 읽기 동작 — pole_front_cam(640×360)은 한 칸 1~2px라 못 읽음 | coordinator **`inspect <퍽 id>`** — 손끝을 퍽 윗면 위 0.15m로 (gripper_cam 한 칸 약 6px) | 구현 |
 | 장소 태그 → class `location` 물체 (`tag`) | perception | 구현 |
@@ -136,7 +136,7 @@
 데이터 흐름:
 
 ```text
-신호등 깜빡임 → perception (traffic_light color) → signal_decoder → /mission/signal
+신호등 깜빡임 → perception (traffic_light color) → signal_decoder (perception) → /mission/signal → plan
 퍽 윗면 태그 → (inspect: gripper_cam이 내려다봄) → perception details tag (기억)
 장소 태그 → perception location (tag) · 장소 바코드 → perception barcode (content) · /mission/qr → VLM
 vlm_task_planner: 합이 맞는 조합 → /task/sub_goals [navigate → pick → place tray] × N → navigate(장소) → [pick tray → place 장소] × N

@@ -46,17 +46,6 @@ coordinator:
     inspect_height_m: 0.15   # [m] 손끝을 퍽 윗면 위 이만큼 (16mm 태그 ≈ 50px — 한 칸 약 6px)
     inspect_wait_s: 1.0      # [s] 그 자리에서 기다림 (perception 추론 4Hz × 몇 장)
 
-signal_decoder:              # 신호등 암호 미션 (documents/mission/README.md) — 깜빡임 3단계 → /mission/signal
-  ros__parameters:           #   단계 구분·점수 등은 MISSION §6 미정 — 제안값 (공지 나오면 여기만 바꿈)
-    min_on_s: 0.15           # [s] 이보다 짧은 켜짐은 잡음
-    separator_s: 2.0         # [s] 세 색 동시(all)가 이만큼 이어지면 단계 구분 (제안: 3초 켜짐)
-    gap_s: 3.0               # [s] 꺼짐(신호등 안 보임 포함)이 이만큼 이어져도 단계 끝
-    score_red: 1             # 2단계 색 점수 (제안: 모두 1)
-    score_yellow: 1
-    score_green: 1
-    dest_tags: [12, 13, 14]  # 3단계 노랑 1·2·3번 → 목적지 장소 태그 (L1~L3)
-    confirm: 1               # 같은 답이 이만큼 연달아 나와야 확정 (신호를 반복하면 2)
-
 explorer:                    # 자동 탐사 — /state/operation_mode EXPLORE일 때 /map 프론티어로 Nav2 목표
   ros__parameters:
     min_frontier_cells: 8    # 이보다 작은 프론티어 덩어리는 무시 (칸 0.05m → 약 0.4m 입구)

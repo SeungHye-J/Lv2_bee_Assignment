@@ -12,12 +12,12 @@
 ────────────────────────────────────────────────────────
 bringup        (launch only)            권형중   Python
 manager        state_manager            김현하   C++
-plan           signal_decoder           권형중   C++
 plan           user_input               권형중   C++
 plan           vlm_task_planner         권형중   C++
 plan           coordinator              권형중   C++
 plan           explorer                 김현하   C++
 perception     perception               전승혜   Python
+perception     signal_decoder           전승혜   C++
 perception     body_filter              전승혜   C++
 ml             grasp_scorer             송정혁   C++
 ml             rl_nav_tuner             송정혁   C++
@@ -111,7 +111,7 @@ flowchart TD
         PER["🛠 perception\nperception · 전승혜\nYOLO + AprilTag + 바코드\n감지 시작"]
         SM2["🛠 state_manager\nmap_mode=LOCALIZATION\noperation_mode=AUTO"]
         CO["🛠 coordinator\nplan · 권형중\n부팅 직후 팔 → initial_pose\n(JTC 토픽, 3초 궤적)"]
-        SD["🛠 signal_decoder\nplan · 권형중\n/tracked_objects 구독 대기"]
+        SD["🛠 signal_decoder\nperception · 전승혜\n/tracked_objects 구독 대기"]
         VLM["🛠 vlm_task_planner\nplan · 권형중\n/mission/signal 대기"]
     end
 
@@ -127,7 +127,7 @@ flowchart TD
 | `perception` | perception | **전승혜** | 카메라 처리 시작 | 카메라 2대 | `/tracked_objects` |
 | `state_manager` | manager | **김현하** | 시스템 상태 초기화 | 파라미터 | `/state/map_mode` `/state/operation_mode` |
 | `coordinator` | plan | **권형중** | **팔 initial_pose 이동** | `/joint_states` | `/arm_controller/joint_trajectory` |
-| `signal_decoder` | plan | **권형중** | 감시 준비 (대기) | `/tracked_objects` | — |
+| `signal_decoder` | perception | **전승혜** | 감시 준비 (대기) | `/tracked_objects` | — |
 | `vlm_task_planner` | plan | **권형중** | 신호 대기 | `/mission/signal` | — |
 
 ---
@@ -143,7 +143,7 @@ flowchart LR
         RLT["🛠 rl_nav_tuner\nml · 송정혁\nNav2 파라미터 동적 조정"]
         PER2["🛠 perception\n전승혜\n이동 중 물체 감지 4Hz"]
         CO2["🛠 coordinator\n권형중\n팔 scan_pose 유지"]
-        SD2["🛠 signal_decoder\n권형중\n신호등 발견 시 감시 시작"]
+        SD2["🛠 signal_decoder\n전승혜\n신호등 발견 시 감시 시작"]
         SM3["🛠 state_manager\n김현하\nEXPLORE 허용 판단"]
         COL["📦 collision_monitor\n사람·장애물 감지 감속"]
         BF["🛠 body_filter\n전승혜\n자체 포인트클라우드 제거"]
@@ -167,7 +167,7 @@ flowchart LR
 | `body_filter` | perception | **전승혜** | 로봇 자체 점군 제거 | 포인트클라우드 | 필터링된 포인트클라우드 |
 | `perception` | perception | **전승혜** | YOLO·AprilTag 감지·추적 | 카메라 2대 | `/tracked_objects` |
 | `coordinator` | plan | **권형중** | **팔 scan_pose 유지** (SLAM 보조) | `/joint_states` `/state/map_mode` | `/arm_controller/joint_trajectory` |
-| `signal_decoder` | plan | **권형중** | traffic_light 발견 시 감시 시작 | `/tracked_objects` | (신호 시 `/mission/signal`) |
+| `signal_decoder` | perception | **전승혜** | traffic_light 발견 시 감시 시작 | `/tracked_objects` | (신호 시 `/mission/signal`) |
 | `state_manager` | manager | **김현하** | EXPLORE 허용·AUTO 복귀 | `/cmd/operation_mode` `/explore/result` | `/state/operation_mode` |
 
 ---
@@ -179,7 +179,7 @@ sequenceDiagram
     participant TL as 🚦 신호등
     participant CAM as 📦 RealSense
     participant PER as 🛠 perception<br/>(전승혜)
-    participant SD as 🛠 signal_decoder<br/>(권형중)
+    participant SD as 🛠 signal_decoder<br/>(전승혜)
     participant VLM as 🛠 vlm_task_planner<br/>(권형중)
 
     Note over TL: 버튼 눌림 → 점멸 시작
@@ -193,7 +193,7 @@ sequenceDiagram
 | 노드 | 패키지 | 담당 | 역할 | 입력 | 출력 |
 |------|--------|------|------|------|------|
 | `perception` | perception | **전승혜** | 신호등 색 분류 (`classify_color`) | pole_front_cam | `/tracked_objects` (traffic_light) |
-| `signal_decoder` | plan | **권형중** | 3단계 깜빡임 해석, 잡음 필터링 | `/tracked_objects` | `/mission/signal` |
+| `signal_decoder` | perception | **전승혜** | 3단계 깜빡임 해석, 잡음 필터링 | `/tracked_objects` | `/mission/signal` |
 
 ---
 
