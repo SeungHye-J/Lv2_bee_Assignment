@@ -205,6 +205,28 @@ class ArmRebootItem(MenuItem):
         return STAY
 
 
+class ArmPoseCaptureItem(MenuItem):
+    key = '6'
+
+    def label(self):
+        return '손으로 자세 잡기(TEACH) → 시작 자세 값 보기'
+
+    def run(self):
+        if self.state.operation != 'TEACH':
+            if not self.ui.confirm('TEACH 모드로 바꿀까요? (팔·그리퍼 토크 끔)', default=False,
+                                   body=['토크가 꺼지면 팔이 처집니다 — 손으로 잡을 준비를 하세요.',
+                                         '바퀴는 그대로입니다.']):
+                return STAY
+            if self.bus.cmd_mode(argparse.Namespace(mode='teach')) != 0:
+                return STAY
+        self.ui.confirm('손으로 팔·그리퍼 자세를 잡은 뒤 확인을 누르세요', default=True,
+                        body=['지금 각을 읽고 바로 MANUAL로 바꿔 그 자리에서 토크를 켭니다.',
+                              '다 잡을 때까지 팔을 놓지 마세요.'])
+        self.bus.cmd_capture()
+        self.bus.cmd_mode(argparse.Namespace(mode='manual'))  # TEACH를 나가면 manual_control이 지금 자세로 토크 켬
+        return STAY
+
+
 class ArmMenu(Menu):
     title = '팔'
 
@@ -213,7 +235,8 @@ class ArmMenu(Menu):
                 ArmMoveItem(self.app, '2', False),
                 ArmMoveItem(self.app, '3', True),
                 ArmHomeItem(self.app),
-                ArmRebootItem(self.app)]
+                ArmRebootItem(self.app),
+                ArmPoseCaptureItem(self.app)]
 
     def center(self):
         st = self.state

@@ -252,6 +252,10 @@ class Bus:
         target = args.mode.upper()
         if target == 'EXPLORE' and self.state.map_mode not in ('MAPPING', ''):
             print('WARN: EXPLORE는 지도 모드 MAPPING에서만 허용됩니다', file=sys.stderr)
+        if target == 'TEACH':
+            if self.state.map_mode == 'MAPPING':
+                print('WARN: TEACH는 지도 모드 MAPPING에서는 거절됩니다 (팔 스캔 자세 고정)', file=sys.stderr)
+            print('TEACH: 팔(joint1~5)·그리퍼 토크가 꺼집니다 — 팔이 처지니 손으로 잡으세요. 끝나면 `arm capture` → `mode manual`(토크 켬)')
         self._publish(self.pub_operation, String(data=target))
         if self._wait_value('operation_mode', target, 2.5):
             print(f'조작 모드 → {target}')
@@ -435,9 +439,34 @@ class Bus:
               ' — manual_control 진단 "마지막 모터 재부팅"·기구 걸림 확인', file=sys.stderr)
         return 1
 
+    PLAN_YAML = Path(__file__).resolve().parents[3] / 'ros2_ws' / 'src' / 'plan' / 'config' / 'plan.yaml'
+
+    def cmd_capture(self) -> int:
+        """지금 팔·그리퍼 자세를 plan.yaml(coordinator) 형식으로 보여 준다 — 파일은 안 고침, 사람이 붙여 넣는다."""
+        if not self._wait_joints():
+            print('/joint_states 없음 — bringup/OpenCR 확인', file=sys.stderr)
+            return 1
+        self._poll(0.3)  # 최신 값
+        missing = [j for j in ARM_JOINTS if j not in self.state.joints]
+        if missing:
+            print('/joint_states에 없는 팔 관절: ' + ', '.join(missing), file=sys.stderr)
+            return 1
+        values = [self.state.joints[j] for j in ARM_JOINTS]
+        print('  '.join(f'{j}={self._rad_deg(v)}' for j, v in zip(ARM_JOINTS, values)))
+        gripper = self.state.joints.get(GRIPPER_JOINT)
+        print(f'\n{self.PLAN_YAML} 의 coordinator: ros__parameters: 아래에 붙여 넣으세요 (bringup 재시작 후 적용)\n')
+        print('    initial_pose: [' + ', '.join(f'{v:.4f}' for v in values) + ']')
+        if gripper is None:
+            print('    # initial_gripper: (/joint_states에 gripper_left_joint 없음)')
+        else:
+            print(f'    initial_gripper: {gripper:.4f}')
+        return 0
+
     def cmd_arm(self, args) -> int:
         if args.action == 'reboot':
             return self.cmd_reboot(args.force)
+        if args.action == 'capture':
+            return self.cmd_capture()
         if args.action == 'show':
             self._wait_joints()
             values = [f'{name}={self._rad_deg(self.state.joints[name])}' for name in ARM_JOINTS if name in self.state.joints]

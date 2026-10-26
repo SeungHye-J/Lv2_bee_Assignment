@@ -85,10 +85,11 @@ rosdep update
 
 *5. 환경 변수 (~/.bashrc)*
 ```bash
-echo -e '\n# ROS 2 Lyrical\nsource /opt/ros/lyrical/setup.bash\nexport ROS_DOMAIN_ID=88' >> ~/.bashrc
+echo -e '\n# ROS 2 Lyrical\nsource /opt/ros/lyrical/setup.bash\nexport ROS_DOMAIN_ID=0' >> ~/.bashrc
 source ~/.bashrc
 ```
-• `ROS_DOMAIN_ID=88` 팀 공통값, 꼭 맞출 것
+• Jetson은 `ROS_DOMAIN_ID=0` — ROS를 Jetson 안에서만 돌린다(bringup·`tool/run-cli` 모두 Jetson에서). PC docker·시뮬레이터(88)와 섞이지 않는다
+• PC에서 Jetson 토픽을 직접 봐야 할 때만 양쪽 값을 같게 맞출 것
 • 부트캠프 Wi-Fi는 멀티캐스트가 막혀서 자동 탐색이 안 됨 → `ROS_STATIC_PEERS`에 상대 IP 필수. 여러 대면 `"IP1;IP2"`
 • 이름(`xxx.local`) 대신 *IP로* 적을 것. 이름은 상대가 꺼져 있으면 노드 실행 자체가 실패함
 • 내 IP 확인: `hostname -I`

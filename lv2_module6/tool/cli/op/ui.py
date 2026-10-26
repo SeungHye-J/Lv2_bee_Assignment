@@ -191,7 +191,7 @@ class Ui:
         ]
         op = self.operation or '?'
         mode = self.map_mode or '?'
-        op_c = {'AUTO': GREEN, 'MANUAL': YELLOW, 'EXPLORE': CYAN}.get(op, RED)
+        op_c = {'AUTO': GREEN, 'MANUAL': YELLOW, 'EXPLORE': CYAN, 'TEACH': RED}.get(op, RED)
         mode_c = {'MAPPING': YELLOW, 'LOCALIZATION': GREEN}.get(mode, '')
         op_txt = self.term.paint(op, op_c + BOLD)
         mode_txt = self.term.paint(mode, mode_c) if mode_c else self.term.paint(mode, DIM)

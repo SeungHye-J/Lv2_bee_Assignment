@@ -211,8 +211,8 @@ def build_parser() -> argparse.ArgumentParser:
                         help='/diagnostics_agg 요약 · 이름 일부를 주면 그 항목 상세(값 전부) — 예: --diagnostics signal_decoder')
     status.add_argument('--topics', action='store_true', help='/state/topics 전체 출력')
 
-    mode = sub.add_parser('mode', help='조작 모드 AUTO/MANUAL/EXPLORE 전환')
-    mode.add_argument('mode', type=str.lower, choices=('auto', 'manual', 'explore'))
+    mode = sub.add_parser('mode', help='조작 모드 AUTO/MANUAL/EXPLORE/TEACH 전환 (TEACH = 팔 토크 끄고 손으로 자세)')
+    mode.add_argument('mode', type=str.lower, choices=('auto', 'manual', 'explore', 'teach'))
 
     estop = sub.add_parser('estop', help='비상정지 on/off/status')
     estop.add_argument('state', type=str.lower, choices=('on', 'off', 'status'))
@@ -230,8 +230,9 @@ def build_parser() -> argparse.ArgumentParser:
     teleop.add_argument('--force', action='store_true', help='MANUAL 상태 확인을 건너뜀 (위험)')
 
     arm = sub.add_parser('arm', help='팔 관절 수동 명령 (MANUAL 모드)')
-    arm.add_argument('action', type=str.lower, choices=('show', 'set', 'delta', 'home', 'reboot'),
-                     help='reboot = Hardware Error(과부하 등) 난 모터만 재부팅 (/cmd/manual/reboot_motors)')
+    arm.add_argument('action', type=str.lower, choices=('show', 'set', 'delta', 'home', 'reboot', 'capture'),
+                     help='reboot = Hardware Error(과부하 등) 난 모터만 재부팅 (/cmd/manual/reboot_motors) · '
+                          'capture = 지금 팔·그리퍼 자세를 plan.yaml initial_pose·initial_gripper 형식으로 출력 (보통 mode teach로 손으로 잡은 뒤)')
     arm.add_argument('targets', nargs='*', help='관절 목표: joint1=0.0 joint2=0.4 (all=0.0 가능)')
     arm.add_argument('--force', action='store_true', help='MANUAL/MAPPING 확인을 건너뜀 (위험)')
 

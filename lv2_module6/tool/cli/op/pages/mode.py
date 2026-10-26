@@ -26,6 +26,9 @@ class ModeItem(MenuItem):
             body.append('AUTO로 바꾸면 자동 주행이 시작될 수 있습니다.')
         if self._target == 'EXPLORE' and self.state.map_mode != 'MAPPING':
             body.append(f'주의: EXPLORE는 지도 모드 MAPPING에서만 허용됩니다 (지금 {self.state.map_mode or "-"}).')
+        if self._target == 'TEACH':
+            body.append('팔(joint1~5)·그리퍼 토크가 꺼져 팔이 처집니다 — 손으로 잡으세요. 바퀴는 그대로.')
+            body.append('나가면(MANUAL·AUTO) 그 자리에서 토크가 다시 켜집니다. 자세 값 보기: 팔 → 6')
         if self._target != 'MANUAL' and not self.ui.confirm(
                 f'{self._target}로 전환할까요?', default=False, body=body):
             return STAY
@@ -39,7 +42,8 @@ class ModeMenu(Menu):
     def items(self):
         return [ModeItem(self.app, '1', 'AUTO', '자동 주행'),
                 ModeItem(self.app, '2', 'MANUAL', '수동 주행/팔/그리퍼'),
-                ModeItem(self.app, '3', 'EXPLORE', 'MAPPING 중 탐사')]
+                ModeItem(self.app, '3', 'EXPLORE', 'MAPPING 중 탐사'),
+                ModeItem(self.app, '4', 'TEACH', '팔·그리퍼 토크 끄고 손으로 자세 잡기')]
 
     def center(self):
         st = self.state
