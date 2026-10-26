@@ -1,15 +1,15 @@
-// control 테스트: body_filter는 URDF 충돌 상자(+padding) 안의 점을 빼고 밖의 점만 내보낸다
+// perception 테스트: body_filter는 URDF 충돌 상자(+padding) 안의 점을 빼고 밖의 점만 내보낸다
 #include <gtest/gtest.h>
 
 #include <chrono>
 #include <cstring>
 #include <thread>
 
-#include "control/body_filter.hpp"
+#include "perception/body_filter.hpp"
 #include "sensor_msgs/point_cloud2_iterator.hpp"
 #include "tf2_ros/static_transform_broadcaster.hpp"
 
-using namespace control;  // 노드 클래스·메시지 별칭 (include/control/*.hpp)
+using namespace perception;  // 노드 클래스·메시지 별칭 (include/perception/*.hpp)
 
 template <class Step, class Done>
 bool spin_until(rclcpp::Executor & exec, Step step, Done done, double timeout_s = 5.0) {

@@ -1,6 +1,6 @@
 #pragma once
 
-// body_filter (🛠 직접 작성, 담당: 김현하) — 카메라 점구름에서 로봇 자기 몸(팔·차체·바구니)에 찍힌 점을 뺀다
+// body_filter (🛠 직접 작성, 담당: 전승혜) — 카메라 점구름에서 로봇 자기 몸(팔·차체·바구니)에 찍힌 점을 뺀다
 //   pole_front_cam은 차체 뒤 폴 위에서 앞을 내려다봐서 팔이 화면에 들어온다 → 빼지 않으면 Nav2 장애물 지도·collision_monitor가
 //   자기 팔을 장애물로 보고 멈춘다. Lyrical에는 robot_body_filter가 없고 pcl_ros CropBox는 고정 상자 하나뿐이라 직접 작성.
 //   입력: input_topic (기본 /pole_front_cam/depth/color/points) · /robot_description (URDF, transient_local) · TF
@@ -19,7 +19,7 @@
 #include "tf2_ros/buffer.hpp"
 #include "tf2_ros/transform_listener.hpp"
 
-namespace control {
+namespace perception {
 
 using sensor_msgs::msg::PointCloud2;
 
@@ -53,4 +53,4 @@ private:
   diagnostic_updater::Updater diag_{this};
 };
 
-}  // namespace control
+}  // namespace perception

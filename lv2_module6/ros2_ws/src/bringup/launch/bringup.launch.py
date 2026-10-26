@@ -171,7 +171,7 @@ def generate_launch_description():
         *[node('ml', n, learning, condition=IfCondition(LaunchConfiguration(f'use_{n}'))) for n in ML_NODES],
         node('control', 'arm_safety_monitor'),
         node('control', 'manual_control'),
-        node('control', 'body_filter'),
+        node('perception', 'body_filter'),
         node('manager', 'state_manager', {'map_mode': LaunchConfiguration('map_mode'),
                                           'map_name': ParameterValue(LaunchConfiguration('map_name'), value_type=str),
                                           'map_dir': ParameterValue(LaunchConfiguration('map_dir'), value_type=str),

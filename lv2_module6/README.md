@@ -223,8 +223,8 @@ lv2_module6/
 ├── ros2_ws/
 │   ├── start.sh · firmware-upload.sh · download-artifact.sh · monitor.sh   실기·배포 패키지용 스크립트
 │   └── src/
-│       ├── perception/   🛠 perception                                         + msg TrackedObject(Array)
-│       ├── control/      🛠 arm_safety_monitor · manual_control · body_filter · BeebotSystemHardware(ros2_control)  + msg ArmSafetyEvent · MotorStatus
+│       ├── perception/   🛠 perception · body_filter                           + msg TrackedObject(Array)
+│       ├── control/      🛠 arm_safety_monitor · manual_control · BeebotSystemHardware(ros2_control)  + msg ArmSafetyEvent · MotorStatus
 │       ├── manager/      🛠 state_manager (상태의 주인 — /state/operation_mode · /state/map_mode · /state/map_name · /state/emergency · /state/devices(모터 에러 포함))
 │       ├── ml/           🛠 grasp_scorer · rl_nav_tuner · rl_nav_correction · rl_arm_correction  + srv ScoreGrasps
 │       ├── plan/         🛠 user_input · vlm_task_planner · signal_decoder · explorer · coordinator  + msg SubGoal(Array) · TaskStatus · MissionSignal

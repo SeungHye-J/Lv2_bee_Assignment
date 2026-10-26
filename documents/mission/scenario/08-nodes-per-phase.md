@@ -18,13 +18,13 @@ plan           vlm_task_planner         권형중   C++
 plan           coordinator              권형중   C++
 plan           explorer                 김현하   C++
 perception     perception               전승혜   Python
+perception     body_filter              전승혜   C++
 ml             grasp_scorer             송정혁   C++
 ml             rl_nav_tuner             송정혁   C++
 ml             rl_nav_correction        송정혁   C++
 ml             rl_arm_correction        송정혁   C++ (controller plugin)
 control        manual_control           김현하   C++
 control        arm_safety_monitor       김현하   C++
-control        body_filter              김현하   C++
 control        BeebotSystemHardware     김현하   C++ (hardware plugin)
 ros_system     Nav2                     📦 제공
 ros_system     MoveIt2 + MTC            📦 제공
@@ -146,7 +146,7 @@ flowchart LR
         SD2["🛠 signal_decoder\n권형중\n신호등 발견 시 감시 시작"]
         SM3["🛠 state_manager\n김현하\nEXPLORE 허용 판단"]
         COL["📦 collision_monitor\n사람·장애물 감지 감속"]
-        BF["🛠 body_filter\n김현하\n자체 포인트클라우드 제거"]
+        BF["🛠 body_filter\n전승혜\n자체 포인트클라우드 제거"]
     end
 
     EXP -->|"/navigate_to_pose"| NAV
@@ -164,7 +164,7 @@ flowchart LR
 | `twist_mux` | ros_system | 📦 | 자동/수동/비상정지 우선순위 | `/cmd_vel_corrected` 등 | `/cmd_vel_mux` |
 | `velocity_smoother` | ros_system | 📦 | 급가속 완화 | `/cmd_vel_mux` | `/cmd_vel` |
 | `collision_monitor` | ros_system | 📦 | 사람·장애물 감지 감속·정지 | 센서 `/cmd_vel` | `/cmd_vel` (제한) |
-| `body_filter` | control | **김현하** | 로봇 자체 점군 제거 | 포인트클라우드 | 필터링된 포인트클라우드 |
+| `body_filter` | perception | **전승혜** | 로봇 자체 점군 제거 | 포인트클라우드 | 필터링된 포인트클라우드 |
 | `perception` | perception | **전승혜** | YOLO·AprilTag 감지·추적 | 카메라 2대 | `/tracked_objects` |
 | `coordinator` | plan | **권형중** | **팔 scan_pose 유지** (SLAM 보조) | `/joint_states` `/state/map_mode` | `/arm_controller/joint_trajectory` |
 | `signal_decoder` | plan | **권형중** | traffic_light 발견 시 감시 시작 | `/tracked_objects` | (신호 시 `/mission/signal`) |
@@ -272,7 +272,7 @@ flowchart TD
 | **place tray** | coordinator → MoveIt2 → gripper_controller → BeebotSystemHardware | plan/ros_system/control | 권형중/📦/김현하 |
 | **inspect** | coordinator → MoveIt2 → (팔 이동) → perception(gripper_cam 태그 읽기) | plan/ros_system/perception | 권형중/📦/전승혜 |
 | **안전 감시** | arm_safety_monitor → coordinator (접촉 시 중단) | control | **김현하** |
-| **자체 필터** | body_filter → Nav2·collision_monitor (자기 몸 오감지 방지) | control | **김현하** |
+| **자체 필터** | body_filter → Nav2·collision_monitor (자기 몸 오감지 방지) | perception | **전승혜** |
 
 ---
 
@@ -294,7 +294,7 @@ flowchart TB
         HW4["BeebotSystemHardware\ncontrol 패키지\n\nOpenCR ↔ ROS 2 브릿지\n100Hz read/write\n바퀴2 · 팔5 · 그리퍼 · IMU"]
         MC3["manual_control\ncontrol 패키지\n\n/cmd/manual/* 수신\n→ /cmd_vel_manual 발행\n수동 조종·팔 직접 조작"]
         ASM4["arm_safety_monitor\ncontrol 패키지\n\n팔 관절 전류 감시\n접촉 감지 → /arm_safety_event\n→ coordinator 에 전달"]
-        BF3["body_filter\ncontrol 패키지\n\n로봇 자체 몸체를\n포인트클라우드에서 제거\n(자기 팔이 장애물로 오인 방지)"]
+        BF3["body_filter\nperception 패키지\n\n로봇 자체 몸체를\n포인트클라우드에서 제거\n(자기 팔이 장애물로 오인 방지)"]
         SM4["state_manager\nmanager 패키지\n\n시스템 상태 총괄\noperation_mode · map_mode\nemergency · devices · restart"]
         EXP3["explorer\nplan 패키지\n\n프론티어 기반 자동 탐색\n퍽·신호등·목적지 위치 발견"]
     end
@@ -308,6 +308,6 @@ flowchart TB
 | `BeebotSystemHardware` | control | 항상 | 하드웨어 최하단 — 없으면 로봇 안 움직임 |
 | `manual_control` | control | 항상 | 수동 전환 시 운영자 명령 전달 |
 | `arm_safety_monitor` | control | 항상 | 팔 접촉·과부하 감지·중단 |
-| `body_filter` | control | 항상 | Nav2·collision_monitor 오감지 방지 |
+| `body_filter` | perception | 항상 | Nav2·collision_monitor 오감지 방지 |
 | `state_manager` | manager | 항상 | 전체 상태 관리 (SLAM→경기 모드 전환 포함) |
 | `explorer` | plan | Phase 1 (EXPLORE) | 랜덤 배치된 요소 위치 탐색 |

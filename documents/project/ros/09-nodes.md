@@ -23,7 +23,7 @@
 | manual_control | 직접 | control · ROS 2 노드 | 수동 모드(/state/operation_mode), 원격 조종 → twist_mux, 팔·그리퍼 직접 명령, `/cmd/manual/reboot_motors` → 📞 /beebotsystem/reboot_motors |
 | BeebotSystemHardware | 직접 | control · ros2_control SystemInterface 플러그인 | OpenCR와 USB 시리얼(`C` 명령 · `R` 재부팅 / `S` 상태 · `E` 모터 에러), 관절 영점 offset(URDF `<param name="offset">`), 첫 `S` 전엔 활성화 안 함, /motor_status(바뀔 때만), 📞 ~/reboot_motors, mock 모드 |
 | scan_cam_gate | 직접 | ros_system · ROS 2 노드 (Python) | 팔이 스캔 자세일 때만 gripper_cam depth·점구름을 RTAB-Map 쪽으로 넘김 (지도 만들 때 두 번째 카메라) |
-| body_filter | 직접 | control · ROS 2 노드 | pole_front_cam 점구름에서 자기 몸(URDF collision) 점 제거 + `stride: 2`로 솎아 Nav2 |
+| body_filter | 직접 | perception · ROS 2 노드 (C++) | pole_front_cam 점구름에서 자기 몸(URDF collision) 점 제거 + `stride: 2`로 솎아 Nav2 |
 | state_manager | 직접 | manager · ROS 2 노드 | 로봇 상태의 주인 — /state/<이름>만 발행 (조작·지도 모드, RTAB-Map 전환) · `/state/devices`(장치 이름 목록) + `/state/devices/<이름>`(active/disconnected/error 상세 — 팔·바퀴·그리퍼 모터 에러 포함) + `/state/topics`(전체 그래프) |
 | (OpenCR 펌웨어) beebot_opencr | 직접 | lv2_module6/firmware · Arduino | 다이나믹셀 8개 + IMU, 단위 변환, watchdog · 한 패킷 BulkWrite(바퀴 속도 + 팔·그리퍼 위치) · SyncRead(전류·속도·위치) · `S` 10ms · Hardware Error `E` 0.5초 · `R` 재부팅 · 12V 끊겼다 오면 토크 천천히 복구 |
 | (호스트) ai-service | 직접 | lv2_module6/ai-service · Python HTTP 서버 (ROS 아님) | vlm_task_planner의 POST /plan → backend(VLM CLI · **human**: 사람이 웹 페이지에서 계획) → SubGoal 목록 |
@@ -57,10 +57,10 @@ lv2_module6/
 ├── tool/                         # run-cli 운영 도구
 ├── simulator/                    # SIL 시뮬레이터 (더 쓰지 않음)
 └── ros2_ws/src/
-    ├── perception/   # perception + msg
+    ├── perception/   # perception · body_filter + msg
     ├── plan/         # user_input · vlm_task_planner · signal_decoder · explorer · coordinator + msg
     ├── ml/           # grasp_scorer · rl_nav_tuner · rl_nav_correction · rl_arm_correction(플러그인) + srv
-    ├── control/      # arm_safety_monitor · manual_control · body_filter · BeebotSystemHardware(플러그인) + msg
+    ├── control/      # arm_safety_monitor · manual_control · BeebotSystemHardware(플러그인) + msg
     ├── manager/      # state_manager (상태 /state/*)
     ├── ros_system/   # 📦 기동 · config (controllers · ekf · twist_mux) · scan_cam_gate
     ├── bringup/      # 전체 실행 · diagnostics.yaml

@@ -193,8 +193,8 @@ gz sim --gui-config lv2_module6/develop/gazebo/gui.config /tmp/beebot_world.sdf
 - 갱신: **15 Hz**
 - 적용 위치: `lv2_module6/urdf/default/urdf.xacro:579`
 - `body_filter`는 `stride: 2`로 점구름을 솎아 Nav2/collision_monitor에 전달
-  - 설정: `lv2_module6/ros2_ws/src/control/config/control.yaml:18`
-  - 구현: `lv2_module6/ros2_ws/src/control/src/body_filter.cpp:172`
+  - 설정: `lv2_module6/ros2_ws/src/perception/config/perception.yaml (`body_filter:`)`
+  - 구현: `lv2_module6/ros2_ws/src/perception/src/body_filter.cpp`
 
 더 줄이고 싶으면:
 
