@@ -196,11 +196,11 @@ std_msgs/Header header
 string[] joints   # 프로토콜 순서: wheel_left_joint, wheel_right_joint, joint1~5, gripper_left_joint
 int32[] error     # 0 정상 · -1 응답 없음 · 비트 1 입력전압 · 4 과열 · 8 엔코더 · 16 전기충격 · 32 과부하 (Reboot로만 풀림)
 string[] text     # 사람이 읽는 이름 — "정상" · "과부하" · "과열·과부하" · "응답 없음"
-int32[] temperature  # Present Temperature °C · -1 모름 (응답 없음 · H 줄 없는 예전 펌웨어 · mock). 80 °C(Temperature Limit)면 과열 에러로 멈춤
+int32[] temperature  # Present Temperature °C · -1 모름 (응답 없음 · 온도 없는 예전 펌웨어 · mock). 80 °C(Temperature Limit)면 과열 에러로 멈춤
 ```
 
 - 내는 쪽: BeebotSystemHardware(controller_manager 안) → `/motor_status` (reliable + transient_local, 0.5초마다 보고 바뀔 때만). 받는 쪽: state_manager → `/state/devices/<wheels|arm|gripper>`의 `error`.
-- 원본은 펌웨어 `E` 줄(DYNAMIXEL Hardware Error Status, addr 70) · `H` 줄(Present Temperature, addr 146). 에러나 온도가 바뀔 때 낸다. 온도 70 °C 이상이면 진단 "OpenCR 연결"이 WARN — [firmware/README.md](../lv2_module6/firmware/README.md). 로봇 상태가 아니라 **하드웨어 원본 사실**이라 `/state/...`가 아님 (`/state/<이름>`은 state_manager만 냄). 사람용 설명은 `/diagnostics`에도 따로 있지만 노드는 진단 문자열을 읽지 않고 이 토픽을 읽는다.
+- 원본은 펌웨어 `E` 줄(DYNAMIXEL Hardware Error Status, addr 70) · `S` 줄 끝 8칸(Present Temperature, addr 146 — 0.5초마다 읽은 값). 에러나 온도가 바뀔 때 낸다. 온도 70 °C 이상이면 진단 "OpenCR 연결"이 WARN — [firmware/README.md](../lv2_module6/firmware/README.md). 로봇 상태가 아니라 **하드웨어 원본 사실**이라 `/state/...`가 아님 (`/state/<이름>`은 state_manager만 냄). 사람용 설명은 `/diagnostics`에도 따로 있지만 노드는 진단 문자열을 읽지 않고 이 토픽을 읽는다.
 
 <a id="api-srv-scoregrasps"></a>
 ### ml/srv/ScoreGrasps ([파일](../lv2_module6/ros2_ws/src/ml/srv/ScoreGrasps.srv))
@@ -254,7 +254,7 @@ string message
 | `/task/status` | plan/TaskStatus | coordinator → vlm_task_planner, user_input | 단계 완료·실패 시 · reliable + transient_local |
 | `/speed_limit` | nav2_msgs/SpeedLimit | rl_nav_tuner → controller_server, rl_nav_correction | 프리셋 변경 시 · reliable |
 | `/arm_safety_event` | control/ArmSafetyEvent | arm_safety_monitor → coordinator | 접촉 시 |
-| `/motor_status` | control/MotorStatus | BeebotSystemHardware → state_manager | 모터별 Hardware Error (0 정상 · −1 응답 없음 · 비트 1 입력전압 4 과열 8 엔코더 16 전기충격 32 과부하) + 사람이 읽는 이름 + 온도 °C — 바뀔 때만 · reliable + transient_local (펌웨어 `E`·`H` 줄) |
+| `/motor_status` | control/MotorStatus | BeebotSystemHardware → state_manager | 모터별 Hardware Error (0 정상 · −1 응답 없음 · 비트 1 입력전압 4 과열 8 엔코더 16 전기충격 32 과부하) + 사람이 읽는 이름 + 온도 °C — 바뀔 때만 · reliable + transient_local (펌웨어 `E` 줄 · `S` 끝 온도) |
 
 ### Nav2·위치추정 ([04](project/ros/04-nav.md))
 

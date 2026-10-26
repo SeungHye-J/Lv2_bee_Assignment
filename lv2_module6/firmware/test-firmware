@@ -135,14 +135,14 @@ read_status() {
 }
 
 # 시리얼을 timeout으로 끊으면 마지막 줄이 중간에서 잘릴 수 있다.
-# S 필드가 정확히 32개인 "완전한 줄"만 사용한다.
+# S 필드가 40개(끝 8개 = 모터 온도 °C)인 "완전한 줄"만 사용한다. 온도 전 예전 펌웨어(32개)도 받는다.
 complete_s_lines() {
   awk -F, '
     /^S,/ {
       line = $0;
       sub(/\r$/, "", line);
       n = split(line, a, ",");
-      if (n == 33) print line;
+      if (n == 41 || n == 33) print line;
     }
   ' "$tmp"
 }
@@ -154,9 +154,9 @@ s_count=$((s_count))
 if [ "$s_count" -eq 0 ]; then
   partial=$(grep '^S,' "$tmp" | tail -n 1 | tr -d '\r' || true)
   if [ -n "$partial" ]; then
-    echo "FAIL: S 줄은 수신되지만 32필드짜리 완전한 줄이 없습니다 ($PORT)"
+    echo "FAIL: S 줄은 수신되지만 40필드짜리 완전한 줄이 없습니다 ($PORT)"
     echo "마지막 S: $partial"
-    echo "  이 줄의 필드 수: $(awk -F, '{print NF - 1}' <<<"$partial") (기대: 32)"
+    echo "  이 줄의 필드 수: $(awk -F, '{print NF - 1}' <<<"$partial") (기대: 40 · 예전 펌웨어 32)"
     echo "  - beebot_opencr이 아닌 다른 OpenCR 펌웨어일 가능성"
     echo "  - 또는 시리얼이 중간에 끊겨 필드가 잘린 경우"
     echo "  - raw 확인: ./test-firmware --raw"
@@ -171,12 +171,12 @@ fi
 
 last=$(complete_s_lines | tail -n 1)
 fields=$(awk -F, '{print NF - 1}' <<<"$last")
-say "OK: S ${s_count}줄, 필드 ${fields}개 (기대: 32개)"
+say "OK: S ${s_count}줄, 필드 ${fields}개 (기대: 40개 · 예전 펌웨어 32개)"
 say "포트: $PORT"
 say ""
 
 if [ "$RAW" = 1 ]; then
-  say "--- S 줄 (최대 $LINES개, 완전한 32필드만) ---"
+  say "--- S 줄 (최대 $LINES개, 완전한 40·32필드만) ---"
   complete_s_lines | head -n "$LINES" || true
   say ""
 fi
@@ -185,12 +185,14 @@ IFS=',' read -r -a v <<<"$last"
 if [ "${#v[@]}" -lt 33 ]; then
   echo "FAIL: S 필드가 부족합니다 (${#v[@]}개, S 포함)"
   echo "마지막 S: $last"
-  echo "  beebot_opencr는 S 뒤에 32개 값이 와야 합니다."
+  echo "  beebot_opencr는 S 뒤에 40개 값이 와야 합니다 (예전 펌웨어 32개)."
   echo "  이 값이 8개뿐이면 beebot_opencr이 아닌 다른 펌웨어가 도는 중일 가능성이 큽니다."
   exit 1
 fi
-if [ "$fields" != 32 ]; then
-  echo "WARN: S 필드 수가 32가 아닙니다. 펌웨어/프로토콜 버전을 확인하세요."
+if [ "$fields" = 32 ]; then
+  echo "WARN: S 필드 32개 — 모터 온도 없는 예전 펌웨어입니다. 다시 업로드하세요."
+elif [ "$fields" != 40 ]; then
+  echo "WARN: S 필드 수가 40이 아닙니다. 펌웨어/프로토콜 버전을 확인하세요."
 fi
 
 # rad + deg 같이 (각도 확인용). 바퀴는 회전 누적이라 deg는 참고만.
@@ -203,6 +205,18 @@ printf 'joint3  : pos % .4f rad (%s deg)  vel % .4f rad/s  cur % .3f A\n' "${v[1
 printf 'joint4  : pos % .4f rad (%s deg)  vel % .4f rad/s  cur % .3f A\n' "${v[14]}" "$(deg "${v[14]}")" "${v[15]}" "${v[16]}"
 printf 'joint5  : pos % .4f rad (%s deg)  vel % .4f rad/s  cur % .3f A\n' "${v[17]}" "$(deg "${v[17]}")" "${v[18]}" "${v[19]}"
 printf 'gripper : pos % .4f m    vel % .4f m/s    cur % .3f A\n' "${v[20]}" "${v[21]}" "${v[22]}"
+
+# S 끝 8칸(33~40) — 모터 온도 °C (−1 모름). 70 °C 이상이면 표시 (80 °C면 과열 에러로 멈춤)
+if [ "${#v[@]}" -ge 41 ]; then
+  names=(wheel_left wheel_right joint1 joint2 joint3 joint4 joint5 gripper); out=""; hot=""
+  for i in 0 1 2 3 4 5 6 7; do
+    t=${v[$((33 + i))]}
+    out+=" ${names[$i]}=${t}"
+    [ "$t" -ge 70 ] 2>/dev/null && hot+=" ${names[$i]}"
+  done
+  say "temp °C :$out"
+  [ -z "$hot" ] || say "  ⚠ 70 °C 이상:$hot (80 °C면 과열 에러로 멈춤)"
+fi
 
 # E 줄 — 모터별 Hardware Error Status (0 정상 · −1 응답 없음 · 비트: 1 입력전압 4 과열 8 엔코더 16 전기충격 32 과부하)
 show_errors() {
@@ -218,22 +232,6 @@ show_errors() {
 }
 show_errors
 
-# H 줄 — 모터별 온도 °C (−1 응답 없음, 0.5초마다 · E 바로 뒤). 70 °C 이상이면 표시 (80 °C면 과열로 멈춤)
-show_temperatures() {
-  local h
-  h=$(grep '^H,' "$tmp" | tr -d '\r' | awk -F, 'NF == 9' | tail -n 1 || true)
-  if [ -z "$h" ]; then say "모터 온도: H 줄 없음 (0.5초마다 옴 — 예전 펌웨어면 없음)"; return; fi
-  IFS=',' read -r -a hv <<<"$h"
-  local names=(wheel_left wheel_right joint1 joint2 joint3 joint4 joint5 gripper) out="" hot="" i t
-  for i in 0 1 2 3 4 5 6 7; do
-    t=${hv[$((i + 1))]}
-    out+=" ${names[$i]}=${t}"
-    [ "$t" -ge 70 ] 2>/dev/null && hot+=" ${names[$i]}"
-  done
-  say "모터 온도 °C:$out"
-  [ -z "$hot" ] || say "  ⚠ 70 °C 이상:$hot (80 °C면 과열 에러로 멈춤)"
-}
-show_temperatures
 
 # 현재 자세를 유지하는 C 명령. 관절·그리퍼는 마지막 S의 위치를 그대로 쓴다.
 current_cmd() {

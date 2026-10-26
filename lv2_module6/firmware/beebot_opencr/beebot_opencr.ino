@@ -5,7 +5,8 @@
 //                        바퀴는 정지(0). 전부 빈칸이면 바퀴 정지 + 팔 유지. 예: C,0.3,0.3,,,,,,
 //                        (빈칸 없이 전부 숫자였던 기존 C와 호환 — SBC는 팔 명령이 없을 때(NaN) 팔 칸을 빈칸으로 보냄)
 //     OpenCR → SBC  S,<바퀴L pos,vel>,<바퀴R pos,vel>,<j1 pos,vel,A>…<j5 …>,<그리퍼 m,m/s,A>,
-//                        <qx,qy,qz,qw>,<gx,gy,gz rad/s>,<ax,ay,az m/s²>\n                         (STATE_PERIOD_MS마다)
+//                        <qx,qy,qz,qw>,<gx,gy,gz rad/s>,<ax,ay,az m/s²>,<모터 8개 온도 °C>\n          (STATE_PERIOD_MS마다, 40개)
+//                        온도 = 바퀴L·R·joint1~5·그리퍼 순 정수 (−1 = 모름). 0.5 s(MOTOR_CHECK_MS)마다 읽은 마지막 값
 //   관절 0rad = 서보 중앙(2048 = 180°). 바퀴 위치는 부팅 후 누적 rad.
 //   그리퍼 = URDF gripper_left_joint 규약 (손가락 하나 m, 0 = 닫힘) — 서보각과는 config.h 실측표로 변환.
 //   토크: T,0 = 전체 해제(손으로 자세 잡기) · T,1 = 전체 켜기(현재 자세 목표) ·
@@ -13,7 +14,6 @@
 //   재부팅: R,<8필드> = 관절별 DYNAMIXEL Reboot(1=재부팅) · R,1 = 전체. 과부하·과열 등 Hardware Error는 Reboot로만 풀린다.
 //         재부팅 후 모드·Return Delay·전류를 다시 설정하고 토크를 켠다 (팔은 느린 속도로 명령 자세 복귀).
 //     OpenCR → SBC  E,<8 정수>\n  모터별 Hardware Error Status (0 = 정상, -1 = 응답 없음) — MOTOR_CHECK_MS마다
-//     OpenCR → SBC  H,<8 정수>\n  모터별 Present Temperature °C (-1 = 응답 없음) — E 바로 뒤, MOTOR_CHECK_MS마다
 //   watchdog: 마지막 유효 C부터 COMMAND_TIMEOUT_MS 지나면 바퀴 속도 0, 팔·그리퍼는 현재 자세 유지 (한 번)
 //
 // 주기 구조 (2026-10-24 실기 시험: 개별 패킷이라 S가 60 ms 계단·C 100 Hz면 S 끊김 → 아래로 바꿈)
@@ -51,7 +51,7 @@ bool torque_state[MOTOR_COUNT] = {true, true, true, true, true, true, true, true
 int32_t goal_raw[MOTOR_COUNT] = {};        // 마지막 위치 목표 (복구 완료 판정)
 uint32_t recover_since[MOTOR_COUNT] = {};  // 0이 아니면 느린 속도로 복귀 중
 int16_t hw_error[MOTOR_COUNT] = {};        // Hardware Error Status (−1 = 응답 없음) — E 줄로 보고
-int16_t hw_temp[MOTOR_COUNT] = {};         // Present Temperature °C (−1 = 응답 없음) — H 줄로 보고
+int16_t hw_temp[MOTOR_COUNT] = {-1, -1, -1, -1, -1, -1, -1, -1};  // Present Temperature °C (−1 = 모름) — S 끝 8칸
 
 // ---- SyncRead: Present Current(126, 2) · Velocity(128, 4) · Position(132, 4)
 struct __attribute__((packed)) Present
@@ -386,22 +386,11 @@ void read_error(size_t i)
     hw_error[i] = dxl.read(motor_id(i), ADDR_HARDWARE_ERROR, 1, &err, 1) == 1 ? err : -1;
 }
 
-// 온도는 빨리 안 변해서 S(10 ms)에 넣지 않고 E와 같은 0.5 s에 따로 읽는다 (모터당 1 byte 읽기 — 버스 부담 작음)
+// 온도는 빨리 안 변해서 10 ms마다 읽지 않고 E와 같은 0.5 s에 읽어 두고(모터당 1 byte — 버스 부담 작음), S에는 마지막 값을 싣는다
 void read_temperature(size_t i)
 {
     uint8_t temp = 0;
     hw_temp[i] = dxl.read(motor_id(i), ADDR_PRESENT_TEMPERATURE, 1, &temp, 1) == 1 ? temp : -1;
-}
-
-void send_temperatures()
-{
-    Serial.print('H');
-    for (size_t i = 0; i < MOTOR_COUNT; ++i)
-    {
-        Serial.print(',');
-        Serial.print(hw_temp[i]);
-    }
-    Serial.println();
 }
 
 // R 명령 — 고른 모터를 DYNAMIXEL Reboot → 다시 응답하면 설정·토크 켜기 (팔은 느린 복귀)
@@ -478,7 +467,6 @@ void check_motors()
             setup_motor(i, true);  // 재부팅된 모터 — 모드·Return Delay·쥐는 전류 다시, 팔은 느린 복귀
     }
     send_errors();
-    send_temperatures();
 }
 
 void print_value(float value)
@@ -522,6 +510,11 @@ void send_state()
         print_value(imu.SEN.gyroADC[i] * GYRO_FACTOR);
     for (size_t i = 0; i < 3; ++i)
         print_value(imu.SEN.accADC[i] * ACCEL_FACTOR);
+    for (size_t i = 0; i < MOTOR_COUNT; ++i)  // 모터 온도 °C (정수, −1 = 모름)
+    {
+        Serial.print(',');
+        Serial.print(hw_temp[i]);
+    }
     Serial.println();
 }
 
