@@ -1,17 +1,19 @@
 #pragma once
 
-// signal_decoder (🛠 직접 작성, 담당: 전승혜) — 신호등 암호 미션(documents/mission/README.md) 1·2·3단계를 시간축으로 읽는다
+// signal_decoder (🛠 직접 작성, 담당: 전승혜) — 신호등 12회 점멸 (발제 v5 §02 「신호와 바코드 규칙」)을 시간축으로 읽는다
 //   입력: ✉️ /tracked_objects — class traffic_light의 color (perception: red | yellow | green | off | all(두 색 이상 동시에 켜짐))
-//   출력: ✉️ /mission/signal (perception/MissionSignal, reliable + transient_local) → vlm_task_planner — 확정될 때마다
-//   (인지 쪽이 신호를 해석해 미션 토픽으로 낸다 — 바코드 → /mission/qr 와 같은 자리. plan은 받아서 계획만)
+//   출력: ✉️ /mission/signal (perception/MissionSignal, reliable + transient_local) → 통합(판단) — 새 답이 확정될 때만 (ok=true)
+//   (인지 쪽이 깜빡임을 세서 미션 토픽으로 낸다 — 바코드 → /mission/qr 와 같은 자리. 정렬·배정·퍽 할당은 받는 쪽에서)
 //         ✉️ /diagnostics
-//   읽는 법 (MISSION §2):
-//     1단계 한 색이 N번 → 그 색 퍽 N개 · 2단계 깜빡인 색 점수의 합 = 태그 번호 합 · 3단계 노랑 1·2·3번 → 목적지 태그 12·13·14
-//   단계 구분 (MISSION §6 미정 — 제안값이 기본, perception.yaml에서 바꿈):
-//     all(세 색 동시)이 separator_s 넘게 이어지면 단계 끝 · 꺼짐이 gap_s 넘게 이어져도 단계 끝 (한 바퀴 사이 쉬는 시간)
-//     켜짐이 min_on_s보다 짧으면 잡음. 끝난 단계 셋이 [한 색만 · 아무거나 · 노랑만 1~3번] 모양이면 답 (반복 신호에서 어디가 1단계인지도 이걸로)
-//     confirm번 같은 답이 연달아 나와야 확정 (신호를 반복하면 2로 — 깜빡임을 놓치거나 두 번 센 답을 거름)
-#include <map>
+//   발제 신호: 한 번 = 한 색 1초 켜짐 + 1초 꺼짐 (같은 색 연속도 꺼짐으로 구분) · 12번이 한 사이클 · 끝나면 3초 꺼짐 후 반복 (사용자 10/28)
+//              R·Y·G 각 1~6회, 합 12. 소등은 세지 않음. 누락·불명 색은 추정 금지 → 오류로 알림
+//   읽는 법:
+//     켜짐(red·yellow·green)이 min_on_s 넘게 이어지면 점멸 1번 (짧으면 잡음). all·그 밖의 켜짐은 unknown 1번 (추정하지 않음)
+//     꺼짐(신호등 안 보임 포함)이 gap_s 넘게 이어지면 사이클 끝 — 점멸 사이 꺼짐(1초)과 사이클 사이 꺼짐(3초)을 가름
+//     노드가 켜진 뒤 첫 사이클 끝 전의 조각은 버림 (사이클 중간부터 봤을 수 있음)
+//     사이클마다 검사: blinks개인가 · 모르는 색 없나 · 각 색 min_count~max_count인가 → 맞으면 같은 답 연속 횟수를 세고
+//     confirm번 연속 같으면 ok=true (반복 신호 — 한 번 놓치거나 두 번 센 답을 거름)
+//     발행은 새 답이 확정될 때만 (planner가 받을 때마다 다시 계획함). 확정 전·오류 사이클은 로그(WARN)·진단에만
 #include <string>
 #include <vector>
 
@@ -25,35 +27,35 @@ namespace perception {
 using perception::msg::MissionSignal;
 
 struct SignalParams {
-  double min_on_s = 0.15;       // 이보다 짧은 켜짐은 잡음
-  double separator_s = 2.0;     // all이 이만큼 이어지면 단계 구분 (제안: 3초)
-  double gap_s = 3.0;           // 꺼짐(신호등 안 보임 포함)이 이만큼 이어지면 단계 끝
-  std::map<std::string, int> scores{{"red", 1}, {"yellow", 1}, {"green", 1}};  // 2단계 색 점수 (제안: 모두 1)
-  std::vector<int> dest_tags{12, 13, 14};  // 3단계 노랑 1·2·3번 → 태그
-  int confirm = 1;              // 같은 답이 이만큼 연달아 나와야 확정
+  double min_on_s = 0.15;       // 이보다 짧은 켜짐은 잡음 [s]
+  double gap_s = 2.5;           // 꺼짐(신호등 안 보임 포함)이 이만큼 이어지면 사이클 끝 [s] (점멸 사이 1초 < 이 값 < 사이클 사이 3초)
+  int blinks = 12;              // 한 사이클 점멸 수 (발제: 12회)
+  int min_count = 1;            // 색별 횟수 하한 (발제: 각 1~6회)
+  int max_count = 6;            // 색별 횟수 상한
+  int confirm = 2;              // 같은 답이 이만큼 연달아 나와야 ok (반복 신호)
 };
 
-// 신호등 상태 샘플을 시간 순으로 받아 3단계를 해석 (ROS 없이 — 테스트용으로 따로)
+// 신호등 상태 샘플을 시간 순으로 받아 사이클별로 해석 (ROS 없이 — 테스트용으로 따로)
 class SignalDecoder {
 public:
   explicit SignalDecoder(SignalParams p = {});
-  // t [s] · state = red | yellow | green | off | all | ""(신호등 안 보임 = off). 확정되면 true + out
+  // t [s] · state = red | yellow | green | off | all | ""(신호등 안 보임 = off). 사이클이 끝나면 true + out (ok 여부는 out.ok)
   bool feed(double t, const std::string & state, MissionSignal & out);
   std::string progress() const;  // 지금까지 읽은 것 (진단)
 
 private:
   void end_run(double t);
   bool boundary(MissionSignal & out);
-  bool decode(MissionSignal & out) const;
+  void check(MissionSignal & out);
 
   SignalParams p_;
   std::string cur_ = "off";
-  double since_ = 0.0;
-  bool marked_ = false;                       // 이번 all·꺼짐 구간이 이미 단계 끝으로 처리됨
-  std::vector<std::string> seg_;              // 지금 단계의 깜빡임 (색 이름)
-  std::vector<std::vector<std::string>> segs_;  // 끝난 단계들 (최근 3개)
-  std::string last_raw_;
-  int same_ = 0;                              // 같은 답 연속 횟수
+  double since_ = -1.0;                       // 지금 상태가 시작된 시각 [s] (음수 = 아직 샘플 없음)
+  bool marked_ = false;                       // 이번 꺼짐 구간이 이미 사이클 끝으로 처리됨
+  bool started_ = false;                      // 사이클 끝을 한 번이라도 봤음 — 그 전 조각은 중간부터 본 것이라 버림
+  std::vector<std::string> seg_;              // 지금 사이클의 점멸 (red | yellow | green | unknown)
+  std::string last_raw_;                      // 직전 정상 사이클의 답 (raw)
+  int same_ = 0;                              // 같은 정상 답 연속 횟수
 };
 
 class SignalDecoderNode : public rclcpp::Node {
@@ -65,8 +67,9 @@ private:
 
   SignalDecoder dec_;
   std::string state_ = "off";
-  MissionSignal last_;
+  MissionSignal last_;                        // 마지막 사이클 결과 (ok든 아니든 — 진단)
   bool have_ = false;
+  std::string published_raw_;                 // 마지막으로 발행한 확정 답 — 같은 답은 다시 안 냄
   rclcpp::Publisher<MissionSignal>::SharedPtr pub_;
   rclcpp::Subscription<perception::msg::TrackedObjectArray>::SharedPtr sub_;
   diagnostic_updater::Updater diag_{this};
