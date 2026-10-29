@@ -34,7 +34,7 @@ perception:
     miss_occlusion_m: 0.10  # 그 자리 깊이가 물체까지 거리보다 이만큼 넘게 가까우면 가려진 것 — 세지 않음 [m]
     remember_min_hits: 3    # 같은 자리에서 이만큼 잡혀야 기억 — 그 전엔 2초 규칙 (TF가 잠깐 어긋나 엉뚱한 자리에 찍힌 유령 퍽이 남지 않게)
     # 퍽 판단 (실물 측정 10/21~22 · test/puck_tag_check.py) — 퍽 색·크기는 발제문이 나오면 여기서만 바꿀 것
-    puck_colors: ["red", "yellow", "green", "blue"]  # 퍽으로 볼 색 (가정: 빨강·노랑·초록 · 파랑 = 지금 실물 테스트용)
+    puck_colors: ["red", "green"]  # 퍽으로 볼 색 (발제 v5 · 사용자 10/29: 퍽은 빨강·초록뿐 — 파랑·노랑 퍽 없음)
     hue_tol: 10             # 기준 H(색상)에서 이만큼 안이어야 그 색 — 넘으면 other (주황 컵홀더 H12~13이 빨강으로 안 잡히게)
     check_model_color: true # YOLO 이름의 색(puck_red)과 HSV 색이 다르면 퍽 아님
     size_long_min_cm: 2.5   # 박스 긴 변 하한 [cm] (끝면·윗면 3×3만 보이면 2.5~3.9)

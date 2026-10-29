@@ -557,7 +557,7 @@ class PerceptionNode(Node):
         self.miss_occlusion_m = float(self.get_parameter("miss_occlusion_m").value)
         # 퍽 판단 (judge_puck) — 기준값은 test/puck_tag_check.py 실물 측정 (~/yolo_puck test_results_20261021.md · 10/22 bee_v3ft)
         #   퍽 색·크기는 발제문이 나오면 yaml에서 바꿀 것 (모양 원기둥·사각기둥은 구분 안 함 — 팀 결정)
-        self.declare_parameter("puck_colors", ["red", "yellow", "green", "blue"])  # 퍽으로 볼 색 (파랑 = 지금 실물 테스트용)
+        self.declare_parameter("puck_colors", ["red", "green"])  # 퍽으로 볼 색 (발제 v5: 빨강·초록뿐)
         self.declare_parameter("hue_tol", 10)               # 기준 H에서 이만큼 안이어야 그 색 (빨간 퍽 H1~10 · 주황 컵홀더 H12~13 실측)
         self.declare_parameter("check_model_color", True)   # YOLO 이름의 색(puck_red)과 HSV 색이 다르면 퍽 아님
         self.declare_parameter("size_long_min_cm", 2.5)     # 박스 긴 변 하한 [cm] (끝면·윗면 3×3만 보이면 2.5~3.9)
@@ -712,11 +712,14 @@ class PerceptionNode(Node):
     def on_infer(self):
         if self.model is None:
             return
+        # 간격 검사는 '추론 시작 시각' 기준 · 0.2초 (타이머 0.25초가 상한) — 끝난 시각 기준 0.25초였을 때 다음 타이머가 아슬아슬하게
+        # 0.25초를 못 넘겨 한 번씩 건너뛰어 실제로는 2Hz였음 (10/29 전체 재생 측정: 추론 간격 중앙값 0.5초 → 1초 점멸에 사진 2장)
         with self.lock:
             cams = [(c, dict(s)) for c, s in self.frames.items()
                     if s.get("bgr") is not None and s.get("depth_mm") is not None
-                    and s.get("fx") and time.time() - s.get("infer_t", 0.0) > 0.25]
+                    and s.get("fx") and time.time() - s.get("infer_t", 0.0) > 0.2]
         for cam, s in cams:
+            t_start = time.time()
             try:
                 res = self.model.predict(s["bgr"], imgsz=self.imgsz, conf=self.conf_th,
                                          device=self.device, verbose=False)[0]
@@ -724,7 +727,7 @@ class PerceptionNode(Node):
                 self.get_logger().warning(f"추론 실패: {e}", throttle_duration_sec=5.0)
                 continue
             with self.lock:
-                self.frames[cam]["infer_t"] = time.time()
+                self.frames[cam]["infer_t"] = t_start
             self.update_tracks(cam, s, res)
 
     def update_tracks(self, cam, s, res):
