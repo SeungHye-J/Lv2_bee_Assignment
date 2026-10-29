@@ -1,7 +1,7 @@
 # 신호등 12회 점멸 (발제 v5 §02) — signal_decoder가 한 사이클(12번 점멸)을 읽은 결과
 #   한 사이클 = 12번 점멸 (한 번 = 1초 켜짐 + 1초 꺼짐 · 같은 색 연속도 꺼짐으로 구분) → 3초 꺼짐 → 다시 반복
 #   새 답이 확정될 때만 발행 (두 사이클 같게 읽힘 → ok=true · reliable + transient_local). 같은 답은 다시 안 냄
-#   확정 전·오류 사이클(count · unknown · range)은 발행하지 않고 signal_decoder 로그·/diagnostics에만
+#   사이클마다 결과(확정 전·오류 count · unknown · range 포함)는 /mission/signal_status (같은 타입) · signal_decoder 로그 · /diagnostics
 #   정렬(바코드 오름·내림) · L1~L3 배정 · 퍽 할당은 통합(판단) 쪽 — 여기는 본 그대로만
 std_msgs/Header header  # stamp = 사이클이 끝난(3초 꺼짐을 확인한) 시각
 string[] sequence       # 본 순서대로 색 — red | yellow | green | unknown(두 색 동시 등 모르는 색) (채점: 시점별 색 일치 12점)

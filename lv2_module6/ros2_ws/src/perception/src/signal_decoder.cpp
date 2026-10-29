@@ -19,26 +19,47 @@ std::string text(const std::vector<std::string> & seg) {
 SignalDecoder::SignalDecoder(SignalParams p) : p_(std::move(p)) {}
 
 bool SignalDecoder::feed(double t, const std::string & state, MissionSignal & out) {
-  const std::string s = state.empty() ? "off" : state;
-  if (since_ < 0) since_ = t;  // 첫 샘플 — 노드가 켜진 순간부터 잼 (켜기 전 시간을 꺼짐으로 세지 않음)
-  if (s != cur_) {
-    end_run(t);
-    cur_ = s;
-    since_ = t;
-    marked_ = false;
+  if (off_since_ < 0) off_since_ = t;  // 첫 샘플 — 노드가 켜진 순간부터 잼 (켜기 전 시간을 꺼짐으로 세지 않음)
+  if (!is_off(state)) {  // 켜짐 — 구간 시작 또는 이어감 (색이 바뀌어도 같은 구간)
+    if (!in_on_) {
+      in_on_ = true;
+      on_start_ = t;
+      votes_.clear();
+      off_since_saved_ = off_since_;
+    }
+    ++votes_[state];
+    last_on_ = t;
+    return false;
   }
-  // 사이클 끝: 꺼짐이 gap_s 넘게 이어짐 (꺼짐 구간마다 한 번)
-  if (!marked_ && is_off(cur_) && t - since_ >= p_.gap_s) {
+  if (in_on_) {  // 꺼짐 — 짧으면 구간 안, 길어지면 구간을 닫음
+    if (t - last_on_ < p_.min_off_s - 1e-6) return false;  // 1e-6: 샘플 시각 소수점 오차로 경계값이 갈리지 않게
+    in_on_ = false;
+    if (last_on_ - on_start_ >= p_.min_on_s - 1e-9) {
+      seg_.push_back(blink_color());  // 점멸 1번
+      off_since_ = last_on_;
+      marked_ = false;
+    } else {
+      off_since_ = off_since_saved_;  // 잡음 — 그 전부터 이어진 꺼짐으로 계속 잼
+    }
+  }
+  // 사이클 끝: 마지막 켜짐 뒤 꺼짐이 gap_s 넘게 이어짐 (꺼짐 구간마다 한 번)
+  if (!marked_ && t - off_since_ >= p_.gap_s - 1e-6) {
     marked_ = true;
     return boundary(out);
   }
   return false;
 }
 
-void SignalDecoder::end_run(double t) {
-  // 끝난 켜짐 구간 하나 = 점멸 1번 (min_on_s보다 짧으면 잡음). 빨·노·초가 아닌 켜짐(all 등)은 추정하지 않고 unknown
-  if (is_off(cur_) || t - since_ < p_.min_on_s) return;
-  seg_.push_back(is_color(cur_) ? cur_ : "unknown");
+std::string SignalDecoder::blink_color() const {
+  // 구간에서 가장 많이 나온 상태 — 빨·노·초가 아니거나(all 등) 비율이 min_share 미만이면 추정하지 않고 unknown
+  int total = 0;
+  const std::pair<const std::string, int> * best = nullptr;
+  for (const auto & kv : votes_) {
+    total += kv.second;
+    if (!best || kv.second > best->second) best = &kv;
+  }
+  if (!best || !is_color(best->first) || best->second < p_.min_share * total) return "unknown";
+  return best->first;
 }
 
 bool SignalDecoder::boundary(MissionSignal & out) {
@@ -81,7 +102,7 @@ void SignalDecoder::check(MissionSignal & out) {
 
 std::string SignalDecoder::progress() const {
   return (started_ ? "" : "(첫 사이클 끝 기다리는 중) ") + text(seg_) +
-         (is_color(cur_) ? " (" + std::string(1, letter(cur_)) + ")" : "") +
+         (in_on_ ? " (" + std::string(1, letter(blink_color())) + " 켜짐 중)" : "") +
          " · " + std::to_string(seg_.size()) + "/" + std::to_string(p_.blinks);
 }
 
@@ -89,6 +110,8 @@ SignalDecoderNode::SignalDecoderNode()
 : rclcpp::Node("signal_decoder") {
   SignalParams p;
   p.min_on_s = declare_parameter<double>("min_on_s", p.min_on_s);
+  p.min_off_s = declare_parameter<double>("min_off_s", p.min_off_s);
+  p.min_share = declare_parameter<double>("min_share", p.min_share);
   p.gap_s = declare_parameter<double>("gap_s", p.gap_s);
   p.blinks = static_cast<int>(declare_parameter<int64_t>("blinks", p.blinks));
   p.min_count = static_cast<int>(declare_parameter<int64_t>("min_count", p.min_count));
@@ -96,6 +119,7 @@ SignalDecoderNode::SignalDecoderNode()
   p.confirm = static_cast<int>(declare_parameter<int64_t>("confirm", p.confirm));
   dec_ = SignalDecoder(p);
   pub_ = create_publisher<MissionSignal>("/mission/signal", rclcpp::QoS(1).reliable().transient_local());
+  status_pub_ = create_publisher<MissionSignal>("/mission/signal_status", rclcpp::QoS(10).reliable());
   sub_ = create_subscription<perception::msg::TrackedObjectArray>("/tracked_objects", rclcpp::QoS(5).reliable(),
     [this](perception::msg::TrackedObjectArray::ConstSharedPtr m) { on_objects(*m); });
   diag_.setHardwareID("beebot");
@@ -125,7 +149,8 @@ void SignalDecoderNode::on_objects(const perception::msg::TrackedObjectArray & m
   out.header.stamp = now_t;  // 사이클 끝을 확인한 시각 (로그용)
   last_ = out;
   have_ = true;
-  if (!out.ok) {  // 확정 전·오류 사이클 — 발행하지 않고 로그·진단에만 (planner가 받을 때마다 다시 계획하므로)
+  status_pub_->publish(out);  // 사이클마다 — ok든 오류든 (통합이 오류 대응·로그용으로 구독)
+  if (!out.ok) {  // 확정 전·오류 사이클 — /mission/signal에는 안 냄 (planner가 받을 때마다 다시 계획하므로)
     RCLCPP_WARN(get_logger(), "신호 사이클 %s [%s] (%zu개)", out.error.c_str(), out.raw.c_str(), out.sequence.size());
     return;
   }

@@ -16,10 +16,11 @@ const char * kQ1 = "RGRRGRGGYGYG";  // 발제 공개 연습 문제 Q1 — R4 Y2 
 struct Sim {
   SignalDecoder dec;
   double t = 0.0;
+  double dt = 0.1;  // 샘플 간격 — 10Hz (perception rate_hz) · 젯슨 CPU 추론이 느리면 0.25(4Hz)
   std::vector<MissionSignal> got;
   explicit Sim(SignalParams p = {}) : dec(p) {}
   void hold(const std::string & state, double dur) {
-    for (double end = t + dur; t < end - 1e-9; t += 0.1) {  // 10Hz
+    for (double end = t + dur; t < end - 1e-9; t += dt) {
       MissionSignal o;
       if (dec.feed(t, state, o)) got.push_back(o);
     }
@@ -137,4 +138,90 @@ TEST(Signal, ConfirmOne) {
   s.play(std::string("_ ") + kQ1 + " _");
   ASSERT_EQ(s.got.size(), 1u);
   EXPECT_TRUE(s.got[0].ok);
+}
+
+// ---- 실물 녹화 재생(10/28, tl_bags · shape_v3 모델)에서 나온 경우들
+TEST(Signal, ColorFlickerInsideBlinkNotSplit) {
+  Sim s;
+  // 빨강 1초 중 0.3초를 모델이 노랑으로 봄 → 쪼개지 않고 다수결 빨강 1번
+  const auto red_flicker = [&s] { s.hold("red", 0.4); s.hold("yellow", 0.3); s.hold("red", 0.3); s.hold("off", 1.0); };
+  for (int c = 0; c < 2; ++c) {
+    s.hold("off", 3.0);
+    s.play("RGRRG");
+    red_flicker();  // 6번째 R
+    s.play("GGYGYG");
+  }
+  s.hold("off", 3.0);
+  ASSERT_EQ(s.got.size(), 2u);
+  EXPECT_TRUE(s.got[1].ok);
+  EXPECT_EQ(s.got[1].raw, "R G R R G R G G Y G Y G");
+}
+
+TEST(Signal, DroppedFrameInsideBlinkNotSplit) {
+  Sim s;
+  // 초록 1초 중 0.2초 신호등을 놓침('' = 안 보임) → min_off_s(0.3초)보다 짧아 한 번으로
+  const auto green_drop = [&s] { s.hold("green", 0.4); s.hold("", 0.2); s.hold("green", 0.4); s.hold("off", 1.0); };
+  for (int c = 0; c < 2; ++c) {
+    s.hold("off", 3.0);
+    s.play("RGRRGRG");
+    green_drop();  // 8번째 G
+    s.play("YGYG");
+  }
+  s.hold("off", 3.0);
+  ASSERT_EQ(s.got.size(), 2u);
+  EXPECT_TRUE(s.got[1].ok);
+  EXPECT_EQ(s.got[1].green, 6);
+}
+
+TEST(Signal, NoiseInsideGapKeepsBoundary) {
+  Sim s;
+  // 사이클 사이 3초 꺼짐 가운데 0.2초 잡음 켜짐 → 버리고 꺼짐 시간은 이어서 셈 (두 사이클이 합쳐지지 않음)
+  s.hold("off", 3.0);
+  s.play(kQ1);
+  s.hold("off", 1.0);
+  s.hold("green", 0.2);
+  s.hold("off", 1.8);
+  s.play(kQ1);
+  s.hold("off", 3.0);
+  ASSERT_EQ(s.got.size(), 2u);
+  EXPECT_EQ(s.got[0].error, "unconfirmed");
+  EXPECT_TRUE(s.got[1].ok);
+  EXPECT_EQ(s.got[1].sequence.size(), 12u);
+}
+
+TEST(Signal, MixedColorsIsUnknown) {
+  Sim s;
+  // 켜진 구간 안 색이 반반 이하로 갈림 (빨 0.4 · 노 0.3 · 초 0.3) → 추정하지 않고 unknown
+  s.hold("off", 3.0);
+  s.play("RGRRGRGG");
+  s.hold("red", 0.4); s.hold("yellow", 0.3); s.hold("green", 0.3); s.hold("off", 1.0);
+  s.play("GYG");
+  s.hold("off", 3.0);
+  ASSERT_EQ(s.got.size(), 1u);
+  EXPECT_EQ(s.got[0].error, "unknown");
+}
+
+TEST(Signal, Slow4Hz) {
+  Sim s;
+  s.dt = 0.25;  // 젯슨 CPU 추론이 느릴 때 (4Hz)
+  s.play(std::string("_ ") + kQ1 + " _ " + kQ1 + " _");
+  ASSERT_EQ(s.got.size(), 2u);
+  EXPECT_TRUE(s.got[1].ok);
+  EXPECT_EQ(s.got[1].raw, "R G R R G R G G Y G Y G");
+}
+
+TEST(Signal, NoiseInsideBlinkGapDoesNotMerge) {
+  Sim s;
+  // 실물 재생(light1 seed 2)에서 나온 경우: 3·4번째 R 사이 1초 꺼짐 한가운데 0.2초 노랑 잡음
+  //   → 꺼짐이 0.4 + 0.4초로 쪼개져도 각각 점멸 사이로 끊고, 잡음은 버림 (R 두 번이 하나로 합쳐지면 안 됨)
+  for (int c = 0; c < 2; ++c) {
+    s.hold("off", 3.0);
+    s.play("RG");
+    s.hold("red", 1.0); s.hold("off", 0.4); s.hold("yellow", 0.2); s.hold("off", 0.4);  // 3번째 R + 잡음 낀 꺼짐
+    s.play("RGRGGYGYG");
+  }
+  s.hold("off", 3.0);
+  ASSERT_EQ(s.got.size(), 2u);
+  EXPECT_EQ(s.got[0].raw, "R G R R G R G G Y G Y G");
+  EXPECT_TRUE(s.got[1].ok);
 }
