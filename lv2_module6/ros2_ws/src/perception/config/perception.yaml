@@ -2,8 +2,10 @@
 perception:
   ros__parameters:
     rate_hz: 10.0            # /tracked_objects 발행 주기 (설계: 10Hz · reliable)
-    model_path: ""          # 비면 share/perception/model/model.pt(팀 모델) 자동 탐색, 없으면 빈 목록 · 파일 이름만 쓰면 그 폴더에서 찾음
-                            #   실물 로봇: "bee_yolo11n_v1.pt" (Isaac Sim + 실물 미세조정 — 실물 30장 mAP50 0.995 · 클래스 puck_red 등 색별)
+    model_path: "bee_yolo11n_shape_v3.pt"  # 비면 share/perception/model/model.pt(팀 모델) 자동 탐색, 없으면 빈 목록 · 파일 이름만 쓰면 그 폴더에서 찾음
+                            #   bee_yolo11n_shape_v3.pt (10/27): 색×모양 퍽(puck_red_box · puck_green_cyl …) + 신호등 상태(traffic_light_red …) 14클래스
+                            #     — Isaac Sim 합성 + 실물 퍽 216장 · 실물 신호등. 실물 퍽 시험 167/184 찾음 (이전 모델 32)
+                            #   되돌리기: "bee_yolo11n_v1.pt" (10/22, 색별 퍽 · 모양 없음) · "" (팀 기본 model.pt — 신호등 색 없음)
     confidence: 0.4         # 검출 신뢰도 하한
     imgsz: 416              # YOLO 입력 한 변 (도커 CPU용)
     device: "cpu"           # 실기 GPU 있으면 cuda
