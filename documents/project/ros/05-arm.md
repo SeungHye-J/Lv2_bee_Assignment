@@ -7,6 +7,91 @@ coordinator가 실행하는 skill(`SubGoal.skill` 한 단계)의 정의입니다
 - 적재함 자세표: [plan/config/basket.yaml](../../../lv2_module6/ros2_ws/src/plan/config/basket.yaml). feature/isaac-lab의 `isaac/lab/slot_table.yaml` 값을 옮긴 것으로, 원본은 `slot_table.py`가 URDF로 오프라인 계산합니다.
 - 인지 출력: [API.md TrackedObject](../../API.md#api-msg-trackedobject) (PR #45 — 퍽 `shape`·`yaw`, `location_box`·`start_box`)
 
+## 한눈에 보기
+
+skill은 coordinator가 실행하는 `SubGoal` 한 단계입니다. 세 부분으로 나뉩니다.
+- **skill을 조합해 보내는 쪽**: 미션 흐름(mission_manager — 3번 작업), vlm_task_planner, ai-service
+- **skill을 실행하는 coordinator**: 이 문서의 대상
+- **skill이 읽는 값**: 인지, 적재함 표, 그리퍼 상태
+
+```mermaid
+flowchart LR
+  subgraph CALLER["① 계획을 보내는 쪽 — 단계를 다 적어 보냄"]
+    MM["mission_manager<br/>미션 흐름 (3번 작업 · 예정)"]
+    VLM["vlm_task_planner<br/>일반 명령 · 템플릿"]
+    AIS["ai-service<br/>VLM · 사람 화면"]
+  end
+  subgraph CO["② coordinator — skill 실행 (05-arm.md)"]
+    direction TB
+    subgraph KEEP["그대로 (이번 PR 변경 없음)"]
+      NAV["navigate"]
+      INS["inspect"]
+      SAY["say"]
+    end
+    subgraph ARM["팔 skill — PR #48"]
+      POSE["pose<br/>stow · carry_left · carry_right"]
+      PICK["pick<br/>+ 잡기 판정"]
+      LOAD["load<br/>적재함 12칸"]
+      UNLOAD["unload<br/>+ 잡기 판정"]
+      PLACE["place<br/>location_box 윗면"]
+      RIGHT["right · right_pick<br/>(예정)"]
+    end
+  end
+  subgraph EXE["③ 실행"]
+    NAV2["Nav2<br/>NavFn(Dijkstra) · DWB"]
+    MG["MoveIt move_group"]
+    JTC["arm_controller (JTC)"]
+    RL["rl_arm_correction"]
+    HW["팔 · 그리퍼 하드웨어"]
+    GR["gripper_controller"]
+    GS["grasp_scorer"]
+  end
+  subgraph IN["④ skill이 읽는 값"]
+    PER["/tracked_objects<br/>퍽 shape·yaw · location_box · start_box<br/>(PR #45 · #47)"]
+    BAS["basket.yaml<br/>자세 · 적재함 12칸 표"]
+    JS["/joint_states<br/>그리퍼 위치 · 전류"]
+  end
+  CALLER -->|"✉️ /task/sub_goals"| CO
+  CO -->|"✉️ /task/status"| CALLER
+  NAV --> NAV2
+  INS --> MG
+  ARM --> MG
+  MG --> JTC --> RL --> HW
+  ARM --> GR --> HW
+  PICK --> GS
+  ARM -. "📞 reset_sag (skill 시작 때)" .-> RL
+  PER -.-> CO
+  BAS -.-> ARM
+  JS -.-> ARM
+```
+
+흐름(계획 쪽이 보내는 단계)과 `load`·`unload` 안의 관절 자세 순서:
+
+```mermaid
+flowchart TB
+  subgraph F1["집어 싣기"]
+    direction LR
+    a1["pose stow"] --> a2["navigate 퍽"] --> a3["pick 퍽"] --> a4["load next"]
+  end
+  subgraph F2["세워 싣기 (예정)"]
+    direction LR
+    b1["pose stow"] --> b2["navigate 퍽"] --> b3["right 퍽"] --> b4["right_pick 퍽"] --> b5["load next"]
+  end
+  subgraph F3["꺼내 놓기"]
+    direction LR
+    c1["navigate 상자"] --> c2["unload last"] --> c3["place 상자"] --> c4["pose stow"]
+  end
+  subgraph L["load 안 (칸이 carry 방향을 정함)"]
+    direction LR
+    l1["carry_칸방향"] --> l2["q_over"] --> l3["q_low"] --> l4["벌림"] --> l5["q_lift"] --> l6["stow"]
+  end
+  subgraph U["unload 안"]
+    direction LR
+    u1["carry_칸방향"] --> u2["벌림"] --> u3["q_over"] --> u4["q_grasp"] --> u5["닫기"] --> u6["잡기 판정"] --> u7["q_over"] --> u8["carry_칸방향"]
+  end
+  F1 ~~~ F2 ~~~ F3 ~~~ L ~~~ U
+```
+
 ## 1. 원칙
 
 1. **팔 동작은 전부 MoveIt을 거칩니다.** coordinator → move_group(계획, pick_ik) → ExecuteTrajectory → `arm_controller`(표준 joint_trajectory_controller) → `rl_arm_correction`(학습 Δ 보정, ±0.05 rad) → 하드웨어.
