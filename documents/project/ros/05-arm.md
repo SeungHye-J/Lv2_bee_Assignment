@@ -175,7 +175,7 @@ flowchart LR
 - **실패 처리**: `pick`은 그리퍼를 벌리고 다음 파지 후보로 넘어갑니다. 후보를 다 써도 못 잡으면 `grasp_empty`로 실패합니다. `unload`는 바로 `grasp_empty`로 실패합니다.
 - **기준값**: 문턱은 plan.yaml에 있고 실기에서 다시 맞춥니다.
 - **끄기**: launch 인자 `grasp_check:=false`로 끕니다. 테스트베드 faker는 그리퍼가 퍽 없이 끝까지 닫혀 늘 빈손이므로 꺼 둡니다.
-- **집는 힘**: 힘을 바꾸는 명령은 펌웨어 변경 뒤에 skill 단계별로 보냅니다. **(예정)**
+- **쥐는 힘**: 닫을 때 `grip_current_a`(0.35A, 팀 결정 0.3~0.4A ≈ 22~29N)를 그리퍼 액션 goal `effort`로 보냅니다. 경로: goal effort → `gripper_controller`(`max_effort_interface`) → BeebotSystemHardware → 펌웨어 C 줄 9번째 칸(Goal Current). 펌웨어가 0.00269~1.2A로 자릅니다(PR #50 — 최소값 50mA → 2.69mA). 비우면 `max_effort` 0.6A로, 놓을 때 전류가 0.75~0.80A까지 튑니다(시뮬 보고서 6장).
 
 ### pick: 인지 값
 | 값 | 출처 | 쓰는 법 |
@@ -305,17 +305,17 @@ flowchart TB
 **남은 일과 위험**
 
 - B(해석 IK) 구현 → `stand`·`stand_pick` skill → A 표를 받으면 같은 퍽으로 A·B 비교
-- **실기의 "가볍게 쥐기"**: 그리퍼 힘 명령이 펌웨어에 없음 (Isaac은 팀원 우회 방식으로 0.4N 제한). 펌웨어 전에는 시뮬에서만 비교 가능
+- **실기의 "가볍게 쥐기"(0.4N)**: 힘 명령 경로는 있음(그리퍼 goal `effort` → 펌웨어 Goal Current). PR #50으로 최소값이 2.69mA가 되어 0.4N 수준도 보낼 수 있음 — 0.6A ≈ 44N(손가락 하나)로 비례하면 약 5.5mA. 다만 펌웨어 주석대로 수십 mA 아래는 마찰로 안 움직일 수 있어 **mA ↔ N 실측**이 필요 (Isaac은 팀원 방식으로 힘 제한)
 - 세우기 성공률 자료가 종합 보고서에 없음 → 팀원 확인
 
 ## 7. 남은 것
 
 | 할 것 | 조건 |
 |---|---|
-| `stand`·`stand_pick` | 팀원 경유점(`isaac/lab/stand_plan.py` · `right_env.plan_waypoints`)을 받아 MoveIt으로 실행 · 실기는 그리퍼 힘 명령(펌웨어) 뒤 ([8절](#8-정할-것-팀원-확인) 1) |
+| `stand`·`stand_pick` | 팀원 경유점(`isaac/lab/stand_plan.py` · `right_env.plan_waypoints`)을 받아 MoveIt으로 실행 · 0.4N 쥐기 전류는 실측으로 맞춤 ([8절](#8-정할-것-팀원-확인) 1) |
 | 사각 퍽 집을 때 손 방향을 yaw에 맞춤 | MoveIt 방향 제약에 90° 주기 후보 넣기 |
 | 손 안 퍽 위치 보정 (`P_*`) | 손 안 퍽 위치를 잴 수 있을 때 |
-| 집는 힘 단계별 명령 | 펌웨어 변경 뒤 |
+| 세우기 0.4N 쥐기 전류 | mA ↔ N 실측 (PR #50으로 2.69mA까지 보낼 수 있음) |
 | 실기 확인 | 칸 12개 load·unload 실측, 잡기 판정 문턱, 상자 위 놓는 높이 |
 
 ## 8. 정할 것 (팀원 확인)
@@ -326,4 +326,4 @@ flowchart TB
 4. **잡기 판정 기준**: 위치·전류 문턱값 (지금 3mm · 0.25A — 실측: 원기둥 3.85mm · 직육면체 5.11mm에서 멈춤, 쥐는 전류 0.3~0.4A). "다시 잡은 뒤 판정"은 `stand_pick`(세운 뒤 다시 잡기)의 판정으로 봄 — 팀원 `stand_dummy.py`도 다시 잡은 뒤 손가락이 퍽 폭에서 멈췄는지로 판정.
 5. ~~이름 표기~~ — **정함**: 스펙의 `right`·`right-pick`은 `stand`·`stand_pick`으로 씁니다 (right = "바로 세우다"지만 오른쪽 `carry_right`와 헷갈림). 팀원 학습 쪽 이름(`right_env`, `right_*.onnx`)은 그대로.
 
-담당 밖이라 따라가기만 할 것: 정책 Δ 전달 방식(50Hz 토픽 vs ONNX), 집는 힘 펌웨어, cuMotion 범위.
+담당 밖이라 따라가기만 할 것: 정책 Δ 전달 방식(50Hz 토픽 vs ONNX), cuMotion 범위.

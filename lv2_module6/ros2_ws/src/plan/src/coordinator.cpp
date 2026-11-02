@@ -90,6 +90,7 @@ Coordinator::Coordinator()
   grasp_check_ = declare_parameter<bool>("grasp_check", true);
   grasp_min_pos_m_ = declare_parameter<double>("grasp_min_pos_m", 0.003);
   grasp_min_effort_ = declare_parameter<double>("grasp_min_effort", 0.25);
+  grip_current_a_ = declare_parameter<double>("grip_current_a", 0.35);
   // 자세 · 적재함 표 (config/basket.yaml — isaac-lab slot_table). 표가 없으면 load·unload는 basket_table_missing으로 실패
   poses_["stow"] = declare_parameter<std::vector<double>>("pose_stow", {0.0, -1.91, 1.3701, 0.5952, 0.0});
   poses_["carry_left"] = declare_parameter<std::vector<double>>("pose_carry_left", {1.5708, -0.465027, 0.102271, 1.933412, 1.5708});
@@ -929,8 +930,8 @@ Coordinator::Step Coordinator::joints_step(const std::vector<double> & q) {
   };
 }
 
-Coordinator::Step Coordinator::gripper_step(double width_m) {
-  return [this, width_m](std::function<void(bool)> cb) { set_gripper(width_m, cb); };
+Coordinator::Step Coordinator::gripper_step(double width_m, double effort_a) {
+  return [this, width_m, effort_a](std::function<void(bool)> cb) { set_gripper(width_m, cb, effort_a); };
 }
 
 Coordinator::Step Coordinator::held_step() {
@@ -1083,7 +1084,7 @@ void Coordinator::unload(const SubGoal & g) {
   const auto carry = poses_["carry_" + basket_carry_[slot]];
   auto steps = std::make_shared<std::vector<Step>>(std::vector<Step>{
     joints_step(carry), gripper_step(GRIPPER_OPEN_M), joints_step(slot_q(shape, "q_over", slot)),
-    joints_step(slot_q(shape, "q_grasp", slot)), gripper_step(GRIPPER_CLOSED_M), held_step(),
+    joints_step(slot_q(shape, "q_grasp", slot)), gripper_step(GRIPPER_CLOSED_M, grip_current_a_), held_step(),
     joints_step(slot_q(shape, "q_over", slot)), joints_step(carry)});
   RCLCPP_INFO(get_logger(), "unload: 칸 %d (%s · carry_%s)", slot, shape.c_str(), basket_carry_[slot].c_str());
   grasp_empty_ = false;
@@ -1114,7 +1115,7 @@ void Coordinator::execute_pick(const geometry_msgs::msg::PoseStamped & grasp, st
       if (!ok2) { done(false); return; }
       move_arm(grasp, [this, grasp, done, approach](bool ok3) {  // 파지 위치
         if (!ok3) { done(false); return; }
-        set_gripper(GRIPPER_CLOSED_M, [this, grasp, done, approach](bool ok4) {  // 닫기
+        set_gripper(GRIPPER_CLOSED_M, [this, grasp, done, approach](bool ok4) {  // 닫기 (쥐는 힘 grip_current_a)
           if (!ok4) { done(false); return; }
           held_step()([this, grasp, done, approach](bool held) {  // 잡기 판정 (위치 + 전류)
             if (!held) { set_gripper(GRIPPER_OPEN_M, [done](bool) { done(false); }); return; }
@@ -1122,7 +1123,7 @@ void Coordinator::execute_pick(const geometry_msgs::msg::PoseStamped & grasp, st
             lift.pose.position.z += approach;
             move_arm(lift, done);  // 들어올리기
           });
-        });
+        }, grip_current_a_);
       });
     });
   });
@@ -1221,10 +1222,12 @@ void Coordinator::move_arm(const geometry_msgs::msg::PoseStamped & target, std::
   });
 }
 
-void Coordinator::set_gripper(double width_m, std::function<void(bool)> done) {
+void Coordinator::set_gripper(double width_m, std::function<void(bool)> done, double effort_a) {
   ParallelGripperCommand::Goal goal;
   goal.command.position = {width_m};
-  // effort 비움 = gripper_controller max_effort (controllers.yaml, A) — 쥐는 힘은 거기서 한 곳만 정한다
+  // 쥐는 힘 [A]: goal effort → gripper_controller(max_effort_interface) → BeebotSystemHardware → 펌웨어 C 9번째 칸 Goal Current
+  //   (펌웨어가 0.00269~1.2 A로 자름 — PR #50). 비우면(effort_a < 0) controllers.yaml max_effort 0.6 A
+  if (effort_a > 0.0) goal.command.effort = {effort_a};
   const uint64_t gen = gen_;
   rclcpp_action::Client<ParallelGripperCommand>::SendGoalOptions opt;
   opt.result_callback = [this, done, width_m, gen](const rclcpp_action::ClientGoalHandle<ParallelGripperCommand>::WrappedResult & r) {

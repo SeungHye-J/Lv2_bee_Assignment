@@ -36,6 +36,9 @@ coordinator:
     basket_file: "~/.ros/beebot_basket.txt"
     # load next가 쓰는 칸 — 팔이 잘 못 닿는 칸은 여기서 뺌 (Isaac 10/27: 칸 2·8·9 성공률 낮음 — 실기에서 확인 후)
     basket_use: [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11]
+    # 쥐는 힘 [A] — 닫을 때 그리퍼 액션 goal effort로 보냄 (pick · unload). 팀 결정 0.3~0.4 A ≈ 22~29 N.
+    #   비우면 controllers.yaml max_effort 0.6 A — 0.6 A로 쥐면 놓을 때 0.75~0.80 A까지 튐 (시뮬 보고서 6장). 펌웨어가 0.00269~1.2 A로 자름
+    grip_current_a: 0.35
     grasp_min_pos_m: 0.003
     grasp_min_effort: 0.25
     # place <location_box>: 상자 윗면 + 손 안 퍽 바닥(손끝 아래 held_bottom_m, slot_table d_nom) + place_release_m에서 벌림

@@ -22,6 +22,7 @@
 //     load next는 basket_use 칸 중 빈 칸 (팔이 잘 못 닿는 칸은 설정에서 뺌). 옛 target "tray"는 호환 이름: place tray = load next · pick tray = unload last
 //   처짐 보정: 팔 skill(pick·place·load·unload) 시작 때 한 번 📞 /rl_arm_correction/reset_sag (없으면 WARN 한 번, 계속)
 //   잡기 판정: 닫은 뒤 gripper_left_joint 위치(퍽이 끼어 덜 닫힘) + 전류(effort) — grasp_check (pick·unload)
+//   쥐는 힘: 닫을 때 grip_current_a(0.35 A)를 액션 goal effort로 보냄 (비우면 0.6 A — 놓을 때 전류가 튐)
 //   place <location_box>: 상자 윗면(size.z) 위에 손 안 퍽 바닥(held_bottom_m) + place_release_m에서 벌림, 여러 개면 상자 안·상자 축으로 비켜 놓음
 //   좌표 대상 (mission_manager — 주사위 칸처럼 물체가 아닌 자리, map 기준):
 //     navigate "x,y[,yaw]" — 그 자세로 (yaw 없으면 0) · pose scan — 스캔 자세(scan_pose)
@@ -182,7 +183,7 @@ private:
   // 단계를 차례로 — 하나라도 실패하면 done(false)
   void run_steps(std::shared_ptr<std::vector<Step>> steps, size_t i, std::function<void(bool)> done);
   Step joints_step(const std::vector<double> & q);
-  Step gripper_step(double width_m);
+  Step gripper_step(double width_m, double effort_a = -1.0);
   Step held_step();  // 잡기 판정 (grasp_check 끄면 통과)
 
   // ---------- 처짐 보정 초기화 — 팔 skill 시작 때 한 번 (서비스 없으면 WARN 한 번)
@@ -216,7 +217,9 @@ private:
   void move_joints(const std::map<std::string, double> & target, std::function<void(bool)> done, bool task = false);
 
   // ---------- 🎬 /gripper_controller/gripper_cmd (m)
-  void set_gripper(double width_m, std::function<void(bool)> done);
+  // effort_a [A] = 쥐는 힘 한계 (액션 goal effort → gripper_controller max_effort_interface → 펌웨어 C 9번째 칸 Goal Current,
+  //   펌웨어가 0.00269~1.2 A로 자름). 음수 = 비움 → controllers.yaml max_effort(0.6)
+  void set_gripper(double width_m, std::function<void(bool)> done, double effort_a = -1.0);
 
   // ---------- 새 계획·직접 목표가 들어오면 진행 중 goal 전부 취소 (옛 결과가 새 단계를 건너뛰지 않게)
   void cancel_all();
@@ -276,6 +279,7 @@ private:
   rclcpp::Publisher<plan::msg::BasketState>::SharedPtr basket_pub_;
   rclcpp::Service<std_srvs::srv::Trigger>::SharedPtr basket_clear_srv_;
   bool grasp_check_ = true;
+  double grip_current_a_ = 0.35;  // 닫을 때 쥐는 힘 [A] — 팀 결정 0.3~0.4 A (22~29 N)
   double grasp_min_pos_m_, grasp_min_effort_;
   std::map<std::string, double> joint_effort_;
   rclcpp::Client<std_srvs::srv::Trigger>::SharedPtr reset_sag_;
