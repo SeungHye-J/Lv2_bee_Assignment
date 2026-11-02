@@ -125,8 +125,8 @@ for obj in tracked_objects.objects:
 
 ```text
 uint32 step
-string skill        # navigate | pick | place | inspect | say
-string target       # 물체 id (/tracked_objects의 id) · "x,y"(navigate) · "tray"(pick·place 적재함) · 말할 내용(say)
+string skill        # navigate | pick | place | inspect | say | pose | load | unload | stand | stand_pick  (정의: documents/project/ros/05-arm.md)
+string target       # 물체 id (/tracked_objects의 id) · "x,y"(navigate) · 자세 이름(pose) · 칸 0~11 · next(load) · last(unload) · "tray"(pick·place — unload last·load next와 같음) · 말할 내용(say)
 string relation     # front | on | ...
 float32 offset_m
 ```
@@ -134,10 +134,41 @@ float32 offset_m
 | skill | target | 하는 일 (coordinator) |
 | --- | --- | --- |
 | `navigate` | 물체 id · `"x,y"`(map) | 그 물체 앞 `offset_m`까지 (relation `front`) 또는 그 좌표로 Nav2 이동 |
-| `pick` | 물체 id · `"tray"` | 파지 후보(`/score_grasps`) 순서로 집기 · tray = 적재함에서 나중에 실은 것부터 꺼내기 |
-| `place` | 물체 id · `"tray"` | 그 물체 위에(relation `on`, 여러 개면 `place_spacing`씩 비킴) · tray = 적재함 다음 칸에 싣기 (최대 4칸) |
+| `pick` | 물체 id · `"tray"` | 파지 후보(`/score_grasps`) 순서로 집기 — 닫은 뒤 잡기 판정(그리퍼 위치 + 전류) · tray = `unload last` |
+| `place` | 물체 id · `"tray"` | `location_box`면 상자 윗면 위(손 안 퍽 바닥 + 0.02m)에서 벌림, 여러 개면 상자 안·상자 축으로 비킴 · 그 밖의 물체는 0.10m 위에서 (`place_spacing`씩 비킴) · tray = `load next` |
+| `pose` | `stow` · `carry_left` · `carry_right` | 이름 있는 관절 자세로 (MoveIt 관절 목표, 값 = plan/config/basket.yaml) |
+| `load` | 칸 `0`~`11` · `next` | 손의 퍽을 적재함 칸에 — carry(칸 방향) → 칸 위 → 내림 → 벌림 → 들어올림 → stow (12칸, 칸·퍽 모양별 관절값 basket.yaml) |
+| `unload` | 칸 `0`~`11` · `last` | 적재함 칸의 퍽 꺼내기 — carry → 벌림 → 칸 위 → 내림 → 닫기 → 잡기 판정 → 칸 위 → carry |
+| `stand` | 누운 퍽 id (`puck_lying`) | 누운 퍽 세우기 — 먼 끝을 가볍게 쥐고 가까운 아래 모서리 축으로 돌려 세운 뒤 벌리고 위로 (손은 빈 채 끝). 경유점 `stand_waypoints` ik(기본) · table |
+| `stand_pick` | 아무 값 (직전 `stand`의 퍽) | 세운 퍽 다시 집기 — 같은 손목으로 바로 아래로 → 닫기 → 잡기 판정 → 들어올림. 성공하면 그 퍽을 손에 든 것으로 장부에 |
 | `inspect` | 퍽 id | 손끝을 퍽 윗면 위 `inspect_height_m`로 → `inspect_wait_s` 기다림 — gripper_cam이 윗면 16mm AprilTag(번호)를 읽게. 못 읽어도 성공 (읽었는지는 `details.tag`) |
 | `say` | 말할 내용 | `/robot/say`로 알림 |
+
+<a id="api-msg-basketstate"></a>
+### plan/msg/BasketState · BasketSlot ([파일](../lv2_module6/ros2_ws/src/plan/msg/BasketState.msg))
+
+```text
+# 적재함 장부 — coordinator 하나만 씀 (실제로 싣고 꺼내는 쪽). mission_manager · 화면은 읽기만
+#   /coordinator/basket (reliable + transient_local) — 바뀔 때마다. 파일(basket_file)에도 저장 → 노드가 다시 떠도 이어 감
+#   비우기: /coordinator/basket_clear (std_srvs/Trigger) — 사람이 적재함을 손으로 비웠을 때
+std_msgs/Header header
+BasketSlot[] slots   # 칸 0~11 전부 (빈 칸 포함)
+int32[] order        # 실은 순서 (칸 번호) — unload last = 끝
+BasketSlot held      # 지금 손에 든 퍽 (filled=false면 빈손)
+
+# BasketSlot
+# 적재함 칸 하나 (coordinator 장부 — /coordinator/basket)
+int32 slot          # 칸 번호 0~11 (URDF basket_slot_N) · held(손)일 때 -1
+bool filled         # 퍽이 있음
+string shape        # box | cyl (perception details shape — 모르면 box)
+string color        # red | green … (perception color — 모르면 "")
+int32 tag           # 퍽 AprilTag 번호 0~11 (못 읽었으면 -1)
+bool check          # 확인 필요 — 꺼내려고 잡았는데 빈손(grasp_empty). 비우지 않고 표시만
+```
+
+- **적재함 장부는 coordinator 하나만 씁니다** (실제로 싣고 꺼내는 쪽). `pick` 때 그 퍽의 tag·색·모양을 손에 기억 → `load` 성공이면 칸에 적음 → `unload` 성공이면 다시 손으로. mission_manager·화면은 `/coordinator/basket`을 읽기만 합니다.
+- 파일 `basket_file`(기본 `~/.ros/beebot_basket.txt`)에 저장 → coordinator가 다시 떠도(launch 재시작 포함) 이어 갑니다. 사람이 적재함을 비웠으면 `/coordinator/basket_clear`.
+- `unload` 잡기 판정이 빈손이면 칸을 비우지 않고 `check = true`(확인 필요)로 표시합니다.
 
 <a id="api-msg-subgoalarray"></a>
 ### plan/msg/SubGoalArray ([파일](../lv2_module6/ros2_ws/src/plan/msg/SubGoalArray.msg))
@@ -164,7 +195,7 @@ string reason       # grasp_failed_all | nav_failed | arm_contact ...
 ```
 
 - 내는 쪽: coordinator → `/task/status` (reliable + transient_local). 받는 쪽: vlm_task_planner(FAILED면 재계획 · SUCCEEDED면 다음 판단 — inspect 뒤 다시 조합, 옮기기 뒤 수납 확인) · user_input(표시).
-- reason (coordinator.cpp): 이동 `nav_failed` · `approach_failed` / 집기 `no_grasp` · `grasp_failed_all` · `arm_contact` / 놓기 `place_failed` · `place_no_target` / 적재함 `tray_full` · `tray_empty` · `tray_place_failed` · `tray_pick_failed` / 보기 `inspect_no_target` · `inspect_failed` / 멈춤 `manual_override`·`manual_mode` · `explore_override`·`explore_mode` · `estop`·`estop_blocked` · `cancelled` — `manual`·`explore`·`estop`·`cancelled`로 시작하면 planner는 재계획하지 않음.
+- reason (coordinator.cpp): 이동 `nav_failed` · `approach_failed` / 집기 `no_grasp` · `grasp_failed_all` · `arm_contact` / 놓기 `place_failed` · `place_no_target` / 자세 `pose_failed` / 적재함 `slot_invalid` · `slot_full` · `slot_empty` · `load_failed` · `unload_failed` · `basket_table_missing` / 잡기 판정 `grasp_empty` / 세우기 `stand_failed` · `stand_not_lying` · `stand_no_yaw` · `stand_ik_unreachable` · `stand_table_missing` · `stand_pick_no_stand` · `stand_pick_failed` · `hand_full` / 보기 `inspect_no_target` · `inspect_failed` / 멈춤 `manual_override`·`manual_mode` · `explore_override`·`explore_mode` · `estop`·`estop_blocked` · `cancelled` — `manual`·`explore`·`estop`·`cancelled`로 시작하면 planner는 재계획하지 않음.
 - 주의: [노드 사전](project/ros/10-catalog.md)의 reason 예시(`nav_blocked`)와 파일(`nav_failed`)이 다릅니다 — 파일이 정본.
 
 <a id="api-msg-missionsignal"></a>
@@ -268,7 +299,7 @@ string message
 | `/mission/signal` | perception/MissionSignal | signal_decoder (perception) → vlm_task_planner | 신호등 12회 점멸 확정 답 {sequence, red, yellow, green, ok, raw} — 두 사이클 같게 읽혀 새 답이 확정될 때만 · reliable + transient_local. 해석(그룹·L1~L3·정렬)은 받는 쪽 — planner는 아직 옛 3단계 칸을 읽음 (미션 흐름 작업에서 바꿈) |
 | `/mission/signal_status` | perception/MissionSignal | signal_decoder (perception) → (미션 흐름 — 예정) | 사이클마다 결과 · `ok=false`면 `error` = count · unknown · range · unconfirmed · reliable (래치 없음) |
 | `/robot/say` | std_msgs/String | coordinator → user_input | 알릴 때 · reliable |
-| `/task/sub_goals` | plan/SubGoalArray | vlm_task_planner → coordinator | 계획마다 · reliable + transient_local. target = 물체 id · `"x,y"`(navigate) · **`"tray"`(pick·place — 로봇 뒤 적재함: place tray = 다음 칸에 싣기, pick tray = 나중에 실은 것부터 꺼내기, 최대 4칸)** · 퍽 id(inspect) · 말할 내용(say) |
+| `/task/sub_goals` | plan/SubGoalArray | vlm_task_planner → coordinator | 계획마다 · reliable + transient_local. target = 물체 id · `"x,y"`(navigate) · **`"tray"`(pick·place — 로봇 뒤 적재함 12칸: place tray = `load next`, pick tray = `unload last`)** · 칸 번호·`next`·`last`(load·unload) · 자세 이름(pose) · 퍽 id(inspect) · 말할 내용(say) |
 | `/task/status` | plan/TaskStatus | coordinator → vlm_task_planner, user_input | 단계 완료·실패 시 · reliable + transient_local |
 | `/speed_limit` | nav2_msgs/SpeedLimit | rl_nav_tuner → controller_server, rl_nav_correction | 프리셋 변경 시 · reliable |
 | `/arm_safety_event` | control/ArmSafetyEvent | arm_safety_monitor → coordinator | 접촉 시 |
@@ -345,6 +376,7 @@ string message
 
 | 이름 | 타입 | 보내는 쪽 → 받는 쪽 | 주기 |
 | --- | --- | --- | --- |
+| `/coordinator/basket` | plan/BasketState | coordinator → mission_manager · 화면 | 적재함 장부 — 칸마다 모양·색·tag·확인 필요 + 실은 순서 + 손에 든 퍽 · 바뀔 때마다 · reliable + transient_local ([형식](#api-msg-basketstate)) |
 | `/arm_controller/follow_joint_trajectory` | 액션이지만 토픽 아님 — [§3](#3-액션-목록) 참조 | move_group → arm_controller | 궤적마다 |
 | `/joint_states` | sensor_msgs/JointState | joint_state_broadcaster → robot_state_publisher, move_group, arm_safety_monitor(전류 감시), coordinator(현재 팔 각), manual_control(수동 팔 기준 각), state_manager(OpenCR 살아 있나), scan_cam_gate(스캔 자세인가), run-cli(전류·온도 표시) | 100Hz — `effort` = 모터 전류 A (바퀴 포함, 펌웨어 S 43값) |
 | `/arm_safety_event` | control/ArmSafetyEvent | arm_safety_monitor → coordinator | 접촉 시 |
@@ -385,6 +417,8 @@ string message
 | 이름 | 타입 | 호출 → 서버 | 용도 |
 | --- | --- | --- | --- |
 | `/score_grasps` | ml/srv/ScoreGrasps | coordinator → grasp_scorer | pick 직전 1회 |
+| `/coordinator/basket_clear` | std_srvs/srv/Trigger | 운영자 → coordinator | 적재함 장부 비우기 (사람이 적재함을 손으로 비웠을 때) — 파일도 비움 |
+| `/rl_arm_correction/reset_sag` | std_srvs/srv/Trigger | coordinator → rl_arm_correction | 팔 skill 시작 때 한 번 — 처짐 보정 적분 0 (서비스 없으면 경고만, develop엔 아직 없음) |
 | `/collision_monitor/toggle` | nav2_msgs/srv/Toggle | manual_control → collision_monitor | `/state/operation_mode`가 MANUAL이면 끔(속도 명령 그대로 통과 — 근접 정지 없음) · 나가면 켬. 비상정지 잠금(twist_mux)·가속 제한(velocity_smoother)은 수동도 그대로. collision_monitor가 다시 뜨면 다시 보냄 |
 | `/beebotsystem/set_arm_torque` | std_srvs/srv/SetBool | manual_control → BeebotSystemHardware | 운영 모드 TEACH에 들어가면 팔(joint1~5)·그리퍼 토크 끔 · 나가면 JTC·그리퍼 목표를 지금 값으로 맞춘 뒤 켬 (펌웨어 `T`, 바퀴 그대로). 직접 부르면 켤 때 팔이 예전 목표로 튈 수 있음 — `/cmd/operation_mode TEACH`로 |
 | `/beebotsystem/reboot_motors` | std_srvs/srv/Trigger | manual_control(`/cmd/manual/reboot_motors`) → BeebotSystemHardware | Hardware Error 난 DYNAMIXEL만 재부팅 (펌웨어 `R` 줄) — 운영자는 토픽 `/cmd/manual/reboot_motors`로 (수동 모드에서만) |

@@ -127,7 +127,7 @@ private:
   // 320px JPEG base64 (ai-service images[]용) — OpenCV 의존
   static std::string encode_jpeg_base64(const sensor_msgs::msg::Image & msg);
 
-  int tray_capacity_;  // 적재함 용량 (coordinator tray_slots 개수와 같게)
+  int tray_capacity_;  // 적재함 용량 (coordinator 적재함 칸 수 — basket.yaml 12칸)
   int max_replans_, replans_ = 0;  // 메인 스레드만 (구독 콜백·진단)
   std::string vlm_endpoint_;       // 비면 VLM 안 씀 (기본·CI) — 예: http://127.0.0.1:8000
   double vlm_timeout_s_;
