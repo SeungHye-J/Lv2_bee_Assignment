@@ -191,6 +191,7 @@ class Ui:
             self.console.write('\033[H')
             self.console.flush()
         top = [self.term.fit(ln, cols) for ln in self.top_lines(title, cols)]
+        self._left_cache = list(left)  # refresh_center가 같은 폭으로 그리려고
         # 왼쪽(메뉴) 폭은 라벨에 맞춘다 — 최소 24, 최대 화면 절반
         lw = max(24, min(cols // 2, max([self.term.disp_len(l) for l in left] + [0]) + 1))
         cw = cols - lw - 4
@@ -216,6 +217,36 @@ class Ui:
         for ln in frame:
             self.console.write('\033[K' + ln if ln else '\033[K')
             self.console.write('\n')
+        self.console.flush()
+
+    def refresh_center(self, geom: tuple | None = None) -> None:
+        """다이어로그에 가리지 않은 중앙 줄만 다시 그린다 (바퀴 표 실시간 갱신 등).
+
+        geom = 다이어로그 사각형 (left, top, width, height) — 그 행들은 건드리지 않는다.
+        중앙 내용은 메뉴가 등록한 `_center_provider`(Menu.show)로 매번 새로 계산한다.
+        """
+        provider = getattr(self, '_center_provider', None)
+        left = getattr(self, '_left_cache', None)
+        if provider is None or left is None or getattr(self, '_frame_size', None) is None:
+            return
+        cols, rows = self.term.size()
+        if cols < 70 or rows < 18:
+            return
+        try:
+            center = provider() or []
+        except Exception:
+            return
+        lw = max(24, min(cols // 2, max([self.term.disp_len(l) for l in left] + [0]) + 1))
+        cw = cols - lw - 4
+        top_n = len(self.top_lines(self._title, cols))
+        body_h = max(1, rows - 1 - top_n - 2)
+        for i in range(min(body_h, len(center))):
+            screen_row = top_n + 1 + i
+            if geom is not None:
+                _, gtop, _, gh = geom
+                if gtop <= screen_row < gtop + gh:  # 다이어로그에 가린 줄
+                    continue
+            self.console.write(f'\033[{screen_row};{lw + 4}H' + self.term.fit(center[i], cw))
         self.console.flush()
 
     def refresh_bar(self) -> None:

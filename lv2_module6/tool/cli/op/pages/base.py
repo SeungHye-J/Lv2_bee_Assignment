@@ -112,6 +112,7 @@ class Menu(Page):
 
     def show(self) -> str:
         self.ui.reset_selection()  # 메뉴 진입은 항상 첫 항목에 포커스
+        self.ui._center_provider = self.center  # 다이어로그 중 중앙 실시간 갱신용
         while rclpy.ok():
             self.app.poll(0.2)
             visible = [i for i in self.items() if i.visible()]

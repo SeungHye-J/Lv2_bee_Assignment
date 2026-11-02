@@ -394,8 +394,9 @@ class Bus:
                                  self.term.paint('-/= 속도± · b 삑 · Esc 종료', DIM)]
                     box.draw('key')
                     now = time.monotonic()
-                    if now - last_bar >= 0.5:  # 박스 뒤 상단 상태바도 갱신 (0.5초)
+                    if now - last_bar >= 0.5:  # 박스 뒤 상단 상태바·중앙(가리지 않은 줄) 갱신
                         self.prompt.refresh_bar()
+                        self.prompt.refresh_center(getattr(box, '_geom', None))
                         last_bar = now
                     if now - last_send >= 0.1:
                         self._send_velocity(linear, angular)
