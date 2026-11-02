@@ -10,21 +10,21 @@ coordinator가 실행하는 skill(`SubGoal.skill` 한 단계)의 정의입니다
 ## 한눈에 보기
 
 skill은 coordinator가 실행하는 `SubGoal` 한 단계입니다. 세 부분으로 나뉩니다.
-- **skill을 조합해 보내는 쪽**: 미션 흐름(mission_manager — 3번 작업), vlm_task_planner, ai-service
+- **skill을 조합해 보내는 쪽**: 미션 흐름(mission_manager — [03-plan.md](03-plan.md)), vlm_task_planner, ai-service
 - **skill을 실행하는 coordinator**: 이 문서의 대상
 - **skill이 읽는 값**: 인지, 적재함 표, 그리퍼 상태
 
 ```mermaid
 flowchart LR
   subgraph CALLER["① 계획을 보내는 쪽 — 단계를 다 적어 보냄"]
-    MM["mission_manager<br/>미션 흐름 (3번 작업 · 예정)"]
+    MM["mission_manager<br/>주사위 미션 흐름 (03-plan.md)"]
     VLM["vlm_task_planner<br/>일반 명령 · 템플릿"]
     AIS["ai-service<br/>VLM · 사람 화면"]
   end
   subgraph CO["② coordinator — skill 실행 (05-arm.md)"]
     direction TB
     subgraph KEEP["그대로 (이번 PR 변경 없음)"]
-      NAV["navigate"]
+      NAV["navigate · approach"]
       INS["inspect"]
       SAY["say"]
     end
@@ -120,14 +120,15 @@ carry 방향은 **칸이 정합니다**. basket.yaml `basket_carry`에서 칸 0�
 
 | skill | target | 하는 일 | 끝 자세 |
 |---|---|---|---|
-| `navigate` | 물체 id · `"x,y"` | Nav2로 이동 (`relation front`와 `offset_m`을 주면 물체 앞으로) | — |
-| `inspect` | 퍽 id | 손끝을 퍽 윗면 `inspect_height_m`(0.15m) 위로 옮겨 gripper_cam이 16mm 태그를 읽게 함. 집지 않음 | 그 자리 |
+| `navigate` | 물체 id · `"x,y[,yaw]"` | Nav2로 이동 (`relation front`와 `offset_m`을 주면 물체 앞으로, 좌표면 그 자세로) | — |
+| `approach` | `"x,y,yaw"` (map) | 박스 앞 마지막 몇 cm를 `/cmd_vel_nav`로 저속 직선. 목표 뒤 `approach_pre_m` 자리에서 돌고 직선으로 들어감 (박스 바로 앞 제자리 회전 안 함). 4초 동안 진행 없으면 `approach_blocked` | — |
+| `inspect` | 퍽 id · `"x,y,z"` | 손끝을 퍽 윗면(또는 그 점) `inspect_height_m`(0.15m) 위로 옮겨 gripper_cam이 16mm 태그를 읽게 함. 좌표면 손 방향 = 로봇 → 점. 집지 않음 | 그 자리 |
 | `say` | 말할 내용 | `/robot/say` | — |
-| `pose` | `stow` · `carry_left` · `carry_right` | 이름 있는 관절 자세로 이동 | 그 자세 |
+| `pose` | `stow` · `carry_left` · `carry_right` · `scan` | 이름 있는 관절 자세로 이동 | 그 자세 |
 | `pick` | 퍽 id | 위에서 집기: 접근 → 벌림 → 내려감 → 닫기 → **잡기 판정** → 들어올림. 파지 후보는 grasp_scorer가 냄 | 들어올린 자리 |
 | `load` | 칸 `0`~`11` · `next` | 손에 든 퍽을 적재함 칸에 싣기: **carry(칸 방향) → q_over → q_low → 벌림 → q_lift → stow** | `stow` |
 | `unload` | 칸 `0`~`11` · `last` | 적재함 칸의 퍽 꺼내기: **carry(칸 방향) → 벌림 → q_over → q_grasp → 닫기 → 잡기 판정 → q_over → carry** | `carry_<칸 방향>` |
-| `place` | `location_box` id (다른 물체도 됨) | 손에 든 퍽을 상자 윗면에 놓기 ([4절](#place--상자-값)) | 상자 위 |
+| `place` | `location_box` id (다른 물체도 됨) · `"x,y,z"` | 손에 든 퍽을 상자 윗면에 놓기 ([4절](#place--상자-값)). 좌표면 **손 안 퍽 바닥이 z**가 되게: 위 `place_approach_m` → 내려가 `place_release_m`에서 벌림 → 다시 위 (주사위 칸) | 상자 위 · 그 점 위 |
 | `right` | 퍽 id (`puck_lying`) | 누운 퍽을 세워 놓음 | **(예정 — 세우는 방법 미정)** |
 | `right_pick` | 퍽 id | 세운 퍽을 다시 집기 (`right` 바로 뒤) | **(예정)** |
 
@@ -142,7 +143,7 @@ carry 방향은 **칸이 정합니다**. basket.yaml `basket_carry`에서 칸 0�
 ## 4. skill 안에서 쓰는 값
 
 ### 시작할 때: 처짐 보정 초기화
-팔 skill(`pick`, `place`, `load`, `unload`)을 **시작할 때 한 번** `/rl_arm_correction/reset_sag`(std_srvs/Trigger)를 부릅니다. skill 중간에는 부르지 않습니다. 다가가기(`approach`)가 끝나고 팔이 움직이기 직전에 부릅니다.
+팔 skill(`pick`, `place`, `load`, `unload`)을 **시작할 때 한 번** `/rl_arm_correction/reset_sag`(std_srvs/Trigger)를 부릅니다. skill 중간에는 부르지 않습니다. 팔이 안 닿아 먼저 다가가는 이동이 끝나고, 팔이 움직이기 직전에 부릅니다.
 - 서비스가 없으면 WARN을 한 번 남기고 계속합니다. 지금 develop에는 없고 feature/isaac-lab에만 있습니다.
 - `right`·`right_pick`도 구현할 때 같은 방식으로 부릅니다.
 
@@ -191,7 +192,7 @@ carry 방향은 **칸이 정합니다**. basket.yaml `basket_carry`에서 칸 0�
 |---|---|
 | `invalid_plan:<이유>` | 계획 검증 실패. 모르는 skill, 모르는 자세 이름(`pose <이름>`), 없는 물체 id |
 | `arm_unavailable` · `pick_unavailable` · `nav_unavailable` | MoveIt·그리퍼·grasp_scorer·Nav2 서버가 `server_wait_s` 안에 안 뜸 |
-| `nav_failed` · `approach_failed` | 이동·다가가기 실패 |
+| `nav_failed` · `nav_bad_target` · `approach_failed` · `approach_blocked` · `approach_bad_target` · `approach_no_tf` | 이동·다가가기 실패 · 좌표 형식 오류 · 직선 접근이 막힘 · 로봇 위치 모름 |
 | `no_grasp` · `grasp_failed_all` · `grasp_empty` · `arm_contact` | 파지 후보 없음 · 후보 다 실패 · 닫았는데 빈손 · 팔 접촉 |
 | `pose_failed` | 그 자세로 못 감 |
 | `slot_invalid` · `slot_full` · `slot_empty` | 칸 번호가 0~11 밖 · `load` 칸이 차 있음(`next`면 다 참) · `unload` 칸이 빔(`last`면 실린 게 없음) |
