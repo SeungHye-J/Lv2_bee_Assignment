@@ -32,9 +32,11 @@ from launch_ros.actions import Node, SetRemap
 from launch_ros.parameter_descriptions import ParameterValue
 from launch_ros.substitutions import FindPackageShare
 
+# spawner 하나가 순서대로 켜고, 하나가 실패하면 거기서 멈춘다 → 실패하기 쉬운 팔 체인(관절이 URDF 한계 밖이면
+# rl_arm_correction 예외)을 맨 뒤에 — 그래야 팔이 안 떠도 바퀴·그리퍼는 뜬다 (2026-11-02 실기: 그리퍼가 안 열림)
 CONTROLLERS = ['joint_state_broadcaster', 'imu_sensor_broadcaster', 'diff_drive_controller',
-               'rl_arm_correction', 'arm_controller',  # 체인은 뒤에서부터 (rl_arm_correction → arm_controller)
-               'gripper_controller']
+               'gripper_controller',
+               'rl_arm_correction', 'arm_controller']  # 체인은 뒤에서부터 (rl_arm_correction → arm_controller)
 
 # Jetson(ARM)의 realsense2_camera 4.57.7은 pointcloud 필터를 NEON 구현으로 등록해
 # 파라미터 이름이 pointcloud.enable이 아니라 pointcloud__neon_.enable이다.

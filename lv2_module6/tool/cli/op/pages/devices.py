@@ -12,6 +12,7 @@ from .params import NodeItem, NodeParamMenu
 
 class DeviceItem(MenuItem):
     """장치 하나 — Enter가 상세 화면."""
+    shows_busy = False  # 하위 화면을 연다
 
     def __init__(self, app, key: str, name: str):
         super().__init__(app)
@@ -47,6 +48,7 @@ class DevicesMenu(Menu):
 
 class DeviceParamItem(MenuItem):
     """이 장치를 내는 노드의 파라미터 — 노드별 파라미터 화면과 같은 화면을 연다."""
+    shows_busy = False  # 하위 화면을 연다
 
     key = '1'
 

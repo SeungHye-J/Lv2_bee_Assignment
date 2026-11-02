@@ -113,6 +113,24 @@ class Dialog:
         self.lines = [title, ''] + self.body
         self._geom = None
 
+    def _modal(self):
+        """키 입력 동안 열려 있고, 닫히면 박스를 지움 (뒤이은 처리 중 창·메뉴에 잔상 안 남게)."""
+        import contextlib
+
+        @contextlib.contextmanager
+        def _cm():
+            try:
+                with KeyReader(self.ui.term) as keys:
+                    yield keys
+            finally:
+                if self._geom is not None:
+                    self.ui._erase_rect(*self._geom)
+                    self._geom = None
+                busy = getattr(self.ui, '_busy', None)   # 확인창 밑에 깔린 처리 중 창을 바로 다시 (빈 화면 방지)
+                if busy is not None and busy is not self:
+                    busy.draw('key')
+        return _cm()
+
     def _width(self, extra: int = 0):
         try:
             import shutil
@@ -166,11 +184,11 @@ class Dialog:
             except EOFError:
                 return None
         buf, error = '', ''
-        with KeyReader(self.ui.term) as keys:
+        with self._modal() as keys:
             while True:
                 self.draw('input', buf, prompt, error=error)
                 k = keys.read(0.1)
-                self.ui._poll(0.01)
+                self.ui.tick(0.01)
                 if k is None:
                     continue
                 if k == 'enter':
@@ -199,11 +217,11 @@ class Dialog:
                 return {'': 'enter', 'b': 'b', 'm': 'm', 'q': 'q'}.get(raw, raw or 'enter')
             except EOFError:
                 return None
-        with KeyReader(self.ui.term) as keys:
+        with self._modal() as keys:
             while True:
                 self.draw('key')
                 k = keys.read(0.1)
-                self.ui._poll(0.01)
+                self.ui.tick(0.01)
                 if k is None:
                     continue
                 if k == 'enter':
@@ -229,12 +247,12 @@ class Dialog:
         except Exception:
             rows = 24
         h = max(5, min(20, rows - 10))
-        with KeyReader(self.ui.term) as keys:
+        with self._modal() as keys:
             while True:
                 off = max(0, min(off, max(0, len(lines) - h)))
                 self.draw('pager', off=off, h=h)
                 k = keys.read(0.1)
-                self.ui._poll(0.01)
+                self.ui.tick(0.01)
                 if k is None:
                     continue
                 if k in ('enter', 'esc', 'left', 'eof'):

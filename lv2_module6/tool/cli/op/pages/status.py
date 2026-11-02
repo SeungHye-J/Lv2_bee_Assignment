@@ -1,6 +1,8 @@
 """상태·진단·RViz 화면."""
 from __future__ import annotations
 
+import argparse
+
 import os
 import subprocess
 from pathlib import Path
@@ -78,6 +80,7 @@ class StatusMenu(Menu):
 
 class DiagItem(MenuItem):
     """진단 항목 하나 — Enter가 상세 화면."""
+    shows_busy = False  # 하위 화면을 연다
 
     def __init__(self, app, key: str, name: str, level: int, message: str):
         super().__init__(app)
@@ -157,3 +160,39 @@ class RvizPage(Page):
             return STAY
         print(f'RViz 시작: pid {proc.pid} · 로그 {log}')
         return STAY
+
+
+class BeepNowItem(MenuItem):
+    key = '1'
+
+    def label(self):
+        return '삑 (기본음 2000 Hz · 150 ms)'
+
+    def run(self):
+        self.bus.cmd_beep(None)
+        return STAY
+
+
+class BeepToneItem(MenuItem):
+    key = '2'
+
+    def label(self):
+        return '높이·길이 지정'
+
+    def run(self):
+        raw = self.ui.modal_input('부저 톤', ['Hz 100~8000 · ms 10~2000 (예: 2000 300)'], 'Hz ms>')
+        if raw is None or not raw.strip():
+            return STAY
+        self.bus.cmd_beep(argparse.Namespace(value=raw.split()))
+        return STAY
+
+
+class BeepMenu(Menu):
+    title = '비프음'
+
+    def items(self):
+        return [BeepNowItem(self.app), BeepToneItem(self.app)]
+
+    def center(self):
+        return ['[비프음]', ' /cmd/beep (std_msgs/Int32MultiArray — [] 기본음 · [Hz, ms])',
+                ' → BeebotSystemHardware → OpenCR B 줄 · 모드와 무관']
