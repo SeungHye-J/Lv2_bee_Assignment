@@ -10,6 +10,7 @@
 #include <sstream>
 
 #include "shape_msgs/msg/solid_primitive.hpp"
+#include "tf2/LinearMath/Transform.hpp"
 
 namespace plan {
 
@@ -91,6 +92,30 @@ Coordinator::Coordinator()
   grasp_min_pos_m_ = declare_parameter<double>("grasp_min_pos_m", 0.003);
   grasp_min_effort_ = declare_parameter<double>("grasp_min_effort", 0.25);
   grip_current_a_ = declare_parameter<double>("grip_current_a", 0.35);
+  // 세우기 (stand · stand_pick) — 경유점 ik(해석 IK, 기본) | table(config/stand_table.yaml, plan/scripts/stand_table_export.py)
+  stand_waypoints_ = declare_parameter<std::string>("stand_waypoints", "ik");
+  stand_box_top_m_ = declare_parameter<double>("stand_box_top_m", 0.07);
+  stand_pinch_current_a_ = declare_parameter<double>("stand_pinch_current_a", 0.0055);
+  stand_vel_scale_ = declare_parameter<double>("stand_vel_scale", 0.3);
+  stand_arc_vel_scale_ = declare_parameter<double>("stand_arc_vel_scale", 0.5);
+  stand_table_.yaw_deg = declare_parameter<std::vector<double>>("stand_table_yaw_deg", std::vector<double>{});
+  stand_table_.ycs = declare_parameter<std::vector<double>>("stand_table_ycs", std::vector<double>{});
+  stand_table_.box_cx = declare_parameter<double>("stand_table_box_cx", 0.0);
+  stand_table_.box_h = declare_parameter<double>("stand_table_box_h", 0.0);
+  stand_table_.w = static_cast<int>(declare_parameter<int64_t>("stand_table_w", 0));
+  stand_table_.q[0] = declare_parameter<std::vector<double>>("stand_table_cyl_q", std::vector<double>{});
+  stand_table_.P[0] = declare_parameter<std::vector<double>>("stand_table_cyl_p", std::vector<double>{});
+  stand_table_.q[1] = declare_parameter<std::vector<double>>("stand_table_box_q", std::vector<double>{});
+  stand_table_.P[1] = declare_parameter<std::vector<double>>("stand_table_box_p", std::vector<double>{});
+  {
+    std::string why;
+    if (stand_waypoints_ != "ik" && stand_waypoints_ != "table") {
+      RCLCPP_WARN(get_logger(), "stand_waypoints '%s' 모름 — ik로", stand_waypoints_.c_str());
+      stand_waypoints_ = "ik";
+    }
+    if (stand_waypoints_ == "table" && !stand_table_.ready(why))
+      RCLCPP_WARN(get_logger(), "stand_waypoints table인데 표가 없음 (config/stand_table.yaml) — stand는 stand_table_missing으로 실패");
+  }
   // 자세 · 적재함 표 (config/basket.yaml — isaac-lab slot_table). 표가 없으면 load·unload는 basket_table_missing으로 실패
   poses_["stow"] = declare_parameter<std::vector<double>>("pose_stow", {0.0, -1.91, 1.3701, 0.5952, 0.0});
   poses_["carry_left"] = declare_parameter<std::vector<double>>("pose_carry_left", {1.5708, -0.465027, 0.102271, 1.933412, 1.5708});
@@ -310,8 +335,10 @@ void Coordinator::on_plan(const SubGoalArray & plan) {
 }
 
 bool Coordinator::validate(const SubGoalArray & plan, std::string & why) const {
-  static const std::set<std::string> allowed = {"navigate", "approach", "pick", "place", "inspect", "say", "pose", "load", "unload"};
-  static const std::set<std::string> not_object = {"say", "pose", "load", "unload"};  // target이 물체 id가 아님
+  static const std::set<std::string> allowed = {"navigate", "approach", "pick", "place", "inspect", "say", "pose", "load", "unload",
+                                                "stand", "stand_pick"};
+  // target이 물체 id가 아님 (stand_pick은 직전 stand의 퍽 — 세운 사이 인지 id가 바뀌어도 됨)
+  static const std::set<std::string> not_object = {"say", "pose", "load", "unload", "stand_pick"};
   if (plan.goals.empty()) { why = "empty"; return false; }
   for (const auto & g : plan.goals) {
     if (!allowed.count(g.skill)) { why = "skill " + g.skill; return false; }
@@ -353,6 +380,8 @@ void Coordinator::run_step() {
   else if (g.skill == "pose") pose(g);
   else if (g.skill == "load" || (g.skill == "place" && g.target == "tray")) load(g);  // place tray = load next (호환)
   else if (g.skill == "unload") unload(g);
+  else if (g.skill == "stand") stand(g);
+  else if (g.skill == "stand_pick") stand_pick(g);
   else if (g.skill == "place") {
     if (!ready_or_retry(motion_plan_->service_is_ready() && exec_->action_server_is_ready() &&
         gripper_->action_server_is_ready(), "arm_unavailable")) return;
@@ -1100,6 +1129,165 @@ void Coordinator::unload(const SubGoal & g) {
     basket_order_.erase(std::remove(basket_order_.begin(), basket_order_.end(), slot), basket_order_.end());
     basket_changed();
     (void)shape;
+    next();
+  });
+}
+
+// ---------- 세우기 — 팀원 right_env "tilt" (05-arm.md 6-1). 경유점: stand_plan.hpp
+//   stand <누운 퍽 id>: 벌림(40mm) → MoveIt으로 먼 끝 위 → 멈춤 → 내려감 → 가볍게 쥠(stand_pinch_current_a) →
+//     가까운 아래 모서리 축으로 호 0→120° · 멈춤 · 90°로 되돌려 눌러 놓음 → 멈춤 → 벌림 → 위로. 손은 놓고 끝남
+//   stand_pick: 직전 stand의 관절 계획에서 같은 손목으로 선 퍽 위 → 바로 아래로 → 멈춤 → 제 힘으로 닫기 → 잡기 판정 → 들어올림
+namespace {
+constexpr double STAND_DT = 0.02;  // 궤적 샘플 간격 (학습 때 정책 주기)
+constexpr double STAND_HOLD_S = 0.3, STAND_CLOSE_S = 0.4, STAND_SETTLE_S = 0.3, STAND_OPEN_S = 0.3, REGRASP_CLOSE_S = 0.5;
+constexpr double STAND_HANG_S = 0.5;  // 호 안 멈춤
+}  // namespace
+
+bool Coordinator::arm_now(stand::Q5 & q) const {
+  static const char * names[] = {"joint1", "joint2", "joint3", "joint4", "joint5"};
+  for (int i = 0; i < 5; ++i) {
+    const auto it = joints_.find(names[i]);
+    if (it == joints_.end()) return false;
+    q[i] = it->second;
+  }
+  return true;
+}
+
+Coordinator::Step Coordinator::traj_step(std::function<std::vector<stand::Q5>(const stand::Q5 &)> make) {
+  return [this, make](std::function<void(bool)> cb) {
+    stand::Q5 now;
+    if (!arm_now(now)) { cb(false); return; }
+    const auto samples = make(now);
+    ExecuteTrajectory::Goal goal;
+    auto & jt = goal.trajectory.joint_trajectory;
+    jt.joint_names = {"joint1", "joint2", "joint3", "joint4", "joint5"};
+    const auto point = [](const stand::Q5 & q, double t) {
+      trajectory_msgs::msg::JointTrajectoryPoint p;
+      p.positions.assign(q.begin(), q.end());
+      p.time_from_start = rclcpp::Duration::from_seconds(t);
+      return p;
+    };
+    jt.points.push_back(point(now, 0.0));
+    for (size_t k = 0; k < samples.size(); ++k) jt.points.push_back(point(samples[k], (k + 1) * STAND_DT));
+    const uint64_t gen = gen_;
+    rclcpp_action::Client<ExecuteTrajectory>::SendGoalOptions opt;
+    opt.goal_response_callback = [this, cb, gen](const rclcpp_action::ClientGoalHandle<ExecuteTrajectory>::SharedPtr & h) {
+      if (!h && gen == gen_) cb(false);
+    };
+    opt.result_callback = [this, cb, gen](const rclcpp_action::ClientGoalHandle<ExecuteTrajectory>::WrappedResult & r) {
+      if (gen != gen_) return;  // 취소된 옛 goal의 늦은 결과
+      cb(r.code == rclcpp_action::ResultCode::SUCCEEDED && r.result->error_code.val == moveit_msgs::msg::MoveItErrorCodes::SUCCESS);
+    };
+    exec_->async_send_goal(goal, opt);
+  };
+}
+
+Coordinator::Step Coordinator::grip_timed_step(double joint_m, double effort_a, double secs) {
+  return [this, joint_m, effort_a, secs](std::function<void(bool)> cb) {
+    ParallelGripperCommand::Goal goal;
+    goal.command.position = {joint_m};
+    if (effort_a > 0.0) goal.command.effort = {effort_a};
+    gripper_->async_send_goal(goal);
+    wait_step(secs)(cb);
+  };
+}
+
+Coordinator::Step Coordinator::wait_step(double secs) {
+  return [this, secs](std::function<void(bool)> cb) {
+    const uint64_t gen = gen_;
+    stand_timer_ = create_wall_timer(std::chrono::duration<double>(secs), [this, cb, gen]() {
+      stand_timer_->cancel();
+      if (gen == gen_) cb(true);
+    });
+  };
+}
+
+void Coordinator::stand(const SubGoal & g) {
+  if (!ready_or_retry(motion_plan_->service_is_ready() && exec_->action_server_is_ready() &&
+      gripper_->action_server_is_ready(), "arm_unavailable")) return;
+  const auto * o = is_id(g.target) ? find(std::stoul(g.target)) : nullptr;
+  if (!o) { fail("stand_no_target"); return; }
+  if (o->class_name != "puck_lying") { fail("stand_not_lying"); return; }
+  if (!std::any_of(o->details.begin(), o->details.end(), [](const auto & kv) { return kv.key == "yaw_period"; })) {
+    fail("stand_no_yaw");  // 긴 축 방향을 못 구함 — 다른 자리에서 다시 보기
+    return;
+  }
+  if (approach_if_far(g)) return;
+  // 퍽 (map) → 로봇 root (base_footprint): 가운데 xy · 긴 축 yaw (180° 대칭 → 로봇에서 먼 쪽으로)
+  tf2::Transform t;
+  try {
+    const auto m = tf_buffer_->lookupTransform("base_footprint", "map", tf2::TimePointZero).transform;
+    t = tf2::Transform(tf2::Quaternion(m.rotation.x, m.rotation.y, m.rotation.z, m.rotation.w),
+                       tf2::Vector3(m.translation.x, m.translation.y, m.translation.z));
+  } catch (const std::exception &) {
+    fail("stand_no_tf");
+    return;
+  }
+  const auto & pp = o->pose.pose.position;
+  const auto & q = o->pose.pose.orientation;
+  const tf2::Vector3 c = t * tf2::Vector3(pp.x, pp.y, pp.z);
+  const tf2::Vector3 ax = t.getBasis() * tf2::Vector3(1.0 - 2 * (q.y * q.y + q.z * q.z), 2 * (q.x * q.y + q.w * q.z), 0.0);
+  const double yaw = stand::away_yaw(std::atan2(ax.y(), ax.x()));
+  const stand::V3 centre = {c.x(), c.y(), stand_box_top_m_};
+  const bool is_box = held_shape_of(o->id) == "box";
+  std::vector<stand::Q5> qs;
+  std::string why;
+  const bool ok = stand_waypoints_ == "table" ? stand::plan_table(stand_table_, centre, yaw, is_box, qs, why)
+                                              : stand::plan_ik(centre, yaw, is_box, stand_p_, qs, why);
+  if (!ok) { fail(why); return; }
+  if (stand_waypoints_ == "table" && std::abs(centre[0] - stand_table_.box_cx) > 0.02)  // 표는 정해진 dock 자리 기준 (선형 보정 범위)
+    RCLCPP_WARN(get_logger(), "stand 표: 퍽이 표 기준 x에서 %.0fmm — dock 자리 확인", (centre[0] - stand_table_.box_cx) * 1000);
+  RCLCPP_INFO(get_logger(), "stand %s: %s 퍽 (%.3f, %.3f) m 축 %.0f° — 경유점 %s %zu개", g.target.c_str(), is_box ? "사각" : "원기둥",
+              centre[0], centre[1], yaw * 180 / M_PI, stand_waypoints_.c_str(), qs.size());
+  PuckInfo puck{is_box ? "box" : "cyl", o->color, -1, false};
+  for (const auto & kv : o->details) if (kv.key == "tag" && is_id(kv.value)) puck.tag = std::stoi(kv.value);
+  stand_done_ = StandDone{};
+  reset_sag();
+  const double open = stand::gap_joint(0.040);
+  const std::vector<stand::Q5> wp(qs.begin(), qs.end() - 2);  // [위 · 시작 · 호 … · 놓기 · 위로] (뒤 2개 = 다시 잡기)
+  const stand::Q5 above = wp.front(), start = wp[1], away = wp.back();
+  const double vs = stand_vel_scale_, avs = stand_arc_vel_scale_;
+  const stand::Params sp = stand_p_;
+  auto steps = std::make_shared<std::vector<Step>>(std::vector<Step>{
+    gripper_step(open),
+    joints_step(std::vector<double>(above.begin(), above.end())),  // 어디서든 MoveIt 계획으로 (충돌 확인)
+    wait_step(STAND_HOLD_S),
+    traj_step([start, vs](const stand::Q5 & now) { return stand::sample_move(now, start, vs, STAND_DT); }),
+    grip_timed_step(0.0, stand_pinch_current_a_, STAND_CLOSE_S),
+    traj_step([wp, sp, avs](const stand::Q5 &) { return stand::sample_arc(wp, sp, avs, STAND_HANG_S, STAND_DT); }),
+    wait_step(STAND_SETTLE_S),
+    grip_timed_step(open, stand_pinch_current_a_, STAND_OPEN_S),
+    traj_step([away, vs](const stand::Q5 & now) { return stand::sample_move(now, away, vs, STAND_DT); })});
+  run_steps(steps, 0, [this, qs, puck](bool ok2) {
+    if (!ok2) { fail("stand_failed"); return; }
+    stand_done_ = StandDone{true, qs, puck};
+    next();
+  });
+}
+
+void Coordinator::stand_pick(const SubGoal &) {
+  if (!ready_or_retry(exec_->action_server_is_ready() && gripper_->action_server_is_ready(), "arm_unavailable")) return;
+  if (!stand_done_.valid) { fail("stand_pick_no_stand"); return; }
+  if (!held_.shape.empty()) { fail("hand_full"); return; }
+  // reset_sag 안 함 — 세운 직후 처짐 보정을 0으로 되돌리면 손이 처진 만큼 떨어짐 (팀원 stand_dummy). 같은 손목으로 이어 감
+  const stand::Q5 grasp = stand_done_.qs[stand_done_.qs.size() - 2], lift = stand_done_.qs.back();
+  const double vs = stand_vel_scale_;
+  grasp_empty_ = false;
+  auto steps = std::make_shared<std::vector<Step>>(std::vector<Step>{
+    traj_step([lift, vs](const stand::Q5 & now) { return stand::sample_move(now, lift, vs, STAND_DT); }),   // 선 퍽 위
+    traj_step([grasp, vs](const stand::Q5 & now) { return stand::sample_move(now, grasp, vs, STAND_DT); }),  // 바로 아래로
+    wait_step(STAND_HOLD_S),                                                                                 // 처짐 보정 쌓임
+    grip_timed_step(GRIPPER_CLOSED_M, grip_current_a_, REGRASP_CLOSE_S), held_step(),
+    traj_step([lift, vs](const stand::Q5 & now) { return stand::sample_move(now, lift, vs, STAND_DT); })});
+  run_steps(steps, 0, [this](bool ok) {
+    if (!ok) {
+      if (grasp_empty_) set_gripper(stand::gap_joint(0.040), [](bool) {});
+      fail(grasp_empty_ ? "grasp_empty" : "stand_pick_failed");
+      return;
+    }
+    held_ = stand_done_.puck;
+    stand_done_ = StandDone{};
+    basket_changed();
     next();
   });
 }

@@ -7,7 +7,7 @@
 //         📞 /clear_octomap · /apply_planning_scene (move_group), ✉️ /task/status → VLM·UI, ✉️ /robot/say → user_input
 // 규칙 (골격에 들어간 것):
 //   skill 정의: documents/project/ros/05-arm.md (자세 · skill · 흐름 · 실패 이유)
-//   1. 계획 검증 — 허용 동작(navigate·pick·place·inspect·say·pose·load·unload), 숫자 대상 id가 /tracked_objects에 있는지
+//   1. 계획 검증 — 허용 동작(navigate·pick·place·inspect·say·pose·load·unload·stand·stand_pick), 숫자 대상 id가 /tracked_objects에 있는지
 //      (pose·load·unload의 target은 자세 이름·칸 번호라 물체 검증 안 함)
 //   inspect <퍽 id> (신호등 암호 미션 — 퍽 윗면 16mm AprilTag는 gripper_cam이 위에서 봐야 읽힘): 멀면 다가가고 손끝을 퍽 윗면 위
 //     inspect_height_m로 (손가락 아래) → inspect_wait_s 기다림 → 다음 단계. 읽었는지(details tag)는 planner가 /tracked_objects로 본다
@@ -20,7 +20,9 @@
 //       pick 때 그 퍽의 tag·색·모양을 손에 기억 → load 성공이면 칸에 적음 → unload 성공이면 손으로 옮김. 파일(basket_file)에 저장해 다시 떠도 이어 감
 //       📞 /coordinator/basket_clear — 사람이 적재함을 비웠을 때. unload가 빈손이면 칸을 비우지 않고 check(확인 필요)로 표시
 //     load next는 basket_use 칸 중 빈 칸 (팔이 잘 못 닿는 칸은 설정에서 뺌). 옛 target "tray"는 호환 이름: place tray = load next · pick tray = unload last
-//   처짐 보정: 팔 skill(pick·place·load·unload) 시작 때 한 번 📞 /rl_arm_correction/reset_sag (없으면 WARN 한 번, 계속)
+//   세우기: stand <누운 퍽 id> — 팀원 right_env tilt (가볍게 쥐고 아래 모서리 축으로 돌려 세움, 손 놓고 끝) · stand_pick — 같은 손목으로 다시 집기
+//     경유점 stand_waypoints: ik(해석 IK, 기본) | table(config/stand_table.yaml) — stand_plan.hpp
+//   처짐 보정: 팔 skill(pick·place·load·unload·stand) 시작 때 한 번 (stand_pick은 안 함 — 세운 손목 그대로) 📞 /rl_arm_correction/reset_sag (없으면 WARN 한 번, 계속)
 //   잡기 판정: 닫은 뒤 gripper_left_joint 위치(퍽이 끼어 덜 닫힘) + 전류(effort) — grasp_check (pick·unload)
 //   쥐는 힘: 닫을 때 grip_current_a(0.35 A)를 액션 goal effort로 보냄 (비우면 0.6 A — 놓을 때 전류가 튐)
 //   place <location_box>: 상자 윗면(size.z) 위에 손 안 퍽 바닥(held_bottom_m) + place_release_m에서 벌림, 여러 개면 상자 안·상자 축으로 비켜 놓음
@@ -69,6 +71,7 @@
 #include "plan/msg/sub_goal_array.hpp"
 #include "plan/msg/task_status.hpp"
 #include "plan/msg/basket_state.hpp"
+#include "plan/stand_plan.hpp"
 #include "rclcpp/rclcpp.hpp"
 #include "sensor_msgs/msg/joint_state.hpp"
 #include "trajectory_msgs/msg/joint_trajectory.hpp"
@@ -185,6 +188,15 @@ private:
   Step joints_step(const std::vector<double> & q);
   Step gripper_step(double width_m, double effort_a = -1.0);
   Step held_step();  // 잡기 판정 (grasp_check 끄면 통과)
+  // ---------- 세우기 stand · stand_pick (05-arm.md 6-1, 경유점: stand_plan.hpp — stand_waypoints ik | table)
+  void stand(const SubGoal & g);
+  void stand_pick(const SubGoal & g);
+  bool arm_now(stand::Q5 & q) const;  // /joint_states joint1~5
+  // 지금 관절값(시각 0) + make(지금)이 준 샘플(dt 간격)을 한 궤적으로 🎬 /execute_trajectory (MoveIt 경유, 계획 없이 실행)
+  Step traj_step(std::function<std::vector<stand::Q5>(const stand::Q5 &)> make);
+  // 그리퍼 goal을 보내고 결과를 기다리지 않고 secs 뒤 다음 (가볍게 쥐면 목표에 '도착'하지 않을 수 있음 — 팀원 stand_dummy)
+  Step grip_timed_step(double joint_m, double effort_a, double secs);
+  Step wait_step(double secs);
 
   // ---------- 처짐 보정 초기화 — 팔 skill 시작 때 한 번 (서비스 없으면 WARN 한 번)
   void reset_sag();
@@ -282,6 +294,15 @@ private:
   double grip_current_a_ = 0.35;  // 닫을 때 쥐는 힘 [A] — 팀 결정 0.3~0.4 A (22~29 N)
   double grasp_min_pos_m_, grasp_min_effort_;
   std::map<std::string, double> joint_effort_;
+  std::string stand_waypoints_ = "ik";  // ik (해석 IK, 기본) | table (팀원 표 + 위치 선형 보정)
+  stand::Params stand_p_;
+  stand::Table stand_table_;
+  double stand_box_top_m_ = 0.07;        // 시작 박스 윗면 높이 (바닥 기준) — 누운 퍽 바닥
+  double stand_pinch_current_a_ = 0.0055;  // 세울 때 가볍게 쥐는 힘 [A] (0.4 N ≈ 29 N × 0.4 N/29 N × 0.4 A — mA↔N 실측 필요)
+  double stand_vel_scale_ = 0.3, stand_arc_vel_scale_ = 0.5;  // × 팀 관절 한계 (3 rad/s · 5 rad/s²)
+  struct StandDone { bool valid = false; std::vector<stand::Q5> qs; PuckInfo puck; };
+  StandDone stand_done_;                 // 마지막 stand — stand_pick이 같은 손목으로 다시 잡음
+  rclcpp::TimerBase::SharedPtr stand_timer_;
   rclcpp::Client<std_srvs::srv::Trigger>::SharedPtr reset_sag_;
   bool sag_warned_ = false;
   bool grasp_empty_ = false;      // 마지막 잡기 판정이 빈손 — 실패 이유 grasp_empty

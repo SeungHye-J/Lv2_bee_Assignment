@@ -125,7 +125,7 @@ for obj in tracked_objects.objects:
 
 ```text
 uint32 step
-string skill        # navigate | pick | place | inspect | say | pose | load | unload  (정의: documents/project/ros/05-arm.md)
+string skill        # navigate | pick | place | inspect | say | pose | load | unload | stand | stand_pick  (정의: documents/project/ros/05-arm.md)
 string target       # 물체 id (/tracked_objects의 id) · "x,y"(navigate) · 자세 이름(pose) · 칸 0~11 · next(load) · last(unload) · "tray"(pick·place — unload last·load next와 같음) · 말할 내용(say)
 string relation     # front | on | ...
 float32 offset_m
@@ -141,6 +141,8 @@ float32 offset_m
 | `load` | 칸 `0`~`11` · `next` | 손의 퍽을 적재함 칸에 — carry(칸 방향) → 칸 위 → 내림 → 벌림 → 들어올림 → stow (12칸, 칸·퍽 모양별 관절값 basket.yaml) |
 | `unload` | 칸 `0`~`11` · `last` | 적재함 칸의 퍽 꺼내기 — carry → 벌림 → 칸 위 → 내림 → 닫기 → 잡기 판정 → 칸 위 → carry |
 | `inspect` | 퍽 id · `"x,y,z"` | 손끝을 퍽 윗면(좌표면 그 점) 위 `inspect_height_m`로 (좌표면 손 방향 = 로봇 → 점) → `inspect_wait_s` 기다림 — gripper_cam이 윗면 16mm AprilTag(번호)를 읽게. 못 읽어도 성공 (읽었는지는 `details.tag`) |
+| `stand` | 누운 퍽 id (`puck_lying`) | 누운 퍽 세우기 — 먼 끝을 가볍게 쥐고 가까운 아래 모서리 축으로 돌려 세운 뒤 벌리고 위로 (손은 빈 채 끝). 경유점 `stand_waypoints` ik(기본) · table |
+| `stand_pick` | 아무 값 (직전 `stand`의 퍽) | 세운 퍽 다시 집기 — 같은 손목으로 바로 아래로 → 닫기 → 잡기 판정 → 들어올림. 성공하면 그 퍽을 손에 든 것으로 장부에 |
 | `say` | 말할 내용 | `/robot/say`로 알림 |
 
 <a id="api-msg-basketstate"></a>
@@ -194,7 +196,7 @@ string reason       # grasp_failed_all | nav_failed | arm_contact ...
 ```
 
 - 내는 쪽: coordinator → `/task/status` (reliable + transient_local). 받는 쪽: vlm_task_planner(자기 계획이 FAILED면 재계획) · mission_manager(자기 계획 결과로 다음 단계) · user_input(표시).
-- reason (coordinator.cpp): 이동 `nav_failed` · `approach_failed` / 집기 `no_grasp` · `grasp_failed_all` · `arm_contact` / 놓기 `place_failed` · `place_no_target` / 자세 `pose_failed` / 적재함 `slot_invalid` · `slot_full` · `slot_empty` · `load_failed` · `unload_failed` · `basket_table_missing` / 잡기 판정 `grasp_empty` / 보기 `inspect_no_target` · `inspect_failed` / 멈춤 `manual_override`·`manual_mode` · `explore_override`·`explore_mode` · `estop`·`estop_blocked` · `cancelled` — `manual`·`explore`·`estop`·`cancelled`로 시작하면 planner는 재계획하지 않음.
+- reason (coordinator.cpp): 이동 `nav_failed` · `approach_failed` / 집기 `no_grasp` · `grasp_failed_all` · `arm_contact` / 놓기 `place_failed` · `place_no_target` / 자세 `pose_failed` / 적재함 `slot_invalid` · `slot_full` · `slot_empty` · `load_failed` · `unload_failed` · `basket_table_missing` / 잡기 판정 `grasp_empty` / 세우기 `stand_failed` · `stand_not_lying` · `stand_no_yaw` · `stand_ik_unreachable` · `stand_table_missing` · `stand_pick_no_stand` · `stand_pick_failed` · `hand_full` / 보기 `inspect_no_target` · `inspect_failed` / 멈춤 `manual_override`·`manual_mode` · `explore_override`·`explore_mode` · `estop`·`estop_blocked` · `cancelled` — `manual`·`explore`·`estop`·`cancelled`로 시작하면 planner는 재계획하지 않음.
 - 주의: [노드 사전](project/ros/10-catalog.md)의 reason 예시(`nav_blocked`)와 파일(`nav_failed`)이 다릅니다 — 파일이 정본.
 
 <a id="api-msg-missionstate"></a>
