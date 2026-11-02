@@ -642,15 +642,15 @@ class Bus:
                 return 2
             self._poll(0.5)
             if self.state.map_mode == 'COURSE':
-                # COURSE엔 RTAB-Map이 없어 전환 불가 — 재시작으로 갈아탐
+                # COURSE(정지 지도)는 state_manager가 바꾸지 않음 — launch 재시작으로 갈아탐
                 return self._map_restart_for(target, None)
-            self._send_map_mode(target)
-            if self._wait_value('map_mode', target, 4.0):
-                print(f'지도 모드 → {target}')
+            if self.state.map_mode == target:
+                print(f'이미 지도 모드 {target}')
                 return 0
-            print(f'요청 실패: 현재 지도 모드 {self.state.map_mode or "알 수 없음"} '
-                  '(RTAB-Map이 꺼져 있거나 전환 중)', file=sys.stderr)
-            return 1
+            if target == 'LOCALIZATION' and not self.state.values.get('map_name'):
+                print('거부: 지금 지도 폴더가 없음 — map switch <이름>으로 고르세요', file=sys.stderr)
+                return 2
+            return self._map_restart_reply(lambda: self._send_map_mode(target), f'지도 모드 → {target}')
 
         if args.action == 'switch':
             if not args.name:
@@ -658,15 +658,16 @@ class Bus:
                 return 2
             self._poll(0.5)
             if self.state.map_mode == 'COURSE':
-                # COURSE엔 RTAB-Map이 없어 갈아끼우기 불가 — 재시작으로 갈아탐
                 return self._map_restart_for('LOCALIZATION', args.name)
-            self._send_map_name(args.name)
-            if self._wait_value('map_name', args.name, 5.0):
-                print(f'지도 → {args.name}')
+            if args.name == self.state.values.get('map_name') and self.state.map_mode == 'LOCALIZATION':
+                print(f'이미 지도 {args.name}')
                 return 0
-            print(f'요청 실패: 현재 지도 {self.state.values.get("map_name") or "-"} '
-                  '(없는 지도이거나 RTAB-Map/state_manager 확인)', file=sys.stderr)
-            return 1
+            maps = [n for n in (self.state.values.get('map_list') or '').splitlines() if n]
+            if maps and args.name not in maps:
+                print(f'거부: 지도 없음 "{args.name}" (nvblox.nvblx 있는 폴더만)', file=sys.stderr)
+                print('있는 지도: ' + ', '.join(maps), file=sys.stderr)
+                return 2
+            return self._map_restart_reply(lambda: self._send_map_name(args.name), f'지도 → {args.name}')
 
         if args.action == 'save':
             return self._map_save(args, map_dir)
@@ -674,9 +675,30 @@ class Bus:
         print(f'모르는 map action: {args.action}', file=sys.stderr)
         return 2
 
+    def _map_restart_reply(self, send, desc: str, timeout: float = 3.0) -> int:
+        """지도 모드·지도 바꾸기 = state_manager가 launch 전체를 다시 띄움 (cuVSLAM·nvblox는 실행 중 전환이 없음).
+        끝까지 기다리지 않는다 — nvblox 지도 저장 + 다시 뜨기에 수십 초이고, 그동안 state_manager도 꺼진다.
+        /state/restart의 첫 응답("all: 재시작 중 …" | "거절: …")만 보여 준다."""
+        self.state.values.pop('restart', None)
+        send()
+        end = time.monotonic() + timeout
+        while time.monotonic() < end and rclpy.ok():
+            self._poll(0.1)
+            note = self.state.values.get('restart')
+            if note:
+                if note.startswith('거절'):
+                    print(f'요청 실패: {note}', file=sys.stderr)
+                    return 1
+                print(f'{desc} — {note}')
+                print('다시 뜨는 데 수십 초 걸립니다 (nvblox 지도 저장 → SLAM 시작). 확인: map status')
+                return 0
+        print('요청 실패: state_manager 응답 없음 — 거절 이유는 /diagnostics의 state_manager '
+              '"지도 모드 전환 실패"에 있음', file=sys.stderr)
+        return 1
+
     def _map_restart_for(self, mode: str, name: str | None) -> int:
-        """COURSE에서 MAPPING/LOCALIZATION·지도 전환 요청이 오면 launch 재시작으로 갈아탐.
-        (RTAB-Map이 꺼져 있어 /cmd/map_mode·/cmd/map_name이 통하지 않음)"""
+        """COURSE(정지 지도)에서 MAPPING/LOCALIZATION·지도 전환 요청 → launch 재시작으로 갈아탐
+        (state_manager는 COURSE를 바꾸지 않으므로 /cmd/restart를 직접 보냄)."""
         if mode == 'MAPPING':
             launch_args, desc = 'map:=slam', 'MAPPING(스캔)'
         elif name:
@@ -685,41 +707,44 @@ class Bus:
             launch_args, desc = 'map:=saved', 'LOCALIZATION(최근 지도)'
         if not self.prompt.confirm('재시작할까요?', default=False, body=[
                 '지금은 COURSE(정지 지도)라 바로 전환이 안 됩니다.',
-                f'launch 재시작으로 {desc} 모드로 갈아탑니다: all {launch_args}']):
+                f'launch 재시작으로 {desc} 모드로 갈아탑니다: all {launch_args}',
+                '주의: SLAM(cuVSLAM + nvblox)은 GPU가 있어야 함 — GPU 없는 테스트베드에선 시작하다 멈춥니다.']):
             return 1
-        return self._map_do_restart(launch_args)
+        return self._map_restart_reply(lambda: self._publish(self.pub_restart, String(data=f'all {launch_args}')),
+                                       f'재시작 all {launch_args}')
 
-    def _map_do_restart(self, launch_args: str) -> int:
-        # cmd_restart는 target만 받으므로 full 텍스트를 직접 보낸다
-        from std_msgs.msg import String as _String
-        pub = self.node.create_publisher(_String, '/cmd/restart', 10)
-        self._poll(0.2)
-        msg = _String()
-        msg.data = f'all {launch_args}'
-        pub.publish(msg)
-        print(f'요청: /cmd/restart "{msg.data}" (재시작 중이면 /state/restart 확인)')
-        return 0
+    def _robot_map_dir(self) -> str:
+        """state_manager의 map_dir 파라미터 — map_saver가 도는 쪽(로봇·컨테이너)의 지도 폴더. 못 읽으면 ''."""
+        cli = self.param_client('state_manager', '/')
+        if cli is None or not cli.wait_for_services(timeout_sec=1.0):
+            return ''
+        vals = self.param_get_vals(cli, ['map_dir'])
+        return str(getattr(vals[0], 'string_value', '') or '') if vals else ''
 
     def _map_save(self, args, map_dir: Path) -> int:
         if SaveMapSrv is None:
             print('거부: nav2_msgs가 없어 map save를 사용할 수 없습니다', file=sys.stderr)
             return 2
         name = self.state.values.get('map_name') or ''
+        # 경로는 map_saver가 쓰는 쪽 기준 — CLI가 원격 PC·컨테이너 밖이면 이 컴퓨터 경로가 로봇에 없다.
+        #   --file·--map-dir를 주지 않으면 state_manager의 map_dir을 쓴다 (못 읽을 때만 이 컴퓨터의 ros2_ws/map)
+        robot_dir = '' if (args.file or args.map_dir) else self._robot_map_dir()
         if args.file:
             path = Path(args.file).expanduser()
         else:
             if not name:
                 print('거부: 현재 지도 이름이 없습니다 — --file로 경로를 지정하세요', file=sys.stderr)
                 return 2
-            path = map_dir / name / 'map'
+            path = Path(robot_dir or map_dir) / name / 'map'
         if path.suffix.lower() in ('.yaml', '.pgm'):
             path = path.with_suffix('')
-        path = path.resolve()
-        path.parent.mkdir(parents=True, exist_ok=True)
+        if not robot_dir:  # 이 컴퓨터 경로일 때만 — 로봇 쪽 지도 폴더는 bringup이 이미 만듦
+            path = path.resolve()
+            path.parent.mkdir(parents=True, exist_ok=True)
 
         client = self.node.create_client(SaveMapSrv, '/map_saver/save_map')
         if not client.wait_for_service(timeout_sec=2.0):
-            print('거부: /map_saver/save_map 서비스 없음 (RTAB-Map/지도 저장 서버 확인)', file=sys.stderr)
+            print('거부: /map_saver/save_map 서비스 없음 (지도 저장 서버는 map:=slam·saved일 때만 뜸)', file=sys.stderr)
             self.node.destroy_client(client)
             return 1
 

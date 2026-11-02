@@ -210,8 +210,15 @@ cd tool
 ./run-cli map save --map-dir /path/to/maps
 ```
 
-`map save`는 `/map_saver/save_map` 서비스를 호출해 `.pgm`·`.yaml`을 저장합니다.
-기본 경로는 `ros2_ws/map/<현재 지도 이름>/map`입니다.
+지도 한 벌 = 폴더 하나 `<map_dir>/<이름>/` (`nvblox.nvblx` 정본 · `map.pgm`·`map.yaml` 미리보기). 목록은 `nvblox.nvblx`가 있는 폴더입니다.
+
+- `map mode` · `map switch`는 **launch 전체를 다시 띄웁니다** (cuVSLAM·nvblox는 실행 중 전환이 없음 — state_manager가 `all map:=slam` · `all map:=saved map_name:=<이름>`).
+  CLI는 `/state/restart`의 첫 응답(`all: 재시작 중 …` · `거절: …`)만 보여 주고 끝납니다. 다시 뜨는 데 수십 초(nvblox 지도 저장 → SLAM 시작) — 끝났는지는 `map status`.
+- 없는 지도 이름 · 지도 폴더 없이 `localization`은 CLI가 먼저 거절합니다 (state_manager는 거절 이유를 `/diagnostics`에만 남김).
+- COURSE(테스트베드 정지 지도)에서는 확인 뒤 `/cmd/restart`로 갈아탑니다. SLAM은 GPU가 있어야 해서 **GPU 없는 테스트베드에선 시작하다 멈춥니다**.
+- `map save`는 `/map_saver/save_map`(map:=slam·saved일 때만 뜸)을 불러 `.pgm`·`.yaml`을 저장합니다.
+  기본 경로는 `<state_manager의 map_dir>/<현재 지도 이름>/map` — map_saver가 도는 쪽(로봇·컨테이너) 경로라 원격 PC에서 CLI를 써도 맞습니다.
+  `map_dir`을 못 읽으면 이 컴퓨터의 `ros2_ws/map`(또는 `BEEBOT_MAP_DIR`). `--file` · `--map-dir`는 그대로 씁니다.
 
 ### 노드 (상태 · 재시작)
 
