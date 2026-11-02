@@ -1,5 +1,6 @@
 """Isaac Sim startup for the team: open usda/scene_sim.usda with the physx variant and start
 opencr_bridge.py (virtual OpenCR on /tmp/opencr) so the ROS side can connect right away.
+Viewport starts in RTX - Minimal with colliders hidden.
 Same result on every machine, no personal layout file.
 
     isaacsim --exec isaac_startup.py        (isaac_sim.sh does this)
@@ -7,6 +8,7 @@ Same result on every machine, no personal layout file.
 import asyncio
 import os
 
+import carb.settings
 import omni.kit.app
 import omni.usd
 from pxr import PhysxSchema, Usd
@@ -20,6 +22,12 @@ async def _setup():
     for _ in range(60):  # let the default windows come up first
         await app.next_update_async()
     await omni.usd.get_context().open_stage_async(os.path.abspath(SCENE))
+    # Viewport: light RTX - Minimal renderer, no collider debug draw, no guide-purpose prims (the robot's
+    # collision meshes are guides). Set after opening the stage so per-user persistent settings don't win.
+    settings = carb.settings.get_settings()
+    settings.set("/rtx/rendermode", "MinimalRendering")
+    settings.set_int("/persistent/physics/visualizationDisplayColliders", 0)
+    settings.set_bool("/persistent/app/hydra/displayPurpose/guide", False)
     stage = omni.usd.get_context().get_stage()
     # scene_sim.usda selects no Physics variant ("none" = no articulation, opencr_bridge finds nothing).
     # Pick physx in the session layer: never saved into the file.
