@@ -143,7 +143,8 @@ export POLE_FRONT_CAM_SERIAL=261822074109 GRIPPER_CAM_SERIAL=261622075828
 | 5. nvblox 격자 | `ros2 topic hz /nvblox_node/static_occupancy_grid` | 1~5 Hz 예상 (실기에서 확인). **안 나오면 nvblox 쪽 이름·설정부터 확인** |
 | 6. /map | `ros2 topic echo /map --once --field info` · nvblox_map 로그 | 해상도 0.05 · `격자 받음 N · /map 냄 N` |
 | 7. Nav2 | `ros2 lifecycle get /planner_server` · RViz global costmap | active · 주변 벽이 costmap에 보임 |
-| 8. 부하 | `tegrastats` | GPU·RAM 기록 (5절 cuVSLAM 단독 부하와 비교) |
+| 8. 부하 | `tegrastats` — 그대로 1분 기록 (bringup이 perception·YOLO도 같이 띄움) | CPU·GPU·RAM 기록. 5절은 cuVSLAM **단독**(CPU 약 50%, RAM 2.7 GB)이라 cuVSLAM + nvblox + perception을 같이 켠 이 값이 실제 운용 부하 |
+| 8-1. 인지 추론 주기 | `ros2 topic hz /perception/pole_front_cam/detections` · `/perception/gripper_cam/detections` (추론 한 번에 한 장) | 카메라당 4 Hz 가까이. **2 Hz 아래면 신호등 점멸 해석이 깨질 수 있음** — signal_decoder는 신호등을 0.6초 넘게 못 보면 꺼짐으로 셈 (1초 켜짐이 둘로 쪼개짐). 밀리면 perception.yaml `device`(지금 cpu)·`cpu_threads`·`imgsz`부터 |
 | 9. 손으로 밀기 | 로봇을 손으로 20~30 cm 밀었다 되돌림 | TF가 따라가고, 되돌린 뒤 처음 자리로 돌아옴 |
 | 10. 저장 | Ctrl+C 한 번 → `ls ~/.ros/beebot_maps/nvblox_test/` | `nvblox.nvblx` 생김 |
 | 11. 불러오기 | 같은 자리에서 `./start.sh map:=saved map_name:=nvblox_test use_moveit:=false` | nvblox_map 로그 `지도 불러오기 … 성공` · 처음부터 /map이 그려져 있음 |

@@ -224,7 +224,7 @@ string message
 
 | 이름 | 타입 | 보내는 쪽 → 받는 쪽 | 주기 · QoS |
 | --- | --- | --- | --- |
-| `/pole_front_cam/color/image_raw` | sensor_msgs/Image (rgb8) | realsense2_camera (pole_front_cam) → perception, cuvslam_slam, nvblox_node | 30Hz · best_effort |
+| `/pole_front_cam/color/image_raw` | sensor_msgs/Image (rgb8) | realsense2_camera (pole_front_cam) → perception, cuvslam_slam, nvblox_node | 15Hz (launch `pole_front_cam_profile` 640x360x15) · best_effort |
 | `/pole_front_cam/color/camera_info` | sensor_msgs/CameraInfo | realsense2_camera (pole_front_cam) → perception, cuvslam_slam, nvblox_node | 내부 파라미터 |
 | `/pole_front_cam/depth/camera_info` | sensor_msgs/CameraInfo | realsense2_camera (pole_front_cam) → (예비) | 정렬 depth와 동일 해상도·프레임 |
 | `/pole_front_cam/aligned_depth_to_color/image_raw` | sensor_msgs/Image (16UC1, mm) | realsense2_camera (pole_front_cam) → perception, cuvslam_slam, pole_depth_gate | 컬러와 1:1 정렬 |
