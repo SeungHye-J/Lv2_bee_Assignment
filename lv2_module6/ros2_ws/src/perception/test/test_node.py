@@ -599,7 +599,7 @@ def test_puck_yaw():
 
 
 def test_location_yaw():
-    """장소 태그(L1~L3, 48mm)가 박스 옆면에서 카메라를 바라봄 → location 물체에 yaw (태그 앞쪽 = 카메라 쪽 −x → 180°), 주기 360"""
+    """장소 태그(L1~L3, 48mm)가 박스 옆면에서 카메라를 바라봄 → location_box 물체에 yaw (태그 앞쪽 = 카메라 쪽 −x → 180°), 주기 360"""
     import cv2
     import numpy as np
     from builtin_interfaces.msg import Time
@@ -620,7 +620,7 @@ def test_location_yaw():
     try:
         node = PerceptionNode()
         assert abs(node.location_tag_size - 0.048) < 1e-9
-        a = node.fuse("pole_front_cam", Time(), [{**_det((1.0, 0.0, 0.035), cls="location", color=""), "tag": 13,
+        a = node.fuse("pole_front_cam", Time(), [{**_det((1.0, 0.0, 0.035), cls="location_box", color=""), "tag": 13,
                                                    "yaw": yaw, "yaw_period": 2 * np.pi}])
         msg = to_msg(a[0], node.to_map(node.tracks[a[0]]))
         q = msg.pose.pose.orientation
@@ -628,7 +628,90 @@ def test_location_yaw():
         kv = {k.key: k.value for k in msg.details}
         assert kv["tag"] == "13" and kv["yaw_period"] == "360"
         # 방향 모르는 다음 관측이 아는 방향을 덮지 않음
-        node.fuse("pole_front_cam", Time(sec=1), [{**_det((1.0, 0.0, 0.035), cls="location", color=""), "tag": 13}])
+        node.fuse("pole_front_cam", Time(sec=1), [{**_det((1.0, 0.0, 0.035), cls="location_box", color=""), "tag": 13}])
         assert node.tracks[a[0]]["yaw"] is not None
+    finally:
+        rclpy.shutdown()
+
+
+# ---------- 상자 (사용자 11/02 — 로봇팔이 놓고 집으려면 상자 크기·가운데·방향 필요): depth 윗면 → start_box / location_box
+def _box_depth(boxes, extra=None, cam_h=0.8):
+    """위에서 비스듬히 내려다보는 카메라로 찍은 가짜 depth — boxes = [(가운데 x, y, 한 변, 높이, yaw[rad])] (바닥 z=0)
+    extra = 그 밖의 물체 [(x, y, 반지름, 높이)] (원통 — 방해물). 화소마다 광선을 쏴서 처음 닿는 면까지 거리"""
+    import numpy as np
+    rot = _cam_rot(0.0, 50.0)
+    trans = np.array([0.0, 0.0, cam_h])
+    h, w = 240, 320
+    fx = fy = 300.0
+    vv, uu = np.mgrid[0:h, 0:w].astype(float)
+    ray = np.stack([(uu - 160) / fx, (vv - 120) / fy, np.ones_like(uu)], -1) @ rot.T  # 추적 좌표 방향 (광학 z=1당)
+    depth = np.where(ray[..., 2] < 0, -cam_h / np.minimum(ray[..., 2], -1e-9), 0.0)   # 바닥까지 (광학 z 거리)
+    for (bx, by, side, bh, yaw) in boxes:   # 윗면만 (옆면은 생략 — 윗면 높이 점이 있으면 충분)
+        t = (bh - cam_h) / np.minimum(ray[..., 2], -1e-9)
+        px, py = trans[0] + t * ray[..., 0] - bx, trans[1] + t * ray[..., 1] - by
+        lx, ly = px * np.cos(-yaw) - py * np.sin(-yaw), px * np.sin(-yaw) + py * np.cos(-yaw)
+        hit = (ray[..., 2] < 0) & (abs(lx) < side / 2) & (abs(ly) < side / 2) & (t < depth)
+        depth = np.where(hit, t, depth)
+    for (ox, oy, r, oh) in (extra or []):   # 원통: 높이마다 원 안이면 닿음 (위쪽부터 촘촘히)
+        for z in np.linspace(oh, 0.0, 40):
+            t = (z - cam_h) / np.minimum(ray[..., 2], -1e-9)
+            px, py = trans[0] + t * ray[..., 0] - ox, trans[1] + t * ray[..., 1] - oy
+            hit = (ray[..., 2] < 0) & (px ** 2 + py ** 2 < r ** 2) & (t < depth)
+            depth = np.where(hit, t, depth)
+    return depth.astype(np.float32), rot, trans, fx, fy, 160.0, 120.0
+
+
+def test_box_tops():
+    """돌아간 205 상자 → 가운데·크기·방향(90° 주기) · 4개 붙인 판 → 큰 상자 하나 · 하얀 원통 방해물 · 작은 물체는 상자 아님"""
+    import numpy as np
+    from perception_node import find_box_tops, tag_on_box, wrap_yaw
+
+    args = (0.0, (0.05, 0.09), 0.17, 1.0, 0.02)
+    d, rot, trans, fx, fy, cx, cy = _box_depth([(1.0, 0.1, 0.205, 0.07, np.radians(30))])
+    tops = find_box_tops(d, rot, trans, fx, fy, cx, cy, *args, step=2)
+    assert len(tops) == 1
+    c, (a, b), yaw, z = tops[0]
+    assert np.linalg.norm(c - (1.0, 0.1)) < 0.03 and abs(a - 0.205) < 0.04 and abs(b - 0.205) < 0.04
+    assert abs(wrap_yaw(yaw - np.radians(30), np.pi / 2)) < np.radians(6) and abs(z - 0.07) < 0.01
+    assert tag_on_box((1.0 - 0.11, 0.1), tops[0], 0.08) and not tag_on_box((1.5, 0.1), tops[0], 0.08)
+
+    # 4개 붙인 판(410×410) → 하나로, 크기 그대로 잼
+    big = [(1.1 + dx, dy, 0.205, 0.07, 0.0) for dx in (-0.1025, 0.1025) for dy in (-0.1025, 0.1025)]
+    tops = find_box_tops(*_box_depth(big), *args, step=2)
+    assert len(tops) == 1 and abs(tops[0][1][0] - 0.41) < 0.05 and abs(tops[0][1][1] - 0.41) < 0.05
+
+    # 하얀 원통 방해물(지름 20cm · 30cm) — 윗면 높이 단면이 원이지만 위로 이어져서 상자 아님 · 작은 물체(10cm)도 아님
+    tops = find_box_tops(*_box_depth([(1.0, 0.0, 0.10, 0.07, 0.0)], extra=[(1.2, -0.3, 0.10, 0.30)]), *args, step=2)
+    assert tops == []
+
+
+def test_box_tracks():
+    """상자 검출 → start_box (주기 90) · 장소 태그 붙은 상자 → location_box(tag · 태그 방향 360°를 윗면 방향이 덮지 않음)
+    · 같은 자리 start_box는 장소 상자가 생기면 지움 · 태그만 보이면 태그에서 반 변 안쪽"""
+    import numpy as np
+    from builtin_interfaces.msg import Time
+    from perception_node import to_msg
+
+    os.environ.setdefault("ROS_DOMAIN_ID", "101")
+    rclpy.init()
+    try:
+        node = PerceptionNode()
+        assert list(node.location_box_size) == [0.205, 0.205, 0.07]
+        sb = {**_det((1.0, 0.5, 0.07), cls="start_box", color=""), "size": np.array([0.2, 0.2, 0.07]),
+              "yaw": 0.3, "yaw_period": np.pi / 2}
+        a = node.fuse("pole_front_cam", Time(), [sb])
+        msg = to_msg(a[0], node.to_map(node.tracks[a[0]]))
+        kv = {k.key: k.value for k in msg.details}
+        assert msg.class_name == "start_box" and kv["yaw_period"] == "90" and abs(msg.size.x - 0.2) < 1e-6
+        # 장소 상자: 태그 방향(360°) 먼저 → 윗면 방향(90°)이 와도 안 바뀜
+        lb = {**_det((2.0, 0.0, 0.07), cls="location_box", color=""), "tag": 12, "yaw": np.pi, "yaw_period": 2 * np.pi}
+        b = node.fuse("pole_front_cam", Time(sec=1), [lb])
+        node.fuse("pole_front_cam", Time(sec=2), [{**lb, "yaw": 0.1, "yaw_period": np.pi / 2}])
+        assert node.tracks[b[0]]["yaw_period"] == 2 * np.pi and abs(node.tracks[b[0]]["yaw"] - np.pi) < 1e-9
+        # 같은 상자를 뒤에서 봐 생긴 start_box → 장소 상자 자리라 지움
+        c = node.fuse("pole_front_cam", Time(sec=3), [{**sb, "z": np.array([2.05, 0.0, 0.07])}])
+        node.tracks[a[0]]["hits"] = node.tracks[b[0]]["hits"] = 5  # 여러 번 잡혀 기억하는 상자 (2초 규칙 밖)
+        node.prune(3.0, set(c) | {a[0], b[0]}, _view(0.0))
+        assert c[0] not in node.tracks and b[0] in node.tracks and a[0] in node.tracks
     finally:
         rclpy.shutdown()

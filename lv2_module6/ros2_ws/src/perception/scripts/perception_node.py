@@ -25,8 +25,13 @@
     퍽 16mm — 번호 0~11 → 그 퍽 트랙의 details tag (한 번 읽으면 기억)
       어느 퍽에 어느 번호가 붙을지는 무작위 (10/27 사용자 확인) → 번호와 색은 따로 — 색은 영상(HSV)으로만
       (16mm는 pole_front_cam으로는 안 읽힘 — gripper_cam이 위에서 내려다봐야 함: coordinator inspect)
-    장소 48mm — L1~L3 = 12~14 → class location 물체 (details tag, 안 보여도 기억)
+    장소 48mm — L1~L3 = 12~14 → class location_box 물체 (details tag, 안 보여도 기억)
       방향: 박스 옆면 태그의 법선(tag_yaw) → pose.orientation yaw (태그 앞쪽 = 로봇이 다가오는 쪽) · details yaw_period 360
+  상자 (사용자 11/02 — 로봇팔이 놓고 집으려면 상자 크기·가운데·방향이 필요): depth로 바닥 위 상자 윗면(70mm)을 찾음 (find_box_tops)
+    위치 = 윗면 가운데 · size = 잰 가로·세로·높이 · 방향 = 윗면 사각형 변 방향(주기 90°)
+    윗면 옆에 장소 태그(12~14)가 있으면 location_box (방향은 태그 법선, 주기 360°) · 없으면 start_box
+    상자를 여러 개 붙이면(L2 등) 윗면이 한 판으로 이어져 큰 상자 하나로 잡힘 — 크기는 정해 두지 않고 잼
+    태그만 보이고 윗면을 못 찾으면 location_box = 태그에서 상자 안쪽으로 반 변(location_box_size) 옮긴 곳
     바코드(줄무늬, P2-01 등) = 장소에 붙은 작업 지시 문자열 → class barcode 물체 (details content, 위치 = 붙은 곳) + /mission/qr
   신호등 상태: red · yellow · green · off · all(두 색 이상 동시에 켜짐 — 신호등 미션 단계 구분 신호)
 """
@@ -50,8 +55,9 @@ from tf2_ros import Buffer, TransformListener
 QR_GAP_S = 10.0  # 이만큼 QR이 안 보였다가 다시 읽히면 새 미션 지역으로 보고 재발행 [s]
 # 모델 없을 때의 기본 클래스 — 모델이 있으면 모델에 저장된 이름(model.names)을 쓴다 (학습 클래스가 바뀌어도 코드 수정 없음)
 CLASSES = ["puck", "puck_lying", "goal_zone", "station_zone", "qr_board", "obstacle", "person", "traffic_light"]
-# YOLO가 아니라 표식 디코드로 만드는 물체 — AprilTag 장소 태그 · 바코드
-MARKER_CLASSES = ("location", "barcode")
+# YOLO가 아니라 표식 디코드 · depth로 만드는 물체 — 장소 상자(AprilTag 12~14) · 바코드 · 시작 상자(depth 윗면)
+#   상자 이름 (사용자 11/02): 태그가 붙은 상자 = location_box (놓는 곳 L1~L3) · 태그 없는 상자 = start_box (퍽이 처음 있던 곳)
+MARKER_CLASSES = ("location_box", "start_box", "barcode")
 # 크기 추정 실패 시 클래스 기본값 (sx, sy, sz) [m]
 SIZE_FALLBACK = {
     "puck": (0.03, 0.03, 0.06),        # 발제: 30×30×60mm 사각기둥 · Ø30×60mm 원기둥
@@ -62,7 +68,8 @@ SIZE_FALLBACK = {
     "obstacle": (0.20, 0.20, 0.30),
     "person": (0.40, 0.40, 1.70),
     "traffic_light": (0.14, 0.14, 0.45),
-    "location": (0.06, 0.06, 0.01),    # 장소 태그 48mm (흰 여백 포함 60mm)
+    "location_box": (0.205, 0.205, 0.07),  # 장소 상자 — 발제 205×205×70 상자 (윗면을 depth로 재면 잰 크기로 바꿈)
+    "start_box": (0.205, 0.205, 0.07),     # 시작 상자 — 같은 205×205×70 상자
     "barcode": (0.10, 0.01, 0.05),
 }
 DYNAMIC_CLASSES = ("person",)  # 스스로 움직이는 물체 — 예측 단계 공정 잡음을 process_noise_dynamic으로 크게
@@ -70,7 +77,7 @@ TRACK_TIMEOUT_S = 2.0          # 기억하지 않는 물체(사람·장애물·�
 # 안 보여도 기억하는 물체 (팀 확인 10/22) — 스스로 움직이지 않고 나중에 다시 찾아가야 하는 것. 클래스 이름이 이 접두어로 시작하면 기억
 #   지우는 때 = 그 자리가 가려지지 않고 잘 보였어야 하는데(expected_visible) miss_count번 연속 못 찾음 (옮겨짐 · 집어 감)
 #   화면 밖 · 너무 멂 · 화면 가장자리 · 깊이 없음 · 앞에 다른 물체 → 못 봤다고 세지 않음
-REMEMBER_PREFIXES = ("puck", "goal_zone", "station_zone", "qr_board", "location", "barcode")
+REMEMBER_PREFIXES = ("puck", "goal_zone", "station_zone", "qr_board", "location_box", "start_box", "barcode")
 ROT_VAR_UNKNOWN = 1e3          # 방향을 모름 → pose.covariance 회전 대각 (사실상 모름)
 YAW_VAR_KNOWN = np.radians(10.0) ** 2  # 퍽 yaw를 구했을 때 yaw 분산 [rad²] (σ 10° — 실측 전 가정값)
 
@@ -472,6 +479,68 @@ def axis_yaw(points_xy, min_points, min_elong):
     return float(np.arctan2(v[1, 1], v[0, 1]))
 
 
+def find_box_tops(depth_m, rot, trans, fx, fy, cx, cy, floor_z, h_range, min_side, max_side, cell, step=4,
+                  max_range=3.0, avoid=None):
+    """depth 한 장 → 바닥 위 상자 윗면들 [(가운데 xy[2], 크기(긴 변, 짧은 변), yaw [rad, 주기 90°], 윗면 높이 z)] (추적 좌표)
+    상자 = 205×205×70 골판지 상자 (붙여 놓으면 더 큰 판). 방법:
+      ① depth를 step 화소마다 골라 추적 좌표 점으로 (max_range 안) · avoid(xy, 반경)이면 그 원 안(로봇 차체)은 뺌
+      ② 바닥(floor_z)에서 h_range 높이(윗면 근처)인 점 → 바닥 격자(cell m)에 찍음 → 닫힘 연산으로 퍽 그림자 구멍을 메움
+      ③ 덩어리마다 가장 작은 기울어진 사각형(cv2.minAreaRect) → 짧은 변 ≥ min_side, 긴 변 ≤ max_side만 상자
+      ④ 사각형 안에 h_range보다 높은 점(0.15~0.6m 높이)이 많으면 버림 — 원통 방해물·다리처럼 위로 이어지는 물체 (상자 위 퍽은 작아서 괜찮음)
+    rot·trans = 카메라 → 추적 좌표 (lookup_tf) · depth_m [m]"""
+    h, w = depth_m.shape[:2]
+    vv, uu = np.mgrid[0:h:step, 0:w:step]
+    z = depth_m[vv, uu]
+    ok = (z > 0.15) & (z < max_range)
+    if not ok.any():
+        return []
+    z, uu, vv = z[ok], uu[ok], vv[ok]
+    pts = np.stack([(uu - cx) * z / fx, (vv - cy) * z / fy, z], -1) @ rot.T + trans
+    if avoid is not None:
+        pts = pts[np.hypot(pts[:, 0] - avoid[0][0], pts[:, 1] - avoid[0][1]) > avoid[1]]
+    hz = pts[:, 2] - floor_z
+    top = pts[(hz > h_range[0]) & (hz < h_range[1])]
+    tall = pts[(hz > 0.15) & (hz < 0.6)]
+    if len(top) < 10:
+        return []
+    org = top[:, :2].min(0) - cell * 2
+    ij = ((top[:, :2] - org) / cell).astype(int)
+    grid = np.zeros((ij[:, 1].max() + 3, ij[:, 0].max() + 3), np.uint8)
+    grid[ij[:, 1], ij[:, 0]] = 255
+    grid = cv2.morphologyEx(grid, cv2.MORPH_CLOSE, np.ones((3, 3), np.uint8))
+    n, lab = cv2.connectedComponents(grid)
+    out = []
+    for k in range(1, n):
+        ys, xs = np.nonzero(lab == k)
+        if len(xs) < 4:
+            continue
+        cells = np.stack([xs, ys], -1).astype(np.float32) * cell + org.astype(np.float32)
+        (mx, my), (a, b), ang = cv2.minAreaRect(cells)
+        a, b = a + cell, b + cell  # 격자 칸 가운데끼리 잰 길이 → 칸 하나만큼 넓힘
+        if min(a, b) < min_side or max(a, b) > max_side:
+            continue
+        yaw = wrap_yaw(np.radians(ang), np.pi / 2)
+        if len(tall):  # 사각형 안 높은 점 — 사각형 축으로 돌려서 안쪽인지 봄
+            c, sn = np.cos(-yaw), np.sin(-yaw)
+            d = tall[:, :2] - (mx, my)
+            loc = np.stack([d[:, 0] * c - d[:, 1] * sn, d[:, 0] * sn + d[:, 1] * c], -1)
+            inside = (abs(loc[:, 0]) < a / 2) & (abs(loc[:, 1]) < b / 2)
+            if inside.sum() > 0.3 * len(xs):  # 윗면 칸 수에 비해 높은 점이 많음 → 상자 아님
+                continue
+        top_z = float(np.median(top[(abs(top[:, 0] - mx) < a / 2) & (abs(top[:, 1] - my) < b / 2), 2]))
+        out.append((np.array([mx, my]), (max(a, b), min(a, b)), yaw, top_z))
+    return out
+
+
+def tag_on_box(tag_xy, box, margin):
+    """장소 태그 위치(xy)가 상자 윗면 사각형(가운데·크기·yaw)의 옆면 근처(사각형을 margin만큼 넓힌 안)에 있는가"""
+    c, (a, b), yaw, _ = box
+    d = np.asarray(tag_xy, float) - c
+    co, sn = np.cos(-yaw), np.sin(-yaw)
+    lx, ly = d[0] * co - d[1] * sn, d[0] * sn + d[1] * co
+    return abs(lx) < a / 2 + margin and abs(ly) < a / 2 + margin  # 긴 변 기준 (축 구분 없이 넉넉하게)
+
+
 def to_msg(tid, tr):
     """트랙(또는 한 검출) dict → TrackedObject — 위치 공분산 3×3을 pose.covariance에.
     방향: 퍽·장소 yaw를 알면 pose.orientation(바닥 위 회전만) + 공분산 yaw 대각 YAW_VAR_KNOWN, 모르면 단위 쿼터니언 + ROT_VAR_UNKNOWN"""
@@ -509,7 +578,7 @@ def to_msg(tid, tr):
         details.append(KeyValue(key="yaw_period", value=str(int(round(np.degrees(tr["yaw_period"]))))))
     if tr.get("distance") is not None:  # 로봇(base_footprint) 중심 ~ 물체 중심 바닥 위 거리 [m] — 발행 순간
         details.append(KeyValue(key="distance", value=f'{tr["distance"]:.3f}'))
-    if tr.get("tag") is not None:  # AprilTag 번호 — 퍽 0~11 · 장소 12~14
+    if tr.get("tag") is not None:  # AprilTag 번호 — 퍽 0~11 · 장소 상자 12~14
         details.append(KeyValue(key="tag", value=str(tr["tag"])))
     if tr.get("content"):  # 바코드 문자열 (장소 작업 지시)
         details.append(KeyValue(key="content", value=tr["content"]))
@@ -584,6 +653,21 @@ class PerceptionNode(Node):
         self.location_tags = {int(v) for v in self.get_parameter("location_tags").value}
         self.declare_parameter("location_tag_size_m", 0.048)  # 장소 태그 검은 사각형 한 변 [m] (발제 60mm는 흰 여백 포함 → 검은 부분 48mm)
         self.location_tag_size = float(self.get_parameter("location_tag_size_m").value)
+        # 상자 (find_box_tops) — 발제 205×205×70 골판지 상자 · 붙이면 더 큰 판 (사용자 11/02)
+        self.declare_parameter("box_detect", True)                  # depth로 상자 윗면 찾기 (False면 장소 태그 위치만)
+        self.declare_parameter("box_top_height_m", [0.05, 0.09])    # 윗면으로 볼 바닥 위 높이 범위 [m] (상자 70mm)
+        self.declare_parameter("box_min_side_m", 0.17)              # 짧은 변이 이보다 작으면 상자 아님 [m] (205mm − 여유 · 일부만 보인 윗면도 버림)
+        self.declare_parameter("box_max_side_m", 1.0)               # 긴 변이 이보다 크면 상자 아님 [m] (4개 붙인 820mm까지)
+        self.declare_parameter("box_cell_m", 0.02)                  # 바닥 격자 한 칸 [m]
+        self.declare_parameter("box_tag_margin_m", 0.08)            # 장소 태그가 윗면 사각형에서 이만큼 안이면 그 상자의 태그 [m]
+        self.declare_parameter("location_box_size", [0.205, 0.205, 0.07])  # 윗면을 못 찾았을 때 장소 상자 크기 [m] — 태그에서 반 변만큼 안쪽이 가운데
+        self.box_detect = bool(self.get_parameter("box_detect").value)
+        self.box_h = [float(v) for v in self.get_parameter("box_top_height_m").value]
+        self.box_min_side = float(self.get_parameter("box_min_side_m").value)
+        self.box_max_side = float(self.get_parameter("box_max_side_m").value)
+        self.box_cell = float(self.get_parameter("box_cell_m").value)
+        self.box_tag_margin = float(self.get_parameter("box_tag_margin_m").value)
+        self.location_box_size = np.array([float(v) for v in self.get_parameter("location_box_size").value])
         self.tag_det = tag_detector()
         self.barcode = barcode_detector()
         self.puck_colors = [str(v) for v in self.get_parameter("puck_colors").value]
@@ -818,19 +902,48 @@ class PerceptionNode(Node):
                 "shape": shape,      # 퍽 모양 box · cyl · ''(모름 — 합칠 때 아는 모양을 덮지 않음)
                 "yaw": yaw, "yaw_period": yaw_period,  # 퍽 방향 (추적 좌표) · 못 구하면 None — 합칠 때 아는 방향을 덮지 않음
             })
-        for tid_tag, (u, v), box, corners in tags:  # 장소 태그 (L1~L3) — YOLO가 아니라 태그 자체가 물체
+        # 상자 윗면 (depth) — 로봇 차체 둘레는 뺌 · 바닥 높이 = 로봇 base_footprint 높이 (TF 없으면 추적 좌표 0)
+        base_now = self.lookup_tf(self.base_frame, now_stamp, quiet=True)
+        floor_z = float(base_now[1][2]) if base_now is not None else 0.0
+        avoid = (base_now[1][:2], self.body_radius) if base_now is not None else None
+        boxes = (find_box_tops(depth_m, rot, trans, s["fx"], s["fy"], s["cx"], s["cy"], floor_z, self.box_h,
+                               self.box_min_side, self.box_max_side, self.box_cell, avoid=avoid)
+                 if self.box_detect else [])
+        box_tag = {}  # 상자 번호(boxes 안 순서) → (태그 번호, 태그 yaw 또는 None)
+        for tid_tag, (u, v), box, corners in tags:  # 장소 태그 (L1~L3) — 붙은 상자를 location_box로
             if tid_tag not in self.location_tags:
                 continue
-            d = self.marker_det(s, box, (u, v), rot, trans, "location")
-            if d is not None:
-                d["tag"] = tid_tag
-                # 방향: 박스 옆면(접근 방향 쪽, 발제 v5 §07)에 붙은 태그의 바라보는 방향(법선) — 퍽 옆면과 같은 계산(tag_yaw)
-                #   yaw = 태그 앞쪽(박스 밖, 로봇이 다가오는 쪽)을 가리킴 · 놓을 때 박스 방향 보정용 (사용자 10/28)
-                #   비스듬히 봐서 옆면으로 안 나오면 안 씀 (모름 — 합칠 때 아는 방향을 덮지 않음)
-                l_yaw, face = tag_yaw(corners, self.location_tag_size, s["fx"], s["fy"], s["cx"], s["cy"], rot)
-                if face == "side":
-                    d["yaw"], d["yaw_period"] = l_yaw, 2 * np.pi  # 대칭 없음 (360°)
-                dets.append(d)
+            d = self.marker_det(s, box, (u, v), rot, trans, "location_box")
+            if d is None:
+                continue
+            # 방향: 상자 옆면(접근 방향 쪽, 발제 v5 §07)에 붙은 태그의 바라보는 방향(법선) — 퍽 옆면과 같은 계산(tag_yaw)
+            #   yaw = 태그 앞쪽(상자 밖, 로봇이 다가오는 쪽)을 가리킴 · 놓을 때 상자 방향 보정용 (사용자 10/28)
+            #   비스듬히 봐서 옆면으로 안 나오면 안 씀 (모름 — 합칠 때 아는 방향을 덮지 않음)
+            l_yaw, face = tag_yaw(corners, self.location_tag_size, s["fx"], s["fy"], s["cx"], s["cy"], rot)
+            l_yaw = l_yaw if face == "side" else None
+            on = [i for i, bx in enumerate(boxes) if tag_on_box(d["z"][:2], bx, self.box_tag_margin)]
+            if on:  # 윗면을 찾은 상자에 붙은 태그 → 그 상자에 번호·방향 (아래 상자 검출에서 같이 만듦)
+                box_tag[on[0]] = (tid_tag, l_yaw)
+                continue
+            # 윗면을 못 찾음 (멀거나 일부만 보임) → 태그에서 상자 안쪽(법선 반대)으로 반 변 옮긴 곳 · 방향 모르면 태그 위치 그대로
+            d["tag"] = tid_tag
+            d["size"] = self.location_box_size.copy()
+            if l_yaw is not None:
+                d["z"] = d["z"] - self.location_box_size[0] / 2.0 * np.array([np.cos(l_yaw), np.sin(l_yaw), 0.0])
+                d["yaw"], d["yaw_period"] = l_yaw, 2 * np.pi  # 대칭 없음 (360°)
+            dets.append(d)
+        for i, (c, (a, b), byaw, top_z) in enumerate(boxes):
+            p_img = rot.T @ (np.array([c[0], c[1], top_z]) - trans)  # 윗면 가운데의 카메라 좌표 — 측정 분산 · 화면 위치용
+            r_cam = meas_cov_cam(float(p_img[2]), s["fx"], s["fy"], self.pixel_sigma, self.depth_sigma0, self.depth_sigma_k)
+            d = {"class_name": "start_box", "z": np.array([c[0], c[1], top_z]), "R": rot @ r_cam @ rot.T,
+                 "size": np.array([a, b, max(top_z - floor_z, 0.01)]), "conf": 1.0,
+                 "px": (int(s["fx"] * p_img[0] / p_img[2] + s["cx"]), int(s["fy"] * p_img[1] / p_img[2] + s["cy"])),
+                 "color": "", "posture": "", "yaw": byaw, "yaw_period": np.pi / 2}  # 윗면 사각형 변 방향 — 정사각형이라 90°마다 같음
+            if i in box_tag:  # 장소 태그가 붙은 상자 → location_box (방향은 태그 법선을 우선 — 360° 구분됨)
+                d["class_name"], d["tag"] = "location_box", box_tag[i][0]
+                if box_tag[i][1] is not None:
+                    d["yaw"], d["yaw_period"] = box_tag[i][1], 2 * np.pi
+            dets.append(d)
         now_s = stamp_s(now_stamp)
         view = (rot, trans, s["fx"], s["fy"], s["cx"], s["cy"], depth_m)  # 이 카메라 이 프레임 — 기억한 물체 지우기 판정용
         with self.lock:
@@ -970,7 +1083,9 @@ class PerceptionNode(Node):
                 tr["content"] = d["content"]
             if d.get("shape"):  # 모양은 아는 관측만
                 tr["shape"] = d["shape"]
-            if d.get("yaw") is not None:  # 방향은 구한 관측의 최신값 (평균 내지 않음 — 집기 직전 그리퍼캠이 가장 정확)
+            if d.get("yaw") is not None and tr.get("yaw") is not None and d["yaw_period"] < tr.get("yaw_period", 0.0):
+                pass  # 장소 상자: 태그로 구한 방향(360°)을 윗면 사각형 방향(90°)으로 덮지 않음
+            elif d.get("yaw") is not None:  # 방향은 구한 관측의 최신값 (평균 내지 않음 — 집기 직전 그리퍼캠이 가장 정확)
                 tr["yaw"], tr["yaw_period"] = d["yaw"], d["yaw_period"]
             elif d.get("posture") and d["posture"] != tr.get("yaw_posture"):
                 tr["yaw"] = None  # 자세가 바뀜(세움 ↔ 누움) → 옛 방향은 뜻이 없음
@@ -997,7 +1112,12 @@ class PerceptionNode(Node):
           기억하는 물체(REMEMBER_PREFIXES): 시간으로는 안 지움. 이번에 안 잡혔는데 그 자리가 잘 보였어야 하면 miss +1 → miss_count면 삭제
             단 remember_min_hits번 넘게 잡히기 전(확인 전)에는 기억 안 하는 물체처럼 2초 규칙 — 카메라 자세(TF)가 영상과
             잠깐 어긋나 한두 번 엉뚱한 자리로 찍힌 '유령 퍽'이 남지 않게 (10/22 시뮬레이터: 같은 퍽이 9곳에 남았음)"""
+        loc = [tr["p"][:2] for tr in self.tracks.values() if tr["class_name"] == "location_box"]
         for tid, tr in list(self.tracks.items()):
+            # 같은 상자를 태그 없이(뒤·옆에서) 봐서 생긴 start_box → 그 자리에 장소 상자가 있으면 지움
+            if tr["class_name"] == "start_box" and any(np.linalg.norm(tr["p"][:2] - q) < self.box_min_side for q in loc):
+                del self.tracks[tid]
+                continue
             if not remembered(tr["class_name"]) or tr.get("hits", 1) < self.remember_min_hits:
                 if now_s - tr["t"] > TRACK_TIMEOUT_S:
                     del self.tracks[tid]
