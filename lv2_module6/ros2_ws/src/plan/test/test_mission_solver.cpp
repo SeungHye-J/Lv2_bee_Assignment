@@ -82,6 +82,8 @@ TEST(MissionSolver, AllocationNeedsWholePlan) {
 
 TEST(MissionSolver, DiceAndGeometry) {
   EXPECT_EQ(dice_cells(2), (std::vector<int>{0, 8}));
+  EXPECT_EQ(dice_cells(3).front(), 4);  // 가운데 먼저
+  EXPECT_EQ(dice_cells(5).front(), 4);
   EXPECT_EQ(dice_cells(6).size(), 6u);
   EXPECT_TRUE(dice_cells(7).empty());
   auto [dx, dy] = cell_offset(0);

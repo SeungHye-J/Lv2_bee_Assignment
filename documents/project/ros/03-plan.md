@@ -64,6 +64,11 @@ ros2 topic echo /mission/state                                           # 단�
 - map 원점은 켠 자리이고, 경기장 좌표는 `start_pose_arena` 하나로 map 좌표로 바꿉니다.
 - 다른 자리에서 켰다면 launch 인자 `start_pose:=[x, y, yaw]`로 알려 줍니다.
 - 퍽 바닥과 상자 윗면 등 높이 기준은 바닥 Z=0입니다.
+- **시작할 때 적재함 장부가 비어 있어야 합니다.** `/coordinator/basket`에 실린 퍽이나 손에 든 퍽이 있으면 시작을 거부합니다. 지난 미션의 장부 파일이 남아 있으면 이렇게 됩니다. `/mission/state` note에 이유가 나옵니다. 적재함이 정말 비었는지 눈으로 본 뒤 비웁니다.
+
+  ```bash
+  ros2 service call /coordinator/basket_clear std_srvs/srv/Trigger
+  ```
 
 ## 단계별
 
@@ -82,6 +87,8 @@ ros2 topic echo /mission/state                                           # 단�
   - 점에서 가까운 변부터 시도하고, 실패하면 다음 변으로 넘어갑니다(`approach_tries`).
   - 다음 주행 전에는 붙었던 자리에서 standoff까지 먼저 똑바로 물러납니다.
 - **적재함 12칸**: 조사하면서 `pick` → `load next`로 싣습니다. **장부(칸 → 퍽 tag)는 coordinator 하나만 씁니다**(`/coordinator/basket`, 파일 저장). mission_manager는 그 장부를 읽어 "그 tag가 실린 칸"을 찾아 `unload <칸>`을 보냅니다. 쓰는 칸은 coordinator `basket_use`. 칸이 다 차면 나머지 퍽은 BUILD 때 시작 박스에서 직접 집어 옵니다.
+- **누운 퍽**: 세우기(`stand`)가 생기기 전까지는 건너뜁니다. SURVEY에서 `puck_lying`으로 보이면 할당에는 넣되 싣지 않고 `lying (세우기 전이라 건너뜀)`을 결과에 남깁니다. BUILD에서 그 퍽 차례가 오면 `lying_skipped`로 넘어갑니다. 조사 뒤에 넘어진 퍽도 집기 직전에 다시 보고 건너뜁니다.
+- **주사위 칸 순서**: 가운데 칸(4)이 있는 3·5는 **가운데부터** 놓습니다(`dice_cells` 3 = 4,0,8 · 5 = 4,0,2,6,8). 이웃 칸이 먼저 놓이면 가운데 놓기 성공률이 81~83%로 떨어졌기 때문입니다(isaac-pick 시험).
 - **할당**: 먼저 집은 퍽 때문에 Y(한 모양)를 못 만드는 일이 없도록 12개를 한 번에 정합니다.
   - Y의 모양을 정하면, Y에 들어갈 빨강 수(빨강 수 − R)와 초록 수(초록 수 − G)가 정해집니다.
   - 원기둥 → 직육면체 순으로, 그 수만큼 같은 모양 퍽이 있는지만 보면 됩니다(`allocate`).
@@ -146,6 +153,7 @@ flowchart LR
 - 관측 실패(바코드, 신호)와 복귀 이동 실패만 **ERROR**로 멈춥니다. coordinator에 정지(plan_id 0 + 빈 목록)를 보냅니다.
 - 나머지(다가가기, 집기, 놓기, 확인)는 skill마다 `retries`번 다시 시도합니다. 그래도 안 되면 **그 퍽·장소만 실패로 결과에 남기고** 다음으로 갑니다. 그때까지의 점수는 유효하므로 복귀까지 진행합니다.
 - `/cmd/mission abort`는 어느 단계에서든 ERROR(`aborted`)로 멈춥니다.
+- **사람·안전 때문에 멈춘 skill은 다시 시도하지 않습니다.** coordinator 실패 이유가 `estop*` · `manual*` · `explore*` · `cancelled`이면 ERROR(`interrupted: <이유>`)로 미션을 멈춥니다. 비상정지, 수동·탐사 모드 전환, 다른 계획이 끼어든 경우입니다. 이어서 하려면 상태를 확인하고 `/cmd/mission start`로 다시 시작합니다(적재함 장부 확인 포함).
 
 ## 기록
 
@@ -165,4 +173,4 @@ flowchart LR
 
 - **실기·시뮬레이터 실행 확인**: 경기장 좌표, 바코드 보는 자리(`barcode_pose_arena`), 다가가기 거리, 칸 보정은 실물로 맞춰야 합니다.
 - **운영자 CLI 버튼**: 지금은 `/cmd/mission`을 직접 발행합니다.
-- **누운 퍽**: `stand`·`stand_pick`(05-arm.md)이 생기면 SURVEY와 BUILD에서 씁니다. 지금은 누운 퍽을 그대로 `pick`합니다.
+- **누운 퍽 세우기**: `stand`·`stand_pick`(05-arm.md)이 생기면 SURVEY와 BUILD에서 씁니다. 지금은 누운 퍽을 건너뛰고 결과에 남깁니다.

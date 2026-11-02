@@ -41,6 +41,13 @@ std::string join(const std::vector<std::string> & v) {
   return out;
 }
 bool is_puck(const perception::msg::TrackedObject & o) { return o.class_name.rfind("puck", 0) == 0; }
+bool is_lying(const perception::msg::TrackedObject & o) { return o.class_name == "puck_lying"; }
+// coordinator가 사람·안전 때문에 멈춘 실패 — 다시 시도하지 않고 미션을 멈춤 (estop · 수동/탐사 전환 · 다른 계획이 끼어듦)
+bool interrupted(const std::string & why) {
+  for (const char * p : {"estop", "manual", "explore", "cancelled"})
+    if (why.rfind(p, 0) == 0) return true;
+  return false;
+}
 // 주행 전 팔을 접음 (05-arm.md — 주행 동안 팔은 stow. 놓기·보기 뒤 팔이 박스 위에 나가 있음)
 SubGoal stow() { return SubGoal().set__skill("pose").set__target("stow"); }
 }  // namespace
@@ -117,7 +124,9 @@ MissionManager::MissionManager()
       if (!waiting_plan_ || s->plan_id != waiting_plan_ || s->state == TaskStatus::RUNNING) return;
       waiting_plan_ = 0;
       auto done = std::move(waiting_done_);
-      done(s->state == TaskStatus::SUCCEEDED, s->reason);
+      const bool ok = s->state == TaskStatus::SUCCEEDED;
+      if (!ok && interrupted(s->reason)) { stop("interrupted: " + s->reason); return; }
+      done(ok, s->reason);
     });
   markers_timer_ = create_wall_timer(std::chrono::seconds(1), [this]() { publish_markers(); });
   diag_.setHardwareID("beebot");
@@ -139,6 +148,16 @@ MissionManager::MissionManager()
 void MissionManager::on_command(const std::string & cmd) {
   if (cmd == "abort") { if (active_) stop("aborted"); return; }
   if (cmd != "start" || active_) return;
+  int left = 0;
+  if (basket_) {
+    for (const auto & b : basket_->slots) left += b.filled;
+    left += basket_->held.filled;
+  }
+  if (left) {  // 지난 미션 장부(파일)가 남음 — 적재함이 정말 비었는지 사람이 보고 비워야 함
+    RCLCPP_WARN(get_logger(), "적재함 장부에 퍽 %d개가 남아 있음 — 시작 거부", left);
+    note("시작 거부: 적재함 장부에 퍽 " + str(left) + "개 — 확인 뒤 ros2 service call /coordinator/basket_clear std_srvs/srv/Trigger");
+    return;
+  }
   active_ = true;
   pucks_.clear();
   puck_at_.clear();
@@ -149,6 +168,7 @@ void MissionManager::on_command(const std::string & cmd) {
   build_json_.clear();
   verify_json_.clear();
   seen_tags_.clear();
+  lying_.clear();
   corr_.assign(locations_.size(), {0.0, 0.0});
   barcode_.clear();
   error_.clear();
@@ -284,6 +304,11 @@ void MissionManager::survey(size_t b) {
         if (puck_at_.count(tag)) continue;
         pucks_.push_back({tag, best->color, detail(*best, "shape")});
         puck_at_[tag] = {b, dx};
+        if (is_lying(*best)) {  // ponytail: stand·stand_pick 생기면 여기서 세워서 싣기
+          lying_.insert(tag);
+          result("puck " + str(tag) + ": lying (세우기 전이라 건너뜀)");
+          continue;
+        }
         found.push_back({tag, best->id});
         RCLCPP_INFO(get_logger(), "퍽 %d: %s %s (박스 %zu)", tag, best->color.c_str(), detail(*best, "shape").c_str(), b + 1);
       }
@@ -368,6 +393,7 @@ void MissionManager::bring(size_t i) {
     build_json_ += std::string(build_json_.empty() ? "" : ", ") + "{\"tag\": " + str(job.tag) + ", \"ok\": false, \"why\": " + q(why) + "}";
     build(i + 1);
   };
+  if (lying_.count(job.tag)) { skip("lying_skipped"); return; }
   const auto target = cell_target(job.loc, job.cell);
   const double tx = target.first, ty = target.second;
   const int slot = basket_slot_of(job.tag);  // coordinator 장부에서 그 tag가 실린 칸
@@ -389,6 +415,7 @@ void MissionManager::bring(size_t i) {
     if (!ok) { skip("puck_approach_failed " + why); return; }
     const TrackedObject * o = find_puck(job.tag);  // 집는 순간의 트랙 id — 퍽은 tag로 찾는다
     if (!o) { skip("puck_lost"); return; }
+    if (is_lying(*o)) { skip("lying_skipped"); return; }  // 조사 뒤에 넘어진 퍽
     run_retry({SubGoal().set__skill("pick").set__target(std::to_string(o->id))}, [this, i, job, tx, ty, skip](bool ok2, const std::string & why2) {
       if (!ok2) { skip("pick_failed " + why2); return; }
       go_near(loc_boxes_[job.loc], tx, ty, [this, i, job, skip](bool ok3, const std::string & why3) {

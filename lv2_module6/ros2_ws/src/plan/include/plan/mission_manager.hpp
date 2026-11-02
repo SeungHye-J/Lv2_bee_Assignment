@@ -27,6 +27,7 @@
 //   판단(정렬·배정·할당·칸·판정)은 전부 mission_solver 순수 함수. 이 노드는 순서·기록·skill 요청만.
 #include <functional>
 #include <map>
+#include <set>
 #include <string>
 #include <vector>
 
@@ -144,6 +145,7 @@ private:
   std::vector<std::string> results_;
   std::string build_json_, verify_json_;
   std::vector<std::vector<int>> seen_tags_;      // 재검증 — 장소마다 본 tag (12개 중복·누락)
+  std::set<int> lying_;                          // 누운 퍽 tag — 세우기 전까지 건너뜀
   int placed_ = 0, photo_n_ = 0;
   std::string back_;   // 박스에 붙어 있을 때 물러날 standoff 자세 "x,y,yaw" (map) — 다음 go_near가 먼저 씀
   std::string run_dir_;

@@ -68,8 +68,9 @@ bool allocate(const std::vector<Puck> & pucks, const Counts & c, std::map<int, c
   return false;
 }
 
+// 가운데 칸(4)이 있으면 먼저 — 이웃이 놓인 뒤엔 가운데 성공률이 떨어짐 (81~83%)
 std::vector<int> dice_cells(int n) {
-  static const std::vector<int> table[7] = {{}, {4}, {0, 8}, {0, 4, 8}, {0, 2, 6, 8}, {0, 2, 4, 6, 8}, {0, 3, 6, 2, 5, 8}};
+  static const std::vector<int> table[7] = {{}, {4}, {0, 8}, {4, 0, 8}, {0, 2, 6, 8}, {4, 0, 2, 6, 8}, {0, 3, 6, 2, 5, 8}};
   return (n >= 1 && n <= 6) ? table[n] : std::vector<int>{};
 }
 
