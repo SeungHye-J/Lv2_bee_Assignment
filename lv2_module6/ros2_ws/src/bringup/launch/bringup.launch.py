@@ -170,10 +170,11 @@ def generate_launch_description():
         node('plan', 'vlm_task_planner',
              {'vlm_endpoint': ParameterValue(LaunchConfiguration('vlm_endpoint'), value_type=str)}),
         # coordinator: 지도 만들 때 팔을 스캔 자세로 — 자세는 ros_system/config/scan_pose.yaml 하나 (nvblox gripper_depth_gate와 같은 값)
-        # 자세·적재함 12칸 표는 plan/config/basket.yaml (isaac-lab slot_table)
+        # 자세·적재함 12칸 표는 plan/config/basket.yaml (isaac-lab slot_table) · 세우기 경유점 표는 stand_table.yaml (right_env)
         Node(package='plan', executable='coordinator', output='screen',
              parameters=[PathJoinSubstitution([FindPackageShare('plan'), 'config', 'plan.yaml']),
                          PathJoinSubstitution([FindPackageShare('plan'), 'config', 'basket.yaml']),
+                         PathJoinSubstitution([FindPackageShare('plan'), 'config', 'stand_table.yaml']),  # 세우기 표(A) — stand_waypoints: table일 때만 씀
                          PathJoinSubstitution([FindPackageShare('ros_system'), 'config', 'scan_pose.yaml']),
                          {'grasp_check': ParameterValue(LaunchConfiguration('grasp_check'), value_type=bool)}]),
         node('plan', 'explorer'),

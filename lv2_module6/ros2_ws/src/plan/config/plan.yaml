@@ -46,6 +46,14 @@ coordinator:
     grip_current_a: 0.35
     grasp_min_pos_m: 0.003
     grasp_min_effort: 0.25
+    # 세우기 stand · stand_pick (팀원 right_env tilt — 05-arm.md 6-1). 경유점 고르기:
+    #   ik    = 퍽마다 손끝 경유점 + 손이 아래 향하는 5축 해석 IK (기본 · 어느 퍽 위치든)
+    #   table = config/stand_table.yaml (팀원 학습 표와 같은 것, plan/scripts/stand_table_export.py) — 가까운 방향 5° 칸 + 위치 선형 보정
+    stand_waypoints: ik
+    stand_box_top_m: 0.07          # 시작 박스 윗면 높이 (바닥 기준) — 누운 퍽 바닥
+    stand_pinch_current_a: 0.0055  # 세울 때 가볍게 쥐는 힘 [A] — 팀원 0.4 N(29 N @ 0.4 A 비례). 0.6 N부터 퍽이 안 돎 → mA↔N 실측 필요
+    stand_vel_scale: 0.3           # 내려가기·위로 × 팀 관절 한계
+    stand_arc_vel_scale: 0.5       # 호 × 팀 관절 한계 (팀원 실험: 0.3 → 63 %, 0.5 → 100 %)
     # place <location_box>: 상자 윗면 + 손 안 퍽 바닥(손끝 아래 held_bottom_m, slot_table d_nom) + place_release_m에서 벌림
     held_bottom_m: 0.0606
     place_release_m: 0.02
