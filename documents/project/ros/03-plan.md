@@ -87,6 +87,31 @@ ros2 topic echo /mission/state                                           # 단�
   - 원기둥 → 직육면체 순으로, 그 수만큼 같은 모양 퍽이 있는지만 보면 됩니다(`allocate`).
 - **칸 보정**: 놓기 직전 인지 `location_box`(장소 상자 윗면 가운데, 태그 12~14)가 예상 상자 중심에서 어긋난 만큼 칸을 옮깁니다. `tag_correction_max`(0.05m)를 넘으면 잘못 본 것으로 보고 보정하지 않습니다(태그만 보고 윗면을 못 찾은 경우 등).
 
+### 퍽 하나 놓기 (BUILD)
+
+**퍽 하나 놓기 (BUILD)** — 주행 전에는 항상 `pose stow`. 박스 앞은 Nav2로 0.25m까지 간 뒤 `approach`로 0.085m까지 직선으로 붙습니다 (Nav2는 로봇을 원 0.18m로 봐서 더 못 붙음).
+
+```mermaid
+flowchart LR
+  A["pose stow"] --> B["navigate + approach<br/>장소 상자 앞"]
+  B --> C["칸 보정<br/>location_box 윗면 가운데"]
+  C --> D{"적재함에<br/>있음?"}
+  D -->|"예"| E["unload 칸<br/>carry → 칸 → 잡기 판정 → carry"]
+  D -->|"아니오"| F["시작 박스로 가서 pick"]
+  F --> B
+  E --> G["place x,y,z<br/>주사위 칸 (퍽 바닥 = z)"]
+  G --> H["inspect x,y,z<br/>내려다봄"]
+  H --> I{"10mm 안 ·<br/>서 있음?"}
+  I -->|"예"| J["다음 퍽"]
+  I -->|"아니오 (retries번까지)"| K["pick → 다시 place"]
+  K --> H
+```
+
+- **칸 보정**: 인지 `location_box`(상자 윗면 가운데)가 예상 상자 중심에서 어긋난 만큼 칸을 옮김. 0.05m를 넘으면 잘못 본 것으로 보고 안 옮김.
+- **놓기**: `place x,y,z` — 손 안 퍽 바닥이 z(상자 윗면)가 되게. 위 0.08m → 내려가 0.02m 위에서 벌림 → 다시 위.
+- **확인**: 놓은 뒤 이번에 본 퍽만으로 칸 중심에서 10mm 안인지, 누웠는지. 아니면 `retries`(2)번까지 다시 집어 놓기.
+- 적재함에 못 실은 퍽은 시작 박스로 가서 직접 집어 옴. 장소에 못 가면 손에 든 퍽을 적재함 빈 칸에 두고 다음 퍽으로.
+
 ## 신호 (READ)
 
 signal_decoder가 두 토픽을 냅니다([API.md MissionSignal](../../API.md#api-msg-missionsignal)).
@@ -94,6 +119,18 @@ signal_decoder가 두 토픽을 냅니다([API.md MissionSignal](../../API.md#ap
 - `/mission/signal_status`: 사이클마다 나옵니다.
 
 READ가 시작된 **뒤에 끝난 사이클만** 봅니다. 판정은 mission_solver `signal_action`이 합니다.
+
+```mermaid
+flowchart LR
+  ST["/mission/signal_status<br/>(사이클마다)"] --> D{"ok?"}
+  SG["/mission/signal<br/>(새 답 확정 때)"] --> D
+  D -->|"예 (두 사이클 같은 답)"| ACC["확정<br/>R·Y·G 횟수 + 바코드<br/>→ L1·L2·L3 배정"]
+  D -->|"error = unconfirmed"| W["기다림<br/>(다음 사이클)"]
+  D -->|"count · unknown · range"| C{"이어진 오류<br/>≥ 2번?"}
+  C -->|"아니오"| W
+  C -->|"예"| STOP["ERROR · 안전 정지<br/>(추정 금지)"]
+  W -->|"150초 넘음"| STOP
+```
 
 | 사이클 결과 | 할 일 |
 |---|---|
