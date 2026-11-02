@@ -12,10 +12,11 @@
 // mock:=true (테스트베드): 실기 없이 명령을 그대로 상태로 되돌린다 — 바퀴는 속도를 적분해 위치, 팔은 목표각 = 현재각,
 //   effort는 mock_effort[A] 고정 (arm_safety_monitor 시험용), IMU는 정지 상태.
 // mock:=false (실기): OpenCR 하나와 USB 시리얼 ASCII 줄 프로토콜 (lv2_module6/firmware/beebot_opencr 와 짝)
-//   write(): C,<바퀴L rad/s>,<바퀴R rad/s>,<j1>…<j5 rad>,<그리퍼 m>\n
-//   read():  가장 최근의 완전한 S 줄 (40개 값 — 끝 8개 = 모터 온도 °C · 예전 펌웨어 32개도 받음) → 상태.
+//   write(): C,<바퀴L rad/s>,<바퀴R rad/s>,<j1>…<j5 rad>,<그리퍼 m>[,<그리퍼 전류 A>]\n (9번째 = URDF 그리퍼 effort 명령이 있을 때)
+//   read():  가장 최근의 완전한 S 줄 (43개 — 모터 8개 pos·vel·A + IMU 10 + 온도 8 + 배터리 V) → 상태. 개수가 다르면 예전 펌웨어.
 //            순서는 STATE_* 와 firmware/README.md "프로토콜". E 줄(모터 에러, 0.5초) · S 온도 → /motor_status · 진단
 //   OpenCR가 DYNAMIXEL 8개 + 내장 IMU를 맡고, 단위 변환(rad ↔ 서보 각도·rpm)도 펌웨어가 한다.
+// 부저: 토픽 /cmd/beep (std_msgs/Int32MultiArray — [] 기본음 · [Hz, ms]) → write()가 B 줄 (모드와 무관)
 // 팔 토크: 서비스 ~/set_arm_torque (std_srvs/SetBool) → write()가 T 줄 (joint1~5 + 그리퍼 — 바퀴는 그대로).
 //   끄면 손으로 자세를 잡을 수 있다(S로 각은 계속 읽힘). 켜기 전에 JTC 목표를 지금 각으로 맞춰야 안 튄다 — manual_control이 함.
 // 상태: /diagnostics "BeebotSystem: OpenCR 연결" (mock · 마지막 S 수신 · 송수신 줄 수 · 해석 실패) — 컴포넌트 노드로 발행
@@ -23,6 +24,7 @@
 #include <termios.h>
 #include <unistd.h>
 
+#include <algorithm>
 #include <array>
 #include <atomic>
 #include <memory>
@@ -33,6 +35,7 @@
 #include <cstring>
 #include <sstream>
 #include <string>
+#include <limits>
 #include <map>
 #include <thread>
 #include <vector>
@@ -42,6 +45,7 @@
 #include "hardware_interface/types/hardware_interface_type_values.hpp"
 #include "rclcpp/rclcpp.hpp"
 #include "control/msg/motor_status.hpp"
+#include "std_msgs/msg/int32_multi_array.hpp"
 #include "std_srvs/srv/set_bool.hpp"
 #include "std_srvs/srv/trigger.hpp"
 
@@ -107,10 +111,17 @@ private:
   std::atomic<int> torque_req_{-1};    // 서비스가 고른 팔·그리퍼 토크 (0 끄기 · 1 켜기 · −1 없음) — write()가 T 줄로 보냄
   std::atomic<bool> arm_torque_{true}; // 마지막으로 보낸 팔 토크 (펌웨어는 부팅 때 켬) — 진단 표시
   rclcpp::Service<std_srvs::srv::SetBool>::SharedPtr torque_srv_;
+  std::atomic<uint64_t> beep_req_{0};  // /cmd/beep — 최상위 비트 = 요청 있음 · Hz<<32 | ms (0 = 펌웨어 기본) — write()가 B 줄로
+  rclcpp::Subscription<std_msgs::msg::Int32MultiArray>::SharedPtr beep_sub_;
   rclcpp::Publisher<control::msg::MotorStatus>::SharedPtr motor_pub_;  // /motor_status — 바뀔 때만 (state_manager가 읽음)
   rclcpp::TimerBase::SharedPtr motor_timer_;                           // read()(실시간 루프)에서 발행하지 않으려고 따로 0.5초
   std::array<int, 8> motor_sent_{};
   std::array<int, 8> temp_sent_{};
+  std::atomic<double> battery_v_{std::numeric_limits<double>::quiet_NaN()};  // S 끝 배터리 V (NaN = 모름 · 예전 펌웨어 · mock)
+  double battery_sent_ = std::numeric_limits<double>::quiet_NaN();
+  bool wheel_effort_ = false;        // URDF 바퀴에 effort 상태 인터페이스 — S 바퀴 3번째 칸(전류 A)
+  bool gripper_effort_cmd_ = false;  // URDF gripper_left_joint에 effort 명령 인터페이스 — C 9번째(그리퍼 전류 A)
+  std::atomic<size_t> wrong_size_{0};  // 마지막으로 받은 잘못된 S 값 개수 (예전 펌웨어 진단용)
   bool motor_published_ = false;
   void publish_motor_status();
 };

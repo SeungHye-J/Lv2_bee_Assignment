@@ -22,6 +22,9 @@ class Ui:
         self._poll = poll
         self._sel_idx = 0
         self._frame_size = None
+        self._busy = None   # 지금 떠 있는 처리 중 창 (메뉴 항목 실행 동안)
+        self._title = None  # 마지막으로 그린 화면 제목 (창이 떠 있는 동안 상단 상태바만 다시 그리기용)
+        self._top_at = 0.0
 
     @property
     def operation(self) -> str:
@@ -95,6 +98,49 @@ class Ui:
         """한 줄 입력 — Enter 확인 · Esc/◀ 취소(None). validate는 Dialog.input 참고."""
         return Dialog(self, title, body).input(prompt, default, validate)
 
+    def busy(self, label: str) -> None:
+        """누르자마자 '처리 중' 창 — 기다리지 않음 (ROS 대기로 몇 초 걸려도 눌린 걸 알게)."""
+        if not self.console.isatty():   # 명령줄(run-cli <명령>)·파이프면 창 없음
+            return
+        self._busy = Dialog(self, '처리 중…', [label, self.term.paint('요청을 보냈습니다. 결과가 나오면 창이 바뀝니다.', DIM), ''])
+        self._busy.draw('key')
+
+    def step(self, text: str) -> None:
+        """처리 중 창의 단계 줄 (예: '1/2 다시 뜨기 기다림') — 여러 단계를 거치는 작업용. 메뉴 밖이면 무시."""
+        dlg = self._busy
+        if dlg is None:
+            return
+        dlg.lines[3] = self.term.paint(f'▶ {text}', CYAN)
+        dlg.lines[4] = ''
+        dlg.draw('key')
+
+    def progress(self, text: str) -> None:
+        """처리 중 창 맨 아래 줄 갱신 (오래 걸리는 단계가 지금 뭘 기다리는지 · 회전 표시). 메뉴 밖이면 무시."""
+        dlg = self._busy
+        if dlg is None:
+            return
+        spin = '⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏'[int(time.monotonic() * 4) % 10]
+        dlg.lines[4] = self.term.paint(f'{spin} {text}', DIM)
+        self.refresh_top()   # 상태바 먼저 → 창이 위에
+        dlg.draw('key')
+
+    def tick(self, seconds: float) -> None:
+        """창(결과·확인·입력)이 떠 있는 동안: ROS 폴링 + 상단 상태바 1초마다 갱신 (창 밑 화면이 멈춰 보이지 않게)."""
+        self._poll(seconds)
+        self.refresh_top()
+
+    def refresh_top(self) -> None:
+        cols, rows = self.term.size()
+        if self._title is None or self._frame_size != (cols, rows) or cols < 70 or rows < 18:
+            return   # 메뉴 화면을 아직 안 그렸거나 좁은 화면(세로 쌓기)
+        now = time.monotonic()
+        if now - self._top_at < 1.0:
+            return
+        self._top_at = now
+        for i, ln in enumerate(self.top_lines(self._title, cols)):
+            self.console.write(f'\033[{i + 1};1H\033[K' + self.term.fit(ln, cols))
+        self.console.flush()
+
     def modal_key(self, title: str, body: list[str]) -> str | None:
         """단일 키 확인 — Enter='enter' · Esc/◀=None · 문자 그대로."""
         return Dialog(self, title, body).key()
@@ -122,6 +168,7 @@ class Ui:
         """
         if poll:
             self._poll(0.3)
+        self._title = title
         cols, rows = self.term.size()
         size = (cols, rows)
         if cols < 70 or rows < 18:
@@ -194,8 +241,50 @@ class Ui:
         hints += ['r 새로고침', 'q 종료']
         return '  ' + ' · '.join(hints)
 
+    # 상단 생존 표시: (StateStore.rates 키, 라벨, 이 Hz보다 낮으면 노랑) — 기대 주기의 대략 절반
+    TOPIC_DOTS = (('joint_states', 'joint', 50), ('odom', 'odom', 20), ('imu', 'imu', 50),
+                  ('front_cam', '앞카메라', 7), ('gripper_cam', '손카메라', 7), ('tracked_objects', '인지', 5))
+
+    def _dot(self, key: str, label: str, low_hz: float) -> str:
+        rate = self.state.rates.get(key)
+        age = rate.age() if rate else None
+        if age is None:
+            return self.term.paint(f'{label} ✗', RED)
+        if age > 3.0:
+            return self.term.paint(f'{label} {age:.0f}s 끊김', RED)
+        hz = rate.hz()
+        return self.term.paint(f'{label} {hz:.0f}Hz', GREEN if hz >= low_hz else YELLOW)
+
+    def robot_line(self) -> str:
+        """로봇(OpenCR) 한 줄 — 연결 진단 · 모터 에러 · 최고 온도 · 팔/그리퍼 전류. /joint_states가 끊기면 끊김."""
+        st = self.state
+        rate = st.rates.get('joint_states')
+        age = rate.age() if rate else None
+        if age is None:
+            return self.term.paint('로봇 ? 상태 대기 중 (/joint_states 없음 — bringup·OpenCR 확인)', YELLOW)
+        if age > 3.0:
+            return self.term.paint(f'로봇 ✗ {age:.0f}초 끊김 (/joint_states)', RED + BOLD)
+        opencr = next(((lv, msg) for name, (lv, msg) in st.diagnostics.items() if 'OpenCR' in name), None)
+        errors = [f'{n} {t}' for n, t in st.motor_text.items() if t not in ('', '정상')]
+        level = max([opencr[0] if opencr else 0, 2 if errors else 0])
+        temps = {n: t for n, t in st.motor_temp.items() if t >= 0}
+        hot = max(temps, key=temps.get) if temps else None
+        arm_a = sum(abs(st.joint_effort.get(j, 0.0)) for j in ARM_JOINTS)
+        grip = st.joint_effort.get(GRIPPER_JOINT)
+        bat = st.battery_v
+        if bat == bat and bat < 11.0:  # NaN 아님 · 낮음 → 경고
+            level = max(level, 1)
+        parts = [errors and '모터 에러 ' + ', '.join(errors) or (opencr[1] if opencr else 'OpenCR 진단 -'),
+                 ('배터리 -' if bat != bat else '배터리 12V 꺼짐' if bat < 5.0 else f'배터리 {bat:.1f}V'),
+                 f'최고 온도 {temps[hot]}°C({hot})' if hot else '온도 -',
+                 f'팔 전류 {arm_a:.2f}A',
+                 f'그리퍼 {grip * 1000:.0f}mA' if grip is not None else '그리퍼 전류 -']
+        mark, color = {0: ('●', GREEN), 1: ('▲', YELLOW)}.get(level, ('✗', RED + BOLD))
+        hint = ' → 팔 → 5) 재부팅' if errors else ''
+        return self.term.paint(f'로봇 {mark} ' + ' · '.join(parts) + hint, color)
+
     def top_lines(self, title: str, width: int = 64) -> list[str]:
-        """상단 고정 영역 6줄: 타이틀 3 + 상태바 2 + 구분선 1."""
+        """상단 고정 영역 8줄: 타이틀 3 + 상태바 4 (모드 · 인지/임무 · 토픽 생존 · 로봇) + 구분선 1."""
         bold = BOLD if self.term.color else ''
         reset = RESET if self.term.color else ''
         lines = [
@@ -253,6 +342,8 @@ class Ui:
                                       RED + BOLD if worst >= 2 else YELLOW)
         lines.append(f'  인지 {self.state.tracked_count:3d}개 | 임무 {task} | {diag_txt}'
                      + (f' | 발화 {say}' if say else ''))
+        lines.append('  ' + ' | '.join(self._dot(*d) for d in self.TOPIC_DOTS))
+        lines.append('  ' + self.robot_line())
         if not self.state.values and not self.state.devices and not self.state.joints:
             lines.append(f'  {self.term.paint("상태 없음 — bringup이 떠 있는지 확인", YELLOW)}')
         lines.append('-' * width)

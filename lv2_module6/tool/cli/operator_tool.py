@@ -39,8 +39,10 @@ from rclpy.qos import (
     QoSDurabilityPolicy,
     QoSProfile,
     QoSReliabilityPolicy,
+    qos_profile_sensor_data,
 )
-from sensor_msgs.msg import JointState
+from nav_msgs.msg import Odometry
+from sensor_msgs.msg import CameraInfo, Imu, JointState
 from std_msgs.msg import Bool, String
 
 from op.bus import Bus
@@ -98,10 +100,15 @@ class OperatorTool(Node):
                                  lambda m: self.state.on_emergency(m.data), LATCHED)
         self.create_subscription(String, '/state/devices', self._on_devices, LATCHED)
         self.create_subscription(JointState, '/joint_states',
-                                 lambda m: self.state.on_joints(m.name, m.position, m.velocity), 10)
+                                 lambda m: self.state.on_joints(m.name, m.position, m.velocity, m.effort), 10)
+        # 상단 생존 표시용 — 수신 시각만 (카메라는 영상 대신 가벼운 camera_info)
+        for key, topic, typ in (('odom', '/odom', Odometry), ('imu', '/imu', Imu),
+                                ('front_cam', '/pole_front_cam/color/camera_info', CameraInfo),
+                                ('gripper_cam', '/gripper_cam/color/camera_info', CameraInfo)):
+            self.create_subscription(typ, topic, lambda _m, key=key: self.state.tick(key), qos_profile_sensor_data)
         self.create_subscription(DiagnosticArray, '/diagnostics_agg',
                                  lambda m: self.state.on_diagnostics(m.status), LIVE)
-        self.create_subscription(String, '/robot_say',
+        self.create_subscription(String, '/robot/say',
                                  lambda m: self.state.on_say(m.data), 10)
         # 커스텀 msg가 빌드 전이면 해당 줄만 비활성 (cli 동작에는 지장 없음)
         try:
@@ -112,9 +119,17 @@ class OperatorTool(Node):
         except Exception:
             pass
         try:
+            from control.msg import MotorStatus  # type: ignore
+            self.create_subscription(
+                MotorStatus, '/motor_status',
+                lambda m: self.state.on_motor_status(m.joints, m.temperature, m.text,
+                                                     getattr(m, 'battery_voltage', float('nan'))), LATCHED)
+        except Exception:
+            pass
+        try:
             from plan.msg import TaskStatus  # type: ignore
             self.create_subscription(
-                TaskStatus, '/task_status',
+                TaskStatus, '/task/status',
                 lambda m: self.state.on_task(m.plan_id, m.step, m.state, m.reason),
                 LATCHED)
         except Exception:
@@ -154,17 +169,23 @@ class OperatorTool(Node):
             from op.pages import MapMenu
             return MapMenu(self)
         if name == '8':
+            from op.pages import WheelMenu
+            return WheelMenu(self)
+        if name == '9':
             from op.pages import EstopMenu
             return EstopMenu(self)
-        if name == '9':
+        if name == '10':
             from op.pages import NodesMenu
             return NodesMenu(self)
-        if name == '10':
+        if name == '11':
             from op.pages import RvizPage
             return RvizPage(self)
-        if name == '11':
+        if name == '12':
             from op.pages import ParamMenu
             return ParamMenu(self)
+        if name == '0':
+            from op.pages import BeepMenu
+            return BeepMenu(self)
         if name == 'diagnostics':
             from op.pages import DiagnosticsMenu
             return DiagnosticsMenu(self)
@@ -240,6 +261,8 @@ def build_parser() -> argparse.ArgumentParser:
     gripper = sub.add_parser('gripper', help='그리퍼 수동 명령 (MANUAL 모드)')
     gripper.add_argument('action', type=str.lower, choices=('open', 'close', 'position', 'show'))
     gripper.add_argument('value', nargs='?', help='position일 때 목표 [m] (0=닫힘, 0.0265=열림)')
+    gripper.add_argument('--current', type=_positive_float, default=None, metavar='A',
+                         help='쥐는 힘 한계 [A] (펌웨어가 0.05~1.2로 자름) — 생략하면 gripper_controller max_effort (0.6)')
     gripper.add_argument('--force', action='store_true', help='MANUAL 상태 확인을 건너뜀 (위험)')
 
     map_parser = sub.add_parser('map', help='지도 모드·지도 전환·저장')
@@ -251,16 +274,19 @@ def build_parser() -> argparse.ArgumentParser:
                             help='save 이미지 형식 (기본 pgm)')
     map_parser.add_argument('--topic', default='/map', help='save할 지도 토픽 (기본 /map)')
 
-    node = sub.add_parser('node', help='노드 상태·재시작·수명주기 활성화 (메뉴: 9 노드)')
+    beep = sub.add_parser('beep', help='OpenCR 부저 — 인자 없으면 기본음, beep <Hz 100~8000> <ms 10~2000> (메뉴: 0 비프음)')
+    beep.add_argument('value', nargs='*', help='Hz ms (예: 4000 300)')
+
+    sub.add_parser('recover', help='조작이 안 될 때 — 모터 에러 재부팅 + 꺼진 컨트롤러 다시 켜기 (메뉴: 수동·팔·그리퍼 → z)')
+
+    node = sub.add_parser('node', help='노드 상태·재시작·수명주기 활성화 (메뉴: 10 노드)')
     node.add_argument('action', type=str.lower, choices=('list', 'status', 'restart', 'activate'),
-                      help='list = 전체 · status <이름> · restart <이름> --yes (수명주기 노드는 active까지) · '
+                      help='list = 전체 · status <이름> · restart <이름> (수명주기 노드는 active까지) · '
                            'activate <이름> = 수명주기 노드 unconfigured·inactive → active')
     node.add_argument('name', nargs='?', help='노드 이름 (예: velocity_smoother)')
-    node.add_argument('--yes', action='store_true', help='restart 실제 실행')
 
     restart = sub.add_parser('restart', help='state_manager에 재시작 요청 (위험) — all = bringup 전체')
     restart.add_argument('target', help='all 또는 노드 이름')
-    restart.add_argument('--yes', action='store_true', help='실제로 재시작')
 
     return parser
 
