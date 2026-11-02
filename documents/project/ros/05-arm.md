@@ -142,6 +142,23 @@ carry 방향은 **칸이 정합니다**. basket.yaml `basket_carry`에서 칸 0�
   - 📢 `/coordinator/basket`(plan/BasketState, latched)로 냄 → mission_manager·화면은 **읽기만**. `/diagnostics` "적재함"에도 (예: `3/12 bc·?·······`, `?` = 확인 필요)
   - 파일 `basket_file`(기본 `~/.ros/beebot_basket.txt`)에 저장 → 다시 떠도 이어 감. 사람이 적재함을 비웠으면 📞 `/coordinator/basket_clear`
 - **손에 든 퍽 모양**으로 `load`가 칸 자세표(box·cyl)를 고릅니다.
+
+```mermaid
+flowchart LR
+  P["pick 퍽 id<br/>그 퍽의 tag·색·모양 기억"] --> H["손 (held)"]
+  H -->|"load next 성공"| S["칸 N<br/>tag · 색 · 모양"]
+  S -->|"unload N 성공"| H2["손 (held)"]
+  H2 -->|"place 성공"| F["손 비움"]
+  S -.->|"unload 빈손"| C["칸 N · 확인 필요<br/>(비우지 않음)"]
+```
+
+```mermaid
+flowchart LR
+  OP["운영자"] -.->|"/coordinator/basket_clear"| CO["coordinator<br/>적재함 장부 (유일)"]
+  CO ==>|"/coordinator/basket<br/>latched · 바뀔 때마다"| MM["mission_manager<br/>tag → 칸 찾아 unload"]
+  CO ==>|"/coordinator/basket"| UI["화면<br/>/mission/state tray"]
+  CO -.->|"저장 · 다시 뜨면 읽음"| FILE[("~/.ros/beebot_basket.txt")]
+```
 - **옛 `tray` (호환)**: `place tray`는 `load next`, `pick tray`는 `unload last`와 같습니다. 그래서 vlm_task_planner와 ai-service의 기존 계획이 그대로 돌아갑니다. 적재함 용량(`tray_capacity`)은 4에서 12로 바꿨습니다.
 
 ## 4. skill 안에서 쓰는 값
