@@ -93,6 +93,10 @@ private:
   void correct(size_t li);
   std::pair<double, double> cell_target(size_t li, int cell) const;  // 보정을 더한 칸 중심 (arena)
   const TrackedObject * find_puck(int tag) const;  // tag를 읽은 퍽 트랙 (가장 최근에 본 것)
+  const TrackedObject * puck_near(double mx, double my) const;  // map 점에서 match_radius 안 가장 가까운 퍽 (tag 상관없이)
+  // 누운 퍽을 세워서 손에 쥠: stand → stand_check_s 뒤 인지로 섰나 → stand_pick. 아직 누웠으면 그 퍽으로 stand 다시 (retries번)
+  void stand_up(uint32_t id, double mx, double my, int tries, Done done);
+  void grab(int tag, uint32_t id, Done done);  // 그 퍽을 손에 — 누웠으면 stand_up, 아니면 pick (retries)
 
   Pose2 to_map(double x, double y, double yaw = 0.0) const;
   Pose2 to_arena(double mx, double my, double myaw = 0.0) const;
@@ -145,7 +149,8 @@ private:
   std::vector<std::string> results_;
   std::string build_json_, verify_json_;
   std::vector<std::vector<int>> seen_tags_;      // 재검증 — 장소마다 본 tag (12개 중복·누락)
-  std::set<int> lying_;                          // 누운 퍽 tag — 세우기 전까지 건너뜀
+  std::set<int> lying_;                          // 조사 때 누워 있던 퍽 tag — 집을 때 세워서 (stand → stand_pick)
+  double stand_check_s_ = 1.0;                   // stand 뒤 인지가 선 퍽을 볼 때까지 기다림
   int placed_ = 0, photo_n_ = 0;
   std::string back_;   // 박스에 붙어 있을 때 물러날 standoff 자세 "x,y,yaw" (map) — 다음 go_near가 먼저 씀
   std::string run_dir_;

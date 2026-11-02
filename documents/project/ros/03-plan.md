@@ -77,8 +77,8 @@ ros2 topic echo /mission/state                                           # 단�
 | GO_OBSERVE | 팔을 scan 자세로 접고(pole_front_cam 시야를 가리지 않게), 바코드가 화면에 들어오는 자리로 | `pose scan` · `navigate x,y,yaw` | ERROR |
 | BARCODE | 이 단계 시작 뒤에 본 바코드만 씀: `/tracked_objects` barcode의 `content`, 또는 `/mission/qr`. 읽으면 관측 자리(−X)로 | `navigate x,y,yaw` | ERROR (`barcode_missing`) |
 | READ | 12회 점멸을 기다림 (아래 [신호](#신호-read)) | — | ERROR (`signal_<error>` · `signal_timeout`) |
-| SURVEY | 시작 박스 6곳마다 다가가 퍽 두 자리를 내려다봄(tag·색·모양) → 읽은 퍽을 집어 적재함 칸에 → 12개를 한 번에 그룹(R·Y·G)에 할당 | `pose stow` · `navigate` · `approach` · `inspect x,y,z` · `pick <id>` · `load <칸>` | 박스·퍽 단위로 결과에 남기고 계속. 할당 불가면 RETURN |
-| BUILD | 퍽마다 장소 상자 앞으로 → 인지 `location_box`로 칸 위치 보정 → 적재함에서 꺼냄(못 실은 퍽은 시작 박스에서 직접) → 주사위 칸에 놓기 → 내려다보고 10mm 밖이거나 누웠으면 다시 집어 놓기(`retries`번) | `approach` · `unload <칸>` · `place x,y,z` · `inspect x,y,z` · `pick <id>` | 퍽 단위로 결과에 남기고 다음 퍽 |
+| SURVEY | 시작 박스 6곳마다 다가가 퍽 두 자리를 내려다봄(tag·색·모양) → 읽은 퍽을 집어 적재함 칸에 → 12개를 한 번에 그룹(R·Y·G)에 할당 | `pose stow` · `navigate` · `approach` · `inspect x,y,z` · `pick <id>` (누우면 `stand <id>` → `stand_pick`) · `load <칸>` | 박스·퍽 단위로 결과에 남기고 계속. 할당 불가면 RETURN |
+| BUILD | 퍽마다 장소 상자 앞으로 → 인지 `location_box`로 칸 위치 보정 → 적재함에서 꺼냄(못 실은 퍽은 시작 박스에서 직접) → 주사위 칸에 놓기 → 내려다보고 10mm 밖이거나 누웠으면 다시 집어 놓기(`retries`번) | `approach` · `unload <칸>` · `place x,y,z` · `inspect x,y,z` · `pick <id>` · `stand`·`stand_pick` | 퍽 단위로 결과에 남기고 다음 퍽 |
 | VERIFY | 장소마다 **이번에 새로 본 퍽만**으로 칸별 판정(10mm, 2초 안정은 운영 판정) + 12개 중복·누락 | `approach` · `inspect x,y,z` | 결과에만 남김 |
 | RETURN | 출발 구역 가운데로 → 차체 외곽(`footprint`)이 구역 안인지 확인, 밖이면 한 번 보정 → `home_hold_s`(3초) 정지 | `pose stow` · `navigate` / `approach` | ERROR |
 
@@ -87,7 +87,11 @@ ros2 topic echo /mission/state                                           # 단�
   - 점에서 가까운 변부터 시도하고, 실패하면 다음 변으로 넘어갑니다(`approach_tries`).
   - 다음 주행 전에는 붙었던 자리에서 standoff까지 먼저 똑바로 물러납니다.
 - **적재함 12칸**: 조사하면서 `pick` → `load next`로 싣습니다. **장부(칸 → 퍽 tag)는 coordinator 하나만 씁니다**(`/coordinator/basket`, 파일 저장). mission_manager는 그 장부를 읽어 "그 tag가 실린 칸"을 찾아 `unload <칸>`을 보냅니다. 쓰는 칸은 coordinator `basket_use`. 칸이 다 차면 나머지 퍽은 BUILD 때 시작 박스에서 직접 집어 옵니다.
-- **누운 퍽**: 세우기(`stand`)가 생기기 전까지는 건너뜁니다. SURVEY에서 `puck_lying`으로 보이면 할당에는 넣되 싣지 않고 `lying (세우기 전이라 건너뜀)`을 결과에 남깁니다. BUILD에서 그 퍽 차례가 오면 `lying_skipped`로 넘어갑니다. 조사 뒤에 넘어진 퍽도 집기 직전에 다시 보고 건너뜁니다.
+- **누운 퍽은 세워서 집습니다** (`grab` → `stand_up`): `pick` 대신 `stand <id>` → `stand_check_s`(1초) 뒤 인지로 섰는지 봄 → 섰으면 `stand_pick` → (조사 때) `load next`.
+  - 아직 누워 있으면 같은 퍽으로 `stand`를 다시 합니다(`retries`번). 그래도 누우면 `stand_still_lying`으로 그 퍽만 실패로 남깁니다.
+  - 손 그늘 등으로 퍽을 못 보면 그대로 `stand_pick`을 보냅니다. 잡기 판정이 빈손을 가려냅니다.
+  - SURVEY에서 싣지 못한 누운 퍽은 BUILD 때 시작 박스에서 같은 방법으로 집습니다. 조사 뒤에 넘어진 퍽도 집기 직전에 다시 보고 세웁니다.
+  - 놓은 뒤 확인에서 칸 안 퍽이 누워 있으면(`place_lying`) 그 자리에서 세워 다시 집고 다시 놓습니다.
 - **주사위 칸 순서**: 가운데 칸(4)이 있는 3·5는 **가운데부터** 놓습니다(`dice_cells` 3 = 4,0,8 · 5 = 4,0,2,6,8). 이웃 칸이 먼저 놓이면 가운데 놓기 성공률이 81~83%로 떨어졌기 때문입니다(isaac-pick 시험).
 - **할당**: 먼저 집은 퍽 때문에 Y(한 모양)를 못 만드는 일이 없도록 12개를 한 번에 정합니다.
   - Y의 모양을 정하면, Y에 들어갈 빨강 수(빨강 수 − R)와 초록 수(초록 수 − G)가 정해집니다.
@@ -173,4 +177,4 @@ flowchart LR
 
 - **실기·시뮬레이터 실행 확인**: 경기장 좌표, 바코드 보는 자리(`barcode_pose_arena`), 다가가기 거리, 칸 보정은 실물로 맞춰야 합니다.
 - **운영자 CLI 버튼**: 지금은 `/cmd/mission`을 직접 발행합니다.
-- **누운 퍽 세우기**: `stand`·`stand_pick`(05-arm.md)이 생기면 SURVEY와 BUILD에서 씁니다. 지금은 누운 퍽을 건너뛰고 결과에 남깁니다.
+- **세우기 실행 확인**: `stand`·`stand_pick`(05-arm.md 6-1)은 경유점 계산까지 팀원 계획과 대조했지만, Isaac·실기 성공률과 0.4N 쥐기 전류는 아직 확인하지 않았습니다.

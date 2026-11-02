@@ -95,6 +95,7 @@ mission_manager:             # 주사위 기억 미션 (documents/mission/README
     place_tol: 0.010                         # [m] 놓은 뒤 확인 · 재검증 — 칸 중심에서 이 안이어야 성공
     place_search: 0.05                       # [m] 놓은 뒤 확인 때 칸에서 이 안의 퍽만 그 퍽으로 봄
     match_radius: 0.04                       # [m] 조사 때 퍽 자리와 트랙을 짝짓는 거리
+    stand_check_s: 1.0                       # [s] 누운 퍽 stand 뒤 인지가 섰는지 볼 때까지 기다림 → 섰으면 stand_pick, 아직 누웠으면 stand 다시 (retries번)
     verify_radius: 0.15                      # [m] 재검증 때 장소 중심에서 이 안의 퍽만
     # 바코드 보는 자세 (출발 구역 안) — 관측 자리(−X)에선 바코드(80, 650, 450)가 화면 위·왼쪽 끝에 걸림 (시뮬레이터 렌더 확인).
     #   조금 뒤로 물러나 바코드 쪽으로 돌면 화면 안. 실물 카메라 시야로 다시 정할 것
