@@ -315,7 +315,7 @@ void apply_torque_line(char *text)
 void set_gripper_current(float amp)
 {
     const float ma = constrain(amp * 1000.0f, GRIPPER_CURRENT_MIN_MA, GRIPPER_CURRENT_MAX_MA);
-    if (fabsf(ma - gripper_goal_ma) < 5.0f)
+    if (fabsf(ma - gripper_goal_ma) < 1.0f)  // 1단위(2.69 mA)보다 작은 차이만 무시
         return;
     gripper_goal_ma = ma;
     if (torque_state[GRIPPER_INDEX] && hw_error[GRIPPER_INDEX] == 0)
