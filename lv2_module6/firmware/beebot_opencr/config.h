@@ -35,7 +35,7 @@ constexpr size_t GRIPPER_TABLE = 5;
 constexpr float GRIPPER_FINGER_M[GRIPPER_TABLE] = {0.0f, 0.0035f, 0.005f, 0.009f, 0.0275f};      // 오름차순
 constexpr float GRIPPER_SERVO_RAD[GRIPPER_TABLE] = {1.0068f, 0.6f, 0.4998f, 0.12f, -1.637f};     // 서보각이 클수록 닫힘
 constexpr float GRIPPER_GOAL_CURRENT_MA = 600.0f;     // 쥐는 힘 한계 기본값 (전류 기반 위치 모드) — SBC가 C 9번째 칸으로 바꿈 (TODO 실측)
-constexpr float GRIPPER_CURRENT_MIN_MA = 50.0f;       // C로 받는 값의 범위 — 너무 작으면 못 움직이고
+constexpr float GRIPPER_CURRENT_MIN_MA = 2.69f;       // C로 받는 값의 범위 — Goal Current 1단위(2.69 mA). 수십 mA 아래는 마찰로 안 움직일 수 있음
 constexpr float GRIPPER_CURRENT_MAX_MA = 1200.0f;     //   너무 크면 손가락·퍽을 누름 (XM430 Current Limit 3.2A보다 한참 아래)
 
 // ---- 시리얼 프로토콜 (SBC control/BeebotSystemHardware와 짝 — README.md "프로토콜")
