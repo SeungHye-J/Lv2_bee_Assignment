@@ -5,7 +5,7 @@
 //   C 읽기: <serial_out> (debug/output/hardware/serial) — "C,<바퀴L·R rad/s>,<joint1~5 rad>,<그리퍼 m>" 8 필드,
 //     빈 필드(`,,`)는 유지(NaN) — 팔·그리퍼는 명령 생략(현재 유지), 바퀴는 0(정지).
 //     줄마다 엄격 검사 후 적용 (틀린 줄은 버림 — 결과 = 마지막 유효 줄). 예: C,1,,0.4,,,,,
-//   S 쓰기: <serial_in> (debug/input/hardware/serial) — "S,<40값>"(끝 8개 = 모터 온도 °C) 25ms마다 항상 (펌웨어처럼 C와 무관 — 통신 끊김일 때만 멈춤)
+//   S 쓰기: <serial_in> (debug/input/hardware/serial) — "S,<43값>"(모터 온도 °C 8개 + 배터리 V + 바퀴 L·R 전류 A) 25ms마다 항상 (펌웨어처럼 C와 무관 — 통신 끊김일 때만 멈춤)
 //     바퀴 pos·vel ×2 · 관절 pos·vel·A ×6(joint1~5 + gripper_left) · 쿼터니언 · 자이로 · 가속도
 // 물리 (한 걸음 dt):
 //   바퀴: 명령 속도로 가속 (한계 ACCEL_MAX × friction) → 엔코더는 회전 그대로,
@@ -48,7 +48,7 @@ private:
   // C 파일 끝부분에서 가장 최근의 완전한 "C,..." 줄을 파싱 → true (8 필드, 빈칸=유지 NaN)
   bool read_command(std::array<double, 8> & cmd);
   // 펌웨어 parse_fields와 같은 규칙으로 C 한 줄 검사
-  static bool parse_command(const std::string & line, std::array<double, 8> & v);
+  static bool parse_command(const std::string & line, std::array<double, 8> & v, size_t max_fields = 8);
   // T 줄(토크 온/오프) 적용 — 전체(T,0) 또는 조인트별(T,1,0,,,,,,), 빈칸=유지
   void apply_torque_line(const std::string & line);
   // R 줄(모터 재부팅) — 고른 모터의 에러를 지우고 토크 켜기 (펌웨어 apply_reboot_line)

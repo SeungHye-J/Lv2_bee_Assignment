@@ -7,6 +7,7 @@
 //              MANUAL은 토크를 늘 켠다. TEACH 동안 수동 바퀴·팔·그리퍼 명령은 버린다 (바퀴 토크는 그대로)
 //         ✉️ /cmd/manual/cmd_vel (geometry_msgs/TwistStamped) — 바퀴 (teleop_twist_keyboard · 시뮬레이터 조작판)
 //         ✉️ /cmd/manual/arm (sensor_msgs/JointState) — 관절 목표 (joint1~5 rad, gripper_left_joint m). 이름이 있는 것만 움직임
+//            gripper_left_joint의 effort(있으면) = 쥐는 힘 한계 [A] → 그리퍼 액션 goal effort (없으면 controllers.yaml max_effort)
 //         ✉️ /cmd/manual/reboot_motors (std_msgs/Empty) — Hardware Error(과부하·과열 등) 난 DYNAMIXEL 재부팅
 //            → 📞 /beebotsystem/reboot_motors (std_srvs/Trigger, BeebotSystemHardware — 에러 난 모터만 펌웨어 R)
 //         ✉️ /joint_states — 지금 관절각 (목표에 없는 팔 관절은 지금 각으로 채워 5축 전체 궤적을 보낸다 — JTC는 일부 관절 궤적을 거부)
@@ -21,6 +22,8 @@
 //   (twist_mux도 자체 timeout으로 0으로 떨어지지만, 끊긴 순간을 확실히 멈추려고).
 // 수동 바퀴 명령도 velocity_smoother는 지난다. collision_monitor는 MANUAL 동안 꺼 둔다(위 toggle) — 장애물은 조작자가 본다.
 #include <algorithm>
+#include <cmath>
+#include <limits>
 #include <chrono>
 #include <map>
 #include <string>
@@ -61,7 +64,7 @@ private:
 
   void on_arm(const sensor_msgs::msg::JointState & js);
 
-  void send_gripper(double position);
+  void send_gripper(double position, double effort = std::numeric_limits<double>::quiet_NaN());
 
   void on_reboot();
 

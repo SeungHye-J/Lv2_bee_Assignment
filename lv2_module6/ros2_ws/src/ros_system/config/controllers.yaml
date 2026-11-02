@@ -1,12 +1,16 @@
 # ros2_control 컨트롤러 — 설계: documents/project/ros/08-ctrl.md
 # 하드웨어: control/BeebotSystemHardware (URDF lv2_module6/urdf/beebot.urdf.xacro의 <ros2_control>)
-# spawn 순서: joint_state_broadcaster → imu_sensor_broadcaster → diff_drive_controller
+# spawn 순서: joint_state_broadcaster → imu_sensor_broadcaster → diff_drive_controller → gripper_controller
 #            → rl_arm_correction → arm_controller (체인은 뒤에서부터: arm_controller가 rl_arm_correction의 reference에 쓴다)
-#            → gripper_controller
+#            팔 체인이 맨 뒤 — 관절이 한계 밖이라 실패해도 앞의 것은 이미 켜짐 (ros_system.launch.py CONTROLLERS)
 # 팔: joint1~5 (OM-X 4축 + 손목 roll), 그리퍼: gripper_left_joint (오른쪽은 URDF mimic)
 controller_manager:
   ros__parameters:
     update_rate: 100
+    # URDF 관절 한계로 명령을 자르는 ros2_control 기본 기능 끔 — 켜 두면 관절이 이미 한계 밖에 있을 때(손으로 옮김·처짐)
+    # 예외로 rl_arm_correction·arm_controller가 안 켜져 되돌리는 명령조차 못 보냄 (2026-11-02 실기 joint2 −120°).
+    # 자동은 MoveIt이 URDF 한계 안에서만 계획 · 수동(CLI arm set·홈·시작 자세)은 조작자 책임으로 그대로 나감
+    enforce_command_limits: false
 
     joint_state_broadcaster:
       type: joint_state_broadcaster/JointStateBroadcaster
@@ -75,5 +79,6 @@ arm_controller:
 gripper_controller:
   ros__parameters:
     joint: gripper_left_joint
-    max_effort: 1.0
+    max_effort_interface: gripper_left_joint/effort  # 쥐는 힘 → BeebotSystemHardware → 펌웨어 C 9번째 칸 (Goal Current)
+    max_effort: 0.6            # [A] 액션 goal에 effort가 없을 때 쓰는 쥐는 힘 한계 (펌웨어 기본 600 mA와 같게) — goal effort로 바꿈
     allow_stalling: true       # 퍽을 쥐면 손가락이 멈춘다 — 멈춤을 실패가 아니라 파지로
