@@ -356,6 +356,7 @@ class Bus:
         move = (0, 0)  # (전후, 회전) 방향
         lin_speed, ang_speed = min(args.linear, MAX_LIN), min(args.angular, MAX_ANG)
         last_send = 0.0
+        last_bar = 0.0
         last_key, key_count = '-', 0
         box = Dialog(self.prompt, '텔레오퍼 → /cmd/manual/cmd_vel', [])  # 공용 박스 — console로 그려 캡처를 우회
         alias = {'up': 'w', 'down': 'x', 'left': 'a', 'right': 'd', ' ': 's'}
@@ -393,6 +394,9 @@ class Bus:
                                  self.term.paint('-/= 속도± · b 삑 · Esc 종료', DIM)]
                     box.draw('key')
                     now = time.monotonic()
+                    if now - last_bar >= 0.5:  # 박스 뒤 상단 상태바도 갱신 (0.5초)
+                        self.prompt.refresh_bar()
+                        last_bar = now
                     if now - last_send >= 0.1:
                         self._send_velocity(linear, angular)
                         last_send = now

@@ -218,6 +218,25 @@ class Ui:
             self.console.write('\n')
         self.console.flush()
 
+    def refresh_bar(self) -> None:
+        """다이어로그가 떠 있는 동안 상단 상태바(모드·인지/임무·토픽·로봇)만 다시 그린다.
+
+        전체 프레임을 다시 그리면 다이어로그와 겹쳐 깜빡이므로, 상태바 행(4~7행)만
+        커서를 옮겨 덮어쓴다. 다이어로그는 화면 가운데라 보통 8행 아래에서 시작해 겹치지 않는다.
+        """
+        if getattr(self, '_frame_size', None) is None or getattr(self, '_title', None) is None:
+            return
+        cols, rows = self.term.size()
+        if cols < 70 or rows < 18:
+            return
+        top = [self.term.fit(ln, cols) for ln in self.top_lines(self._title, cols)]
+        # 0-based: 0~2 타이틀, 3~ 상태바, 마지막 구분선 → 상태바만
+        for i in range(3, len(top) - 1):
+            if i + 1 >= rows - 1:  # 다이어로그·힌트 줄과 겹치지 않게
+                break
+            self.console.write(f'\033[{i + 1};1H\033[K' + top[i])
+        self.console.flush()
+
     @staticmethod
     def _scroll(lines: list[str], height: int, focus: int | None) -> list[str]:
         """height줄 창으로 자르기 — focus 줄이 창 안에 오게, 잘린 쪽은 '↑ 위 N줄'·'↓ 아래 N줄'로 표시."""
