@@ -763,7 +763,7 @@ void Coordinator::move_arm(const geometry_msgs::msg::PoseStamped & target, std::
 void Coordinator::set_gripper(double width_m, std::function<void(bool)> done) {
   ParallelGripperCommand::Goal goal;
   goal.command.position = {width_m};
-  goal.command.effort = {1.0};
+  // effort 비움 = gripper_controller max_effort (controllers.yaml, A) — 쥐는 힘은 거기서 한 곳만 정한다
   const uint64_t gen = gen_;
   rclcpp_action::Client<ParallelGripperCommand>::SendGoalOptions opt;
   opt.result_callback = [this, done, width_m, gen](const rclcpp_action::ClientGoalHandle<ParallelGripperCommand>::WrappedResult & r) {

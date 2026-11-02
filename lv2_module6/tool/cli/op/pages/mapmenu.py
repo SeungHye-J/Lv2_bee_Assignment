@@ -64,6 +64,7 @@ class MapMenu(Menu):
 
 
 class MapSwitchItem(MenuItem):
+    shows_busy = False  # 하위 화면을 연다
     key = '5'
 
     def label(self):
@@ -74,6 +75,7 @@ class MapSwitchItem(MenuItem):
 
 
 class MapSaveItem(MenuItem):
+    shows_busy = False  # 하위 화면을 연다
     key = '6'
 
     def label(self):

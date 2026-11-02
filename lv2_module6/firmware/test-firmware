@@ -20,6 +20,7 @@ fi
 #   ./test-firmware --r-wheel 0.3 --yes     # 오른쪽만 0.3 rad/s (왼쪽은 정지)
 #   ./test-firmware --wheel 0.3 --count 100 --yes  # 100번 전송 ≈ 5초간 구동
 #   ./test-firmware --send 'C,0.3,0.3,,,,,,' --yes # 빈칸 = 유지 (바퀴는 0 대신 명시, 총 8필드)
+#   ./test-firmware --send 'C,0,0,,,,,,0,0.8' --yes # 9번째 = 그리퍼 쥐는 힘 한계 A (여기선 닫기 + 0.8 A) — 생략하면 지금 값 유지
 #   ./test-firmware --torque off --yes             # 전체 토크 해제 (손으로 자세 잡기)
 #   ./test-firmware --torque on --yes              # 전체 토크 켜기 (지금 자세를 목표로)
 #   ./test-firmware --torque 1,0,,,,,, --yes       # 조인트별 (C와 같은 순서, 빈칸=유지)
@@ -135,14 +136,14 @@ read_status() {
 }
 
 # 시리얼을 timeout으로 끊으면 마지막 줄이 중간에서 잘릴 수 있다.
-# S 필드가 40개(끝 8개 = 모터 온도 °C)인 "완전한 줄"만 사용한다. 온도 전 예전 펌웨어(32개)도 받는다.
+# S 필드가 43개(모터 온도 °C 8 + 배터리 V + 바퀴 전류 2)인 "완전한 줄"만 사용한다. 예전 펌웨어(41 · 40 · 32개)도 받는다.
 complete_s_lines() {
   awk -F, '
     /^S,/ {
       line = $0;
       sub(/\r$/, "", line);
       n = split(line, a, ",");
-      if (n == 41 || n == 33) print line;
+      if (n == 44 || n == 42 || n == 41 || n == 33) print line;
     }
   ' "$tmp"
 }
@@ -154,9 +155,9 @@ s_count=$((s_count))
 if [ "$s_count" -eq 0 ]; then
   partial=$(grep '^S,' "$tmp" | tail -n 1 | tr -d '\r' || true)
   if [ -n "$partial" ]; then
-    echo "FAIL: S 줄은 수신되지만 40필드짜리 완전한 줄이 없습니다 ($PORT)"
+    echo "FAIL: S 줄은 수신되지만 43필드짜리 완전한 줄이 없습니다 ($PORT)"
     echo "마지막 S: $partial"
-    echo "  이 줄의 필드 수: $(awk -F, '{print NF - 1}' <<<"$partial") (기대: 40 · 예전 펌웨어 32)"
+    echo "  이 줄의 필드 수: $(awk -F, '{print NF - 1}' <<<"$partial") (기대: 43 · 예전 펌웨어 41·40·32)"
     echo "  - beebot_opencr이 아닌 다른 OpenCR 펌웨어일 가능성"
     echo "  - 또는 시리얼이 중간에 끊겨 필드가 잘린 경우"
     echo "  - raw 확인: ./test-firmware --raw"
@@ -171,12 +172,12 @@ fi
 
 last=$(complete_s_lines | tail -n 1)
 fields=$(awk -F, '{print NF - 1}' <<<"$last")
-say "OK: S ${s_count}줄, 필드 ${fields}개 (기대: 40개 · 예전 펌웨어 32개)"
+say "OK: S ${s_count}줄, 필드 ${fields}개 (기대: 43개 · 예전 펌웨어 41·40·32개)"
 say "포트: $PORT"
 say ""
 
 if [ "$RAW" = 1 ]; then
-  say "--- S 줄 (최대 $LINES개, 완전한 40·32필드만) ---"
+  say "--- S 줄 (최대 $LINES개, 완전한 43·41·40·32필드만) ---"
   complete_s_lines | head -n "$LINES" || true
   say ""
 fi
@@ -185,37 +186,52 @@ IFS=',' read -r -a v <<<"$last"
 if [ "${#v[@]}" -lt 33 ]; then
   echo "FAIL: S 필드가 부족합니다 (${#v[@]}개, S 포함)"
   echo "마지막 S: $last"
-  echo "  beebot_opencr는 S 뒤에 40개 값이 와야 합니다 (예전 펌웨어 32개)."
+  echo "  beebot_opencr는 S 뒤에 43개 값이 와야 합니다 (예전 펌웨어 41·40·32개)."
   echo "  이 값이 8개뿐이면 beebot_opencr이 아닌 다른 펌웨어가 도는 중일 가능성이 큽니다."
   exit 1
 fi
-if [ "$fields" = 32 ]; then
-  echo "WARN: S 필드 32개 — 모터 온도 없는 예전 펌웨어입니다. 다시 업로드하세요."
-elif [ "$fields" != 40 ]; then
-  echo "WARN: S 필드 수가 40이 아닙니다. 펌웨어/프로토콜 버전을 확인하세요."
+if [ "$fields" = 32 ] || [ "$fields" = 40 ]; then
+  echo "WARN: S 필드 ${fields}개 — 배터리$([ "$fields" = 32 ] && echo '·모터 온도') 없는 예전 펌웨어입니다. 다시 업로드하세요."
+elif [ "$fields" = 41 ]; then
+  echo "WARN: S 필드 41개 — 바퀴 전류 없는 예전 펌웨어입니다. 다시 업로드하세요."
+elif [ "$fields" != 43 ]; then
+  echo "WARN: S 필드 수가 43이 아닙니다. 펌웨어/프로토콜 버전을 확인하세요."
 fi
 
 # rad + deg 같이 (각도 확인용). 바퀴는 회전 누적이라 deg는 참고만.
 deg() { awk -v r="$1" 'BEGIN { printf "%+.1f", r * 57.2957795 }'; }
-printf 'wheel L : pos % .4f rad (%s deg)  vel % .4f rad/s (%s deg/s)\n' "${v[1]}" "$(deg "${v[1]}")" "${v[2]}" "$(deg "${v[2]}")"
-printf 'wheel R : pos % .4f rad (%s deg)  vel % .4f rad/s (%s deg/s)\n' "${v[3]}" "$(deg "${v[3]}")" "${v[4]}" "$(deg "${v[4]}")"
-printf 'joint1  : pos % .4f rad (%s deg)  vel % .4f rad/s  cur % .3f A\n' "${v[5]}" "$(deg "${v[5]}")" "${v[6]}" "${v[7]}"
-printf 'joint2  : pos % .4f rad (%s deg)  vel % .4f rad/s  cur % .3f A\n' "${v[8]}" "$(deg "${v[8]}")" "${v[9]}" "${v[10]}"
-printf 'joint3  : pos % .4f rad (%s deg)  vel % .4f rad/s  cur % .3f A\n' "${v[11]}" "$(deg "${v[11]}")" "${v[12]}" "${v[13]}"
-printf 'joint4  : pos % .4f rad (%s deg)  vel % .4f rad/s  cur % .3f A\n' "${v[14]}" "$(deg "${v[14]}")" "${v[15]}" "${v[16]}"
-printf 'joint5  : pos % .4f rad (%s deg)  vel % .4f rad/s  cur % .3f A\n' "${v[17]}" "$(deg "${v[17]}")" "${v[18]}" "${v[19]}"
-printf 'gripper : pos % .4f m    vel % .4f m/s    cur % .3f A\n' "${v[20]}" "${v[21]}" "${v[22]}"
+# 필드 배치가 펌웨어 버전마다 다르다 — 새 43: 모터마다 pos·vel·A (바퀴 stride 3)
+#   예전 40·41: 모터마다 pos·vel (팔·그리퍼만 A) · 32: 온도도 없음
+if [ "$fields" = 43 ]; then W_STRIDE=3; else W_STRIDE=2; fi
+A0=$((1 + 2 * W_STRIDE))          # 팔 첫 칸 (joint1 pos)
+T0=$((A0 + 18 + 10))               # 모터 온도 첫 칸 — 팔 6×3 + IMU 10 뒤 (43: 35 … 예전 40: 33)
+printf 'wheel L : pos % .4f rad (%s deg)  vel % .4f rad/s (%s deg/s)  cur %s A\n' \
+  "${v[1]}" "$(deg "${v[1]}")" "${v[2]}" "$(deg "${v[2]}")" "$([ "$W_STRIDE" = 3 ] && printf '% .3f' "${v[3]}" || echo '  ?')"
+printf 'wheel R : pos % .4f rad (%s deg)  vel % .4f rad/s (%s deg/s)  cur %s A\n' \
+  "${v[$((1 + W_STRIDE))]}" "$(deg "${v[$((1 + W_STRIDE))]}")" "${v[$((2 + W_STRIDE))]}" "$(deg "${v[$((2 + W_STRIDE))]}")" "$([ "$W_STRIDE" = 3 ] && printf '% .3f' "${v[$((3 + W_STRIDE))]}" || echo '  ?')"
+for i in 0 1 2 3 4; do
+  j=$((A0 + i * 3))
+  printf 'joint%d  : pos % .4f rad (%s deg)  vel % .4f rad/s  cur % .3f A\n' \
+    "$((i + 1))" "${v[$j]}" "$(deg "${v[$j]}")" "${v[$((j + 1))]}" "${v[$((j + 2))]}"
+done
+j=$((A0 + 15))
+printf 'gripper : pos % .4f m    vel % .4f m/s    cur % .3f A\n' "${v[$j]}" "${v[$((j + 1))]}" "${v[$((j + 2))]}"
 
-# S 끝 8칸(33~40) — 모터 온도 °C (−1 모름). 70 °C 이상이면 표시 (80 °C면 과열 에러로 멈춤)
-if [ "${#v[@]}" -ge 41 ]; then
+# 모터 온도 °C (−1 모름). 70 °C 이상이면 표시 (80 °C면 과열 에러로 멈춤)
+if [ "$fields" = 43 ] || [ "$fields" = 40 ]; then
   names=(wheel_left wheel_right joint1 joint2 joint3 joint4 joint5 gripper); out=""; hot=""
   for i in 0 1 2 3 4 5 6 7; do
-    t=${v[$((33 + i))]}
+    t=${v[$((T0 + i))]}
     out+=" ${names[$i]}=${t}"
     [ "$t" -ge 70 ] 2>/dev/null && hot+=" ${names[$i]}"
   done
   say "temp °C :$out"
   [ -z "$hot" ] || say "  ⚠ 70 °C 이상:$hot (80 °C면 과열 에러로 멈춤)"
+fi
+# 새 펌웨어(43): 바퀴 전류는 위 wheel 줄에 · 배터리는 맨 끝(43번째)
+if [ "$fields" = 43 ]; then
+  bat=${v[43]}
+  say "battery : ${bat} V$(awk -v b="$bat" 'BEGIN { if (b < 5) print "  ⚠ 12V 꺼짐 (USB만)"; else if (b < 11) print "  ⚠ 낮음 — 충전" }')"
 fi
 
 # E 줄 — 모터별 Hardware Error Status (0 정상 · −1 응답 없음 · 비트: 1 입력전압 4 과열 8 엔코더 16 전기충격 32 과부하)

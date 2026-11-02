@@ -24,7 +24,7 @@ class RestartAllItem(MenuItem):
             validate=lambda t: None if t.strip() == 'RESTART' else 'RESTART를 정확히 입력하세요')
         if confirm is None:
             return STAY
-        self.bus.cmd_restart(argparse.Namespace(target='all', yes=True))
+        self.bus.cmd_restart(argparse.Namespace(target='all'))
         print('결과: 메인 → 상태의 "재시작" 줄 · 다시 뜨는 데 30초쯤')
         return STAY
 
@@ -102,6 +102,7 @@ class NodeActionMenu(Menu):
 
 
 class NodeItem(MenuItem):
+    shows_busy = False  # 하위 화면을 연다
     def __init__(self, app, key: str, row: dict, life: str | None):
         super().__init__(app)
         self.key = key

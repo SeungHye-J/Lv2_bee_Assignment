@@ -48,7 +48,7 @@ add_library(beebot_system_hardware SHARED src/beebot_system_hardware.cpp)
 target_compile_features(beebot_system_hardware PUBLIC cxx_std_17)
 target_link_libraries(beebot_system_hardware hardware_interface::hardware_interface
   pluginlib::pluginlib rclcpp::rclcpp rclcpp_lifecycle::rclcpp_lifecycle diagnostic_updater::diagnostic_updater ${std_srvs_TARGETS}
-  ${msgs_cpp})
+  ${std_msgs_TARGETS} ${msgs_cpp})
 pluginlib_export_plugin_description_file(hardware_interface control_plugins.xml)
 install(TARGETS beebot_system_hardware LIBRARY DESTINATION lib)
 

@@ -181,7 +181,8 @@ void ManualControl::on_arm(const sensor_msgs::msg::JointState & js) {
   if (!manual_) return;
   std::map<std::string, double> target;
   for (size_t i = 0; i < js.name.size() && i < js.position.size(); ++i) {
-    if (js.name[i] == gripper_joint_) send_gripper(js.position[i]);
+    if (js.name[i] == gripper_joint_)  // effort를 주면 쥐는 힘 한계 [A], 없으면 gripper_controller max_effort
+      send_gripper(js.position[i], i < js.effort.size() ? js.effort[i] : std::numeric_limits<double>::quiet_NaN());
     else if (std::find(arm_joints_.begin(), arm_joints_.end(), js.name[i]) != arm_joints_.end()) target[js.name[i]] = js.position[i];
   }
   if (target.empty()) return;
@@ -208,7 +209,7 @@ void ManualControl::on_arm(const sensor_msgs::msg::JointState & js) {
   ++arm_count_;
 }
 
-void ManualControl::send_gripper(double position) {
+void ManualControl::send_gripper(double position, double effort) {
   if (!gripper_->action_server_is_ready()) {
     RCLCPP_WARN_THROTTLE(get_logger(), *get_clock(), 5000, "/gripper_controller/gripper_cmd 서버 없음");
     return;
@@ -216,6 +217,7 @@ void ManualControl::send_gripper(double position) {
   GripperCommand::Goal goal;
   goal.command.name = {gripper_joint_};
   goal.command.position = {position};
+  if (std::isfinite(effort)) goal.command.effort = {effort};
   gripper_->async_send_goal(goal);
   ++arm_count_;
 }

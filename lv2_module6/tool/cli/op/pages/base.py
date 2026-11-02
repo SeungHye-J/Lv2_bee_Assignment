@@ -9,6 +9,11 @@
   - 실행 중 print()는 전부 Menu가 가로채 결과창(pager)에 보여준다 — 다이얼로그보다 먼저
     알려야 할 경고·맥락은 print가 아니라 confirm(body=...)/modal_input(body=...)에 넣는다.
   - 취소(Esc·아니오)는 아무 출력 없이 STAY.
+  - 누르면 바로 '처리 중…' 창 (MenuItem.shows_busy, 기본 True) — ROS 대기로 몇 초 걸려도 눌린 걸 알게.
+    하위 화면을 여는 항목·전체 화면을 쓰는 항목(텔레오퍼)은 shows_busy = False.
+  - 몇 초 넘게 기다리는 명령은 그동안 ui.progress('무엇을 … N/M초')로 기다리는 대상을 보여준다.
+    여러 단계면 ui.step('1/2 …'). 명령줄(run-cli <명령>)에서는 둘 다 무시돼 print만 남는다.
+  - 창(확인·입력·결과)이 떠 있는 동안에도 상단 상태바는 1초마다 갱신된다 (ui.tick).
 """
 from __future__ import annotations
 
@@ -40,6 +45,7 @@ class MenuItem(ABC):
     """메뉴 항목 한 개 — 라벨·노출·실행을 한 몸에."""
 
     key: str = ''
+    shows_busy = True   # 누르면 '처리 중' 창 (하위 화면으로 들어가는 항목은 바로 열리니 False)
 
     def __init__(self, app):
         self.app = app
@@ -62,6 +68,7 @@ class MenuItem(ABC):
 
 class GoMenu(MenuItem):
     """하위 화면 진입 항목."""
+    shows_busy = False  # 하위 화면을 연다
 
     def __init__(self, app, key: str, label: str, page):
         super().__init__(app)
@@ -105,6 +112,7 @@ class Menu(Page):
 
     def show(self) -> str:
         self.ui.reset_selection()  # 메뉴 진입은 항상 첫 항목에 포커스
+        self.ui._center_provider = self.center  # 다이어로그 중 중앙 실시간 갱신용
         while rclpy.ok():
             self.app.poll(0.2)
             visible = [i for i in self.items() if i.visible()]
@@ -120,12 +128,18 @@ class Menu(Page):
             item = next((it for it in visible if it.key == choice), None)
             if item is None:
                 continue
+            label = item.label()   # 누른 순간 이름 (실행 뒤엔 바뀔 수 있음)
+            if item.shows_busy:
+                self.ui.busy(label)   # 누른 즉시 표시 — 확인창이 뜨면 그 위로 덮였다가 닫히면 다시 보임
             # 실행 중 print는 화면을 스크롤시키므로 가로채서 결과창에 넣는다.
-            with self.ui.capture() as (buf_out, buf_err):
-                result = item.run()
+            try:
+                with self.ui.capture() as (buf_out, buf_err):
+                    result = item.run()
+            finally:
+                self.ui._busy = None
             out = (buf_out.getvalue() + buf_err.getvalue()).strip('\n')
             if out:
-                self.ui.pager(item.label(), out)
+                self.ui.pager(label, out)
             # 하위 화면의 BACK은 '그 화면을 닫음'이라 여기는 그대로 남는다 (두 단계 뒤로 가지 않게)
             if result in (MAIN, QUIT):
                 return result

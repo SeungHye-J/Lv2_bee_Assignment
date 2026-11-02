@@ -42,6 +42,7 @@ OFFSET = {name: 0.0 for name in ARM}
 # arm_safety_monitor reads these amps; replace with a measured current/torque curve if contact detection misbehaves in sim.
 NM_PER_A = 1.78
 TEMP_C = 35  # same as faker/fake_opencr (no thermal model)
+BATTERY_V = 12.0  # same as faker/fake_opencr (no discharge model)
 COMMAND_TIMEOUT = 0.5  # [s] firmware COMMAND_TIMEOUT_MS
 ERROR_PERIOD = 0.5  # [s] firmware MOTOR_CHECK_MS
 
@@ -153,7 +154,7 @@ class Board:
         self.wheel_prev = w
         v = []
         for k, name in enumerate(WHEELS):
-            v += [self.wheel_acc[k], vel[self.idx[name]]]
+            v += [self.wheel_acc[k], vel[self.idx[name]], 0.0]  # wheel current A: no load model
         for name in ARM:
             i = self.idx[name]
             amps = 0.0 if name == "gripper_left_joint" else eff[i] / NM_PER_A
@@ -162,7 +163,7 @@ class Board:
         v += [r.orientation_x, r.orientation_y, r.orientation_z, r.orientation_w,
               r.angular_velocity_x, r.angular_velocity_y, r.angular_velocity_z,
               r.linear_acceleration_x, r.linear_acceleration_y, r.linear_acceleration_z]
-        return "S," + ",".join(f"{float(x):.4f}" for x in v) + "," + ",".join([str(TEMP_C)] * 8)
+        return "S," + ",".join(f"{float(x):.4f}" for x in v) + "," + ",".join([str(TEMP_C)] * 8) + f",{BATTERY_V:.2f}"
 
     def send(self, line):
         try:

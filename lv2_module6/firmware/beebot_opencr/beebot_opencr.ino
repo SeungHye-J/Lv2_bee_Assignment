@@ -1,18 +1,24 @@
 // beebot OpenCR 펌웨어 — SBC(control/BeebotSystemHardware) ↔ OpenCR ↔ DYNAMIXEL 8개 + 내장 IMU
 //   USB 시리얼 ASCII 줄 프로토콜 (module5 opencr_pan_tilt와 같은 방식, 단위는 SI):
-//     SBC → OpenCR  C,<바퀴L rad/s>,<바퀴R rad/s>,<j1>,<j2>,<j3>,<j4>,<j5 rad>,<그리퍼 m>\n      (매 제어 주기)
+//     SBC → OpenCR  C,<바퀴L rad/s>,<바퀴R rad/s>,<j1>,<j2>,<j3>,<j4>,<j5 rad>,<그리퍼 m>[,<그리퍼 전류 A>]\n (매 제어 주기)
+//                        9번째(그리퍼 전류) = 쥐는 힘 한계 (전류 기반 위치 모드 Goal Current) — 빈칸·생략 = 지금 값 유지,
+//                        GRIPPER_CURRENT_MIN_MA~MAX_MA로 자름, 바뀔 때만 모터에 씀
 //                        빈 필드(`,,` ·trailing comma · 모자란 뒷필드)는 "유지" — 팔·그리퍼는 명령 생략(현재 유지),
 //                        바퀴는 정지(0). 전부 빈칸이면 바퀴 정지 + 팔 유지. 예: C,0.3,0.3,,,,,,
 //                        (빈칸 없이 전부 숫자였던 기존 C와 호환 — SBC는 팔 명령이 없을 때(NaN) 팔 칸을 빈칸으로 보냄)
-//     OpenCR → SBC  S,<바퀴L pos,vel>,<바퀴R pos,vel>,<j1 pos,vel,A>…<j5 …>,<그리퍼 m,m/s,A>,
-//                        <qx,qy,qz,qw>,<gx,gy,gz rad/s>,<ax,ay,az m/s²>,<모터 8개 온도 °C>\n          (STATE_PERIOD_MS마다, 40개)
+//     OpenCR → SBC  S,<바퀴L pos,vel,A>,<바퀴R pos,vel,A>,<j1 pos,vel,A>…<j5 …>,<그리퍼 m,m/s,A>,
+//                        <qx,qy,qz,qw>,<gx,gy,gz rad/s>,<ax,ay,az m/s²>,<모터 8개 온도 °C>,<배터리 V>\n (STATE_PERIOD_MS마다, 43개)
+//                        모터마다 같은 3칸(pos · vel · 전류 A) — 바퀴는 rad(누적) · rad/s
 //                        온도 = 바퀴L·R·joint1~5·그리퍼 순 정수 (−1 = 모름). 0.5 s(MOTOR_CHECK_MS)마다 읽은 마지막 값
+//                        배터리 = OpenCR 전원 입력 전압 (getPowerInVoltage — 12V 배터리, USB만이면 0 근처)
 //   관절 0rad = 서보 중앙(2048 = 180°). 바퀴 위치는 부팅 후 누적 rad.
 //   그리퍼 = URDF gripper_left_joint 규약 (손가락 하나 m, 0 = 닫힘) — 서보각과는 config.h 실측표로 변환.
 //   토크: T,0 = 전체 해제(손으로 자세 잡기) · T,1 = 전체 켜기(현재 자세 목표) ·
 //         T,<8필드> = 관절별(빈칸=지금 상태 유지, 1=켜기 0=끄기). 예: T,1,0,,,,,,
 //   재부팅: R,<8필드> = 관절별 DYNAMIXEL Reboot(1=재부팅) · R,1 = 전체. 과부하·과열 등 Hardware Error는 Reboot로만 풀린다.
 //         재부팅 후 모드·Return Delay·전류를 다시 설정하고 토크를 켠다 (팔은 느린 속도로 명령 자세 복귀).
+//   부저: B = 기본음(BEEP_DEFAULT_HZ · BEEP_DEFAULT_MS) · B,<Hz>,<ms> = 높이·길이 (100~8000 Hz · 10~2000 ms로 자름).
+//         tone()은 타이머로 울리고 바로 돌아옴 — 제어 루프를 막지 않음. 울리는 중에 새 B가 오면 새 소리로 바뀜
 //     OpenCR → SBC  E,<8 정수>\n  모터별 Hardware Error Status (0 = 정상, -1 = 응답 없음) — MOTOR_CHECK_MS마다
 //   watchdog: 마지막 유효 C부터 COMMAND_TIMEOUT_MS 지나면 바퀴 속도 0, 팔·그리퍼는 현재 자세 유지 (한 번)
 //
@@ -21,7 +27,7 @@
 //   - loop 한 번에 들어온 C 중 마지막 하나만 적용 (밀린 C를 몰아 처리하면 S가 굶고 목표가 계단으로 튐)
 //   - Return Delay Time 0 (기본 250 µs가 응답마다 붙음)
 //   - 12V를 껐다 켜 토크가 풀린 모터는 다시 찾아 켜고, 팔은 느린 속도로 명령 자세에 돌아간다
-// TODO(김현하): 관절 부호 실측, 그리퍼 쥐는 전류 실측
+// TODO(김현하): 관절 부호 실측, 그리퍼 쥐는 전류 실측 (기본 GRIPPER_GOAL_CURRENT_MA — SBC가 C 9번째 칸으로 바꿀 수 있음)
 #include <Dynamixel2Arduino.h>
 #include <IMU.h>
 #include <math.h>
@@ -52,6 +58,7 @@ int32_t goal_raw[MOTOR_COUNT] = {};        // 마지막 위치 목표 (복구 �
 uint32_t recover_since[MOTOR_COUNT] = {};  // 0이 아니면 느린 속도로 복귀 중
 int16_t hw_error[MOTOR_COUNT] = {};        // Hardware Error Status (−1 = 응답 없음) — E 줄로 보고
 int16_t hw_temp[MOTOR_COUNT] = {-1, -1, -1, -1, -1, -1, -1, -1};  // Present Temperature °C (−1 = 모름) — S 끝 8칸
+float gripper_goal_ma = GRIPPER_GOAL_CURRENT_MA;  // 그리퍼 쥐는 힘 한계 — C 9번째 칸으로 바뀜, 토크 켤 때 다시 씀 (RAM)
 
 // ---- SyncRead: Present Current(126, 2) · Velocity(128, 4) · Position(132, 4)
 struct __attribute__((packed)) Present
@@ -111,7 +118,7 @@ void enable_motor(size_t i, bool recover)
 {
     const uint8_t id = motor_id(i);
     if (i == GRIPPER_INDEX)
-        dxl.setGoalCurrent(id, GRIPPER_GOAL_CURRENT_MA, UNIT_MILLI_AMPERE);  // RAM이라 전원 복귀 때마다
+        dxl.setGoalCurrent(id, gripper_goal_ma, UNIT_MILLI_AMPERE);  // RAM이라 전원 복귀 때마다
     if (!is_position_motor(i))
     {
         dxl.setGoalVelocity(id, 0);
@@ -304,11 +311,24 @@ void apply_torque_line(char *text)
     last_command_ms = millis();
 }
 
+// 그리퍼 쥐는 힘 한계 — 바뀔 때만 모터에 (C는 100 Hz라 매번 쓰면 버스 시간을 먹음)
+void set_gripper_current(float amp)
+{
+    const float ma = constrain(amp * 1000.0f, GRIPPER_CURRENT_MIN_MA, GRIPPER_CURRENT_MAX_MA);
+    if (fabsf(ma - gripper_goal_ma) < 5.0f)
+        return;
+    gripper_goal_ma = ma;
+    if (torque_state[GRIPPER_INDEX] && hw_error[GRIPPER_INDEX] == 0)
+        dxl.setGoalCurrent(GRIPPER_ID, gripper_goal_ma, UNIT_MILLI_AMPERE);
+}
+
 void apply_command(char *text)
 {
-    float v[MOTOR_COUNT];
-    if (!parse_fields(text + 2, v, MOTOR_COUNT))
+    float v[MOTOR_COUNT + 1];  // + 9번째 그리퍼 전류 A
+    if (!parse_fields(text + 2, v, MOTOR_COUNT + 1))
         return;
+    if (!isnan(v[MOTOR_COUNT]))
+        set_gripper_current(v[MOTOR_COUNT]);
     bool send[MOTOR_COUNT] = {};
     // 바퀴: 빈칸·토크 꺼짐 = 정지
     const float wheel_dir[] = {WHEEL_LEFT_DIR, WHEEL_RIGHT_DIR};
@@ -356,6 +376,10 @@ void read_host()
             {
                 apply_reboot_line(line);
             }
+            else if (line[0] == 'B' && (line[1] == '\0' || line[1] == ','))
+            {
+                beep(line);  // 모터와 무관 — 12V 없이도 울림
+            }
             line_length = 0;
         }
         else if (ch != '\r' && line_length < LINE_CAPACITY - 1)
@@ -367,6 +391,22 @@ void read_host()
             line_length = 0;  // 너무 긴 줄은 버림
         }
     }
+}
+
+// B · B,<Hz>,<ms> — 빈칸은 기본값 (B,,300 = 기본 높이로 300 ms)
+void beep(const char *text)
+{
+    long hz = BEEP_DEFAULT_HZ, ms = BEEP_DEFAULT_MS;
+    if (text[1] == ',')
+    {
+        const char *comma = strchr(text + 2, ',');
+        if (text[2] != '\0' && text[2] != ',')
+            hz = atol(text + 2);
+        if (comma != nullptr && comma[1] != '\0')
+            ms = atol(comma + 1);
+    }
+    tone(BDPIN_BUZZER, static_cast<unsigned int>(constrain(hz, 100L, 8000L)),
+         static_cast<unsigned long>(constrain(ms, 10L, 2000L)));
 }
 
 void send_errors()
@@ -486,13 +526,14 @@ void send_state()
     {
         print_value(or_nan(i, wheel_dir[i] * present[i].position / RAW_PER_RAD));
         print_value(or_nan(i, wheel_dir[i] * rpm_to_rad_s(present[i].velocity * VELOCITY_RPM_PER_UNIT)));
+        print_value(or_nan(i, wheel_dir[i] * present[i].current * CURRENT_MA_PER_UNIT / 1000.0f));  // 바퀴 진행 방향 기준 부호
     }
     for (size_t i = 2; i < GRIPPER_INDEX; ++i)
     {
         const float dir = ARM_DIR[i - 2];
         print_value(or_nan(i, raw_to_rad(present[i].position, dir)));
         print_value(or_nan(i, dir * rpm_to_rad_s(present[i].velocity * VELOCITY_RPM_PER_UNIT)));
-        print_value(or_nan(i, present[i].current * CURRENT_MA_PER_UNIT / 1000.0f));
+        print_value(or_nan(i, dir * present[i].current * CURRENT_MA_PER_UNIT / 1000.0f));  // 관절 방향 기준 부호
     }
     const Present &g = present[GRIPPER_INDEX];
     const float servo = raw_to_rad(g.position, 1.0f);
@@ -515,6 +556,7 @@ void send_state()
         Serial.print(',');
         Serial.print(hw_temp[i]);
     }
+    print_value(getPowerInVoltage());  // 배터리(전원 입력) V
     Serial.println();
 }
 
