@@ -11,7 +11,7 @@ GOOD = [
     {"step": 1, "skill": "navigate", "target": "3", "relation": "front", "offset_m": 0.2},
     {"step": 2, "skill": "pick", "target": "3", "relation": "", "offset_m": 0.0},
 ]
-OBJS = [{"id": 3, "class_name": "puck"}, {"id": 7, "class_name": "location"}]
+OBJS = [{"id": 3, "class_name": "puck"}, {"id": 7, "class_name": "location_box"}]
 
 
 class TestValidate(unittest.TestCase):

@@ -9,10 +9,10 @@
 
 | 노드 | 구분 | 패키지 · 형태 | 핵심 작업 |
 | --- | --- | --- | --- |
-| perception | 직접 | perception · ROS 2 노드 (Python) | YOLO 퍽·목표 구역·장애물·신호등 검출, 3D 위치, 두 카메라 융합 추적(ID), 퍽·장소는 안 보여도 기억 · AprilTag(OpenCV aruco — 퍽 윗면 번호 `tag`, 장소 `location`) · 바코드(zxing-cpp — `barcode` + /mission/qr) · 신호등 상태(`all` 포함) → /tracked_objects |
+| perception | 직접 | perception · ROS 2 노드 (Python) | YOLO 퍽·목표 구역·장애물·신호등 검출, 3D 위치, 두 카메라 융합 추적(ID), 퍽·장소는 안 보여도 기억 · AprilTag(OpenCV aruco — 퍽 번호 `tag`, 장소 상자 `location_box`) · 상자 윗면(depth — `location_box`·`start_box`, 위치·크기·방향) · 퍽 모양·방향(`shape`·`yaw`) · 바코드(zxing-cpp — `barcode` + /mission/qr) · 신호등 상태(`all` 포함) → /tracked_objects |
 | user_input | 직접 | plan · ROS 2 노드 | 운영자 텍스트 명령 → /cmd/user_command, /robot/say 표시 |
 | vlm_task_planner | 직접 | plan · ROS 2 노드 | VLM 호출, 프롬프트, JSON 출력 파싱 → /task/sub_goals · 신호등 미션은 규칙으로 (조합 → 옮기기 → 수납 확인: 옮긴 직후 + `verify_period_s`마다 목적지에서 옮긴 번호 확인, 빠지면 다시 옮김·say) |
-| signal_decoder | 직접 | perception · ROS 2 노드 (C++) | 신호등 암호 미션 — /tracked_objects의 신호등 상태를 시간축으로 쌓아 1·2·3단계(색·개수 · 번호 합 · 목적지 태그)를 읽어 /mission/signal (단계 구분 = 세 색 동시 · 꺼짐 — 파라미터) |
+| signal_decoder | 직접 | perception · ROS 2 노드 (C++) | 신호등 12회 점멸 — /tracked_objects의 신호등 상태를 시간축으로 세어 사이클(12번)마다 /mission/signal_status, 두 사이클 같은 답이면 /mission/signal (sequence · R·Y·G 횟수 — 해석은 받는 쪽) |
 | explorer | 직접 | plan · ROS 2 노드 (C++) | 자동 탐사 — 조작 모드 EXPLORE일 때 /map 프론티어(빈 곳·모르는 곳 경계)를 골라 Nav2 /navigate_to_pose로 차례로 보냄, 끝나면 /explore/result |
 | coordinator | 직접 | plan · ROS 2 노드 | 계획 검증(navigate·pick·place·inspect·say), 액션 호출, 실행 규칙, 재시도, 적재함(`tray`) 싣기·꺼내기, `inspect`(퍽 윗면 위로 손끝 → 번호 읽기), 시작 자세, AUTO가 아니면 멈춤 → /task/status |
 | grasp_scorer | 직접 | ml · ROS 2 서비스 노드 | 모델 로드, IK 가능 후보만 채점, /score_grasps 응답 |
