@@ -4,6 +4,8 @@
 
 현재 `feature/jetson` 브랜치의 RTAB-Map은 `pole_cam` 1대의 RGB-D만 사용한다. 이 문서는 `pole_cam`과 `gripper_cam` 2대를 RTAB-Map multi-RGB-D SLAM에 사용하는 방안과 검증 계획을 제안한다.
 
+> **지금 SLAM은 cuVSLAM(위치) + nvblox(지도)로 바뀌어 RTAB-Map을 쓰지 않는다** (`documents/jetson-orin-nano/CUVSLAM.md`). 이 제안은 기록으로 남긴다.
+>
 > 이 문서는 구현 완료가 아닌 proposal이다. 기존 `pole_cam` 단독 SLAM을 기본 fallback으로 유지하고, 2대 카메라 구성은 검증 후 선택적으로 활성화한다.
 
 관련 문서:
