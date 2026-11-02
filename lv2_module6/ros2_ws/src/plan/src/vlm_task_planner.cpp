@@ -430,8 +430,8 @@ void VlmTaskPlanner::make_plan() {
       RCLCPP_WARN_THROTTLE(get_logger(), *get_clock(), 5000, "/tracked_objects 대기 — 계획 보류");
       return;
     }
-    if (find_in(*objs, "puck").empty() || find_in(*objs, "location").empty()) {
-      RCLCPP_WARN_THROTTLE(get_logger(), *get_clock(), 5000, "/tracked_objects에 퍽·장소 태그가 없음 — 계획 보류");
+    if (find_in(*objs, "puck").empty() || find_in(*objs, "location_box").empty()) {
+      RCLCPP_WARN_THROTTLE(get_logger(), *get_clock(), 5000, "/tracked_objects에 퍽·장소 상자가 없음 — 계획 보류");
       return;
     }
     std::string cmd;
@@ -460,9 +460,9 @@ void VlmTaskPlanner::on_command(const char * source, const std::string & text) {
 
 void VlmTaskPlanner::make_template(const TrackedObjectArray & objs, const std::string & cmd) {
   // cmd는 부르는 쪽이 넘김 — VLM 실패 폴백은 mutex_를 잡은 채 부르므로 여기서 잠그면 교착 (실측: 그 뒤 명령을 못 받았음)
-  // VLM 없을 때의 최소 계획: 퍽 1개를 장소(location)로 — 지시 문자열 해석은 VLM 몫
+  // VLM 없을 때의 최소 계획: 퍽 1개를 장소 상자(location_box)로 — 지시 문자열 해석은 VLM 몫
   (void)cmd;
-  const auto puck = find_in(objs, "puck"), dest = find_in(objs, "location");
+  const auto puck = find_in(objs, "puck"), dest = find_in(objs, "location_box");
   if (puck.empty() || dest.empty()) return;  // 물체 사라짐 — 보류 유지
   pending_ = false;
   plan_kind_ = "template";

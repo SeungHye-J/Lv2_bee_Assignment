@@ -29,38 +29,44 @@ C++ 헤더는 타입명을 snake_case로: `TrackedObjectArray` → `perception/m
 uint32 id
 string class_name
 float32 confidence
-geometry_msgs/PoseWithCovariance pose   # map 기준 — 두 카메라 융합 위치 + 위치 공분산 (필드 뜻: documents/API.md)
+geometry_msgs/PoseWithCovariance pose   # map 기준 — 두 카메라 융합 위치 + 위치 공분산 · 퍽·상자는 방향(yaw)을 구하면 orientation + 공분산 yaw 대각, 모르면 단위 쿼터니언 (필드 뜻: documents/API.md)
 geometry_msgs/Vector3 size              # m — x·y = 카메라 영상 박스 가로·세로 폭 환산 (map 축 아님), z = 클래스 기본값
 builtin_interfaces/Time last_seen       # 마지막 관측 영상 시각
 string[] cameras                        # 본 카메라 전부 (pole_front_cam | gripper_cam) — 오래 전에 본 것부터, 마지막 = 가장 최근
                                         # 빈 배열([]) = 지도에 위치는 기억하지만 현재 어느 카메라에도 안 잡힘 (벽 뒤·시야 밖·집어 든 직후 등)
                                         #   → pose(마지막 위치)·last_seen(마지막 시각)은 유효 — 그 위치로 navigate 가능
-                                        #   → 물체 삭제 정책: 퍽·location·barcode는 miss_count번 연속 미검출 시 삭제 / 사람·장애물·신호등은 TRACK_TIMEOUT_S(2초) 후 삭제
+                                        #   → 물체 삭제 정책: 퍽·location_box·start_box·barcode는 miss_count번 연속 미검출 시 삭제 / 사람·장애물·신호등은 TRACK_TIMEOUT_S(2초) 후 삭제
 int32[2] px                             # 마지막 카메라(cameras 끝) 영상 속 박스 중심 픽셀 [u, v] — VLM 이미지 마킹용
-string color                            # 퍽: red | orange | yellow | green | blue | purple | white | black | unknown (윗면 태그를 읽었으면 태그 번호대 색) · 신호등 상태: red | yellow | green | off | all(두 색 이상 동시) · 그 외 빈 값 (박스 가운데 HSV)
-diagnostic_msgs/KeyValue[] details      # 클래스별 속성 — puck: posture · tag(윗면 AprilTag 0~11) / location: tag(12~14) / barcode: content(작업 지시) / traffic_light: state · 그 외 빈 배열
+string color                            # 퍽: red | orange | yellow | green | blue | purple | white | black | unknown (영상 색 — 태그 번호와 무관) · 신호등 상태: red | yellow | green | off | all(두 색 이상 동시) · 그 외 빈 값 (박스 가운데 HSV)
+diagnostic_msgs/KeyValue[] details      # 클래스별 속성 — puck: posture · tag(AprilTag 0~11 — 번호는 무작위, 색과 무관) · shape(box | cyl) · yaw_period(90 | 180 deg — 방향 대칭 주기, 방향을 알 때만) · distance(로봇 중심~물체 바닥 위 m, /tracked_objects만) / location_box: tag(12~14) · yaw_period(360 = 태그 법선 · 태그 방향을 못 구했으면 90 = 윗면 변) / start_box: yaw_period 90 / barcode: content(작업 지시) / traffic_light: state · 그 외 빈 배열
 ```
 
-표식 (발제 「AprilTag와 바코드 실제 배포 표식」, tag36h11 — OpenCV aruco로 읽음): 퍽 윗면 16mm R1~R4 = 0~3 · G1~G4 = 4~7 · B1~B4 = 8~11 → 그 퍽의 `tag`(한 번 읽으면 기억 · gripper_cam이 위에서 봐야 읽힘 — coordinator `inspect`) ·
-장소 48mm L1~L3 = 12~14 → class `location` 물체 · 줄무늬 바코드(P2-01 …) = 장소 작업 지시 → class `barcode` 물체(`content`) + `/mission/qr`. 셋 다 안 보여도 기억.
+표식 (발제 「AprilTag와 바코드 실제 배포 표식」, tag36h11 — OpenCV aruco로 읽음): 퍽 16mm 번호 0~11 → 그 퍽의 `tag`(**번호는 무작위 — 색과 무관**, 색은 `color` · 한 번 읽으면 기억 · gripper_cam이 위에서 봐야 읽힘 — coordinator `inspect`) ·
+장소 48mm L1~L3 = 12~14 (상자 옆면) · 줄무늬 바코드(P2-01 …) = 장소 작업 지시 → class `barcode` 물체(`content`) + `/mission/qr`.
+
+**상자** (205×205×70mm): depth로 바닥 위 상자 윗면(약 7cm 판)을 찾아 위치 = **윗면 가운데**, `size` = 잰 가로·세로·높이(붙은 상자는 큰 판 하나로).
+- 장소 태그(12~14)가 붙어 있으면 class **`location_box`** (L1~L3 — 놓는 곳) · `tag` · 방향 = 태그 법선(상자 밖 = 로봇이 다가오는 쪽, `yaw_period` 360). 태그를 비스듬히 봐서 법선을 못 구했으면 윗면 변 방향(`yaw_period` 90) — 나중에 태그를 정면으로 보면 360으로 바뀜. **받는 쪽은 `yaw_period`로 판단.**
+  태그만 보이고 윗면을 못 찾으면 태그에서 상자 안쪽으로 반 변(`location_box_size`) 옮긴 곳 · 기본 크기 · 그때 z는 태그 높이 · `yaw_period` 360. 태그 법선도 못 구했으면 태그 위치 그대로 · 방향 없음(단위 쿼터니언, `yaw_period` 없음).
+- 태그가 없으면 class **`start_box`** (퍽이 처음 있던 곳) · 방향 = 윗면 변 방향(`yaw_period` 90). 같은 자리에 `location_box`가 있으면 지움 (장소 상자를 뒤·옆에서 본 것).
+- 퍽·상자·바코드는 안 보여도 기억.
 
 물체 하나 = 추적 트랙 하나. 카메라마다 YOLO 박스 → 박스 중심 픽셀 + 박스 안 정렬 depth 중앙값으로 3D 점 1개 → 영상 시각의 TF로 map 변환 →
 **자기 몸이면 버림** — 3D: 팔 링크를 잇는 선분 6cm 안 · 차체 반경 0.2m 안 바닥 위 / 영상: 팔(TF 링크를 화면에 투영, 두께 4cm)과 겹치는 박스(퍽 제외 — 박스 일부만 팔이면 depth가 팔 뒤 바닥이라 3D로는 못 거름) → 같은 클래스·0.4m 안의 트랙에 1:1로 붙여 **칼만 갱신(두 카메라 융합)**. 포인트 클라우드는 쓰지 않는다 (객체 단위 융합). 구현: [perception_node.py](../lv2_module6/ros2_ws/src/perception/scripts/perception_node.py), 파라미터: [perception.yaml](../lv2_module6/ros2_ws/src/perception/config/perception.yaml).
 
 | 필드 | 뜻 | 주의 |
 | --- | --- | --- |
-| `id` | 추적 번호 (1부터 증가) — VLM·coordinator·grasp_scorer가 같은 물체를 이 번호로 가리킴 (`SubGoal.target`) | **기억하는 물체**(`puck*` · `goal_zone` · `station_zone` · `qr_board` · `location` · `barcode`, `remember_min_hits`번 이상 잡힌 것)는 안 보여도 남음 — 그 자리가 잘 보이는데 `miss_count`번 연속 못 찾을 때만 삭제(옮겨짐·집어 감). 그 밖(사람·장애물·신호등)은 어느 카메라에도 **2초** 안 보이면 삭제 → 다시 보이면 **새 번호**. 번호는 재사용 안 함 |
-| `class_name` | YOLO: `puck` · `puck_lying` · `goal_zone` · `station_zone` · `qr_board` · `obstacle` · `person` · `traffic_light` / 표식 디코드: `location`(장소 AprilTag 12~14) · `barcode`(바코드 P2-xx) | YOLO 클래스는 모델의 `names`를 따름 (`puck_red`처럼 색이 붙은 이름은 `puck` + color로 나눔). 다른 클래스끼리는 가까워도 합치지 않음 |
+| `id` | 추적 번호 (1부터 증가) — VLM·coordinator·grasp_scorer가 같은 물체를 이 번호로 가리킴 (`SubGoal.target`) | **기억하는 물체**(`puck*` · `goal_zone` · `station_zone` · `qr_board` · `location_box` · `start_box` · `barcode`, `remember_min_hits`번 이상 잡힌 것)는 안 보여도 남음 — 그 자리가 잘 보이는데 `miss_count`번 연속 못 찾을 때만 삭제(옮겨짐·집어 감). 그 밖(사람·장애물·신호등)은 어느 카메라에도 **2초** 안 보이면 삭제 → 다시 보이면 **새 번호**. 번호는 재사용 안 함 |
+| `class_name` | YOLO: `puck` · `puck_lying` · `goal_zone` · `station_zone` · `qr_board` · `obstacle` · `person` · `traffic_light` / 표식·depth: `location_box`(장소 상자 — AprilTag 12~14) · `start_box`(태그 없는 상자) · `barcode`(바코드 P2-xx) | YOLO 클래스는 모델의 `names`를 따름 (`puck_red`처럼 색이 붙은 이름은 `puck` + color로 나눔). 다른 클래스끼리는 가까워도 합치지 않음 |
 | `confidence` | 마지막 관측의 YOLO 신뢰도 (0~1, `confidence` 파라미터 이상만) | 평균 아님 |
 | `pose.pose.position` | map 좌표 [m] — 원점 = map 원점(시뮬레이터: 출발 칸 `spawn`), x 앞 · y 왼쪽 · z 위(바닥 ≈ 0). **추적은 odom 기준, 발행 순간의 map ← odom(cuVSLAM 최신 보정)으로 바꿔 냄** — 보정이 바뀌면(맞든 틀리든) 로봇 위치와 함께 옮겨져 로봇과의 상대 위치는 유지. 위치추정 자체가 틀리면 map 좌표는 그만큼 통째로 어긋남 | 박스 중심 방향의 **카메라 쪽 앞면 점** — 실제 중심보다 카메라 쪽으로 물체 반지름쯤 당겨짐 (퍽 2~3cm). z도 앞면 점 높이. 두 카메라가 다른 방향에서 보면 일부 상쇄 |
-| `pose.pose.orientation` | 항상 `(0, 0, 0, 1)` | 방향은 추정하지 않음 |
+| `pose.pose.orientation` | 바닥 위 회전(yaw)만 `(0, 0, sin(yaw/2), cos(yaw/2))` — 퍽(모양·태그로 구했을 때) · `location_box`(태그 법선, 못 구했으면 윗면 변) · `start_box`(윗면 변). 모르면 `(0, 0, 0, 1)` | 방향 주기는 `details.yaw_period` — 90이면 90°마다 같은 자세(사각 퍽·시작 상자), 180이면 누운 퍽 긴 축, 360이면 구분됨(태그 법선을 구한 장소 상자). 같은 `location_box`도 처음엔 90이었다가 태그를 정면으로 보면 360이 됨 공분산 yaw 대각(35)이 작으면 아는 방향 |
 | `pose.covariance` | 6×6 행 우선. **위치 3×3 블록**(인덱스 0~2·6~8·12~14) = 융합 위치 불확실성 [m²], 회전 대각(21·28·35) = 1e3(모름) | 관측 잡음만 반영 — 위의 앞면 쏠림(바이어스)은 안 들어감. 관측 σ: depth 축 `depth_sigma0 + depth_sigma_k·z²`, 가로·세로 `pixel_sigma·z/f` |
-| `size` | [m] x = 박스 가로 폭 · y = 박스 세로 높이 (픽셀 × 거리 / 초점거리), z = 클래스 기본값(퍽 0.06 — 발제 30×30×60mm, 누운 퍽 0.03 등). 크기를 못 재면 셋 다 클래스 기본값 | **map 축 크기가 아님** (카메라 영상 기준). 관측마다 칼만 이득 비율로 갱신 |
+| `size` | [m] x = 박스 가로 폭 · y = 박스 세로 높이 (픽셀 × 거리 / 초점거리), z = 클래스 기본값(퍽 0.06 — 발제 30×30×60mm, 누운 퍽 0.03 등). 크기를 못 재면 셋 다 클래스 기본값. **상자(`location_box`·`start_box`)는 잰 윗면 가로·세로 · 높이(바닥~윗면)** | 퍽은 **map 축 크기가 아님** (카메라 영상 기준). 관측마다 칼만 이득 비율로 갱신 |
 | `last_seen` | 마지막으로 관측된 **영상 시각** (카메라 header.stamp) | `TrackedObjectArray.header.stamp`(발행 시각)과 다름 |
 | `cameras` | 이 트랙을 본 카메라 전부 `pole_front_cam` · `gripper_cam` — 마지막으로 본 시각 순, **끝 = 가장 최근에 본 카메라** | **빈 배열(`[]`) = 지도에 위치는 기억하고 있지만 현재 어느 카메라에도 잡히지 않음** (벽 뒤·시야 밖·집어 든 직후 등). 비어 있어도 `pose`(마지막 관측 위치)·`last_seen`(마지막 관측 시각)은 유효 — 그 위치로 navigate 가능. 따로 `camera` 필드는 없음 — `cameras[-1]`. **물체 종류별 삭제 정책**: 퍽·목표구역·QR판은 안 보여도 유지(옮겨졌다고 판단되면 `miss_count`번 연속 미검출 시 삭제) / 사람·장애물·신호등은 `TRACK_TIMEOUT_S`(2초) 안 보이면 삭제. 수신 측 판별 패턴: `cameras` 비어 있으면 "알고 있지만 현재 미관측" / `last_seen` 기준 경과 시간으로 얼마나 전에 봤는지 구분 |
 | `px` | `cameras` 끝 카메라 영상(640×480) 속 박스 중심 픽셀 `[u, v]` — VLM이 그 영상에 표시할 때 씀 (planner가 ai-service에 `camera` + `px {카메라: [u, v]}`로 보냄) | 다른 카메라 영상의 좌표가 아님 |
-| `color` | 퍽: `red` · `orange` · `yellow` · `green` · `blue` · `purple` · `white` · `black` · `unknown` / 신호등: `red` · `yellow` · `green` · `off` · `all`(두 색 이상 동시 — 신호등 미션 단계 구분) / 그 외 `""` | 박스 가운데(가장자리 20%씩 뺌 — 바닥 안 섞이게) HSV 다수결, 채도 없는 화소가 대부분이면 흰색·검정. 마지막 관측 값. 퍽 윗면 태그를 읽었으면 태그 번호대 색(R 0~3 · G 4~7 · B 8~11)이 우선 |
-| `details` | `puck`: `posture` · `tag` / `location`: `tag` / `barcode`: `content` / `traffic_light`: `state` | `tag`·`content`는 한 번 읽으면 기억 (멀어져 못 읽어도 덮지 않음) |
+| `color` | 퍽: `red` · `orange` · `yellow` · `green` · `blue` · `purple` · `white` · `black` · `unknown` / 신호등: `red` · `yellow` · `green` · `off` · `all`(두 색 이상 동시 — 신호등 미션 단계 구분) / 그 외 `""` | 박스 가운데(가장자리 20%씩 뺌 — 바닥 안 섞이게) HSV 다수결, 채도 없는 화소가 대부분이면 흰색·검정. 마지막 관측 값. 퍽으로 보는 색은 `puck_colors`(빨강·초록). 태그 번호와 무관 |
+| `details` | `puck`: `posture`(standing·lying) · `tag` · `shape`(box 사각기둥 · cyl 원기둥) · `yaw_period` · `distance` / `location_box`: `tag` · `yaw_period`(360 태그 법선 · 90 윗면 변) / `start_box`: `yaw_period`(90) / `barcode`: `content` / `traffic_light`: `state` | `tag`·`content`·`shape`는 한 번 읽으면 기억 (멀어져 못 읽어도 덮지 않음). `distance` = 로봇(base_footprint) 중심~물체 바닥 위 거리 [m], 발행 순간 · `/tracked_objects`에만 |
 
 <a id="api-msg-trackedobjectarray"></a>
 ### perception/msg/TrackedObjectArray ([파일](../lv2_module6/ros2_ws/src/perception/msg/TrackedObjectArray.msg))
@@ -111,7 +117,7 @@ for obj in tracked_objects.objects:
 
 | 클래스 | 안 보일 때 | 삭제 조건 |
 |--------|-----------|-----------|
-| `puck` · `location` · `barcode` · `goal_zone` | `cameras=[]` 유지 | `miss_count`번 연속 미검출 (그 자리가 잘 보이는데 없는 경우 — 옮겨지거나 집어 감) |
+| `puck` · `location_box` · `start_box` · `barcode` · `goal_zone` | `cameras=[]` 유지 | `miss_count`번 연속 미검출 (그 자리가 잘 보이는데 없는 경우 — 옮겨지거나 집어 감) |
 | `person` · `obstacle` · `traffic_light` | `cameras=[]` 유지 | `TRACK_TIMEOUT_S`(2.0초) 안 보이면 트랙 삭제 |
 
 <a id="api-msg-subgoal"></a>
@@ -168,15 +174,27 @@ string reason       # grasp_failed_all | nav_failed | arm_contact ...
 ### perception/msg/MissionSignal ([파일](../lv2_module6/ros2_ws/src/perception/msg/MissionSignal.msg))
 
 ```text
-string color      # 1단계: 옮길 퍽 색 (red | green | yellow — 깜빡인 색)
-int32 count       # 1단계: 그 색 퍽 개수 (깜빡인 횟수)
-int32 sum         # 2단계: 고를 퍽들의 태그 번호 합 (깜빡인 색 점수의 합)
-int32 dest_tag    # 3단계: 목적지 장소 태그 번호 (노랑 1·2·3번 → 12·13·14)
-string raw        # 읽은 깜빡임 그대로 (예: "R R | R Y G G R | Y Y") — 확인용
+std_msgs/Header header  # stamp = 사이클이 끝난(3초 꺼짐을 확인한) 시각
+string[] sequence       # 본 순서대로 색 — red | yellow | green | unknown(두 색 동시 등 모르는 색)
+int32 red               # R 횟수 → 빨간 퍽 그룹 (모양 무관)
+int32 yellow            # Y 횟수 → 한 모양으로 통일한 퍽 그룹 (색 무관)
+int32 green             # G 횟수 → 초록 퍽 그룹 (모양 무관)
+bool ok                 # true = 12개 · 각 1~6회 · 모르는 색 없음 · confirm번 연속 같은 답
+string error            # ok=false 이유 — count(12개 아님) | unknown(모르는 색) | range(1~6 벗어남) | unconfirmed(아직 confirm번 못 봄) · ok면 빈 값
+int32 cycles            # 같은 답이 연달아 나온 사이클 수 (정상 사이클이 아니면 0)
+string raw              # 읽은 그대로 (예: "R G R R G R G G Y G Y G" · 모르는 색은 ?)
+string color            # ┐ 옛 3단계 규칙 칸 — 값 안 채움("" · 0). vlm_task_planner가 아직 읽어서 빌드용으로만 남김
+int32 count             # │   (planner를 새 칸으로 옮기면 삭제)
+int32 sum               # │
+int32 dest_tag          # ┘
 ```
 
-- 내는 쪽: signal_decoder (perception — 인지가 신호를 해석해 미션 토픽으로 냄. `/mission/qr`와 같은 자리) → `/mission/signal` (reliable + transient_local, 확정될 때마다). 받는 쪽: vlm_task_planner.
-- 신호등 미션 규칙은 [mission/README.md](mission/README.md). 단계 구분(세 색 동시 `separator_s` · 꺼짐 `gap_s`)·색 점수·목적지 태그는 [perception.yaml](../lv2_module6/ros2_ws/src/perception/config/perception.yaml) `signal_decoder` 파라미터 (발제 미정 — 제안값).
+- 신호(발제 §3, [mission/README.md](mission/README.md)): 한 번 = 한 색 1초 켜짐 + 1초 꺼짐, 12번이 한 사이클, 끝나면 3초 꺼짐 뒤 반복. R·Y·G 각 1~6회.
+- 내는 쪽: signal_decoder (perception) — 두 토픽, 같은 타입.
+  - `/mission/signal` (reliable + transient_local): **두 사이클 연속 같은 답일 때 새 답마다 한 번** (`ok=true`). 첫 확정까지 약 1분.
+  - `/mission/signal_status` (reliable, 래치 없음): **사이클마다** 결과 — `ok=false`면 `error`로 이유. 받는 쪽이 "아직 확정 전(`unconfirmed`)"과 "읽기 실패(`unknown`·`range`·`count`)"를 가려 대기 또는 오류 기록·안전 정지.
+- 읽는 법: 켜진 구간 하나 = 점멸 1번 (구간 안 색이 흔들려도 다수결 `min_share`, `min_off_s`보다 짧은 꺼짐은 구간 안, `min_on_s`보다 짧은 켜짐은 잡음). 꺼짐이 `gap_s` 넘으면 사이클 끝. 노드가 켜진 뒤 첫 사이클 끝 전 조각은 버림. 신호등을 0.6초 넘게 못 보면 꺼짐으로 셈 — perception 추론이 카메라당 약 2Hz 아래로 떨어지면 점멸이 쪼개질 수 있음. 파라미터: [perception.yaml](../lv2_module6/ros2_ws/src/perception/config/perception.yaml) `signal_decoder`.
+- **해석은 받는 쪽**: 그룹 나누기·L1~L3 배정·바코드 정렬은 미션 흐름(통합) 몫. 지금 vlm_task_planner는 옛 3단계 칸(`color`·`sum`·`dest_tag`)을 읽어 새 신호로는 신호 미션 계획이 나오지 않음 — 미션 흐름 작업에서 바꿈.
 
 <a id="api-msg-armsafetyevent"></a>
 ### control/msg/ArmSafetyEvent ([파일](../lv2_module6/ros2_ws/src/control/msg/ArmSafetyEvent.msg))
@@ -250,7 +268,8 @@ string message
 | --- | --- | --- | --- |
 | `/cmd/user_command` | std_msgs/String | user_input → vlm_task_planner | 명령마다 · reliable |
 | `/mission/qr` | std_msgs/String | perception → vlm_task_planner | 장소 바코드(작업 지시 문자열, 예 `P2-01`) · QR — 읽은 내용이 바뀔 때만 · reliable + transient_local. VLM이 해석 |
-| `/mission/signal` | perception/MissionSignal | signal_decoder (perception) → vlm_task_planner | 신호등 암호 미션 답 {color, count, sum, dest_tag, raw} — 확정될 때마다 · reliable + transient_local. planner가 규칙으로 계획 (번호 모르면 inspect → 조합 → 적재함 → 목적지 장소 → **수납 확인**: 옮긴 직후와 `verify_period_s`마다 목적지로 가서 옮긴 번호가 `verify_radius_m` 안에 있는지 보고, 다른 곳에 있으면 다시 옮김 · 없으면 say) |
+| `/mission/signal` | perception/MissionSignal | signal_decoder (perception) → vlm_task_planner | 신호등 12회 점멸 확정 답 {sequence, red, yellow, green, ok, raw} — 두 사이클 같게 읽혀 새 답이 확정될 때만 · reliable + transient_local. 해석(그룹·L1~L3·정렬)은 받는 쪽 — planner는 아직 옛 3단계 칸을 읽음 (미션 흐름 작업에서 바꿈) |
+| `/mission/signal_status` | perception/MissionSignal | signal_decoder (perception) → (미션 흐름 — 예정) | 사이클마다 결과 · `ok=false`면 `error` = count · unknown · range · unconfirmed · reliable (래치 없음) |
 | `/robot/say` | std_msgs/String | coordinator → user_input | 알릴 때 · reliable |
 | `/task/sub_goals` | plan/SubGoalArray | vlm_task_planner → coordinator | 계획마다 · reliable + transient_local. target = 물체 id · `"x,y"`(navigate) · **`"tray"`(pick·place — 로봇 뒤 적재함 12칸: place tray = `load next`, pick tray = `unload last`)** · 칸 번호·`next`·`last`(load·unload) · 자세 이름(pose) · 퍽 id(inspect) · 말할 내용(say) |
 | `/task/status` | plan/TaskStatus | coordinator → vlm_task_planner, user_input | 단계 완료·실패 시 · reliable + transient_local |
@@ -412,6 +431,7 @@ string message
 | /map, /tf_static | reliable | transient_local | 1 | 늦게 붙어도 받음 |
 | /task/sub_goals, /task/status | reliable | transient_local | 10 | 재시작해도 마지막 계획 받음 |
 | /mission/signal, /mission/qr, /motor_status | reliable | transient_local | 1 | 바뀔 때만 냄 — 늦게 붙어도 마지막 값 |
+| /mission/signal_status | reliable | volatile | 10 | 사이클마다 — 지난 결과는 안 받음 |
 | /state/... | reliable | transient_local | 1 | state_manager가 바뀔 때만 냄 |
 | /tracked_objects | reliable | volatile | 5 | 누락 시 다음 값으로 충분 |
 
