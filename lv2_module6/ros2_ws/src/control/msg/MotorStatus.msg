@@ -5,3 +5,4 @@ string[] joints   # 프로토콜 순서: wheel_left_joint, wheel_right_joint, jo
 int32[] error     # 0 정상 · -1 응답 없음 · 비트 1 입력전압 · 4 과열 · 8 엔코더 · 16 전기충격 · 32 과부하 (Reboot로만 풀림)
 string[] text     # 사람이 읽는 이름 — "정상" · "과부하" · "과열·과부하" · "응답 없음"
 int32[] temperature  # Present Temperature °C · -1 모름 (응답 없음 · 온도 없는 예전 펌웨어 · mock). 80 °C(Temperature Limit)면 과열 에러로 멈춤
+float32 battery_voltage  # OpenCR 전원 입력(배터리) V · NaN 모름 (예전 펌웨어 · mock) · 0 근처 = 12V 꺼짐(USB만). 0.1V 바뀔 때 다시 냄

@@ -34,7 +34,9 @@ constexpr float ARM_DIR[ARM_COUNT] = {1, 1, 1, 1, 1};
 constexpr size_t GRIPPER_TABLE = 5;
 constexpr float GRIPPER_FINGER_M[GRIPPER_TABLE] = {0.0f, 0.0035f, 0.005f, 0.009f, 0.0275f};      // 오름차순
 constexpr float GRIPPER_SERVO_RAD[GRIPPER_TABLE] = {1.0068f, 0.6f, 0.4998f, 0.12f, -1.637f};     // 서보각이 클수록 닫힘
-constexpr float GRIPPER_GOAL_CURRENT_MA = 600.0f;     // 쥐는 힘 한계 (전류 기반 위치 모드) — 퍽이 미끄러지면 올림 (TODO 실측)
+constexpr float GRIPPER_GOAL_CURRENT_MA = 600.0f;     // 쥐는 힘 한계 기본값 (전류 기반 위치 모드) — SBC가 C 9번째 칸으로 바꿈 (TODO 실측)
+constexpr float GRIPPER_CURRENT_MIN_MA = 50.0f;       // C로 받는 값의 범위 — 너무 작으면 못 움직이고
+constexpr float GRIPPER_CURRENT_MAX_MA = 1200.0f;     //   너무 크면 손가락·퍽을 누름 (XM430 Current Limit 3.2A보다 한참 아래)
 
 // ---- 시리얼 프로토콜 (SBC control/BeebotSystemHardware와 짝 — README.md "프로토콜")
 constexpr uint32_t HOST_BAUD = 115200;                // USB CDC라 실제 속도와 무관
@@ -55,6 +57,8 @@ constexpr uint16_t ADDR_PROFILE_VELOCITY = 112;
 constexpr uint16_t ADDR_GOAL_VELOCITY = 104;
 constexpr uint16_t ADDR_GOAL_POSITION = 116;
 constexpr uint16_t ADDR_PRESENT_TEMPERATURE = 146;    // 1 byte, °C — S 끝 8칸 (Temperature Limit 기본 80 °C 넘으면 과열 Hardware Error)
+constexpr long BEEP_DEFAULT_HZ = 2000;               // B 줄 기본 부저 높이
+constexpr long BEEP_DEFAULT_MS = 150;                // B 줄 기본 길이
 constexpr uint16_t ADDR_PRESENT_CURRENT = 126;        // 126 전류(2) · 128 속도(4) · 132 위치(4) — 연속 주소라 한 번에 10 byte
 constexpr float CURRENT_MA_PER_UNIT = 2.69f;
 constexpr float VELOCITY_RPM_PER_UNIT = 0.229f;

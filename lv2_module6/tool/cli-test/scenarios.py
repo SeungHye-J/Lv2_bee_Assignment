@@ -160,7 +160,7 @@ def _(s):
     s.step(ENTER, '수동 주행 / 텔레오퍼')
     s.step(DOWN, wait=0.4)
     s.step(ENTER, 'MANUAL 모드로 전환할까요?')
-    s.step(ESC, '수동 주행 / 텔레오퍼')
+    s.step(ESC, wait=1.5)  # 제목은 창이 떠 있어도 상단 상태바 갱신(1초)으로 나와서 표식으로 못 씀
     if '일시정지'.encode() in s.out:
         raise AssertionError('취소 후 일시정지 모달이 뜸')
     s.finish()
@@ -259,9 +259,11 @@ def _(s):
     s.step(b'4', wait=0.4)
     s.step(ENTER, '수동 주행 / 텔레오퍼')
     s.step(ENTER, 'MANUAL 모드로 전환할까요?')
-    s.step(b'y', 'q/Esc 종료')
+    s.step(b'y', 'Esc 종료')
     s.step(b'w', '키 w')
-    s.step(UP, '키 w ×2')  # 방향키 = w
+    s.step(b'q', '키 q')  # q = 사선 (종료 아님)
+    s.step(b'b', '키 b')  # 삑 (발행 출력은 종료 뒤 결과창으로)
+    s.step(UP, '키 w ×4')  # 방향키 = w (w·q·b 다음 4번째)
     s.step(ESC, '텔레오퍼 종료')
     s.step(ENTER, '속도/시간 설정')
     s.finish()
@@ -281,7 +283,7 @@ def _(s):
 
 @scenario('estop-on-immediate-off-confirm')
 def _(s):
-    s.step(b'8', wait=0.3)
+    s.step(b'9', wait=0.3)
     s.step(ENTER, '비상정지 ON')
     s.step(DOWN, wait=0.3)
     s.step(ENTER, '비상정지 → ON')  # 확인창 없이 바로
@@ -295,7 +297,8 @@ def _(s):
 
 @scenario('letter-key-focus-restart-validate')
 def _(s):
-    s.step(b'9', wait=0.3)
+    s.step(b'1', wait=0.1)
+    s.step(b'0', wait=0.3)
     s.step(ENTER, '전체 재시작')
     s.step(b'a', wait=0.3)
     s.step(ENTER, 'RESTART를 입력')

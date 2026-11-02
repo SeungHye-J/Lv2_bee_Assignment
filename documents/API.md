@@ -197,10 +197,11 @@ string[] joints   # 프로토콜 순서: wheel_left_joint, wheel_right_joint, jo
 int32[] error     # 0 정상 · -1 응답 없음 · 비트 1 입력전압 · 4 과열 · 8 엔코더 · 16 전기충격 · 32 과부하 (Reboot로만 풀림)
 string[] text     # 사람이 읽는 이름 — "정상" · "과부하" · "과열·과부하" · "응답 없음"
 int32[] temperature  # Present Temperature °C · -1 모름 (응답 없음 · 온도 없는 예전 펌웨어 · mock). 80 °C(Temperature Limit)면 과열 에러로 멈춤
+float32 battery_voltage  # OpenCR 전원 입력(배터리) V · NaN 모름 (예전 펌웨어 · mock) · 0 근처 = 12V 꺼짐(USB만). 0.1V 바뀔 때 다시 냄
 ```
 
 - 내는 쪽: BeebotSystemHardware(controller_manager 안) → `/motor_status` (reliable + transient_local, 0.5초마다 보고 바뀔 때만). 받는 쪽: state_manager → `/state/devices/<wheels|arm|gripper>`의 `error`.
-- 원본은 펌웨어 `E` 줄(DYNAMIXEL Hardware Error Status, addr 70) · `S` 줄 끝 8칸(Present Temperature, addr 146 — 0.5초마다 읽은 값). 에러나 온도가 바뀔 때 낸다. 온도 70 °C 이상이면 진단 "OpenCR 연결"이 WARN — [firmware/README.md](../lv2_module6/firmware/README.md). 로봇 상태가 아니라 **하드웨어 원본 사실**이라 `/state/...`가 아님 (`/state/<이름>`은 state_manager만 냄). 사람용 설명은 `/diagnostics`에도 따로 있지만 노드는 진단 문자열을 읽지 않고 이 토픽을 읽는다.
+- 원본은 펌웨어 `E` 줄(DYNAMIXEL Hardware Error Status, addr 70) · `S` 줄 끝 8칸(Present Temperature, addr 146 — 0.5초마다 읽은 값) · 맨 끝(배터리 V, OpenCR `getPowerInVoltage`). 에러·온도·배터리(0.1V)가 바뀔 때 낸다. 배터리 11.0 V 아래면 진단 WARN. 온도 70 °C 이상이면 진단 "OpenCR 연결"이 WARN — [firmware/README.md](../lv2_module6/firmware/README.md). 로봇 상태가 아니라 **하드웨어 원본 사실**이라 `/state/...`가 아님 (`/state/<이름>`은 state_manager만 냄). 사람용 설명은 `/diagnostics`에도 따로 있지만 노드는 진단 문자열을 읽지 않고 이 토픽을 읽는다.
 
 <a id="api-srv-scoregrasps"></a>
 ### ml/srv/ScoreGrasps ([파일](../lv2_module6/ros2_ws/src/ml/srv/ScoreGrasps.srv))
@@ -297,7 +298,8 @@ string message
 | --- | --- | --- | --- |
 | `/cmd/operation_mode` | std_msgs/String | 시뮬레이터 · 운영자 → state_manager | MANUAL · AUTO · EXPLORE(자동 탐사 — 지도 모드 MAPPING일 때만 허락) · TEACH(팔 토크 끄고 손으로 자세 — MAPPING이 아닐 때만) — 조작 모드 명령 (외부 명령은 `/cmd/<이름>`(보내고 끝 — cmd_vel 관례), 결과는 `/state/<이름>` — 둘 다 state_manager만 구독·발행) |
 | `/cmd/manual/cmd_vel` | geometry_msgs/TwistStamped | teleop_twist_keyboard · 시뮬레이터 → manual_control | 수동일 때만 넘김, 0.5초 끊기면 0 |
-| `/cmd/manual/arm` | sensor_msgs/JointState | 시뮬레이터 · 운영자 → manual_control | joint1~5 rad · gripper_left_joint m |
+| `/cmd/manual/arm` | sensor_msgs/JointState | 시뮬레이터 · 운영자 → manual_control | joint1~5 rad · gripper_left_joint m (그 칸 `effort` = 쥐는 힘 한계 A, 없으면 gripper_controller `max_effort`) |
+| `/cmd/beep` | std_msgs/Int32MultiArray | 운영자(`run-cli beep`) → BeebotSystemHardware | OpenCR 부저 — `[]` 기본음(2000 Hz · 150 ms) · `[Hz, ms]` (펌웨어가 100~8000 · 10~2000으로 자름) → 펌웨어 `B` 줄. 모드와 무관 |
 | `/cmd/manual/reboot_motors` | std_msgs/Empty | 시뮬레이터 · 운영자 → manual_control | 수동 모드에서만. Hardware Error(과부하·과열 등) 난 DYNAMIXEL만 재부팅 → 📞 `/beebotsystem/reboot_motors` (std_srvs/Trigger) → 펌웨어 `R`. 결과는 manual_control 진단 |
 | `/state/operation_mode` | std_msgs/String (transient_local) | state_manager → manual_control · coordinator · explorer · vlm_task_planner | AUTO · MANUAL · EXPLORE · TEACH (TEACH면 manual_control이 팔 토크를 끄고 나갈 때 켬, AUTO가 아니면 coordinator는 작업 멈춤, EXPLORE면 explorer가 탐사, planner의 주기 수납 확인은 AUTO일 때만) |
 | `/state/devices` | std_msgs/String (transient_local) | state_manager → 시뮬레이터 · 누구나 | **장치 이름만 쉼표 구분** — `pole_front_cam,gripper_cam,opencr,imu,wheels,arm,gripper` · 상태가 아니라 목록 (2초마다 확인, 바뀔 때만) |
@@ -325,7 +327,7 @@ string message
 | 이름 | 타입 | 보내는 쪽 → 받는 쪽 | 주기 |
 | --- | --- | --- | --- |
 | `/arm_controller/follow_joint_trajectory` | 액션이지만 토픽 아님 — [§3](#3-액션-목록) 참조 | move_group → arm_controller | 궤적마다 |
-| `/joint_states` | sensor_msgs/JointState | joint_state_broadcaster → robot_state_publisher, move_group, arm_safety_monitor(전류 감시), coordinator(현재 팔 각), manual_control(수동 팔 기준 각), state_manager(OpenCR 살아 있나), scan_cam_gate(스캔 자세인가) | 100Hz |
+| `/joint_states` | sensor_msgs/JointState | joint_state_broadcaster → robot_state_publisher, move_group, arm_safety_monitor(전류 감시), coordinator(현재 팔 각), manual_control(수동 팔 기준 각), state_manager(OpenCR 살아 있나), scan_cam_gate(스캔 자세인가), run-cli(전류·온도 표시) | 100Hz — `effort` = 모터 전류 A (바퀴 포함, 펌웨어 S 43값) |
 | `/arm_safety_event` | control/ArmSafetyEvent | arm_safety_monitor → coordinator | 접촉 시 |
 | `/monitored_planning_scene` | moveit_msgs/PlanningScene | move_group → RViz | 갱신 시 |
 | `/arm_controller/controller_state` | control_msgs/JointTrajectoryControllerState | arm_controller → 모니터링·RViz | 상태 표시 |
@@ -356,7 +358,7 @@ string message
 | `/spin`, `/backup`, `/wait` | nav2_msgs/action/Spin · BackUp · Wait | bt_navigator → behavior_server | 복구 시. BackUp은 0.1m 이하로 제한 (뒤를 못 봄) |
 | `/execute_trajectory` | moveit_msgs/action/ExecuteTrajectory | coordinator → move_group | pick·place·inspect 단계마다 — `/plan_kinematic_path`로 받은 궤적 실행 (MTC 안 씀) |
 | `/arm_controller/follow_joint_trajectory` | control_msgs/action/FollowJointTrajectory | move_group → arm_controller | `/execute_trajectory` 실행 때 (moveit_controllers.yaml엔 arm_controller만) |
-| `/gripper_controller/gripper_cmd` | control_msgs/action/ParallelGripperCommand | coordinator · manual_control → gripper_controller | 열기·닫기 (position = 손가락 하나 이동량 m). MoveIt을 거치지 않음 — parallel_gripper_action_controller. 결과 stalled로 빈손 판단 |
+| `/gripper_controller/gripper_cmd` | control_msgs/action/ParallelGripperCommand | coordinator · manual_control → gripper_controller | 열기·닫기 (position = 손가락 하나 이동량 m · effort = 쥐는 힘 한계 A, 비우면 `max_effort` 0.6 → `max_effort_interface` → 펌웨어 C 9번째 Goal Current). MoveIt을 거치지 않음 — parallel_gripper_action_controller. 결과 stalled로 빈손 판단 |
 
 <a id="api-services"></a>
 ## 4. 서비스 목록
