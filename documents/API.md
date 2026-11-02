@@ -136,6 +136,32 @@ float32 offset_m
 | `inspect` | 퍽 id | 손끝을 퍽 윗면 위 `inspect_height_m`로 → `inspect_wait_s` 기다림 — gripper_cam이 윗면 16mm AprilTag(번호)를 읽게. 못 읽어도 성공 (읽었는지는 `details.tag`) |
 | `say` | 말할 내용 | `/robot/say`로 알림 |
 
+<a id="api-msg-basketstate"></a>
+### plan/msg/BasketState · BasketSlot ([파일](../lv2_module6/ros2_ws/src/plan/msg/BasketState.msg))
+
+```text
+# 적재함 장부 — coordinator 하나만 씀 (실제로 싣고 꺼내는 쪽). mission_manager · 화면은 읽기만
+#   /coordinator/basket (reliable + transient_local) — 바뀔 때마다. 파일(basket_file)에도 저장 → 노드가 다시 떠도 이어 감
+#   비우기: /coordinator/basket_clear (std_srvs/Trigger) — 사람이 적재함을 손으로 비웠을 때
+std_msgs/Header header
+BasketSlot[] slots   # 칸 0~11 전부 (빈 칸 포함)
+int32[] order        # 실은 순서 (칸 번호) — unload last = 끝
+BasketSlot held      # 지금 손에 든 퍽 (filled=false면 빈손)
+
+# BasketSlot
+# 적재함 칸 하나 (coordinator 장부 — /coordinator/basket)
+int32 slot          # 칸 번호 0~11 (URDF basket_slot_N) · held(손)일 때 -1
+bool filled         # 퍽이 있음
+string shape        # box | cyl (perception details shape — 모르면 box)
+string color        # red | green … (perception color — 모르면 "")
+int32 tag           # 퍽 AprilTag 번호 0~11 (못 읽었으면 -1)
+bool check          # 확인 필요 — 꺼내려고 잡았는데 빈손(grasp_empty). 비우지 않고 표시만
+```
+
+- **적재함 장부는 coordinator 하나만 씁니다** (실제로 싣고 꺼내는 쪽). `pick` 때 그 퍽의 tag·색·모양을 손에 기억 → `load` 성공이면 칸에 적음 → `unload` 성공이면 다시 손으로. mission_manager·화면은 `/coordinator/basket`을 읽기만 합니다.
+- 파일 `basket_file`(기본 `~/.ros/beebot_basket.txt`)에 저장 → coordinator가 다시 떠도(launch 재시작 포함) 이어 갑니다. 사람이 적재함을 비웠으면 `/coordinator/basket_clear`.
+- `unload` 잡기 판정이 빈손이면 칸을 비우지 않고 `check = true`(확인 필요)로 표시합니다.
+
 <a id="api-msg-subgoalarray"></a>
 ### plan/msg/SubGoalArray ([파일](../lv2_module6/ros2_ws/src/plan/msg/SubGoalArray.msg))
 
@@ -329,6 +355,7 @@ string message
 
 | 이름 | 타입 | 보내는 쪽 → 받는 쪽 | 주기 |
 | --- | --- | --- | --- |
+| `/coordinator/basket` | plan/BasketState | coordinator → mission_manager · 화면 | 적재함 장부 — 칸마다 모양·색·tag·확인 필요 + 실은 순서 + 손에 든 퍽 · 바뀔 때마다 · reliable + transient_local ([형식](#api-msg-basketstate)) |
 | `/arm_controller/follow_joint_trajectory` | 액션이지만 토픽 아님 — [§3](#3-액션-목록) 참조 | move_group → arm_controller | 궤적마다 |
 | `/joint_states` | sensor_msgs/JointState | joint_state_broadcaster → robot_state_publisher, move_group, arm_safety_monitor(전류 감시), coordinator(현재 팔 각), manual_control(수동 팔 기준 각), state_manager(OpenCR 살아 있나), scan_cam_gate(스캔 자세인가), run-cli(전류·온도 표시) | 100Hz — `effort` = 모터 전류 A (바퀴 포함, 펌웨어 S 43값) |
 | `/arm_safety_event` | control/ArmSafetyEvent | arm_safety_monitor → coordinator | 접촉 시 |
@@ -369,6 +396,8 @@ string message
 | 이름 | 타입 | 호출 → 서버 | 용도 |
 | --- | --- | --- | --- |
 | `/score_grasps` | ml/srv/ScoreGrasps | coordinator → grasp_scorer | pick 직전 1회 |
+| `/coordinator/basket_clear` | std_srvs/srv/Trigger | 운영자 → coordinator | 적재함 장부 비우기 (사람이 적재함을 손으로 비웠을 때) — 파일도 비움 |
+| `/rl_arm_correction/reset_sag` | std_srvs/srv/Trigger | coordinator → rl_arm_correction | 팔 skill 시작 때 한 번 — 처짐 보정 적분 0 (서비스 없으면 경고만, develop엔 아직 없음) |
 | `/collision_monitor/toggle` | nav2_msgs/srv/Toggle | manual_control → collision_monitor | `/state/operation_mode`가 MANUAL이면 끔(속도 명령 그대로 통과 — 근접 정지 없음) · 나가면 켬. 비상정지 잠금(twist_mux)·가속 제한(velocity_smoother)은 수동도 그대로. collision_monitor가 다시 뜨면 다시 보냄 |
 | `/beebotsystem/set_arm_torque` | std_srvs/srv/SetBool | manual_control → BeebotSystemHardware | 운영 모드 TEACH에 들어가면 팔(joint1~5)·그리퍼 토크 끔 · 나가면 JTC·그리퍼 목표를 지금 값으로 맞춘 뒤 켬 (펌웨어 `T`, 바퀴 그대로). 직접 부르면 켤 때 팔이 예전 목표로 튈 수 있음 — `/cmd/operation_mode TEACH`로 |
 | `/beebotsystem/reboot_motors` | std_srvs/srv/Trigger | manual_control(`/cmd/manual/reboot_motors`) → BeebotSystemHardware | Hardware Error 난 DYNAMIXEL만 재부팅 (펌웨어 `R` 줄) — 운영자는 토픽 `/cmd/manual/reboot_motors`로 (수동 모드에서만) |

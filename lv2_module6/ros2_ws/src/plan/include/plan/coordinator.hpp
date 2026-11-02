@@ -16,7 +16,10 @@
 //   자세: pose stow · carry_left · carry_right — 관절 목표로 MoveIt (값: config/basket.yaml, isaac-lab slot_table)
 //   적재함 12칸 (basket_slot_0~11): load <칸 | next> · unload <칸 | last> — 칸·퍽 모양(box·cyl)별 관절값(basket.yaml)을 MoveIt 관절 목표로
 //     load = carry_<칸 방향> → q_over → q_low → 벌림 → q_lift → stow · unload = carry → 벌림 → q_over → q_grasp → 닫기 → 잡기 판정 → q_over → carry
-//     칸마다 실린 퍽 모양을 기억 (노드가 다시 뜨면 비었다고 봄). 옛 target "tray"는 호환 이름: place tray = load next · pick tray = unload last
+//     적재함 장부는 coordinator 하나만 씀: 칸마다 {모양 · 색 · tag · 확인 필요} + 실은 순서 + 손에 든 퍽 → 📢 /coordinator/basket (latched)
+//       pick 때 그 퍽의 tag·색·모양을 손에 기억 → load 성공이면 칸에 적음 → unload 성공이면 손으로 옮김. 파일(basket_file)에 저장해 다시 떠도 이어 감
+//       📞 /coordinator/basket_clear — 사람이 적재함을 비웠을 때. unload가 빈손이면 칸을 비우지 않고 check(확인 필요)로 표시
+//     load next는 basket_use 칸 중 빈 칸 (팔이 잘 못 닿는 칸은 설정에서 뺌). 옛 target "tray"는 호환 이름: place tray = load next · pick tray = unload last
 //   처짐 보정: 팔 skill(pick·place·load·unload) 시작 때 한 번 📞 /rl_arm_correction/reset_sag (없으면 WARN 한 번, 계속)
 //   잡기 판정: 닫은 뒤 gripper_left_joint 위치(퍽이 끼어 덜 닫힘) + 전류(effort) — grasp_check (pick·unload)
 //   place <location_box>: 상자 윗면(size.z) 위에 손 안 퍽 바닥(held_bottom_m) + place_release_m에서 벌림, 여러 개면 상자 안·상자 축으로 비켜 놓음
@@ -55,6 +58,7 @@
 #include "perception/msg/tracked_object_array.hpp"
 #include "plan/msg/sub_goal_array.hpp"
 #include "plan/msg/task_status.hpp"
+#include "plan/msg/basket_state.hpp"
 #include "rclcpp/rclcpp.hpp"
 #include "sensor_msgs/msg/joint_state.hpp"
 #include "trajectory_msgs/msg/joint_trajectory.hpp"
@@ -70,8 +74,9 @@ namespace plan {
 // 적재함 칸 고르기 — filled[i] = 실린 퍽 모양("" = 빔) · order = 실은 순서.
 //   load: "next"·"tray" = 빈 칸 중 가장 낮은 번호 · 숫자 = 그 칸 (차 있으면 slot_full)
 //   unload: "last"·"tray" = 마지막에 실은 칸 · 숫자 = 그 칸 (비었으면 slot_empty). 못 고르면 −1 + why(slot_invalid · slot_full · slot_empty)
+//   usable[i] = false인 칸은 next가 고르지 않음 (비면 전부 씀 · 칸 번호를 직접 주면 그대로)
 int basket_slot(const std::string & target, const std::vector<std::string> & filled, const std::vector<int> & order,
-                bool load, std::string & why);
+                bool load, std::string & why, const std::vector<bool> & usable = {});
 // 상자 위 n번째(0부터)로 놓을 자리의 (dx, dy) [m, map] — spread_offset을 상자 안(반 변 − margin)으로 자르고 상자 yaw로 돌림
 std::pair<double, double> box_spread(int n, double spacing, double half_x, double half_y, double margin, double yaw);
 // 잡기 판정 — 위치(손가락이 퍽에 걸려 덜 닫힘) ≥ min_pos · 전류 |effort| ≥ min_effort (effort가 NaN이면 위치만)
@@ -165,6 +170,11 @@ private:
   // ---------- 처짐 보정 초기화 — 팔 skill 시작 때 한 번 (서비스 없으면 WARN 한 번)
   void reset_sag();
   std::string held_shape_of(uint32_t id) const;  // 퍽 details shape (모르면 box)
+  // ---------- 적재함 장부 — 발행 · 파일 저장/읽기
+  void basket_changed();
+  void basket_save() const;
+  void basket_load();
+  std::vector<std::string> basket_shapes() const;
 
   // ---------- 🎬 /plan_kinematic_path + /execute_trajectory
   //     계획이 실패하면 같은 목표로 arm_plan_tries번까지 (tries_left −1 = 처음)
@@ -233,9 +243,14 @@ private:
   std::map<std::string, std::vector<double>> poses_;      // stow · carry_left · carry_right
   std::vector<std::string> basket_carry_;                 // 칸마다 left | right
   std::map<std::string, std::vector<double>> basket_q_;   // "box/q_over" … → 칸 0~11 × 관절 5
-  std::vector<std::string> basket_filled_;                // 칸마다 실린 퍽 모양 ("" = 빔)
+  struct PuckInfo { std::string shape, color; int tag = -1; bool check = false; };  // shape "" = 빔
+  std::vector<PuckInfo> basket_;                          // 칸마다 (장부 — 이 노드만 씀)
   std::vector<int> basket_order_;                         // 실은 순서 (unload last)
-  std::string held_shape_;                                // 손에 든 퍽 모양 (load가 표를 고름)
+  std::vector<bool> basket_use_;                          // load next가 쓰는 칸
+  PuckInfo held_;                                         // 손에 든 퍽 (load가 모양으로 표를 고름)
+  std::string basket_file_;
+  rclcpp::Publisher<plan::msg::BasketState>::SharedPtr basket_pub_;
+  rclcpp::Service<std_srvs::srv::Trigger>::SharedPtr basket_clear_srv_;
   bool grasp_check_ = true;
   double grasp_min_pos_m_, grasp_min_effort_;
   std::map<std::string, double> joint_effort_;

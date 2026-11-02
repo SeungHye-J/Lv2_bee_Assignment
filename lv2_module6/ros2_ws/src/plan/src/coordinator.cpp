@@ -5,18 +5,22 @@
 
 #include <cmath>
 #include <cstdio>
+#include <cstdlib>
+#include <fstream>
+#include <sstream>
 
 #include "shape_msgs/msg/solid_primitive.hpp"
 
 namespace plan {
 
 int basket_slot(const std::string & target, const std::vector<std::string> & filled, const std::vector<int> & order,
-                bool load, std::string & why) {
+                bool load, std::string & why, const std::vector<bool> & usable) {
   const int n = static_cast<int>(filled.size());
   int slot = -1;
   if (target == (load ? "next" : "last") || target == "tray") {
     if (load) {
-      for (int i = 0; i < n && slot < 0; ++i) if (filled[i].empty()) slot = i;
+      for (int i = 0; i < n && slot < 0; ++i)
+        if (filled[i].empty() && (usable.empty() || (i < static_cast<int>(usable.size()) && usable[i]))) slot = i;
       if (slot < 0) { why = "slot_full"; return -1; }
     } else {
       if (order.empty()) { why = "slot_empty"; return -1; }
@@ -88,7 +92,27 @@ Coordinator::Coordinator()
     for (const char * key : {"q_over", "q_low", "q_lift", "q_grasp"})
       basket_q_[std::string(shape) + "/" + key] = declare_parameter<std::vector<double>>(
         std::string("basket_") + shape + "_" + key, std::vector<double>{});
-  basket_filled_.assign(basket_carry_.size(), "");
+  basket_.assign(basket_carry_.size(), PuckInfo{});
+  {
+    const auto use = declare_parameter<std::vector<int64_t>>("basket_use", std::vector<int64_t>{});
+    basket_use_.assign(basket_.size(), use.empty());
+    for (const auto i : use) if (i >= 0 && i < static_cast<int64_t>(basket_use_.size())) basket_use_[i] = true;
+  }
+  basket_file_ = declare_parameter<std::string>("basket_file", "~/.ros/beebot_basket.txt");
+  if (basket_file_.rfind("~/", 0) == 0 && std::getenv("HOME")) basket_file_ = std::string(std::getenv("HOME")) + basket_file_.substr(1);
+  basket_pub_ = create_publisher<plan::msg::BasketState>("/coordinator/basket", rclcpp::QoS(1).reliable().transient_local());
+  basket_clear_srv_ = create_service<std_srvs::srv::Trigger>("/coordinator/basket_clear",
+    [this](const std::shared_ptr<std_srvs::srv::Trigger::Request>, std::shared_ptr<std_srvs::srv::Trigger::Response> res) {
+      std::fill(basket_.begin(), basket_.end(), PuckInfo{});
+      basket_order_.clear();
+      held_ = PuckInfo{};
+      basket_changed();
+      RCLCPP_WARN(get_logger(), "적재함 장부 비움 (basket_clear)");
+      res->success = true;
+      res->message = "적재함 장부를 비웠습니다";
+    });
+  basket_load();
+  basket_changed();
   reach_m_ = declare_parameter<double>("reach_m", 0.30);
   approach_m_ = declare_parameter<double>("approach_m", 0.24);
   inspect_height_m_ = declare_parameter<double>("inspect_height_m", 0.15);
@@ -191,9 +215,9 @@ Coordinator::Coordinator()
     s.add("실행 중", running_);
     s.add("연속 실패", failures_.size());
     std::string slots;
-    for (size_t i = 0; i < basket_filled_.size(); ++i) slots += basket_filled_[i].empty() ? "·" : basket_filled_[i].substr(0, 1);
-    s.add("적재함", std::to_string(basket_order_.size()) + "/" + std::to_string(basket_filled_.size()) + " " + slots);
-    s.add("손", held_shape_.empty() ? "-" : held_shape_);
+    for (const auto & b : basket_) slots += b.shape.empty() ? "·" : (b.check ? "?" : b.shape.substr(0, 1));
+    s.add("적재함", std::to_string(basket_order_.size()) + "/" + std::to_string(basket_.size()) + " " + slots);
+    s.add("손", held_.shape.empty() ? "-" : held_.shape + " tag " + std::to_string(held_.tag));
   });
 }
 
@@ -349,7 +373,8 @@ void Coordinator::run_step() {
     execute_place(target, [this, id = g.target](bool ok) {
       if (!ok) { fail("place_failed"); return; }
       ++placed_[id];
-      held_shape_.clear();
+      held_ = PuckInfo{};
+      basket_changed();
       next();
     }, approach);
   } else { say(g.target); next(); }
@@ -710,7 +735,12 @@ void Coordinator::try_grasp(const ScoreGrasps::Response::SharedPtr & cands, size
   RCLCPP_INFO(get_logger(), "파지 후보 %zu (score %.2f)", i, cands->scores[i]);
   execute_pick(cands->grasps[i], [this, cands, i](bool ok) {
     if (!ok) { try_grasp(cands, i + 1); return; }
-    held_shape_ = held_shape_of(picking_id_);
+    held_ = PuckInfo{held_shape_of(picking_id_), "", -1, false};  // 집은 퍽 — 칸에 실을 때 장부에 그대로 적음
+    if (const auto * o = find(picking_id_)) {
+      held_.color = o->color;
+      for (const auto & kv : o->details) if (kv.key == "tag" && is_id(kv.value)) held_.tag = std::stoi(kv.value);
+    }
+    basket_changed();
     next();
   });
 }
@@ -777,6 +807,82 @@ void Coordinator::reset_sag() {
   }
 }
 
+std::vector<std::string> Coordinator::basket_shapes() const {
+  std::vector<std::string> v;
+  for (const auto & b : basket_) v.push_back(b.shape);
+  return v;
+}
+
+void Coordinator::basket_changed() {
+  plan::msg::BasketState m;
+  m.header.stamp = now();
+  auto fill = [](plan::msg::BasketSlot & s, int i, const PuckInfo & b) {
+    s.slot = i;
+    s.filled = !b.shape.empty();
+    s.shape = b.shape;
+    s.color = b.color;
+    s.tag = b.tag;
+    s.check = b.check;
+  };
+  for (size_t i = 0; i < basket_.size(); ++i) {
+    plan::msg::BasketSlot s;
+    fill(s, static_cast<int>(i), basket_[i]);
+    m.slots.push_back(s);
+  }
+  for (int o : basket_order_) m.order.push_back(o);
+  fill(m.held, -1, held_);
+  basket_pub_->publish(m);
+  basket_save();
+}
+
+// 파일 형식 (한 줄 = 칸 하나): "slot <칸> <모양> <색|-> <tag> <check 0|1>" · "order <칸> <칸> …" · "held <모양|-> <색|-> <tag>"
+void Coordinator::basket_save() const {
+  if (basket_file_.empty()) return;
+  std::ofstream f(basket_file_);
+  if (!f) return;  // 저장 실패는 진단에만 — 동작은 계속
+  for (size_t i = 0; i < basket_.size(); ++i)
+    if (!basket_[i].shape.empty())
+      f << "slot " << i << " " << basket_[i].shape << " " << (basket_[i].color.empty() ? "-" : basket_[i].color) << " "
+        << basket_[i].tag << " " << (basket_[i].check ? 1 : 0) << "\n";
+  f << "order";
+  for (int o : basket_order_) f << " " << o;
+  f << "\nheld " << (held_.shape.empty() ? "-" : held_.shape) << " " << (held_.color.empty() ? "-" : held_.color) << " " << held_.tag << "\n";
+}
+
+void Coordinator::basket_load() {
+  if (basket_file_.empty()) return;
+  std::ifstream f(basket_file_);
+  if (!f) return;
+  std::string line;
+  int n = 0;
+  while (std::getline(f, line)) {
+    std::istringstream in(line);
+    std::string kind;
+    in >> kind;
+    if (kind == "slot") {
+      int i = -1, check = 0;
+      PuckInfo b;
+      in >> i >> b.shape >> b.color >> b.tag >> check;
+      if (b.color == "-") b.color.clear();
+      b.check = check != 0;
+      if (i >= 0 && i < static_cast<int>(basket_.size()) && (b.shape == "box" || b.shape == "cyl")) { basket_[i] = b; ++n; }
+    } else if (kind == "order") {
+      int o;
+      while (in >> o) if (o >= 0 && o < static_cast<int>(basket_.size()) && !basket_[o].shape.empty()) basket_order_.push_back(o);
+    } else if (kind == "held") {
+      in >> held_.shape >> held_.color >> held_.tag;
+      if (held_.shape == "-") held_.shape.clear();
+      if (held_.color == "-") held_.color.clear();
+    }
+  }
+  for (size_t i = 0; i < basket_.size(); ++i)  // order에 빠진 칸은 뒤에 (파일이 손상돼도 꺼낼 수 있게)
+    if (!basket_[i].shape.empty() && std::find(basket_order_.begin(), basket_order_.end(), static_cast<int>(i)) == basket_order_.end())
+      basket_order_.push_back(static_cast<int>(i));
+  if (n > 0 || !held_.shape.empty())
+    RCLCPP_WARN(get_logger(), "적재함 장부 이어 감 (%s): 칸 %d개%s — 실제와 다르면 /coordinator/basket_clear", basket_file_.c_str(), n,
+                held_.shape.empty() ? "" : " · 손에 퍽");
+}
+
 std::string Coordinator::held_shape_of(uint32_t id) const {
   if (const auto * o = find(id))
     for (const auto & kv : o->details) if (kv.key == "shape" && (kv.value == "box" || kv.value == "cyl")) return kv.value;
@@ -791,11 +897,11 @@ void Coordinator::pose(const SubGoal & g) {
 void Coordinator::load(const SubGoal & g) {
   if (!ready_or_retry(motion_plan_->service_is_ready() && exec_->action_server_is_ready() &&
       gripper_->action_server_is_ready(), "arm_unavailable")) return;
-  if (basket_filled_.empty()) { fail("basket_table_missing"); return; }
+  if (basket_.empty()) { fail("basket_table_missing"); return; }
   std::string why;
-  const int slot = basket_slot(g.target, basket_filled_, basket_order_, true, why);
+  const int slot = basket_slot(g.target, basket_shapes(), basket_order_, true, why, basket_use_);
   if (slot < 0) { fail(why); return; }
-  const std::string shape = held_shape_.empty() ? "box" : held_shape_;
+  const std::string shape = held_.shape.empty() ? "box" : held_.shape;
   if (slot_q(shape, "q_over", slot).empty()) { fail("basket_table_missing"); return; }
   reset_sag();
   auto steps = std::make_shared<std::vector<Step>>(std::vector<Step>{
@@ -805,9 +911,12 @@ void Coordinator::load(const SubGoal & g) {
   RCLCPP_INFO(get_logger(), "load: 칸 %d (%s · carry_%s)", slot, shape.c_str(), basket_carry_[slot].c_str());
   run_steps(steps, 0, [this, slot, shape](bool ok) {
     if (!ok) { fail("load_failed"); return; }
-    basket_filled_[slot] = shape;
+    basket_[slot] = held_;
+    basket_[slot].shape = shape;
+    basket_[slot].check = false;
     basket_order_.push_back(slot);
-    held_shape_.clear();
+    held_ = PuckInfo{};
+    basket_changed();
     next();
   });
 }
@@ -815,11 +924,11 @@ void Coordinator::load(const SubGoal & g) {
 void Coordinator::unload(const SubGoal & g) {
   if (!ready_or_retry(motion_plan_->service_is_ready() && exec_->action_server_is_ready() &&
       gripper_->action_server_is_ready(), "arm_unavailable")) return;
-  if (basket_filled_.empty()) { fail("basket_table_missing"); return; }
+  if (basket_.empty()) { fail("basket_table_missing"); return; }
   std::string why;
-  const int slot = basket_slot(g.target, basket_filled_, basket_order_, false, why);
+  const int slot = basket_slot(g.target, basket_shapes(), basket_order_, false, why);
   if (slot < 0) { fail(why); return; }
-  const std::string shape = basket_filled_[slot];
+  const std::string shape = basket_[slot].shape;
   if (slot_q(shape, "q_grasp", slot).empty()) { fail("basket_table_missing"); return; }
   reset_sag();
   const auto carry = poses_["carry_" + basket_carry_[slot]];
@@ -830,10 +939,17 @@ void Coordinator::unload(const SubGoal & g) {
   RCLCPP_INFO(get_logger(), "unload: 칸 %d (%s · carry_%s)", slot, shape.c_str(), basket_carry_[slot].c_str());
   grasp_empty_ = false;
   run_steps(steps, 0, [this, slot, shape](bool ok) {
-    if (!ok) { fail(grasp_empty_ ? "grasp_empty" : "unload_failed"); return; }
-    basket_filled_[slot].clear();
+    if (!ok) {
+      if (grasp_empty_) { basket_[slot].check = true; basket_changed(); }  // 빈손 — 칸은 비우지 않고 확인 필요로
+      fail(grasp_empty_ ? "grasp_empty" : "unload_failed");
+      return;
+    }
+    held_ = basket_[slot];
+    held_.check = false;
+    basket_[slot] = PuckInfo{};
     basket_order_.erase(std::remove(basket_order_.begin(), basket_order_.end(), slot), basket_order_.end());
-    held_shape_ = shape;
+    basket_changed();
+    (void)shape;
     next();
   });
 }
