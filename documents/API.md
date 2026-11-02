@@ -119,8 +119,8 @@ for obj in tracked_objects.objects:
 
 ```text
 uint32 step
-string skill        # navigate | pick | place | inspect | say
-string target       # 물체 id (/tracked_objects의 id) · "x,y"(navigate) · "tray"(pick·place 적재함) · 말할 내용(say)
+string skill        # navigate | pick | place | inspect | say | pose | load | unload  (정의: documents/project/ros/05-arm.md)
+string target       # 물체 id (/tracked_objects의 id) · "x,y"(navigate) · 자세 이름(pose) · 칸 0~11 · next(load) · last(unload) · "tray"(pick·place — unload last·load next와 같음) · 말할 내용(say)
 string relation     # front | on | ...
 float32 offset_m
 ```
@@ -128,8 +128,11 @@ float32 offset_m
 | skill | target | 하는 일 (coordinator) |
 | --- | --- | --- |
 | `navigate` | 물체 id · `"x,y"`(map) | 그 물체 앞 `offset_m`까지 (relation `front`) 또는 그 좌표로 Nav2 이동 |
-| `pick` | 물체 id · `"tray"` | 파지 후보(`/score_grasps`) 순서로 집기 · tray = 적재함에서 나중에 실은 것부터 꺼내기 |
-| `place` | 물체 id · `"tray"` | 그 물체 위에(relation `on`, 여러 개면 `place_spacing`씩 비킴) · tray = 적재함 다음 칸에 싣기 (최대 4칸) |
+| `pick` | 물체 id · `"tray"` | 파지 후보(`/score_grasps`) 순서로 집기 — 닫은 뒤 잡기 판정(그리퍼 위치 + 전류) · tray = `unload last` |
+| `place` | 물체 id · `"tray"` | `location_box`면 상자 윗면 위(손 안 퍽 바닥 + 0.02m)에서 벌림, 여러 개면 상자 안·상자 축으로 비킴 · 그 밖의 물체는 0.10m 위에서 (`place_spacing`씩 비킴) · tray = `load next` |
+| `pose` | `stow` · `carry_left` · `carry_right` | 이름 있는 관절 자세로 (MoveIt 관절 목표, 값 = plan/config/basket.yaml) |
+| `load` | 칸 `0`~`11` · `next` | 손의 퍽을 적재함 칸에 — carry(칸 방향) → 칸 위 → 내림 → 벌림 → 들어올림 → stow (12칸, 칸·퍽 모양별 관절값 basket.yaml) |
+| `unload` | 칸 `0`~`11` · `last` | 적재함 칸의 퍽 꺼내기 — carry → 벌림 → 칸 위 → 내림 → 닫기 → 잡기 판정 → 칸 위 → carry |
 | `inspect` | 퍽 id | 손끝을 퍽 윗면 위 `inspect_height_m`로 → `inspect_wait_s` 기다림 — gripper_cam이 윗면 16mm AprilTag(번호)를 읽게. 못 읽어도 성공 (읽었는지는 `details.tag`) |
 | `say` | 말할 내용 | `/robot/say`로 알림 |
 
@@ -158,7 +161,7 @@ string reason       # grasp_failed_all | nav_failed | arm_contact ...
 ```
 
 - 내는 쪽: coordinator → `/task/status` (reliable + transient_local). 받는 쪽: vlm_task_planner(FAILED면 재계획 · SUCCEEDED면 다음 판단 — inspect 뒤 다시 조합, 옮기기 뒤 수납 확인) · user_input(표시).
-- reason (coordinator.cpp): 이동 `nav_failed` · `approach_failed` / 집기 `no_grasp` · `grasp_failed_all` · `arm_contact` / 놓기 `place_failed` · `place_no_target` / 적재함 `tray_full` · `tray_empty` · `tray_place_failed` · `tray_pick_failed` / 보기 `inspect_no_target` · `inspect_failed` / 멈춤 `manual_override`·`manual_mode` · `explore_override`·`explore_mode` · `estop`·`estop_blocked` · `cancelled` — `manual`·`explore`·`estop`·`cancelled`로 시작하면 planner는 재계획하지 않음.
+- reason (coordinator.cpp): 이동 `nav_failed` · `approach_failed` / 집기 `no_grasp` · `grasp_failed_all` · `arm_contact` / 놓기 `place_failed` · `place_no_target` / 자세 `pose_failed` / 적재함 `slot_invalid` · `slot_full` · `slot_empty` · `load_failed` · `unload_failed` · `basket_table_missing` / 잡기 판정 `grasp_empty` / 보기 `inspect_no_target` · `inspect_failed` / 멈춤 `manual_override`·`manual_mode` · `explore_override`·`explore_mode` · `estop`·`estop_blocked` · `cancelled` — `manual`·`explore`·`estop`·`cancelled`로 시작하면 planner는 재계획하지 않음.
 - 주의: [노드 사전](project/ros/10-catalog.md)의 reason 예시(`nav_blocked`)와 파일(`nav_failed`)이 다릅니다 — 파일이 정본.
 
 <a id="api-msg-missionsignal"></a>
@@ -249,7 +252,7 @@ string message
 | `/mission/qr` | std_msgs/String | perception → vlm_task_planner | 장소 바코드(작업 지시 문자열, 예 `P2-01`) · QR — 읽은 내용이 바뀔 때만 · reliable + transient_local. VLM이 해석 |
 | `/mission/signal` | perception/MissionSignal | signal_decoder (perception) → vlm_task_planner | 신호등 암호 미션 답 {color, count, sum, dest_tag, raw} — 확정될 때마다 · reliable + transient_local. planner가 규칙으로 계획 (번호 모르면 inspect → 조합 → 적재함 → 목적지 장소 → **수납 확인**: 옮긴 직후와 `verify_period_s`마다 목적지로 가서 옮긴 번호가 `verify_radius_m` 안에 있는지 보고, 다른 곳에 있으면 다시 옮김 · 없으면 say) |
 | `/robot/say` | std_msgs/String | coordinator → user_input | 알릴 때 · reliable |
-| `/task/sub_goals` | plan/SubGoalArray | vlm_task_planner → coordinator | 계획마다 · reliable + transient_local. target = 물체 id · `"x,y"`(navigate) · **`"tray"`(pick·place — 로봇 뒤 적재함: place tray = 다음 칸에 싣기, pick tray = 나중에 실은 것부터 꺼내기, 최대 4칸)** · 퍽 id(inspect) · 말할 내용(say) |
+| `/task/sub_goals` | plan/SubGoalArray | vlm_task_planner → coordinator | 계획마다 · reliable + transient_local. target = 물체 id · `"x,y"`(navigate) · **`"tray"`(pick·place — 로봇 뒤 적재함 12칸: place tray = `load next`, pick tray = `unload last`)** · 칸 번호·`next`·`last`(load·unload) · 자세 이름(pose) · 퍽 id(inspect) · 말할 내용(say) |
 | `/task/status` | plan/TaskStatus | coordinator → vlm_task_planner, user_input | 단계 완료·실패 시 · reliable + transient_local |
 | `/speed_limit` | nav2_msgs/SpeedLimit | rl_nav_tuner → controller_server, rl_nav_correction | 프리셋 변경 시 · reliable |
 | `/arm_safety_event` | control/ArmSafetyEvent | arm_safety_monitor → coordinator | 접촉 시 |

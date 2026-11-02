@@ -130,6 +130,8 @@ def generate_launch_description():
                               description='false면 학습 노드가 Δ=0 · 기본 프리셋 (노드는 그대로 뜸)'),
         DeclareLaunchArgument('vlm_endpoint', default_value='',
                               description='호스트 ai-service 주소 (비면 템플릿 고정, 예: http://127.0.0.1:8000)'),
+        DeclareLaunchArgument('grasp_check', default_value='true',
+                              description='coordinator 잡기 판정(그리퍼 위치 + 전류) — 물리 없는 대역(faker)은 손가락이 끝까지 닫혀 늘 빈손이라 false'),
         DeclareLaunchArgument('command', default_value='',
                               description='user_input이 시작 후 한 번 보낼 텍스트 명령'),
         DeclareLaunchArgument('restart_prepare', default_value='',
@@ -168,9 +170,12 @@ def generate_launch_description():
         node('plan', 'vlm_task_planner',
              {'vlm_endpoint': ParameterValue(LaunchConfiguration('vlm_endpoint'), value_type=str)}),
         # coordinator: 지도 만들 때 팔을 스캔 자세로 — 자세는 ros_system/config/scan_pose.yaml 하나 (nvblox gripper_depth_gate와 같은 값)
+        # 자세·적재함 12칸 표는 plan/config/basket.yaml (isaac-lab slot_table)
         Node(package='plan', executable='coordinator', output='screen',
              parameters=[PathJoinSubstitution([FindPackageShare('plan'), 'config', 'plan.yaml']),
-                         PathJoinSubstitution([FindPackageShare('ros_system'), 'config', 'scan_pose.yaml'])]),
+                         PathJoinSubstitution([FindPackageShare('plan'), 'config', 'basket.yaml']),
+                         PathJoinSubstitution([FindPackageShare('ros_system'), 'config', 'scan_pose.yaml']),
+                         {'grasp_check': ParameterValue(LaunchConfiguration('grasp_check'), value_type=bool)}]),
         node('plan', 'explorer'),
         *[node('ml', n, learning, condition=IfCondition(LaunchConfiguration(f'use_{n}'))) for n in ML_NODES],
         node('control', 'arm_safety_monitor'),

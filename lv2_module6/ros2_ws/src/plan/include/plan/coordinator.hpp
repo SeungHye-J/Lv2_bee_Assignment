@@ -6,14 +6,20 @@
 //         🎬 /gripper_controller/gripper_cmd, 📞 /score_grasps (grasp_scorer),
 //         📞 /clear_octomap · /apply_planning_scene (move_group), ✉️ /task/status → VLM·UI, ✉️ /robot/say → user_input
 // 규칙 (골격에 들어간 것):
-//   1. VLM 출력 검증 — 허용 동작(navigate·pick·place·inspect·say), 숫자 대상 id가 /tracked_objects에 있는지
+//   skill 정의: documents/project/ros/05-arm.md (자세 · skill · 흐름 · 실패 이유)
+//   1. 계획 검증 — 허용 동작(navigate·pick·place·inspect·say·pose·load·unload), 숫자 대상 id가 /tracked_objects에 있는지
+//      (pose·load·unload의 target은 자세 이름·칸 번호라 물체 검증 안 함)
 //   inspect <퍽 id> (신호등 암호 미션 — 퍽 윗면 16mm AprilTag는 gripper_cam이 위에서 봐야 읽힘): 멀면 다가가고 손끝을 퍽 윗면 위
 //     inspect_height_m로 (손가락 아래) → inspect_wait_s 기다림 → 다음 단계. 읽었는지(details tag)는 planner가 /tracked_objects로 본다
 //   4. 파지 재시도는 coordinator 몫 — grasp_scorer 후보를 점수순으로 최대 max_grasp_tries(2)개, 다 실패하면 FAILED
 //   5. 같은 단계 2회 연속 실패면 /robot/say로 알리고 정지
-//   적재함 (MISSION ③ MOVE_TO_B — 퍽을 실어 운반): target "tray"
-//     place tray = 다음 빈 칸에 싣기 · pick tray = 마지막에 실은 것부터 꺼내기 (칸 = tray_slots, base_footprint 기준 — MoveIt 실측으로
-//     손끝 아래 방향이 닿는 곳). 몇 개 실렸는지 tray_count로 센다 (노드가 다시 뜨면 0). 꽉 차면 tray_full · 비면 tray_empty로 실패
+//   자세: pose stow · carry_left · carry_right — 관절 목표로 MoveIt (값: config/basket.yaml, isaac-lab slot_table)
+//   적재함 12칸 (basket_slot_0~11): load <칸 | next> · unload <칸 | last> — 칸·퍽 모양(box·cyl)별 관절값(basket.yaml)을 MoveIt 관절 목표로
+//     load = carry_<칸 방향> → q_over → q_low → 벌림 → q_lift → stow · unload = carry → 벌림 → q_over → q_grasp → 닫기 → 잡기 판정 → q_over → carry
+//     칸마다 실린 퍽 모양을 기억 (노드가 다시 뜨면 비었다고 봄). 옛 target "tray"는 호환 이름: place tray = load next · pick tray = unload last
+//   처짐 보정: 팔 skill(pick·place·load·unload) 시작 때 한 번 📞 /rl_arm_correction/reset_sag (없으면 WARN 한 번, 계속)
+//   잡기 판정: 닫은 뒤 gripper_left_joint 위치(퍽이 끼어 덜 닫힘) + 전류(effort) — grasp_check (pick·unload)
+//   place <location_box>: 상자 윗면(size.z) 위에 손 안 퍽 바닥(held_bottom_m) + place_release_m에서 벌림, 여러 개면 상자 안·상자 축으로 비켜 놓음
 //   팔이 닿게 다가가기: pick · place <물체 id> 차례에 대상이 로봇(base_footprint, TF)에서 reach_m 넘게 떨어져 있으면
 //     먼저 그 물체를 바라보며 approach_m 떨어진 자리로 navigate한 뒤 그 단계를 실행 (단계마다 한 번 — VLM이 navigate를 빼먹어도).
 //     navigate <물체 id>도 같은 접근 자세 — 로봇이 있는 쪽에서 물체를 바라봄 (예전: 늘 물체의 −x 쪽 · yaw 0)
@@ -55,13 +61,21 @@
 #include "rclcpp_action/rclcpp_action.hpp"
 #include "std_msgs/msg/string.hpp"
 #include "std_srvs/srv/empty.hpp"
+#include "std_srvs/srv/trigger.hpp"
 #include "tf2_ros/buffer.h"
 #include "tf2_ros/transform_listener.h"
 
 namespace plan {
 
-// 적재함 칸 — tray_slots 파라미터 [x0, y0, x1, y1, …] (base_footprint) → 칸 목록 (홀수 개면 마지막 값 버림)
-std::vector<std::pair<double, double>> tray_slots(const std::vector<double> & flat);
+// 적재함 칸 고르기 — filled[i] = 실린 퍽 모양("" = 빔) · order = 실은 순서.
+//   load: "next"·"tray" = 빈 칸 중 가장 낮은 번호 · 숫자 = 그 칸 (차 있으면 slot_full)
+//   unload: "last"·"tray" = 마지막에 실은 칸 · 숫자 = 그 칸 (비었으면 slot_empty). 못 고르면 −1 + why(slot_invalid · slot_full · slot_empty)
+int basket_slot(const std::string & target, const std::vector<std::string> & filled, const std::vector<int> & order,
+                bool load, std::string & why);
+// 상자 위 n번째(0부터)로 놓을 자리의 (dx, dy) [m, map] — spread_offset을 상자 안(반 변 − margin)으로 자르고 상자 yaw로 돌림
+std::pair<double, double> box_spread(int n, double spacing, double half_x, double half_y, double margin, double yaw);
+// 잡기 판정 — 위치(손가락이 퍽에 걸려 덜 닫힘) ≥ min_pos · 전류 |effort| ≥ min_effort (effort가 NaN이면 위치만)
+bool grasp_held(double pos, double effort, double min_pos, double min_effort);
 // 물체를 바라보며 standoff 떨어진 로봇 자세 (map) — 로봇이 있는 쪽에서. 로봇이 물체와 거의 같은 자리면 물체의 −x 쪽
 geometry_msgs::msg::Pose approach_pose(double ox, double oy, double rx, double ry, double standoff);
 // 같은 곳에 n번째(0부터)로 내려놓을 때 중심에서 비킬 (dx, dy) — 가운데 · 좌 · 우 · 앞 · 뒤 · 대각선 순, spacing 간격
@@ -133,8 +147,24 @@ private:
   // ---------- inspect: 퍽 위에서 gripper_cam으로 내려다보기 (윗면 태그 읽기)
   void inspect(const SubGoal & g);
 
-  // ---------- 적재함: 칸 위치 (base_footprint) 손끝 목표
-  geometry_msgs::msg::PoseStamped tray_pose(size_t slot, double z) const;
+  // ---------- pose: 이름 있는 관절 자세로 (stow · carry_left · carry_right)
+  void pose(const SubGoal & g);
+
+  // ---------- 적재함 load · unload (관절 자세 순서 — MoveIt 관절 목표)
+  void load(const SubGoal & g);
+  void unload(const SubGoal & g);
+  std::vector<double> slot_q(const std::string & shape, const std::string & key, int slot) const;
+  std::map<std::string, double> arm_target(const std::vector<double> & q) const;
+  using Step = std::function<void(std::function<void(bool)>)>;
+  // 단계를 차례로 — 하나라도 실패하면 done(false)
+  void run_steps(std::shared_ptr<std::vector<Step>> steps, size_t i, std::function<void(bool)> done);
+  Step joints_step(const std::vector<double> & q);
+  Step gripper_step(double width_m);
+  Step held_step();  // 잡기 판정 (grasp_check 끄면 통과)
+
+  // ---------- 처짐 보정 초기화 — 팔 skill 시작 때 한 번 (서비스 없으면 WARN 한 번)
+  void reset_sag();
+  std::string held_shape_of(uint32_t id) const;  // 퍽 details shape (모르면 box)
 
   // ---------- 🎬 /plan_kinematic_path + /execute_trajectory
   //     계획이 실패하면 같은 목표로 arm_plan_tries번까지 (tries_left −1 = 처음)
@@ -152,7 +182,8 @@ private:
   // ---------- 스캔 자세 — 지도 만드는 중이고 작업이 없으면 팔을 scan_pose로
   void check_scan_pose();
   bool at_scan_pose() const;
-  void move_joints(const std::map<std::string, double> & target, std::function<void(bool)> done);
+  // task=false(스캔 자세): 작업 중이면 안 감 · task=true(skill): 작업 취소(gen_)되면 결과 무시
+  void move_joints(const std::map<std::string, double> & target, std::function<void(bool)> done, bool task = false);
 
   // ---------- 🎬 /gripper_controller/gripper_cmd (m)
   void set_gripper(double width_m, std::function<void(bool)> done);
@@ -198,9 +229,20 @@ private:
   size_t approached_ = static_cast<size_t>(-1);  // 다가가기를 이미 한 단계 (idx_) — 단계마다 한 번만
   std::unique_ptr<tf2_ros::Buffer> tf_buffer_;
   std::shared_ptr<tf2_ros::TransformListener> tf_listener_;
-  std::vector<std::pair<double, double>> tray_slots_;
-  double tray_release_z_, tray_grasp_z_, tray_approach_m_, place_spacing_;
-  int tray_count_ = 0;                 // 적재함에 실린 퍽 수 (칸 0부터 차례로)
+  double place_spacing_, held_bottom_m_, place_release_m_, box_margin_m_;
+  std::map<std::string, std::vector<double>> poses_;      // stow · carry_left · carry_right
+  std::vector<std::string> basket_carry_;                 // 칸마다 left | right
+  std::map<std::string, std::vector<double>> basket_q_;   // "box/q_over" … → 칸 0~11 × 관절 5
+  std::vector<std::string> basket_filled_;                // 칸마다 실린 퍽 모양 ("" = 빔)
+  std::vector<int> basket_order_;                         // 실은 순서 (unload last)
+  std::string held_shape_;                                // 손에 든 퍽 모양 (load가 표를 고름)
+  bool grasp_check_ = true;
+  double grasp_min_pos_m_, grasp_min_effort_;
+  std::map<std::string, double> joint_effort_;
+  rclcpp::Client<std_srvs::srv::Trigger>::SharedPtr reset_sag_;
+  bool sag_warned_ = false;
+  bool grasp_empty_ = false;      // 마지막 잡기 판정이 빈손 — 실패 이유 grasp_empty
+  uint32_t picking_id_ = 0;       // 지금 집는 퍽 id (모양 기억용)
   std::map<std::string, int> placed_;  // 계획 안에서 물체(구역) id별로 내려놓은 수 — 겹치지 않게 비킴
   std::string mode_ = "AUTO";
   bool estop_ = false;

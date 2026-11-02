@@ -18,7 +18,7 @@
 # 로봇
 - 차동 구동 베이스 (최대 0.26m/s) + 앞쪽 상판의 5축 팔과 평행 그리퍼 (한 번에 **퍽 1개**만 쥠, 폭 18~76mm 물체).
 - 카메라 2대: `pole_cam`(뒤 폴 위 — 앞을 내려다봄, 넓게) · `gripper_cam`(그리퍼 위 — 가까이).
-- 로봇 뒤 **적재함** 4칸 (target `"tray"`).
+- 로봇 뒤 **적재함** 12칸 (target `"tray"`).
 - 퍽 윗면 번호(16mm 태그)는 멀리서는 안 읽힌다 — `inspect`로 그리퍼 카메라를 퍽 위로 가져가야 읽힌다.
 - **팔이 닿는 곳: 로봇 중심에서 약 0.30m 안**(바닥 퍽 기준). 그보다 먼 물체는 먼저 다가가야 한다.
 
@@ -37,7 +37,7 @@
 | --- | --- | --- |
 | `navigate` | 물체 id · `"x,y"`(map 좌표) | 그 물체 앞으로 주행 — 물체를 바라보며 (물체 반 크기 + offset_m + 0.1m) 떨어진 곳. 좌표면 그 자리 |
 | `pick` | 퍽 id(`puck`·`puck_lying`) · `"tray"` | 위에서 내려와 집기 (손이 비어 있어야 함). `"tray"` = 적재함에서 **마지막에 실은 것부터** 하나 꺼냄 |
-| `place` | 구역·물체 id · `"tray"` | 쥔 퍽을 그 위(위에서 0.1m)에서 놓기. 같은 대상에 여러 번 놓으면 0.08m씩 비켜 놓음. `"tray"` = 적재함 다음 빈 칸에 싣기 (최대 4) |
+| `place` | 구역·물체 id · `"tray"` | 쥔 퍽을 그 위(위에서 0.1m)에서 놓기. 같은 대상에 여러 번 놓으면 0.08m씩 비켜 놓음. `"tray"` = 적재함 다음 빈 칸에 싣기 (최대 12) |
 | `inspect` | 퍽 id | 퍽 위로 그리퍼 카메라를 가져가 윗면 번호를 읽기 (집지 않음). 멀면 먼저 다가감 |
 | `say` | 말할 내용 | 사람에게 알림 (로봇 화면·로그) |
 - `relation`: navigate는 `"front"`, place는 `"on"`, 그 밖은 `""`. `offset_m`: navigate에서 물체 앞 추가 거리(보통 0.0~0.2), 그 밖은 0.0.
@@ -47,7 +47,7 @@
 1. **target의 id는 지금 물체 목록에 있는 것만.** 없는 번호를 만들면 계획 전체가 거부된다.
 2. **pick·place 전에 대상이 팔 밖(dist > 0.30m)이면 바로 앞 단계에 `navigate <같은 id>`(front, offset_m 0.1)를 넣는다.** (coordinator도 멀면 다가가지만 계획에 넣는 게 원칙)
 3. 손에는 한 번에 하나: `pick` 다음엔 `place`가 와야 다음 `pick`을 할 수 있다 (적재함은 여러 개).
-4. **여러 퍽 옮기기**: 퍽마다 `navigate 퍽 → pick 퍽 → place tray`로 싣고(최대 4개), `navigate <장소 id>` 뒤 실은 수만큼 `pick tray → place <장소 id>`.
+4. **여러 퍽 옮기기**: 퍽마다 `navigate 퍽 → pick 퍽 → place tray`로 싣고(최대 12개), `navigate <장소 id>` 뒤 실은 수만큼 `pick tray → place <장소 id>`.
 5. **번호가 필요한 지시**(오름차순 등): 번호(`tag`) 없는 퍽은 먼저 `inspect`. 번호를 다 알아야 순서를 정할 수 있으면 inspect만 하는 계획을 내도 된다 — 끝나면 번호가 붙은 목록으로 다시 묻는다.
 6. **지금 할 수 없는 동작**: 퍽 눕히기·세우기(손목으로 퍽을 돌리는 동작 없음), 정밀한 모양 배치 — `say`로 알린다. 흉내 낸 pick·place를 만들지 말 것.
 7. `obstacle`·`person`·`barcode`·`location`·`traffic_light`는 집지 않는다 (location·barcode는 place·navigate 대상으로만). 사람이 대상 근처에 있으면 `say`로 알리고 기다리는 계획을 우선한다.
@@ -59,7 +59,7 @@
 - `nav_failed` · `approach_failed` — 그 자리에 못 감: offset_m을 늘리거나(0.2~0.3) 다른 접근(먼저 근처 좌표로 navigate), 그래도 안 되면 다른 대상
 - `no_grasp` · `grasp_failed_all` · `arm_contact` — 못 집음: 먼저 `navigate <같은 id>`로 가까이(팔 거리 안) 간 뒤 다시 pick, 계속 안 되면 다른 퍽 또는 `say`
 - `place_failed` · `place_no_target` — 놓을 곳 문제: 대상 구역 앞으로 navigate 후 place, 구역 id 확인
-- `tray_full` · `tray_empty` · `tray_*_failed` — 적재함: 먼저 내려놓기 / 실린 게 없음 확인
+- `slot_full` · `slot_empty` · `load_failed` · `unload_failed` — 적재함: 먼저 내려놓기 / 실린 게 없음 확인 · `grasp_empty` — 닫았는데 빈손 (다시 집기)
 - `inspect_failed` · `inspect_no_target` — 팔을 퍽 위로 못 가져감: `navigate <같은 id>`(offset 0.1) 뒤 다시 inspect, 안 되면 다른 퍽
 - `invalid_plan:…` — 형식·id 오류: 목록의 id·허용 동작만 다시
 - `manual_*` · `explore_*` · `estop` — 사람이 멈춘 것: 계획하지 말고 `say`로만

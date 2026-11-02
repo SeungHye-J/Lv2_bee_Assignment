@@ -535,7 +535,7 @@ VlmTaskPlanner::VlmTaskPlanner()
   max_replans_ = declare_parameter<int>("max_replans", 1);
   vlm_endpoint_ = declare_parameter<std::string>("vlm_endpoint", "");
   vlm_timeout_s_ = declare_parameter<double>("vlm_timeout_s", 120.0);
-  tray_capacity_ = declare_parameter<int>("tray_capacity", 4);
+  tray_capacity_ = declare_parameter<int>("tray_capacity", 12);
   verify_period_s_ = declare_parameter<double>("verify_period_s", 60.0);
   verify_radius_m_ = declare_parameter<double>("verify_radius_m", 0.20);
   tf_buffer_ = std::make_unique<tf2_ros::Buffer>(get_clock());

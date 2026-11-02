@@ -7,7 +7,7 @@ vlm_task_planner:
     max_replans: 1           # 명령 하나당 재계획 횟수 (coordinator의 max_step_failures와 짝)
     vlm_endpoint: ""         # 비면 템플릿 고정(기본·CI). 호스트 ai-service면 "http://127.0.0.1:8000" (컨테이너 host망이라 localhost가 호스트)
     vlm_timeout_s: 120.0    # [s] VLM 대기 — 넘기면 템플릿 폴백. ai-service backend human(사람이 웹에서 계획)이면 그쪽 timeout_s(600) 이상으로
-    tray_capacity: 4         # MOVE_TO_B 템플릿이 한 번에 싣는 퍽 수 (coordinator tray_slots 칸 수와 같게)
+    tray_capacity: 12        # 한 번에 적재함에 싣는 퍽 수 (coordinator 적재함 칸 수 — basket.yaml 12칸)
     # 수납 확인 — 신호등 미션 옮기기가 끝나면 바로, 그 뒤 이 주기마다 목적지로 가서 옮긴 번호가 그대로 있는지 봄
     #   (AUTO · 하던 계획이 끝났을 때만). 다른 곳에 있으면 다시 옮기고, 안 보이면 say. 새 명령·신호가 오면 그만
     verify_period_s: 60.0    # [s] 0이면 주기 확인 끔 (옮긴 직후 한 번은 함)
@@ -32,13 +32,16 @@ coordinator:
     max_step_failures: 2     # 같은 단계가 이만큼 연속 실패하면 알리고 정지 (규칙 5)
     server_wait_s: 30.0      # [s] Nav2·MoveIt 서버가 뜰 때까지 기다리는 시간
     arm_plan_tries: 3        # 팔 계획 실패 시 같은 목표로 다시 (IK·OMPL이 무작위라 닿는 곳도 가끔 못 찾음)
-    # 적재함 (MISSION ③ — target "tray"): 칸 [x, y, …] base_footprint. MoveIt 실측으로 손끝 아래 방향이 닿는 곳
-    #   (높이 0.22·0.17 6번씩: 앞줄 x −0.095 12/12 · 뒷줄 x −0.135 9/12 — 재시도로 메움, x −0.16 이후 거의 X — 폴·팔 길이).
-    #   적재함 안쪽 x −0.185~−0.075. 싣는 순서 = 뒷줄 → 앞줄, 꺼내기는 반대. 발제 퍽 30×30(Ø30)×60mm — 앞뒤·좌우 간격 0.04·0.10이면 4개 들어감
-    tray_slots: [-0.135, 0.05, -0.135, -0.05, -0.095, 0.05, -0.095, -0.05]
-    tray_release_z: 0.22     # [m] 싣기 — 칸 위 이 높이(손끝)에서 그리퍼를 벌림 (적재함 바닥 약 0.15)
-    tray_grasp_z: 0.17       # [m] 꺼내기 — 손끝 파지 높이 (적재함 바닥 0.15 + 퍽 60mm의 아래쪽 1/3)
-    tray_approach_m: 0.05    # [m] 꺼내기 접근·들어올리기 (0.10이면 0.27로 닿지 않음)
+    # 자세(stow · carry)와 적재함 12칸 load · unload 관절값은 basket.yaml (isaac-lab slot_table) — skill 정의: documents/project/ros/05-arm.md
+    # 잡기 판정 (pick · unload — 닫은 뒤): 그리퍼 위치 ≥ grasp_min_pos_m(퍽이 끼어 덜 닫힘) 이고 전류 ≥ grasp_min_effort [A]
+    #   실측 (팀원 11/02): 퍽에 닿는 곳 약 5mm(gripper_left_joint 0.005) · 원기둥 0.33~0.42A · 팀 기준 0.3~0.4A · 한계 0.6A — 실기에서 다시 맞출 값
+    #   끄기: launch 인자 grasp_check:=false (faker는 그리퍼가 끝까지 닫혀 늘 빈손이라 끔) — 여기 넣지 말 것 (launch 인자가 안 먹는 경우 있음)
+    grasp_min_pos_m: 0.003
+    grasp_min_effort: 0.25
+    # place <location_box>: 상자 윗면 + 손 안 퍽 바닥(손끝 아래 held_bottom_m, slot_table d_nom) + place_release_m에서 벌림
+    held_bottom_m: 0.0606
+    place_release_m: 0.02
+    box_margin_m: 0.03       # [m] 여러 개 놓을 때 상자 가장자리에서 이만큼 안쪽까지만
     place_spacing: 0.08      # [m] 같은 곳(B 지역 판)에 여러 개 내려놓을 때 비키는 간격 (MISSION: 퍽 사이 0.08 이상)
     # 팔이 닿게 다가가기 — pick · place <물체 id> 때 대상이 로봇 중심에서 reach_m 넘으면 먼저 approach_m 앞까지 navigate (단계마다 한 번)
     #   바닥 퍽은 팔 회전축(차체 중심 앞 0.05)에서 수평 약 0.08~0.26 — 차체 중심 기준 약 0.13~0.31 (simulator 팔 범위 지도)

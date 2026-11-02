@@ -10,7 +10,7 @@ import math
 ALLOWED = "navigate · pick · place · inspect · say"
 # 적재함 (coordinator target "tray") — 여러 퍽을 옮길 때는 손에 들고 다니지 않고 실어 나른다
 TRAY_RULE = ("적재함: pick·place의 target에 \"tray\"를 쓰면 로봇 뒤 적재함이다 — place tray = 손에 든 퍽을 다음 빈 칸에 싣기, "
-             "pick tray = 실은 퍽을 하나 꺼내기(나중에 실은 것부터). 최대 4개. 여러 퍽을 옮길 때는 퍽마다 navigate·pick·place tray로 싣고 "
+             "pick tray = 실은 퍽을 하나 꺼내기(나중에 실은 것부터). 최대 12개. 여러 퍽을 옮길 때는 퍽마다 navigate·pick·place tray로 싣고 "
              "목적지로 navigate한 뒤 실은 수만큼 pick tray·place <목적지 id>. "
              "같은 곳에 여러 번 place하면 coordinator가 겹치지 않게 비켜 놓는다.")
 # 표식 — 퍽 번호(윗면 16mm AprilTag)는 gripper_cam이 위에서 봐야 읽힘 → inspect
