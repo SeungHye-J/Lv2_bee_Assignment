@@ -128,4 +128,4 @@ READ가 시작된 **뒤에 끝난 사이클만** 봅니다. 판정은 mission_so
 
 - **실기·시뮬레이터 실행 확인**: 경기장 좌표, 바코드 보는 자리(`barcode_pose_arena`), 다가가기 거리, 칸 보정은 실물로 맞춰야 합니다.
 - **운영자 CLI 버튼**: 지금은 `/cmd/mission`을 직접 발행합니다.
-- **누운 퍽**: `right`·`right_pick`(05-arm.md)이 생기면 SURVEY와 BUILD에서 씁니다. 지금은 누운 퍽을 그대로 `pick`합니다.
+- **누운 퍽**: `stand`·`stand_pick`(05-arm.md)이 생기면 SURVEY와 BUILD에서 씁니다. 지금은 누운 퍽을 그대로 `pick`합니다.
