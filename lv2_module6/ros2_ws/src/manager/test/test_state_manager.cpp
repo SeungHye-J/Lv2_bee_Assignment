@@ -145,6 +145,22 @@ TEST_F(RosTest, ExploreOnlyWhileMapping) {
   }
 }
 
+TEST_F(RosTest, TopicsSkipHidden) {
+  // /state/topics에 숨김 토픽(/_…)은 안 들어감 — nvblox …/_buf/<16진수>는 이름 검사에서 예외라 넘기면 노드가 죽음
+  auto node = std::make_shared<StateManager>();
+  auto probe = std::make_shared<rclcpp::Node>("probe_topics");
+  std::string topics;
+  auto sub = probe->create_subscription<std_msgs::msg::String>("/state/topics", rclcpp::QoS(1).reliable().transient_local(),
+    [&](std_msgs::msg::String::SharedPtr m) { topics = m->data; });
+  auto shown = probe->create_publisher<std_msgs::msg::String>("/probe_shown", 10);
+  auto hidden = probe->create_publisher<std_msgs::msg::String>("/probe_shown/_hidden", 10);
+  rclcpp::executors::SingleThreadedExecutor exec;
+  exec.add_node(node);
+  exec.add_node(probe);
+  ASSERT_TRUE(spin_until(exec, [] {}, [&] { return topics.find("/probe_shown|") != std::string::npos; }, 8.0)) << topics;
+  EXPECT_EQ(topics.find("/_"), std::string::npos) << topics;
+}
+
 TEST_F(RosTest, MotorErrorInDeviceState) {
   // /motor_status (BeebotSystemHardware) joint2 과부하 → /state/devices/arm = error + 세부에 joint2:과부하 · 정상이면 active
   auto node = std::make_shared<StateManager>();
