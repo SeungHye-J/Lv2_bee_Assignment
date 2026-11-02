@@ -18,6 +18,7 @@ find_package(controller_interface REQUIRED)
 find_package(hardware_interface REQUIRED)
 find_package(pluginlib REQUIRED)
 find_package(rclcpp_lifecycle REQUIRED)
+find_package(std_srvs REQUIRED)
 
 rosidl_generate_interfaces(${PROJECT_NAME}
   srv/ScoreGrasps.srv
@@ -42,7 +43,8 @@ install(TARGETS grasp_scorer rl_nav_tuner rl_nav_correction DESTINATION lib/${PR
 add_library(rl_arm_correction SHARED src/rl_arm_correction.cpp)
 target_compile_features(rl_arm_correction PUBLIC cxx_std_17)
 target_link_libraries(rl_arm_correction controller_interface::controller_interface
-  hardware_interface::hardware_interface pluginlib::pluginlib rclcpp::rclcpp rclcpp_lifecycle::rclcpp_lifecycle)
+  hardware_interface::hardware_interface pluginlib::pluginlib rclcpp::rclcpp rclcpp_lifecycle::rclcpp_lifecycle
+  ${std_srvs_TARGETS})
 pluginlib_export_plugin_description_file(controller_interface rl_arm_correction.xml)
 install(TARGETS rl_arm_correction LIBRARY DESTINATION lib)
 
@@ -56,6 +58,8 @@ if(BUILD_TESTING)
   find_package(ament_cmake_gtest REQUIRED)
   ament_add_gtest(test_rl_nav_correction test/test_rl_nav_correction.cpp TIMEOUT 60 ENV ROS_DOMAIN_ID=103)
   target_link_libraries(test_rl_nav_correction ${PROJECT_NAME}_nodes)
+  ament_add_gtest(test_rl_arm_correction test/test_rl_arm_correction.cpp)
+  target_link_libraries(test_rl_arm_correction rl_arm_correction)
   ament_add_test(test_launch GENERATE_RESULT_FOR_RETURN_CODE_ZERO
     COMMAND ros2 launch "${CMAKE_CURRENT_SOURCE_DIR}/launch/ml.launch.py" --show-args
     TIMEOUT 60)
