@@ -134,10 +134,14 @@ carry 방향은 **칸이 정합니다**. basket.yaml `basket_carry`에서 칸 0�
 
 - **적재함 12칸**: 칸 위치는 URDF 링크 `basket_slot_0`~`11`(3줄 × 4칸)입니다. `load`·`unload`는 basket.yaml에서 칸과 퍽 모양(`box`·`cyl`)에 맞는 `q_over`·`q_low`·`q_lift`·`q_grasp`를 관절 목표로 씁니다. 적재함은 로봇에 고정돼 있어 매번 같은 값입니다.
   - 손 안 퍽 위치가 기준(`held_bottom_m`)과 다를 때 쓰는 보정(slot_table의 `P_*`)은 아직 쓰지 않습니다. **(예정 — 손 안 퍽 위치를 잴 수 있을 때)**
-- **칸 고르기**: `next`는 빈 칸 중 가장 낮은 번호, `last`는 마지막에 실은 칸입니다.
-  - coordinator가 칸마다 실린 퍽 모양을 기억해 `/diagnostics` "적재함"에 냅니다(예: `3/12 bc·b········`).
-  - 노드가 다시 뜨면 모든 칸을 비었다고 봅니다.
-- **손에 든 퍽 모양**: `pick`은 퍽의 `details.shape`(모르면 `box`)를, `unload`는 칸에 기억한 모양을 기억합니다. `load`가 이 모양으로 표를 고릅니다.
+- **칸 고르기**: `next`는 `basket_use` 칸 중 빈 칸의 가장 낮은 번호(팔이 잘 못 닿는 칸은 설정에서 뺌), `last`는 마지막에 실은 칸입니다.
+- **적재함 장부 — coordinator 하나만 씁니다** (실제로 싣고 꺼내는 쪽이 가장 정확히 앎).
+  - `pick` 성공 → 그 퍽의 **tag·색·모양**(`/tracked_objects` details, 모양을 모르면 `box`)을 "손"에 기억
+  - `load` 성공 → 손의 퍽을 그 칸에 적음 · `unload` 성공 → 칸의 퍽을 손으로 옮기고 칸을 비움 · `place` 성공 → 손을 비움
+  - `unload`가 빈손(잡기 판정 실패) → 칸을 비우지 않고 **확인 필요**(`check`)로 표시
+  - 📢 `/coordinator/basket`(plan/BasketState, latched)로 냄 → mission_manager·화면은 **읽기만**. `/diagnostics` "적재함"에도 (예: `3/12 bc·?·······`, `?` = 확인 필요)
+  - 파일 `basket_file`(기본 `~/.ros/beebot_basket.txt`)에 저장 → 다시 떠도 이어 감. 사람이 적재함을 비웠으면 📞 `/coordinator/basket_clear`
+- **손에 든 퍽 모양**으로 `load`가 칸 자세표(box·cyl)를 고릅니다.
 - **옛 `tray` (호환)**: `place tray`는 `load next`, `pick tray`는 `unload last`와 같습니다. 그래서 vlm_task_planner와 ai-service의 기존 계획이 그대로 돌아갑니다. 적재함 용량(`tray_capacity`)은 4에서 12로 바꿨습니다.
 
 ## 4. skill 안에서 쓰는 값

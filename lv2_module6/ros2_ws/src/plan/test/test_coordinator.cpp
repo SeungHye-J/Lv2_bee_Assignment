@@ -164,6 +164,11 @@ TEST(Tray, BasketSlot) {
   EXPECT_EQ(why, "slot_invalid");
   EXPECT_EQ(basket_slot("-1", filled, order, true, why), -1);
   EXPECT_EQ(why, "slot_invalid");
+  // load next는 쓰는 칸(usable)만 — 1번 칸을 빼면 빈 칸 중 다음 2번
+  std::vector<bool> usable(12, true);
+  usable[1] = false;
+  EXPECT_EQ(basket_slot("next", filled, order, true, why, usable), 2);
+  EXPECT_EQ(basket_slot("1", filled, order, true, why, usable), 1);  // 칸 번호를 직접 주면 그대로
   std::fill(filled.begin(), filled.end(), "box");
   EXPECT_EQ(basket_slot("next", filled, order, true, why), -1);
   EXPECT_EQ(why, "slot_full");

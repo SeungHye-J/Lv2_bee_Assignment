@@ -32,6 +32,8 @@ rosidl_generate_interfaces(${PROJECT_NAME}
   msg/SubGoalArray.msg
   msg/TaskStatus.msg
   msg/MissionState.msg
+  msg/BasketSlot.msg
+  msg/BasketState.msg
   DEPENDENCIES std_msgs)
 rosidl_get_typesupport_target(msgs_cpp ${PROJECT_NAME} rosidl_typesupport_cpp)
 include_directories(include)

@@ -7,7 +7,7 @@ uint8 count_r           # 신호 횟수 (READ 뒤)
 uint8 count_y
 uint8 count_g
 string order            # L1·L2·L3 그룹 — 예 "YRG" ("" = 아직)
-string[] tray           # 적재함 칸 → 퍽 tag — "칸:tag" (예 "0:5")
+string[] tray           # 적재함 칸 → 퍽 tag — "칸:tag" (예 "0:5" · tag 모름 "0:?" · 확인 필요 "0:5!") — coordinator 장부(/coordinator/basket)를 그대로 옮김
 uint16 placed           # 놓기를 마친 퍽 수 (놓은 뒤 확인 통과)
 uint16 total            # 놓을 퍽 수
 string[] results        # 퍽·장소별 결과 — 예 "puck 5: place_off 14mm" · "L1: ok" (실패해도 다음으로 계속 — )

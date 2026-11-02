@@ -31,6 +31,11 @@ coordinator:
     # 잡기 판정 (pick · unload — 닫은 뒤): 그리퍼 위치 ≥ grasp_min_pos_m(퍽이 끼어 덜 닫힘) 이고 전류 ≥ grasp_min_effort [A]
     #   실측 (팀원 11/02): 퍽에 닿는 곳 약 5mm(gripper_left_joint 0.005) · 원기둥 0.33~0.42A · 팀 기준 0.3~0.4A · 한계 0.6A — 실기에서 다시 맞출 값
     #   끄기: launch 인자 grasp_check:=false (faker는 그리퍼가 끝까지 닫혀 늘 빈손이라 끔) — 여기 넣지 말 것 (launch 인자가 안 먹는 경우 있음)
+    # 적재함 장부 (coordinator 하나만 씀 — /coordinator/basket) · 파일에 저장해 다시 떠도 이어 감 ("" = 저장 안 함)
+    #   사람이 적재함을 손으로 비웠으면: ros2 service call /coordinator/basket_clear std_srvs/srv/Trigger
+    basket_file: "~/.ros/beebot_basket.txt"
+    # load next가 쓰는 칸 — 팔이 잘 못 닿는 칸은 여기서 뺌 (Isaac 10/27: 칸 2·8·9 성공률 낮음 — 실기에서 확인 후)
+    basket_use: [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11]
     grasp_min_pos_m: 0.003
     grasp_min_effort: 0.25
     # place <location_box>: 상자 윗면 + 손 안 퍽 바닥(손끝 아래 held_bottom_m, slot_table d_nom) + place_release_m에서 벌림
@@ -67,9 +72,7 @@ mission_manager:             # 주사위 기억 미션 (documents/mission/README
     location_boxes: [3.670, 0.950, 0.1025, 2.202, 3.495, 0.41, 3.670, 5.354, 0.1025]   # 장소가 놓인 박스 [x, y, 반 변] — L2는 중앙 받침대 820
     location_tags: [12, 13, 14]              # L1·L2·L3 장소 태그 번호
     tag_correction_max: 0.05                 # [m] 놓기 직전 인지 location_box(상자 윗면 가운데)가 예상 상자 중심에서 어긋난 만큼 칸을 옮기는 최대 거리 — 넘으면 잘못 본 것으로 보고 보정 안 함
-    # 적재함 12칸 — 조사하면서 읽은 퍽을 이 칸들에 싣고(coordinator load <칸>) 칸 → tag를 기억, BUILD 때 unload <칸>.
-    #   팔이 잘 못 닿는 칸은 여기서 뺌 (Isaac 10/27: 2·8·9 성공률 낮음 — 실기에서 확인). 다 차면 나머지는 시작 박스에서 직접 운반
-    tray_slots: [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11]
+    # 적재함: 장부(칸 → tag)는 coordinator가 씀 (/coordinator/basket) — 쓰는 칸은 coordinator basket_use. 다 차면 나머지는 시작 박스에서 직접 운반
     box_top_z: 0.070                         # 박스 윗면 = 퍽 바닥
     puck_height: 0.060
     grid_step: 0.060                         # 주사위 칸 간격

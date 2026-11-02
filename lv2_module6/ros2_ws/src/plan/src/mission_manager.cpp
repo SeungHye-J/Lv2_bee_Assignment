@@ -59,8 +59,6 @@ MissionManager::MissionManager()
   loc_boxes_ = boxes(declare_parameter<std::vector<double>>("location_boxes",
     {3.670, 0.950, 0.1025, 2.202, 3.495, 0.41, 3.670, 5.354, 0.1025}), -1.0);
   for (const auto v : declare_parameter<std::vector<int64_t>>("location_tags", {12, 13, 14})) loc_tags_.push_back(static_cast<int>(v));
-  for (const auto v : declare_parameter<std::vector<int64_t>>("tray_slots", {0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11}))
-    tray_slots_.push_back(static_cast<int>(v));
   puck_dx_ = declare_parameter<std::vector<double>>("puck_offsets_x", {-0.040, 0.040});
   box_top_z_ = declare_parameter<double>("box_top_z", 0.070);
   puck_h_ = declare_parameter<double>("puck_height", 0.060);
@@ -112,6 +110,8 @@ MissionManager::MissionManager()
     [on_signal](perception::msg::MissionSignal::ConstSharedPtr m) { on_signal(*m); });
   objects_sub_ = create_subscription<perception::msg::TrackedObjectArray>("/tracked_objects", rclcpp::QoS(5).reliable(),
     [this](perception::msg::TrackedObjectArray::ConstSharedPtr m) { objects_ = m; });
+  basket_sub_ = create_subscription<plan::msg::BasketState>("/coordinator/basket", rclcpp::QoS(1).reliable().transient_local(),
+    [this](plan::msg::BasketState::ConstSharedPtr m) { basket_ = m; if (active_) publish_state(); });
   status_sub_ = create_subscription<TaskStatus>("/task/status", rclcpp::QoS(10).reliable().transient_local(),
     [this](TaskStatus::ConstSharedPtr s) {
       if (!waiting_plan_ || s->plan_id != waiting_plan_ || s->state == TaskStatus::RUNNING) return;
@@ -126,7 +126,9 @@ MissionManager::MissionManager()
     s.summary(phase_ == Phase::ERROR ? DiagnosticStatus::ERROR : DiagnosticStatus::OK, phase_name(phase_));
     s.add("배정 L1·L2·L3", order_.empty() ? "-" : order_);
     s.add("조사한 퍽", pucks_.size());
-    s.add("적재함", tray_.size());
+    int n = 0;
+    if (basket_) for (const auto & b : basket_->slots) n += b.filled;
+    s.add("적재함", n);
     s.add("놓음", str(placed_) + "/" + str(static_cast<int>(jobs_.size())));
     s.add("바코드", barcode_.empty() ? "-" : barcode_);
   });
@@ -140,7 +142,6 @@ void MissionManager::on_command(const std::string & cmd) {
   active_ = true;
   pucks_.clear();
   puck_at_.clear();
-  tray_.clear();
   alloc_.clear();
   jobs_.clear();
   order_.clear();
@@ -294,16 +295,15 @@ void MissionManager::survey(size_t b) {
 
 void MissionManager::load(size_t b, std::vector<std::pair<int, uint32_t>> found, size_t k) {
   if (k >= found.size()) { survey(b + 1); return; }
-  int slot = -1;  // 비어 있는 첫 칸
-  for (int s : tray_slots_) if (!tray_.count(s)) { slot = s; break; }
-  if (slot < 0) { load(b, found, found.size()); return; }  // 꽉 참 — 나머지는 BUILD 때 시작 박스에서 직접
+  if (!basket_has_room()) { load(b, found, found.size()); return; }  // 꽉 참 — 나머지는 BUILD 때 시작 박스에서 직접
   const int tag = found[k].first;
   const uint32_t id = found[k].second;
-  note("퍽 " + str(tag) + " → 적재함 칸 " + str(slot));
-  run_retry({SubGoal().set__skill("pick").set__target(std::to_string(id))}, [this, b, found, k, slot, tag](bool ok, const std::string & why) {
+  note("퍽 " + str(tag) + " → 적재함 (load next)");
+  // 칸은 coordinator가 고르고 장부에 tag까지 적음 (pick 때 그 퍽의 tag·색·모양을 기억해 둠)
+  run_retry({SubGoal().set__skill("pick").set__target(std::to_string(id))}, [this, b, found, k, tag](bool ok, const std::string & why) {
     if (!ok) { result("puck " + str(tag) + ": load_pick_failed " + why + " (직접 운반)"); load(b, found, k + 1); return; }
-    run_retry({SubGoal().set__skill("load").set__target(str(slot))}, [this, b, found, k, slot, tag](bool ok2, const std::string & why2) {
-      if (ok2) { tray_[slot] = tag; publish_state(); load(b, found, k + 1); return; }
+    run_retry({SubGoal().set__skill("load").set__target("next")}, [this, b, found, k, tag](bool ok2, const std::string & why2) {
+      if (ok2) { load(b, found, k + 1); return; }
       // 적재함에 못 실음 — 손에 든 퍽을 박스 제자리에 되돌려 두고 BUILD 때 직접 운반
       const auto [bb, dx] = puck_at_[tag];
       run({SubGoal().set__skill("place").set__target(point(start_boxes_[bb].x + dx, start_boxes_[bb].y, box_top_z_))},
@@ -319,8 +319,7 @@ void MissionManager::solve_allocation() {
   std::string why;
   std::string list;
   for (const auto & p : pucks_) {
-    int slot = -1;
-    for (const auto & [s, t] : tray_) if (t == p.tag) slot = s;
+    const int slot = basket_slot_of(p.tag);
     list += std::string(list.empty() ? "" : ", ") + "{\"tag\": " + str(p.tag) + ", \"color\": " + q(p.color) +
             ", \"shape\": " + q(p.shape) + ", \"box\": " + str(static_cast<int>(puck_at_[p.tag].first) + 1) +
             ", \"tray_slot\": " + (slot < 0 ? "null" : str(slot)) + "}";
@@ -371,16 +370,13 @@ void MissionManager::bring(size_t i) {
   };
   const auto target = cell_target(job.loc, job.cell);
   const double tx = target.first, ty = target.second;
-  int slot = -1;
-  for (const auto & [s, t] : tray_) if (t == job.tag) slot = s;
+  const int slot = basket_slot_of(job.tag);  // coordinator 장부에서 그 tag가 실린 칸
   if (slot >= 0) {  // 적재함에 있음 — 장소 앞에 가서 꺼냄
     go_near(loc_boxes_[job.loc], tx, ty, [this, i, job, slot, skip](bool ok, const std::string & why) {
       if (!ok) { skip("place_approach_failed " + why); return; }
       correct(job.loc);
-      run_retry({SubGoal().set__skill("unload").set__target(str(slot))}, [this, i, slot, skip](bool ok2, const std::string & why2) {
+      run_retry({SubGoal().set__skill("unload").set__target(str(slot))}, [this, i, skip](bool ok2, const std::string & why2) {
         if (!ok2) { skip("tray_pick_failed " + why2); return; }
-        tray_.erase(slot);
-        publish_state();
         place_check(i, 0);
       });
     });
@@ -398,12 +394,9 @@ void MissionManager::bring(size_t i) {
       go_near(loc_boxes_[job.loc], tx, ty, [this, i, job, skip](bool ok3, const std::string & why3) {
         if (ok3) { correct(job.loc); place_check(i, 0); return; }
         // 장소에 못 감 — 손에 든 퍽은 적재함 빈 칸에 (다음 퍽을 집을 수 있게)
-        int free = -1;
-        for (int s : tray_slots_) if (!tray_.count(s)) { free = s; break; }
-        if (free < 0) { skip("place_approach_failed " + why3 + " (퍽을 든 채)"); return; }
-        run({SubGoal().set__skill("load").set__target(str(free))}, [this, job, free, why3, skip](bool ok4, const std::string &) {
-          if (ok4) tray_[free] = job.tag;
-          skip("place_approach_failed " + why3 + (ok4 ? " (적재함 칸 " + str(free) + "에 둠)" : " (퍽을 든 채)"));
+        if (!basket_has_room()) { skip("place_approach_failed " + why3 + " (퍽을 든 채)"); return; }
+        run({SubGoal().set__skill("load").set__target("next")}, [why3, skip](bool ok4, const std::string &) {
+          skip("place_approach_failed " + why3 + (ok4 ? " (적재함에 둠)" : " (퍽을 든 채)"));
         });
       });
     });
@@ -598,7 +591,8 @@ void MissionManager::publish_state() {
   m.count_y = static_cast<uint8_t>(counts_.y);
   m.count_g = static_cast<uint8_t>(counts_.g);
   m.order = order_;
-  for (const auto & [s, t] : tray_) m.tray.push_back(str(s) + ":" + str(t));
+  if (basket_) for (const auto & s : basket_->slots)  // coordinator 장부 그대로 — "칸:tag" (tag 모름 ?, 확인 필요 !)
+    if (s.filled) m.tray.push_back(str(s.slot) + ":" + (s.tag < 0 ? std::string("?") : str(s.tag)) + (s.check ? "!" : ""));
   m.placed = static_cast<uint16_t>(placed_);
   m.total = static_cast<uint16_t>(jobs_.size());
   m.results = results_;
@@ -681,6 +675,17 @@ std::pair<double, double> MissionManager::cell_target(size_t li, int cell) const
   const auto [dx, dy] = cell_offset(cell, grid_step_);
   const auto [cx, cy] = li < corr_.size() ? corr_[li] : std::pair<double, double>{0.0, 0.0};
   return {locations_[li].first + dx + cx, locations_[li].second + dy + cy};
+}
+
+int MissionManager::basket_slot_of(int tag) const {
+  if (basket_ && tag >= 0) for (const auto & s : basket_->slots) if (s.filled && s.tag == tag) return s.slot;
+  return -1;
+}
+
+bool MissionManager::basket_has_room() const {
+  if (!basket_) return true;  // 아직 장부를 못 받음 — coordinator가 load next에서 slot_full로 알려 줌
+  for (const auto & s : basket_->slots) if (!s.filled) return true;
+  return false;
 }
 
 const perception::msg::TrackedObject * MissionManager::find_puck(int tag) const {

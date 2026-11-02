@@ -81,7 +81,7 @@ ros2 topic echo /mission/state                                           # 단�
 - **박스에 다가가기**: Nav2로 박스 변 바깥 `standoff`(0.25m)까지 간 뒤, `approach`로 `approach_gap`(0.085m)까지 저속 직선으로 붙습니다. Nav2는 로봇을 원 0.18m로 봐서 더 붙지 못합니다.
   - 점에서 가까운 변부터 시도하고, 실패하면 다음 변으로 넘어갑니다(`approach_tries`).
   - 다음 주행 전에는 붙었던 자리에서 standoff까지 먼저 똑바로 물러납니다.
-- **적재함 12칸**(`tray_slots`): coordinator `load <칸>`·`unload <칸>`을 씁니다. 칸 → 퍽 tag는 mission_manager가 기억합니다. 칸이 다 차면 나머지 퍽은 BUILD 때 시작 박스에서 직접 집어 옵니다.
+- **적재함 12칸**: 조사하면서 `pick` → `load next`로 싣습니다. **장부(칸 → 퍽 tag)는 coordinator 하나만 씁니다**(`/coordinator/basket`, 파일 저장). mission_manager는 그 장부를 읽어 "그 tag가 실린 칸"을 찾아 `unload <칸>`을 보냅니다. 쓰는 칸은 coordinator `basket_use`. 칸이 다 차면 나머지 퍽은 BUILD 때 시작 박스에서 직접 집어 옵니다.
 - **할당**: 먼저 집은 퍽 때문에 Y(한 모양)를 못 만드는 일이 없도록 12개를 한 번에 정합니다.
   - Y의 모양을 정하면, Y에 들어갈 빨강 수(빨강 수 − R)와 초록 수(초록 수 − G)가 정해집니다.
   - 원기둥 → 직육면체 순으로, 그 수만큼 같은 모양 퍽이 있는지만 보면 됩니다(`allocate`).

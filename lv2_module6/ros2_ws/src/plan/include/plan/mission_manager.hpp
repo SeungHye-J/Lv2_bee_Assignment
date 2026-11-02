@@ -14,7 +14,8 @@
 //     GO_OBSERVE 팔 scan 자세 + 바코드 보는 자세로 → BARCODE 이번에 본 바코드 → 관측 자세(−X)로
 //     → READ 12회 점멸 — signal_status가 ok(두 사이클 같은 답)면 확정 · unconfirmed면 기다림 ·
 //              count·unknown·range가 signal_error_cycles번 이어지면 ERROR (발제: 추정 금지 → 안전 정지) · signal_timeout_s 넘어도 ERROR
-//     → SURVEY 시작 박스 6곳 전부: 퍽 두 자리 inspect(tag·색·모양) → pick → load <칸> (적재함 12칸 — 칸 → tag 기억)
+//     → SURVEY 시작 박스 6곳 전부: 퍽 두 자리 inspect(tag·색·모양) → pick → load next (적재함 12칸)
+//              적재함 장부(칸 → tag)는 coordinator 하나만 씀 — 여기선 /coordinator/basket을 읽어 "그 tag가 실린 칸"을 찾음
 //              → 12개 한 번에 할당 (mission_solver allocate)
 //     → BUILD 퍽마다: 장소 앞 → 장소 태그로 칸 위치 보정 → [적재함 칸에서 꺼냄 | 못 실은 퍽은 시작 박스에서 직접 집어 옴]
 //              (적재함이면 unload <칸>) → place 칸 "x,y,z" → 내려다보고 10 mm 밖·쓰러짐이면 다시 집어 놓기
@@ -33,6 +34,7 @@
 #include "perception/msg/mission_signal.hpp"
 #include "perception/msg/tracked_object_array.hpp"
 #include "plan/mission_solver.hpp"
+#include "plan/msg/basket_state.hpp"
 #include "plan/msg/mission_state.hpp"
 #include "plan/msg/sub_goal_array.hpp"
 #include "plan/msg/task_status.hpp"
@@ -106,7 +108,6 @@ private:
   std::vector<Box> start_boxes_, loc_boxes_;
   std::vector<std::pair<double, double>> locations_;
   std::vector<int> loc_tags_;
-  std::vector<int> tray_slots_;                  // 쓰는 적재함 칸 0~11 (coordinator load·unload — 팔이 잘 못 닿는 칸은 설정에서 뺌)
   std::vector<double> puck_dx_;
   double box_top_z_, puck_h_, grid_step_, standoff_, approach_gap_, verify_radius_, match_radius_;
   double place_tol_, place_search_, corr_max_;
@@ -133,7 +134,9 @@ private:
   std::string order_;                   // L1·L2·L3 그룹 ("YRG")
   std::vector<Puck> pucks_;             // 조사한 퍽 (tag·color·shape)
   std::map<int, std::pair<size_t, double>> puck_at_;  // tag → (시작 박스, x 오프셋) — 적재함에 못 실은 퍽을 집으러 갈 곳
-  std::map<int, int> tray_;             // 적재함 칸 → tag
+  plan::msg::BasketState::ConstSharedPtr basket_;  // 적재함 장부 — coordinator가 씀 (/coordinator/basket), 여기선 읽기만
+  int basket_slot_of(int tag) const;   // 그 tag가 실린 칸 (없으면 −1)
+  bool basket_has_room() const;        // 빈 칸이 있나 (장부를 아직 못 받았으면 있다고 봄)
   std::map<int, char> alloc_;
   struct Job { int tag; size_t loc; int cell; };
   std::vector<Job> jobs_;
@@ -155,6 +158,7 @@ private:
   rclcpp::Subscription<perception::msg::MissionSignal>::SharedPtr signal_sub_, signal_status_sub_;
   rclcpp::Subscription<perception::msg::TrackedObjectArray>::SharedPtr objects_sub_;
   rclcpp::Subscription<TaskStatus>::SharedPtr status_sub_;
+  rclcpp::Subscription<plan::msg::BasketState>::SharedPtr basket_sub_;
   rclcpp::Subscription<sensor_msgs::msg::Image>::SharedPtr photo_sub_;
   rclcpp::TimerBase::SharedPtr timer_, markers_timer_;
   diagnostic_updater::Updater diag_{this};
