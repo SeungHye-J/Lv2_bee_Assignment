@@ -196,7 +196,7 @@ function dist(o) { const r = robot(), p = o.position; return r && p ? Math.hypot
 function label(o) {
   if (!o) return "?";
   const tag = detail(o, "tag"), content = detail(o, "content");
-  const name = o.class_name === "location" && tag ? `장소 L${tag - 11} #${tag}` : o.class_name === "barcode" ? `바코드 ${content}` : `${o.class_name}${o.color ? " " + o.color : ""}${tag ? " #" + tag : ""}`;
+  const name = o.class_name === "location_box" && tag ? `장소 L${tag - 11} #${tag}` : o.class_name === "barcode" ? `바코드 ${content}` : `${o.class_name}${o.color ? " " + o.color : ""}${tag ? " #" + tag : ""}`;
   return `${o.id} · ${name}`;
 }
 
@@ -286,7 +286,7 @@ function renderView() {
         <td>${isP ? `<input type="checkbox" class="ck" ${objSel.has(o.id) ? "checked" : ""}>` : ""}</td>
         <td class="mono">${o.id}</td><td>${esc(o.class_name)}${posture ? ` <span class="hint">${esc(posture)}</span>` : ""}</td>
         <td>${o.color ? `<span class="dot" style="background:${COLORS[o.color] || "#999"}"></span>${esc(o.color)}` : ""}</td>
-        <td>${tag ? `<span class="tagchip">${o.class_name === "location" ? "L" + (tag - 11) + " · " : "#"}${esc(tag)}</span>` : ""}${content ? `<span class="tagchip">${esc(content)}</span>` : ""}${isP && !tag ? `<span class="hint">번호 모름</span>` : ""}</td>
+        <td>${tag ? `<span class="tagchip">${o.class_name === "location_box" ? "L" + (tag - 11) + " · " : "#"}${esc(tag)}</span>` : ""}${content ? `<span class="tagchip">${esc(content)}</span>` : ""}${isP && !tag ? `<span class="hint">번호 모름</span>` : ""}</td>
         <td class="mono">${d == null ? "" : d.toFixed(2) + "m"}</td>
         <td><span class="mini">
           <button data-a="navigate">이동</button>
@@ -377,18 +377,18 @@ function drawMap() {
     if (!o.position) continue;
     const [u, w] = toScreen(o.position[0], o.position[1]);
     const isP = PUCK.has(o.class_name), tag = detail(o, "tag");
-    g.fillStyle = o.color && COLORS[o.color] ? COLORS[o.color] : o.class_name === "location" ? css("--s-place") : o.class_name === "barcode" ? css("--s-inspect") : "#8a94a3";
+    g.fillStyle = o.color && COLORS[o.color] ? COLORS[o.color] : o.class_name === "location_box" ? css("--s-place") : o.class_name === "barcode" ? css("--s-inspect") : "#8a94a3";
     g.strokeStyle = css("--text"); g.lineWidth = hover === o.id ? 2.5 : 1;
     g.beginPath();
     if (isP) g.arc(u, w, 7, 0, Math.PI * 2);
-    else if (o.class_name === "location") g.rect(u - 9, w - 9, 18, 18);
+    else if (o.class_name === "location_box") g.rect(u - 9, w - 9, 18, 18);
     else if (o.class_name === "barcode") g.rect(u - 10, w - 4, 20, 8);
     else { g.moveTo(u, w - 8); g.lineTo(u + 8, w + 7); g.lineTo(u - 8, w + 7); g.closePath(); }
     g.fill(); g.stroke();
     if (selStep && selStep.target === String(o.id)) { g.strokeStyle = css("--accent"); g.lineWidth = 3; g.beginPath(); g.arc(u, w, 13, 0, Math.PI * 2); g.stroke(); }
     if (objSel.has(o.id)) { g.strokeStyle = css("--s-pick"); g.lineWidth = 2; g.setLineDash([3, 3]); g.beginPath(); g.arc(u, w, 11, 0, Math.PI * 2); g.stroke(); g.setLineDash([]); }
     g.fillStyle = css("--text"); g.font = "11px ui-monospace, Menlo, monospace";
-    g.fillText(String(o.id) + (tag ? (o.class_name === "location" ? ` L${tag - 11}` : ` #${tag}`) : ""), u + 10, w - 8);
+    g.fillText(String(o.id) + (tag ? (o.class_name === "location_box" ? ` L${tag - 11}` : ` #${tag}`) : ""), u + 10, w - 8);
   }
   // 로봇
   if (r) {
@@ -440,8 +440,8 @@ function targetOptions(skill, val) {
   if (skill === "pick") groups.push(["적재함", [["tray", "tray — 적재함에서 꺼내기 (나중에 실은 것부터)"]]]);
   if (skill === "place") groups.push(["적재함", [["tray", "tray — 적재함에 싣기"]]]);
   const pucks = os.filter((o) => PUCK.has(o.class_name)).map((o) => [String(o.id), label(o)]);
-  const places = os.filter((o) => ["location", "barcode"].includes(o.class_name)).map((o) => [String(o.id), label(o)]);
-  const rest = os.filter((o) => !PUCK.has(o.class_name) && !["location", "barcode"].includes(o.class_name)).map((o) => [String(o.id), label(o)]);
+  const places = os.filter((o) => ["location_box", "barcode"].includes(o.class_name)).map((o) => [String(o.id), label(o)]);
+  const rest = os.filter((o) => !PUCK.has(o.class_name) && !["location_box", "barcode"].includes(o.class_name)).map((o) => [String(o.id), label(o)]);
   if (skill === "pick" || skill === "inspect") groups.push(["퍽", pucks]);
   else if (skill === "place") { groups.push(["장소", places]); groups.push(["퍽(위에 놓기 — 비권장)", pucks]); groups.push(["기타", rest]); }
   else { groups.push(["퍽", pucks]); groups.push(["장소", places]); groups.push(["기타", rest]); }
@@ -468,8 +468,8 @@ function macroCarry() {
   const pucks = [...objSel].map(String);
   if (!pucks.length) { toast("물체 표에서 옮길 퍽을 체크하세요"); return; }
   if (pucks.length > TRAY_CAP) { toast(`적재함은 ${TRAY_CAP}칸 — ${TRAY_CAP}개까지`); return; }
-  const places = objects().filter((o) => o.class_name === "location");
-  const dest = d.sel >= 0 && obj(d.steps[d.sel]?.target)?.class_name === "location" ? d.steps[d.sel].target : places[0] ? String(places[0].id) : "";
+  const places = objects().filter((o) => o.class_name === "location_box");
+  const dest = d.sel >= 0 && obj(d.steps[d.sel]?.target)?.class_name === "location_box" ? d.steps[d.sel].target : places[0] ? String(places[0].id) : "";
   for (const p of pucks) { d.steps.push(defaults("navigate", p)); d.steps.push(defaults("pick", p)); d.steps.push({ ...defaults("place", "tray"), relation: "" }); }
   d.steps.push(defaults("navigate", dest));
   for (const _ of pucks) { d.steps.push(defaults("pick", "tray")); d.steps.push(defaults("place", dest)); }

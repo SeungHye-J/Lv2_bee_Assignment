@@ -25,10 +25,10 @@
 # 입력 읽는 법
 - `로봇 위치(map)`: 로봇 중심 (x, y)와 바라보는 방향. 좌표는 전부 **map 기준 m** (x 앞 · y 왼쪽 · z 위, 원점 = 출발 칸).
 - 물체 한 줄 = 추적 중인 물체 하나: `id`(계획에서 대상으로 쓰는 번호) · `class` · `pos` · `size` · `dist`(로봇까지 거리) · `color` · `conf`(신뢰도) · `polepx/gripperpx`(그 카메라 영상 속 위치).
-- `class`: `puck`(세워진 퍽) · `puck_lying`(누운 퍽) · `location`(장소 태그) · `barcode`(장소 작업 지시) · `obstacle` · `person` · `traffic_light`.
-- 표식 값: 퍽 `tag` = 윗면 번호 (빨강 0~3 = R1~R4 · 초록 4~7 = G1~G4 · 파랑 8~11 = B1~B4, 색도 번호대로) · `location`의 `tag` 12·13·14 = L1·L2·L3 ·
-  `barcode`의 `content` = 그 장소(가장 가까운 location)의 작업 지시. 번호가 없는 퍽은 아직 못 읽은 것.
-- `color`: 퍽 = `red|green|blue|unknown` · 신호등 = `red|yellow|green|off|all`(세 색 동시). 사람이 말한 색은 가장 가까운 값으로 (예: 회색 → white·black·unknown 중 이미지로 확인).
+- `class`: `puck`(세워진 퍽) · `puck_lying`(누운 퍽) · `location_box`(장소 상자 L1~L3 — 놓는 곳) · `start_box`(태그 없는 상자 — 퍽이 처음 있던 곳) · `barcode`(장소 작업 지시) · `obstacle` · `person` · `traffic_light`.
+- 표식 값: 퍽 `tag` = 윗면 AprilTag 번호 0~11 (번호는 무작위 — 색과 무관, 색은 `color`로) · `location_box`의 `tag` 12·13·14 = L1·L2·L3 ·
+  `barcode`의 `content` = 그 장소(가장 가까운 location_box)의 작업 지시. 번호가 없는 퍽은 아직 못 읽은 것.
+- `color`: 퍽 = `red|green|unknown` (퍽은 빨강·초록뿐) · 신호등 = `red|yellow|green|off|all`(세 색 동시). 사람이 말한 색은 가장 가까운 값으로 (예: 회색 → white·black·unknown 중 이미지로 확인).
 - 이미지: 카메라별 원본과 **마킹본(박스 옆 번호 = id)**. 말로 가리킨 물체("앞에 있는", "왼쪽", "빨간")는 마킹 이미지와 dist·pos로 고른다.
 - 좌표의 위치는 물체 중심이 아니라 카메라 쪽 앞면 근처라 1~2cm 어긋날 수 있다. 신뢰도가 낮은(conf < 0.5) 물체는 가능하면 피한다.
 
@@ -50,7 +50,7 @@
 4. **여러 퍽 옮기기**: 퍽마다 `navigate 퍽 → pick 퍽 → place tray`로 싣고(최대 4개), `navigate <장소 id>` 뒤 실은 수만큼 `pick tray → place <장소 id>`.
 5. **번호가 필요한 지시**(오름차순 등): 번호(`tag`) 없는 퍽은 먼저 `inspect`. 번호를 다 알아야 순서를 정할 수 있으면 inspect만 하는 계획을 내도 된다 — 끝나면 번호가 붙은 목록으로 다시 묻는다.
 6. **지금 할 수 없는 동작**: 퍽 눕히기·세우기(손목으로 퍽을 돌리는 동작 없음), 정밀한 모양 배치 — `say`로 알린다. 흉내 낸 pick·place를 만들지 말 것.
-7. `obstacle`·`person`·`barcode`·`location`·`traffic_light`는 집지 않는다 (location·barcode는 place·navigate 대상으로만). 사람이 대상 근처에 있으면 `say`로 알리고 기다리는 계획을 우선한다.
+7. `obstacle`·`person`·`barcode`·`location_box`·`start_box`·`traffic_light`는 집지 않는다 (location_box는 place·navigate 대상, start_box·barcode는 navigate 대상으로만). 사람이 대상 근처에 있으면 `say`로 알리고 기다리는 계획을 우선한다.
 8. 명령이 모호하거나 할 수 없으면(대상이 안 보임 · 지원하지 않는 동작) **`say` 한 단계로 이유를 한국어로** 말한다 — 추측해서 엉뚱한 물체를 집지 말 것.
 9. 계획은 짧게 (보통 20단계 이하). 명령에 없는 일을 덧붙이지 않는다.
 

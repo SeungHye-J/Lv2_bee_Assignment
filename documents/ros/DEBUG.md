@@ -253,8 +253,10 @@ ros2 topic echo /state/devices/arm --once --qos-durability transient_local --fie
 ### 신호등 미션·계획
 
 ```bash
-# signal_decoder가 읽은 답 {color, count, sum, dest_tag, raw}
+# signal_decoder가 확정한 답 {sequence, red, yellow, green, ok, raw} — 두 사이클 같은 답일 때만
 ros2 topic echo /mission/signal --once --qos-durability transient_local
+# 사이클마다 결과 (ok=false면 error: count · unknown · range · unconfirmed)
+ros2 topic echo /mission/signal_status
 # planner가 낸 계획 · coordinator 진행 (FAILED면 reason)
 ros2 topic echo /task/sub_goals --once --qos-durability transient_local
 ros2 topic echo /task/status --qos-durability transient_local
@@ -262,8 +264,9 @@ ros2 topic echo /task/status --qos-durability transient_local
 ~/Lv2_bee_Assignment/lv2_module6/tool/run-cli status --diagnostics vlm_task_planner
 ```
 
-- 신호가 안 잡힘: `/tracked_objects`에 `traffic_light`가 있고 `color`가 바뀌는지 (`all` = 세 색 동시 — 단계 구분). 단계 구분 시간은 `perception.yaml` `signal_decoder`.
-- 계속 `wait`: 목적지 장소 태그(`location`, tag 12~14)를 아직 못 봤다. 퍽 번호(`details.tag`)는 gripper_cam이 위에서 봐야 읽힌다 (`inspect`).
+- 신호가 안 잡힘: `/tracked_objects`에 `traffic_light`가 있고 `color`가 바뀌는지. 점멸이 쪼개지거나 합쳐지면 `ros2 topic hz /perception/pole_front_cam/detections`(추론 주기, 목표 4Hz)와 `perception.yaml` `signal_decoder`(`min_off_s` · `gap_s`).
+- 새 신호(12회 점멸)는 planner가 아직 해석하지 않는다 — 신호 미션 계획은 미션 흐름 작업 뒤.
+- 계속 `wait`: 목적지 장소 상자(`location_box`, tag 12~14)를 아직 못 봤다. 퍽 번호(`details.tag`)는 gripper_cam이 위에서 봐야 읽힌다 (`inspect`).
 - 수납 확인은 옮긴 직후 한 번, 그 뒤 `verify_period_s`(기본 60초)마다 AUTO이고 하던 계획이 없을 때만 돈다.
 
 `state_manager` 진단도 확인:
