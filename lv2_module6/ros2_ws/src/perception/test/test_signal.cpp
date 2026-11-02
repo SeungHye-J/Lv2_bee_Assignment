@@ -140,7 +140,7 @@ TEST(Signal, ConfirmOne) {
   EXPECT_TRUE(s.got[0].ok);
 }
 
-// ---- 실물 녹화 재생(10/28, tl_bags · shape_v3 모델)에서 나온 경우들
+// ---- 실물 녹화 재생(10/28, tl_bags · bee_yolo11n_v2 모델)에서 나온 경우들
 TEST(Signal, ColorFlickerInsideBlinkNotSplit) {
   Sim s;
   // 빨강 1초 중 0.3초를 모델이 노랑으로 봄 → 쪼개지 않고 다수결 빨강 1번

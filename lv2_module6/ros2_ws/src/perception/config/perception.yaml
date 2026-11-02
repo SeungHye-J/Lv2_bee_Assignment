@@ -2,11 +2,11 @@
 perception:
   ros__parameters:
     rate_hz: 10.0            # /tracked_objects 발행 주기 (설계: 10Hz · reliable)
-    model_path: "bee_yolo11n_dice_v1.pt"  # 비면 share/perception/model/model.pt(팀 모델) 자동 탐색, 없으면 빈 목록 · 파일 이름만 쓰면 그 폴더에서 찾음
-                            #   bee_yolo11n_dice_v1.pt (11/02): 빨강·초록 퍽 × 사각·원기둥 4종 + 신호등 상태 4 + person · obstacle = 10클래스
+    model_path: "bee_yolo11n_v3.pt"  # 비면 share/perception/model/model.pt(팀 모델) 자동 탐색, 없으면 빈 목록 · 파일 이름만 쓰면 그 폴더에서 찾음
+                            #   bee_yolo11n_v3.pt (11/02): 빨강·초록 퍽 × 사각·원기둥 4종 + 신호등 상태 4 + person · obstacle = 10클래스
                             #     — 주사위 미션 경기장 합성 + 실물 신호등 + 실물 퍽 + 튜터 합성 퍽 3000장
-                            #     실물 시험(imgsz 416 · conf 0.4): 퍽 168/184 찾음 · 헛검출 19 · 신호등 상태 572/588 (shape_v3: 145 · 33 · 563)
-                            #   되돌리기: "bee_yolo11n_shape_v3.pt" (10/27, 노랑·파랑 퍽 포함 14클래스) · "bee_yolo11n_v1.pt" (10/22) · "" (팀 기본 model.pt)
+                            #     실물 시험(imgsz 416 · conf 0.4): 퍽 168/184 찾음 · 헛검출 19 · 신호등 상태 572/588 (v2: 145 · 33 · 563)
+                            #   되돌리기: "bee_yolo11n_v2.pt" (10/27, 노랑·파랑 퍽 포함 14클래스) · "bee_yolo11n_v1.pt" (10/22) · "" (팀 기본 model.pt)
     confidence: 0.4         # 검출 신뢰도 하한
     imgsz: 416              # YOLO 입력 한 변 (도커 CPU용)
     device: "cpu"           # 실기 GPU 있으면 cuda
