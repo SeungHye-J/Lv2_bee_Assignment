@@ -44,7 +44,10 @@ if [ -n "$OTHERS" ] && [ "${ALLOW_OTHER_NODES:-0}" != 1 ]; then
 fi
 
 rm -f "$PORT"                         # 지난 실행의 링크가 남아 있으면 아래 대기가 바로 통과해 버린다
-(source "${ISAACSIM_VENV:-$HOME/pa-course/.venv-isaacsim}/bin/activate" && exec isaacsim --exec "$HERE/scripts/isaac_startup.py") &
+# ROS's own pinocchio (ros-lyrical-pinocchio, built for numpy 1.x) sits on the sourced PYTHONPATH ahead of the copy Isaac
+# bundles for its pink extension, and Isaac (numpy 2.x) then fails to start (2026-11-02). Put Isaac's copy first.
+PINK_PY="${ISAACSIM_VENV:-$HOME/pa-course/.venv-isaacsim}/lib/python3.12/site-packages/isaacsim/exts/isaacsim.robot_motion.pink/pip_prebundle/cmeel.prefix/lib/python3.12/site-packages"
+(export PYTHONPATH="$PINK_PY:$PYTHONPATH" && source "${ISAACSIM_VENV:-$HOME/pa-course/.venv-isaacsim}/bin/activate" && exec isaacsim --exec "$HERE/scripts/isaac_startup.py") &
 ISAAC_PID=$!
 until [ -e "$PORT" ]; do
   kill -0 $ISAAC_PID 2>/dev/null || exit 1
