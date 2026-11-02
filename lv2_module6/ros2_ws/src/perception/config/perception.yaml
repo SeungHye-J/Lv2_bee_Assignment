@@ -2,8 +2,11 @@
 perception:
   ros__parameters:
     rate_hz: 10.0            # /tracked_objects 발행 주기 (설계: 10Hz · reliable)
-    model_path: ""          # 비면 share/perception/model/model.pt(팀 모델) 자동 탐색, 없으면 빈 목록 · 파일 이름만 쓰면 그 폴더에서 찾음
-                            #   실물 로봇: "bee_yolo11n_v1.pt" (Isaac Sim + 실물 미세조정 — 실물 30장 mAP50 0.995 · 클래스 puck_red 등 색별)
+    model_path: "bee_yolo11n_v3.pt"  # 비면 share/perception/model/model.pt(팀 모델) 자동 탐색, 없으면 빈 목록 · 파일 이름만 쓰면 그 폴더에서 찾음
+                            #   bee_yolo11n_v3.pt (11/02): 빨강·초록 퍽 × 사각·원기둥 4종 + 신호등 상태 4 + person · obstacle = 10클래스
+                            #     — 주사위 미션 경기장 합성 + 실물 신호등 + 실물 퍽 + 튜터 합성 퍽 3000장
+                            #     실물 시험(imgsz 416 · conf 0.4): 퍽 168/184 찾음 · 헛검출 19 · 신호등 상태 572/588 (v2: 145 · 33 · 563)
+                            #   되돌리기: "bee_yolo11n_v2.pt" (10/27, 노랑·파랑 퍽 포함 14클래스) · "bee_yolo11n_v1.pt" (10/22) · "" (팀 기본 model.pt)
     confidence: 0.4         # 검출 신뢰도 하한
     imgsz: 416              # YOLO 입력 한 변 (도커 CPU용)
     device: "cpu"           # 실기 GPU 있으면 cuda
@@ -32,7 +35,7 @@ perception:
     miss_occlusion_m: 0.10  # 그 자리 깊이가 물체까지 거리보다 이만큼 넘게 가까우면 가려진 것 — 세지 않음 [m]
     remember_min_hits: 3    # 같은 자리에서 이만큼 잡혀야 기억 — 그 전엔 2초 규칙 (TF가 잠깐 어긋나 엉뚱한 자리에 찍힌 유령 퍽이 남지 않게)
     # 퍽 판단 (실물 측정 10/21~22 · test/puck_tag_check.py) — 퍽 색·크기는 발제문이 나오면 여기서만 바꿀 것
-    puck_colors: ["red", "yellow", "green", "blue"]  # 퍽으로 볼 색 (가정: 빨강·노랑·초록 · 파랑 = 지금 실물 테스트용)
+    puck_colors: ["red", "green"]  # 퍽으로 볼 색 (발제 v5 · 사용자 10/29: 퍽은 빨강·초록뿐 — 파랑·노랑 퍽 없음)
     hue_tol: 10             # 기준 H(색상)에서 이만큼 안이어야 그 색 — 넘으면 other (주황 컵홀더 H12~13이 빨강으로 안 잡히게)
     check_model_color: true # YOLO 이름의 색(puck_red)과 HSV 색이 다르면 퍽 아님
     size_long_min_cm: 2.5   # 박스 긴 변 하한 [cm] (끝면·윗면 3×3만 보이면 2.5~3.9)
@@ -44,16 +47,16 @@ perception:
     edge_px: 5              # 박스가 화면 가장자리 이 안에 닿으면 잘린 퍽 — 크기 하한·자세 안 봄 [px]
     near_px: 70             # 깊이 없는데 박스 짧은 변이 이 이상이면 너무 가까운 퍽 — 위치 갱신 없이 마지막 위치 유지 [px]
     depth_min_valid: 0.5    # 박스 가운데 깊이 화소가 이 비율보다 적으면 깊이 없음 (배경 몇 화소로 엉뚱한 거리 안 냄)
-signal_decoder:              # 신호등 암호 미션 (documents/mission/README.md) — /tracked_objects 신호등 상태 → 깜빡임 3단계 → /mission/signal (→ plan)
-  ros__parameters:           #   단계 구분·점수 등은 MISSION §6 미정 — 제안값 (공지 나오면 여기만 바꿈)
-    min_on_s: 0.15           # [s] 이보다 짧은 켜짐은 잡음
-    separator_s: 2.0         # [s] 세 색 동시(all)가 이만큼 이어지면 단계 구분 (제안: 3초 켜짐)
-    gap_s: 3.0               # [s] 꺼짐(신호등 안 보임 포함)이 이만큼 이어져도 단계 끝
-    score_red: 1             # 2단계 색 점수 (제안: 모두 1)
-    score_yellow: 1
-    score_green: 1
-    dest_tags: [12, 13, 14]  # 3단계 노랑 1·2·3번 → 목적지 장소 태그 (L1~L3)
-    confirm: 1               # 같은 답이 이만큼 연달아 나와야 확정 (신호를 반복하면 2)
+signal_decoder:              # 신호등 12회 점멸 (발제 v5 §02) — /tracked_objects 신호등 상태 → 사이클(12번)마다 → /mission/signal (→ 통합)
+  ros__parameters:           #   한 번 = 1초 켜짐 + 1초 꺼짐 · 12번 뒤 3초 꺼짐 후 반복 (사용자 10/28)
+    min_on_s: 0.3            # [s] 켜진 구간이 이보다 짧으면 잡음 (진짜 켜짐 1초)
+    min_off_s: 0.3           # [s] 이보다 짧은 꺼짐은 켜진 구간 안 (모델이 한두 프레임 놓침 · 진짜 점멸 사이 꺼짐 1초 — 0.4면 꺼짐 가운데 잡음에 두 점멸이 합쳐짐)
+    min_share: 0.5           # 켜진 구간에서 가장 많은 색 비율이 이보다 작으면 unknown (구간 안 색이 흔들려도 다수결)
+    gap_s: 2.5               # [s] 꺼짐(신호등 안 보임 포함)이 이만큼 이어지면 사이클 끝 — 점멸 사이 1초보다 길고 사이클 사이 3초보다 짧게
+    blinks: 12               # 한 사이클 점멸 수 — 아니면 error count
+    min_count: 1             # 색별 횟수 범위 (발제: 각 1~6회) — 벗어나면 error range
+    max_count: 6
+    confirm: 2               # 같은 답이 이만큼 연달아 나와야 ok (반복 신호 — 한 사이클 약 27초라 처음 확정까지 약 1분)
 # 자기 몸 점구름 필터 (C++ body_filter, 담당: 전승혜) — Nav2 costmap·collision_monitor 입력에서 팔·차체 점을 뺀다
 body_filter:
   ros__parameters:
