@@ -91,7 +91,9 @@ class Session:
         if marker is not None:
             self.expect(marker)
         else:
-            time.sleep(wait)
+            end = time.monotonic() + wait  # 기다리는 동안도 읽음 — 안 읽으면 pty가 차서 CLI가 출력에서 멈추고,
+            while time.monotonic() < end:  #   뒤에 보낸 키가 ESC와 붙어 한 시퀀스로 먹힘 (상태바 1초 갱신 뒤 manual-cancel 실패)
+                self._read(0.05)
             while self._read(0.05):
                 pass
 
