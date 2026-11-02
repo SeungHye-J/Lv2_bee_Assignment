@@ -368,7 +368,8 @@ void Coordinator::run_step() {
         RCLCPP_INFO(get_logger(), "place 점까지 수평 %.3fm (로봇 %.3f,%.3f)", std::hypot(v[0] - rx, v[1] - ry), rx, ry);
       place_at(release, [this](bool ok) {
         if (!ok) { fail("place_failed"); return; }
-        held_shape_.clear();
+        held_ = PuckInfo{};  // 손 비움 — 장부 발행·저장
+        basket_changed();
         next();
       });
       return;
