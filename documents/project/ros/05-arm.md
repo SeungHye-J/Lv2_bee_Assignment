@@ -34,7 +34,7 @@ flowchart LR
       LOAD["load<br/>적재함 12칸"]
       UNLOAD["unload<br/>+ 잡기 판정"]
       PLACE["place<br/>location_box 윗면"]
-      RIGHT["right · right_pick<br/>(예정)"]
+      STAND["stand · stand_pick<br/>(예정)"]
     end
   end
   subgraph EXE["③ 실행"]
@@ -75,7 +75,7 @@ flowchart TB
   end
   subgraph F2["세워 싣기 (예정)"]
     direction LR
-    b1["pose stow"] --> b2["navigate 퍽"] --> b3["right 퍽"] --> b4["right_pick 퍽"] --> b5["load next"]
+    b1["pose stow"] --> b2["navigate 퍽"] --> b3["stand 퍽"] --> b4["stand_pick 퍽"] --> b5["load next"]
   end
   subgraph F3["꺼내 놓기"]
     direction LR
@@ -128,8 +128,8 @@ carry 방향은 **칸이 정합니다**. basket.yaml `basket_carry`에서 칸 0�
 | `load` | 칸 `0`~`11` · `next` | 손에 든 퍽을 적재함 칸에 싣기: **carry(칸 방향) → q_over → q_low → 벌림 → q_lift → stow** | `stow` |
 | `unload` | 칸 `0`~`11` · `last` | 적재함 칸의 퍽 꺼내기: **carry(칸 방향) → 벌림 → q_over → q_grasp → 닫기 → 잡기 판정 → q_over → carry** | `carry_<칸 방향>` |
 | `place` | `location_box` id (다른 물체도 됨) | 손에 든 퍽을 상자 윗면에 놓기 ([4절](#place--상자-값)) | 상자 위 |
-| `right` | 퍽 id (`puck_lying`) | 누운 퍽을 세워 놓음 | **(예정 — 세우는 방법 미정)** |
-| `right_pick` | 퍽 id | 세운 퍽을 다시 집기 (`right` 바로 뒤) | **(예정)** |
+| `stand` | 퍽 id (`puck_lying`) | 누운 퍽을 세워 놓음 — 먼 끝을 가볍게(0.4N) 쥐고 가까운 아래 모서리를 축으로 돌려 세운 뒤 벌림 (팀원 `right_env` tilt 방식) | **(예정)** |
+| `stand_pick` | 퍽 id | 세운 퍽을 다시 집기 — `stand` 직후 관절값에서 손목 그대로 바로 아래로, 제 힘으로 쥐고 잡기 판정 (인지 갱신을 기다리지 않음) | **(예정)** |
 
 - **적재함 12칸**: 칸 위치는 URDF 링크 `basket_slot_0`~`11`(3줄 × 4칸)입니다. `load`·`unload`는 basket.yaml에서 칸과 퍽 모양(`box`·`cyl`)에 맞는 `q_over`·`q_low`·`q_lift`·`q_grasp`를 관절 목표로 씁니다. 적재함은 로봇에 고정돼 있어 매번 같은 값입니다.
   - 손 안 퍽 위치가 기준(`held_bottom_m`)과 다를 때 쓰는 보정(slot_table의 `P_*`)은 아직 쓰지 않습니다. **(예정 — 손 안 퍽 위치를 잴 수 있을 때)**
@@ -144,7 +144,7 @@ carry 방향은 **칸이 정합니다**. basket.yaml `basket_carry`에서 칸 0�
 ### 시작할 때: 처짐 보정 초기화
 팔 skill(`pick`, `place`, `load`, `unload`)을 **시작할 때 한 번** `/rl_arm_correction/reset_sag`(std_srvs/Trigger)를 부릅니다. skill 중간에는 부르지 않습니다. 다가가기(`approach`)가 끝나고 팔이 움직이기 직전에 부릅니다.
 - 서비스가 없으면 WARN을 한 번 남기고 계속합니다. 지금 develop에는 없고 feature/isaac-lab에만 있습니다.
-- `right`·`right_pick`도 구현할 때 같은 방식으로 부릅니다.
+- `stand`·`stand_pick`도 구현할 때 같은 방식으로 부릅니다.
 
 ### 잡기 판정 (`pick`, `unload`)
 닫은 뒤 `/joint_states`의 `gripper_left_joint` 위치와 전류(effort)로 판정합니다.
@@ -161,7 +161,7 @@ carry 방향은 **칸이 정합니다**. basket.yaml `basket_carry`에서 칸 0�
 | 퍽 위치 | `pose.position` | grasp_scorer 후보의 기준. 퍽이 `start_box` 위에 있으면 z가 상자 높이(약 0.07m)만큼 높은 그대로 씀 (고정 높이 아님) |
 | 모양 | `details.shape` (`box` · `cyl`) | 손에 든 퍽 모양으로 기억해 적재함 표를 고름 |
 | 방향 | `pose.orientation`(yaw) · `details.yaw_period` | **(예정)** 사각 퍽은 손 수직축 회전(joint5)을 퍽 yaw(90° 주기, 지금 손 방향에서 가장 가까운 것)에 맞춤. 지금은 수직축 회전을 풀어 둠 |
-| 자세 | `class_name` `puck` / `puck_lying`, `details.posture` | **(예정)** `puck_lying`이면 `pick` 대신 `right` → `right_pick` |
+| 자세 | `class_name` `puck` / `puck_lying`, `details.posture` | **(예정)** `puck_lying`이면 `pick` 대신 `stand` → `stand_pick` |
 
 ### place: 상자 값
 | 값 | 출처 | 쓰는 법 |
@@ -179,7 +179,7 @@ carry 방향은 **칸이 정합니다**. basket.yaml `basket_carry`에서 칸 0�
 | 흐름 | 단계 (`/task/sub_goals`) | 팀원 스펙의 표기 |
 |---|---|---|
 | 집어 싣기 | `pose stow` → `navigate <퍽>` → `pick <퍽>` → `load next` | stow → pick → carry → load → stow |
-| 세워 싣기 (예정) | `pose stow` → `navigate <퍽>` → `right <퍽>` → `right_pick <퍽>` → `load next` | stow → right → right-pick → carry → load → stow |
+| 세워 싣기 (예정) | `pose stow` → `navigate <퍽>` → `stand <퍽>` → `stand_pick <퍽>` → `load next` | stow → right → right-pick → carry → load → stow |
 | 꺼내 놓기 | `navigate <상자>` → `unload last` → `place <상자>` → `pose stow` | stow → unload → carry → place |
 
 - 퍽 여러 개: 퍽마다 "집어 싣기"를 반복 → `navigate <location_box>` → "꺼내 놓기" × N.
@@ -199,7 +199,7 @@ carry 방향은 **칸이 정합니다**. basket.yaml `basket_carry`에서 칸 0�
 | `basket_table_missing` | basket.yaml 표가 안 들어옴 (launch 확인) |
 | `place_failed` · `place_no_target` · `inspect_no_target` · `inspect_failed` | 놓기·보기 실패, 대상 없음 |
 | `manual_*` · `explore_*` · `estop*` · `cancelled` | 모드 전환·비상정지·정지 요청 |
-| `right_failed` · `right_not_lying` | **(예정)** 세우기 실패 · 대상이 누운 퍽이 아님 |
+| `stand_failed` · `stand_not_lying` | **(예정)** 세우기 실패 · 대상이 누운 퍽이 아님 |
 
 옛 `tray_full`·`tray_empty`·`tray_place_failed`·`tray_pick_failed`는 없어졌습니다. 같은 경우에 `slot_full`·`slot_empty`·`load_failed`·`unload_failed`가 나옵니다.
 
@@ -207,7 +207,7 @@ carry 방향은 **칸이 정합니다**. basket.yaml `basket_carry`에서 칸 0�
 
 | 할 것 | 조건 |
 |---|---|
-| `right`·`right_pick` | 세우는 방법이 정해진 뒤 ([8절](#8-정할-것-팀원-확인) 1) |
+| `stand`·`stand_pick` | 팀원 경유점(`isaac/lab/stand_plan.py` · `right_env.plan_waypoints`)을 받아 MoveIt으로 실행 · 실기는 그리퍼 힘 명령(펌웨어) 뒤 ([8절](#8-정할-것-팀원-확인) 1) |
 | 사각 퍽 집을 때 손 방향을 yaw에 맞춤 | MoveIt 방향 제약에 90° 주기 후보 넣기 |
 | 손 안 퍽 위치 보정 (`P_*`) | 손 안 퍽 위치를 잴 수 있을 때 |
 | 집는 힘 단계별 명령 | 펌웨어 변경 뒤 |
@@ -215,10 +215,10 @@ carry 방향은 **칸이 정합니다**. basket.yaml `basket_carry`에서 칸 0�
 
 ## 8. 정할 것 (팀원 확인)
 
-1. **`right` 세우는 방법**: 손으로 어떻게 세우는지(밀기, 집어서 돌려 놓기), 경유점을 표로 줄지 pick_ik로 풀지.
+1. **`stand` 경유점**: 세우는 방법은 팀원 `right_env.py` tilt 방식으로 정해져 있음 (feature/isaac-lab, ROS 대역 `stand_dummy.py`). 남은 것: 경유점을 표로 받을지 계산을 옮길지, 세우기 성공률.
 2. **꺼내 놓기 뒤 자세**: `place` 뒤 `stow`로 돌아가는 게 맞는지. 스펙은 place에서 끝납니다.
 3. **`reset_sag` 단위**: skill마다 한 번(지금 구현)인지, 흐름마다 한 번인지.
 4. **잡기 판정 기준**: "다시 잡은 뒤"의 뜻(닫고 한 번 더 조이는지)과 위치·전류 문턱값.
-5. **이름 표기**: 스펙의 `right-pick`을 다른 skill과 맞춰 `right_pick`으로 씁니다.
+5. ~~이름 표기~~ — **정함**: 스펙의 `right`·`right-pick`은 `stand`·`stand_pick`으로 씁니다 (right = "바로 세우다"지만 오른쪽 `carry_right`와 헷갈림). 팀원 학습 쪽 이름(`right_env`, `right_*.onnx`)은 그대로.
 
 담당 밖이라 따라가기만 할 것: 정책 Δ 전달 방식(50Hz 토픽 vs ONNX), 집는 힘 펌웨어, cuMotion 범위.
