@@ -19,7 +19,7 @@ CallbackReturn RlArmCorrection::on_init() {
   auto_declare<double>("policy_hz", 50.0);          // 시뮬 정책 주기
   auto_declare<double>("max_cam_age_s", 1.0);       // 손 카메라 값이 이보다 오래되면 Δ 그대로
   auto_declare<std::string>("model_dir", "");       // 비면 share/ml/model/arm_correction
-  auto_declare<std::vector<std::string>>("skills", {"place_cell", "load_slot", "pick_upright", "unload_slot"});
+  auto_declare<std::vector<std::string>>("skills", {"place_cell", "load_slot", "pick_standing_puck", "unload_slot"});
   auto_declare<std::vector<std::string>>("layouts", {"place", "place", "pick", "pick"});  // skills와 같은 순서
   return CallbackReturn::SUCCESS;
 }

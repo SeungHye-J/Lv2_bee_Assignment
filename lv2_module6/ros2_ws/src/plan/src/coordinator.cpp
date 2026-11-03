@@ -1460,7 +1460,7 @@ void Coordinator::stand_pick(const SubGoal &) {
 void Coordinator::execute_pick(const geometry_msgs::msg::PoseStamped & grasp, std::function<void(bool)> done,
                                double approach) {
   arm_contact_ = false;
-  if (sim_contact()) {  // 퍽 위 5 cm까지 MoveIt → 닿는 구간 (pick_upright 정책)
+  if (sim_contact()) {  // 퍽 위 5 cm까지 MoveIt → 닿는 구간 (pick_standing_puck 정책)
     auto pre = grasp;
     pre.pose.position.z += CONTACT_ABOVE_M;
     int tag = -1;
@@ -1471,7 +1471,7 @@ void Coordinator::execute_pick(const geometry_msgs::msg::PoseStamped & grasp, st
       set_gripper(GRIPPER_OPEN_M, [this, grasp, done, tag](bool ok2) {
         if (!ok2) { done(false); return; }
         hand_target("puck", tag, -1);
-        contact_step("pick_upright", [this, grasp](stand::Q5 & above, stand::Q5 & down) {
+        contact_step("pick_standing_puck", [this, grasp](stand::Q5 & above, stand::Q5 & down) {
           return arm_now(above) && ik_ee(grasp, above, down);
         }, true)([this, done](bool ok3) {
           if (!ok3) { set_gripper(GRIPPER_OPEN_M, [done](bool) { done(false); }); return; }
