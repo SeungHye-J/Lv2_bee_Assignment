@@ -13,6 +13,8 @@ import math
 
 import numpy as np
 import rclpy
+from diagnostic_msgs.msg import DiagnosticStatus
+from diagnostic_updater import Updater
 from perception.msg import HandRelative, HandTarget, TrackedObjectArray
 from rclpy.duration import Duration
 from rclpy.node import Node
@@ -56,6 +58,30 @@ class HandRelativeNode(Node):
         self.create_subscription(TrackedObjectArray, "/perception/gripper_cam/detections", self.on_dets, 5)
         self.pub = self.create_publisher(HandRelative, "/hand_relative", 10)
         self.create_timer(1.0 / float(g("rate_hz")), self.on_timer)
+        self.sent, self.last_valid = 0, None  # 상태용: 보낸 수 · 마지막 valid 시각
+        self.diag = Updater(self)  # /diagnostics "hand_relative: 상태" (1초마다) → aggregator 인지
+        self.diag.setHardwareID("none")
+        self.diag.add("상태", self.on_diag)
+
+    def on_diag(self, s):
+        kind = self.target.kind
+        age = None if self.last_valid is None else (self.get_clock().now() - self.last_valid).nanoseconds * 1e-9
+        if kind == "none":
+            s.summary(DiagnosticStatus.OK, "대기 (target 없음)")
+        elif age is None or age > self.max_age:
+            s.summary(DiagnosticStatus.WARN, f"{kind}: 유효한 상대값 없음 (검출·TF 확인)")
+        else:
+            s.summary(DiagnosticStatus.OK, f"{kind} 발행 중")
+        s.add("target", kind)
+        s.add("보낸 수", str(self.sent))
+        s.add("마지막 유효 (s 전)", "-" if age is None else f"{age:.2f}")
+        return s
+
+    def publish(self, m):
+        self.pub.publish(m)
+        self.sent += 1
+        if m.valid:
+            self.last_valid = self.get_clock().now()
 
     def on_target(self, msg):
         self.target = msg
@@ -98,7 +124,7 @@ class HandRelativeNode(Node):
             rel = np.array(SLOTS[t.slot]) - hg.bottom_in_hand(ee_t, ee_R)
             m.rel.x, m.rel.y, m.rel.z = (float(v) for v in rel)
             m.valid = True
-        self.pub.publish(m)
+        self.publish(m)
 
     def on_dets(self, msg):
         t = self.target
@@ -109,7 +135,7 @@ class HandRelativeNode(Node):
         age = (self.get_clock().now() - Time.from_msg(msg.header.stamp)).nanoseconds * 1e-9
         m.age = float(max(age, 0.0))
         if fr is None or age > self.max_age:
-            self.pub.publish(m)
+            self.publish(m)
             return
         (base_t, base_R), (ee_t, ee_R) = fr
         base_yaw = math.atan2(base_R[1, 0], base_R[0, 0])
@@ -125,7 +151,7 @@ class HandRelativeNode(Node):
             rel = cell_b - hg.bottom_in_hand(ee_t, ee_R)
             m.rel.x, m.rel.y, m.rel.z = (float(v) for v in rel)
             m.valid = True  # 상자를 못 봐도 계획 칸으로 (손 위치는 TF로 앎)
-            self.pub.publish(m)
+            self.publish(m)
             return
         pucks = []  # (tag, centre_b, standing, yaw_b, is_box)
         for o in msg.objects:
@@ -152,7 +178,7 @@ class HandRelativeNode(Node):
                 m.neighbour = True
                 m.neighbour_rel.x, m.neighbour_rel.y, m.neighbour_rel.z = (float(v) for v in nb)
             m.valid = True
-        self.pub.publish(m)
+        self.publish(m)
 
 
 def main():
