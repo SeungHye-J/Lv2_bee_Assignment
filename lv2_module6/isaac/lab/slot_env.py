@@ -55,6 +55,9 @@ def slot_plan(ik, dev):
 class LoadEnvCfg(pe.PlaceEnvCfg):
     episode_length_s = 7.0
     cell_noise_m = 0.001  # the basket is fixed on the robot: slot position is known (calibration error only)
+    # 1st run (11-03): success 94.8 -> 98.3 % but drops before the release 4 -> 10 / 1024 (0.4 -> 1.0 %): the policy traded
+    # drops (-5) for centring (+10). A drop cannot be undone in the mission -> drop penalty 5 -> 20
+    w_fail = 20.0
 
 
 class LoadEnv(pe.PlaceEnv):
