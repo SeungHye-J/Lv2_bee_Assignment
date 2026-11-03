@@ -81,3 +81,37 @@ skills:
   plan_next: {area: plan, method: rl, baseline: "mission_manager 규칙 · 계산기 solver.py", start: 매 skill 끝, success: "-",
               reward: [장소별 주사위 눈 +10, 색·모양 +6, 검증 +2, 복귀 +10, 자율 완주 +5, -퍽 떨어뜨림, -걸린 시간 조금],
               code: learning/plan}
+
+# ---------- 배포 조건 (2026-11-03 결정) — 학습한 보정은 시뮬의 기준 동작 위에서만 맞으므로 로봇도 같은 방식으로 움직인다
+#   planner: 빈 공간 이동은 무엇으로 (MoveIt · Nav2) / learned: 학습 보정이 붙는 짧은 구간과 그 기준 동작
+#   env: 시뮬 학습 환경 (isaac/lab, 브랜치 feature/skill-envs) / runs_in: 로봇에서 정책을 돌리는 곳
+#   obs_missing: 정책 입력 중 로봇에 아직 없는 값 (없으면 [])
+deploy_rule: "빈 공간 이동 = MoveIt / Nav2 · 퍽에 닿는 구간과 상자 앞 도킹 = 시뮬과 같은 기준 동작(오프라인 IK + 관절 보간 → JTC, 돌기-직진-돌기 P 제어) + 학습 보정"
+deploy:
+  place_cell:   {planner: "MoveIt: carry → 칸 위 50 mm", learned: "내려가기 → 놓기 → 올리기 (IK + 보간)", env: "pip_env (팀원)", runs_in: rl_arm_correction,
+                 obs_missing: ["손 카메라로 잰 칸 − 손 안 퍽 (cm)"]}
+  pick_upright: {planner: "MoveIt: stow → 퍽 위 50 mm", learned: "내려가기 → 쥐기 → 들기 (IK + 보간)", env: "pick_env (팀원)", runs_in: rl_arm_correction,
+                 obs_missing: ["손 카메라로 잰 퍽 − 손 (cm)", "사각 퍽 면 방향 오차"]}
+  stand_up:     {planner: "MoveIt: stow → 누운 퍽 먼 끝 위", learned: "살짝 집기 → 원호로 세우기 → 놓기 → 비키기 (IK 경유점)", env: "right_env (팀원)", runs_in: rl_arm_correction,
+                 obs_missing: ["손 카메라로 잰 퍽 − 손", "퍽 축 방향", "이웃 퍽 상대 위치"]}
+  regrasp_stood: {planner: "(stand_up에 이어서)", learned: "그 자리에서 내려가 쥐기 → 들기", env: "right_env regrasp=1 (팀원)", runs_in: rl_arm_correction,
+                 obs_missing: ["stand_up과 같음"]}
+  load_slot:    {planner: "MoveIt: 들어 올린 뒤 → carry 자세", learned: "칸 위 → 칸 바닥 → 놓기 → 올리기 (slot_table 자세)", env: slot_env.LoadEnv, runs_in: rl_arm_correction,
+                 obs_missing: ["손 카메라로 잰 칸 − 손 안 퍽"]}
+  unload_slot:  {planner: "MoveIt: stow → carry 자세", learned: "칸 위 → 잡는 자세 → 쥐기 → 칸 위 (slot_table 자세)", env: slot_env.UnloadEnv, runs_in: rl_arm_correction,
+                 obs_missing: ["손 카메라로 잰 퍽 − 손"]}
+  pregrasp:     {planner: "MoveIt 경로", learned: "도착 뒤 끝 자세 유지 (처짐 보정)", env: "reach_env target=above", runs_in: rl_arm_correction, obs_missing: []}
+  camera_look_down: {planner: "MoveIt 경로", learned: "도착 뒤 끝 자세 유지", env: "reach_env target=look", runs_in: rl_arm_correction, obs_missing: [],
+                 note: "plan.yaml inspect_height_m 0.15는 닿지 않음 (0.08~0.10 m) — 확인 필요"}
+  move_pose:    {planner: "MoveIt 경로", learned: "없음 (시뮬 기준선 100 %)", env: "reach_env target=pose", runs_in: "-", obs_missing: []}
+  camera_clear_view: {planner: "MoveIt 경로", learned: "없음 (시뮬 기준선 100 %)", env: "reach_env target=clear", runs_in: "-", obs_missing: []}
+  dock_box:     {planner: "Nav2: 상자 면 앞 정렬 위치까지", learned: "정렬 위치 → 도킹 (돌기-직진-돌기 P 제어, coordinator approach)", env: "drive_env task=dock",
+                 runs_in: "rl_nav_correction 도킹 모드", obs_missing: []}
+  park_home:    {planner: "Nav2: 출발 구역 근처까지", learned: "구역 안 정지 (같은 P 제어)", env: "drive_env task=park", runs_in: "rl_nav_correction 도킹 모드", obs_missing: []}
+  drive_straight: {planner: "-", learned: "짧은 직진 (같은 P 제어)", env: "drive_env task=straight", runs_in: "rl_nav_correction 도킹 모드", obs_missing: []}
+  drive_turn:   {planner: "-", learned: "없음 (시뮬 기준선 100 %)", env: "drive_env task=turn", runs_in: "-", obs_missing: []}
+  drive_arc:    {planner: "-", learned: "짧은 곡선 (같은 P 제어)", env: "drive_env task=arc", runs_in: "rl_nav_correction 도킹 모드", obs_missing: []}
+  navigate:     {planner: Nav2, learned: "보류 (환경 없음)", env: "-", runs_in: "-", obs_missing: []}
+  plan_next:    {planner: "-", learned: "다음 skill 고르기", env: "learning/plan/mission_sim.py", runs_in: "mission_manager (PR #49 병합 뒤, 마지막 단계)", obs_missing: []}
+  nudge_cell:   {planner: "MoveIt: 칸 위", learned: "보류 (기준 동작·환경 없음)", env: "-", runs_in: "-", obs_missing: []}
+  stand_in_place: {planner: "MoveIt: 칸 위", learned: "보류 (기준 동작·환경 없음)", env: "-", runs_in: "-", obs_missing: []}

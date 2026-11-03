@@ -19,6 +19,12 @@ def test_catalog():
             assert s.get("loss"), n
         if s["method"] in ("yolo", "rule"):
             assert s.get("check"), n
+    for n, d in Y["deploy"].items():  # 배포 조건: 목록에 있는 skill, 칸 다 있음
+        assert n in skills, n
+        assert {"planner", "learned", "env", "runs_in", "obs_missing"} <= set(d), n
+    for n, s in skills.items():
+        if s["method"] == "rl":
+            assert n in Y["deploy"], f"{n}: 배포 조건 없음"
 
 
 if __name__ == "__main__":
