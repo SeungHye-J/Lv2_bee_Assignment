@@ -10,8 +10,8 @@ common_penalty: [puck_tipped_or_dropped (큰 벌점), collision, body_tilt (비�
 tasks:
   observe: [camera_clear_view, read_signal_barcode]
   survey: [navigate, dock_box, camera_look_down, detect_puck, classify_color, read_puck_tag, classify_shape_pose]
-  collect: [pregrasp, pick_upright, stand_up, regrasp_stood, load_slot]
-  place: [navigate, dock_box, detect_location_box, unload_slot, place_cell, judge_cell, nudge_cell, stand_in_place]
+  collect: [pregrasp, pick_standing_puck, stand_lying_puck, regrasp_after_stand, load_slot]
+  place: [navigate, dock_box, detect_location_box, unload_slot, place_cell, judge_cell, nudge_cell, stand_puck_in_cell]
   verify: [navigate, dock_box, camera_look_down, judge_cell]
   return: [move_pose, navigate, park_home]
 
@@ -48,11 +48,11 @@ skills:
   camera_clear_view: {area: arm, method: rl, baseline: MoveIt (scan 자세), start: "-", success: 팔이 기둥 카메라 시야 밖, reward: [+시야 밖, +도착]}
   camera_look_down: {area: arm, method: rl, baseline: MoveIt (inspect), start: 볼 점 앎, success: 점이 화면 가운데 · 0.15m 위,
                      reward: [+점이 화면 가운데, +높이 맞음, +태그 읽음 보너스]}
-  pick_upright: {area: arm, method: rl, baseline: 스크립트 + IK, start: 손이 퍽 위 · 퍽 서 있음 · 손 비어 있음, success: 들어 올림 · 손가락 ≥3mm · 전류 ≥0.25A,
+  pick_standing_puck: {area: arm, method: rl, baseline: 스크립트 + IK, start: 손이 퍽 위 · 퍽 서 있음 · 손 비어 있음, success: 들어 올림 · 손가락 ≥3mm · 전류 ≥0.25A,
                  reward: [+들어 올림, +잡기 판정, -옆 퍽 건드림, -미끄러짐, +끝 자세가 load_slot 시작 범위 안]}
-  stand_up: {area: arm, method: rl, baseline: 스크립트 + 해석 IK (stand), start: 퍽 누움 · 손이 먼 끝 위, success: 퍽 서 있음(인식) · 손 빠짐,
+  stand_lying_puck: {area: arm, method: rl, baseline: 스크립트 + 해석 IK (stand), start: 퍽 누움 · 손이 먼 끝 위, success: 퍽 서 있음(인식) · 손 빠짐,
              reward: [+퍽 서 있음, +손 벌리고 빠짐, -상자 밖으로, -0.4N보다 세게 쥠]}
-  regrasp_stood: {area: arm, method: rl, baseline: 스크립트 (stand_pick), start: stand_up 성공 직후, success: 들어 올림 · 잡기 판정,
+  regrasp_after_stand: {area: arm, method: rl, baseline: 스크립트 (stand_pick), start: stand_lying_puck 성공 직후, success: 들어 올림 · 잡기 판정,
                   reward: [+들어 올림, +잡기 판정, -다시 넘어뜨림]}
   load_slot: {area: arm, method: rl, baseline: 적재함 표 (basket.yaml), start: 손에 퍽 · 칸 비어 있음, success: 칸 바닥까지 · 손 빠짐,
               reward: [+칸 바닥까지, +손 빠짐, -링 모서리 걸림, -옆 칸 건드림]}
@@ -62,7 +62,7 @@ skills:
                reward: [+10mm 안 (가까울수록), +기울기 작음, +2초 안정, -이웃 건드림·밀어냄]}
   nudge_cell: {area: arm, method: rl, baseline: 스크립트, start: 놓은 퍽 10~25mm 벗어남 · 손 비어 있음, success: 10mm 안 · 서 있음,
                reward: [+오차 줄어듦, +10mm 안, -넘어뜨림, -이웃 건드림]}
-  stand_in_place: {area: arm, method: rl, baseline: stand_up, start: 칸 안 퍽 누움, success: 서 있음, reward: [stand_up과 같음, -이웃 건드림 (큰 벌점)]}
+  stand_puck_in_cell: {area: arm, method: rl, baseline: stand_lying_puck, start: 칸 안 퍽 누움, success: 서 있음, reward: [stand_lying_puck과 같음, -이웃 건드림 (큰 벌점)]}
 
   # ---------- 상태 · 비상 (감시 — 다른 skill의 시작·중단 조건)
   monitor_battery: {area: status, method: rule, baseline: 전압 문턱값, check: [놓친 저전압, 잘못 울림]}
@@ -90,11 +90,11 @@ deploy_rule: "빈 공간 이동 = MoveIt / Nav2 · 퍽에 닿는 구간과 상�
 deploy:
   place_cell:   {planner: "MoveIt: carry → 칸 위 50 mm", learned: "내려가기 → 놓기 → 올리기 (IK + 보간)", env: "pip_env (팀원)", runs_in: rl_arm_correction,
                  obs_missing: ["손 안 퍽 위치 오차 (정상 파지로 둠)"], obs_from: /hand_relative cell}
-  pick_upright: {planner: "MoveIt: stow → 퍽 위 50 mm", learned: "내려가기 → 쥐기 → 들기 (IK + 보간)", env: "pick_env (팀원)", runs_in: rl_arm_correction,
+  pick_standing_puck: {planner: "MoveIt: stow → 퍽 위 50 mm", learned: "내려가기 → 쥐기 → 들기 (IK + 보간)", env: "pick_env (팀원)", runs_in: rl_arm_correction,
                  obs_missing: [], obs_from: /hand_relative puck}
-  stand_up:     {planner: "MoveIt: stow → 누운 퍽 먼 끝 위", learned: "살짝 집기 → 원호로 세우기 → 놓기 → 비키기 (IK 경유점)", env: "right_env (팀원)", runs_in: rl_arm_correction,
+  stand_lying_puck:     {planner: "MoveIt: stow → 누운 퍽 먼 끝 위", learned: "살짝 집기 → 원호로 세우기 → 놓기 → 비키기 (IK 경유점)", env: "right_env (팀원)", runs_in: rl_arm_correction,
                  obs_missing: [], obs_from: /hand_relative puck (axis · neighbour)}
-  regrasp_stood: {planner: "(stand_up에 이어서)", learned: "그 자리에서 내려가 쥐기 → 들기", env: "right_env regrasp=1 (팀원)", runs_in: rl_arm_correction,
+  regrasp_after_stand: {planner: "(stand_lying_puck에 이어서)", learned: "그 자리에서 내려가 쥐기 → 들기", env: "right_env regrasp=1 (팀원)", runs_in: rl_arm_correction,
                  obs_missing: [], obs_from: /hand_relative puck}
   load_slot:    {planner: "MoveIt: 들어 올린 뒤 → carry 자세", learned: "칸 위 → 칸 바닥 → 놓기 → 올리기 (slot_table 자세)", env: slot_env.LoadEnv, runs_in: rl_arm_correction,
                  obs_missing: ["손 안 퍽 위치 오차 (정상 파지로 둠)"], obs_from: /hand_relative slot}
@@ -114,4 +114,4 @@ deploy:
   navigate:     {planner: Nav2, learned: "보류 (환경 없음)", env: "-", runs_in: "-", obs_missing: []}
   plan_next:    {planner: "-", learned: "다음 skill 고르기", env: "learning/plan/mission_sim.py", runs_in: "mission_manager (PR #49 병합 뒤, 마지막 단계)", obs_missing: []}
   nudge_cell:   {planner: "MoveIt: 칸 위", learned: "보류 (기준 동작·환경 없음)", env: "-", runs_in: "-", obs_missing: []}
-  stand_in_place: {planner: "MoveIt: 칸 위", learned: "보류 (기준 동작·환경 없음)", env: "-", runs_in: "-", obs_missing: []}
+  stand_puck_in_cell: {planner: "MoveIt: 칸 위", learned: "보류 (기준 동작·환경 없음)", env: "-", runs_in: "-", obs_missing: []}

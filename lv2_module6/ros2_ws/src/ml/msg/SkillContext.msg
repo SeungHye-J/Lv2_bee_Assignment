@@ -3,7 +3,7 @@
 #   단계·입력 정의는 시뮬 학습 환경과 같음 (isaac/lab place_env · pick_env · drive_env, 브랜치 feature/skill-envs)
 std_msgs/Header header
 uint32 run_id             # skill 한 번 실행마다 +1 — 바뀌면 처짐 적분·보정·이전 행동을 0부터 (시뮬 에피소드 시작과 같음)
-string skill              # skills.yaml 이름: place_cell · load_slot · pick_upright · unload_slot · dock_box · drive_straight … · "" = 보정 끔
+string skill              # skills.yaml 이름: place_cell · load_slot · pick_standing_puck · unload_slot · dock_box · drive_straight … · "" = 보정 끔
 uint8 phase               # 팔: 0 정지(위) · 1 내려가기 · 2 안정 · 3 쥐기/놓기 · 4 올리기 · 5 대기 (시뮬 _phase와 같음)
 bool holding              # 팔: 목표를 붙들고 있음 → 처짐 적분이 돎 (움직이는 동안은 안 돎)
 bool residual_live        # 팔: 정책이 보정을 바꿀 수 있음 (손을 열거나 닫기 전까지) · false면 마지막 보정 유지

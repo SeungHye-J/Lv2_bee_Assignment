@@ -16,7 +16,7 @@ a basket slot, unload, place on a dice cell, re-pick. The outcome of each skill 
 fed back to the planner. Driving: grid path over the maze walls and boxes (A*, inflated), then demo drive_to (P control
 on the true base pose), docking on the box face that suits the skill (far dice rows from the opposite face).
 Stand-ins: perception = true poses + training noise, the signal / barcode are given, no Nav2, no SLAM.
-Not available as skills yet (masked): nudge_cell, stand_in_place.
+Not available as skills yet (masked): nudge_cell, stand_puck_in_cell.
 """
 
 import argparse
@@ -449,8 +449,8 @@ class RunSim(ms.MissionSim):
         return m
 
 
-SKILL = {ms.PICK: "pick", ms.STAND: "stand_up", ms.LOAD: "load_slot", ms.UNLOAD: "unload_slot", ms.PLACE: "place_cell",
-         ms.NUDGE: "nudge_cell", ms.REPICK: "re-pick", ms.STAND_PLACED: "stand_in_place"}
+SKILL = {ms.PICK: "pick_standing_puck", ms.STAND: "stand_lying_puck", ms.LOAD: "load_slot", ms.UNLOAD: "unload_slot", ms.PLACE: "place_cell",
+         ms.NUDGE: "nudge_cell", ms.REPICK: "re-pick", ms.STAND_PLACED: "stand_puck_in_cell"}
 STATUS = ["BOX_UP", "BOX_LYING", "HAND", "BASKET", "OK", "OFF", "PLACED_LYING", "LOST"]
 
 

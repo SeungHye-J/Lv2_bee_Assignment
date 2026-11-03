@@ -230,7 +230,7 @@ coordinator가 학습 보정 컨트롤러에 "지금 어느 skill의 어느 단�
 |---|---|
 | `header.stamp` | 이 단계 시작 시각 (정책 입력 "진행"의 기준) |
 | `run_id` | skill 한 번마다 +1 — 바뀌면 보정 컨트롤러가 처짐 적분·보정·이전 행동을 0부터 |
-| `skill` | `place_cell` · `load_slot` · `pick_upright` · `unload_slot` · `dock_box` … · `""` = 보정 끔 |
+| `skill` | `place_cell` · `load_slot` · `pick_standing_puck` · `unload_slot` · `dock_box` … · `""` = 보정 끔 |
 | `phase` · `holding` · `residual_live` | 팔: 0 위에서 정지 · 1 내려가기 · 2 안정 · 3 쥐기/놓기 · 4 올리기 · 5 대기 / 처짐 적분이 도는지 / 정책이 보정을 바꿀 수 있는지 |
 | `q_above` · `q_down` | 팔: 내려가기 시작·끝 관절 (정책 입력) |
 | `goal_x` · `goal_y` · `goal_yaw` | 주행: 도킹 목표 (map) |

@@ -99,9 +99,9 @@ $PY train_place.py --task <task> [--cfg k=v,...] --mode eval  --num_envs 256 --e
 | skill | `--task` | `--cfg` | 환경 파일 | 기준선 성공 (잔차 0, 2026-11-03 pa27) |
 |---|---|---|---|---|
 | `place_cell` | `pip` | | pip_env.py (팀원) | 96.3 % (place, 10-31) |
-| `pick_upright` | `pick` | | pick_env.py (팀원) | |
-| `stand_up` | `stand` (예전 `right`) | | right_env.py (팀원) | |
-| `regrasp_stood` | `stand` (예전 `right`) | `regrasp=1` | right_env.py (팀원, 세우기 + 다시 집기 한 번에) | |
+| `pick_standing_puck` | `pick_standing` (예전 `pick`) | | pick_env.py (팀원) | |
+| `stand_lying_puck` | `stand_lying` (예전 `stand` · `right`) | | right_env.py (팀원) | |
+| `regrasp_after_stand` | `stand_lying` (예전 `stand` · `right`) | `regrasp=1` | right_env.py (팀원, 세우기 + 다시 집기 한 번에) | |
 | `load_slot` | `load` | | slot_env.py | 93.8 % (192판; 처음 71.1 %는 뒤 칸에서 손이 20° 기운 자세에 퍽을 똑바로 넣은 시작 상태 오류였음) |
 | `unload_slot` | `unload` | | slot_env.py | 90.6 % |
 | `move_pose` | `reach` | `target=pose` | reach_env.py | 100 % (오차 ≤ 0.3 mm) |
@@ -114,9 +114,14 @@ $PY train_place.py --task <task> [--cfg k=v,...] --mode eval  --num_envs 256 --e
 | `dock_box` | `drive` | `task=dock` | drive_env.py | 31.4 % (p90 50.8 mm) |
 | `park_home` | `drive` | `task=park` | drive_env.py | 87.5 % |
 
-`stand`: 누운 퍽 세우기. 팀원 파일 이름은 `right_env.py`(right a puck = 세우다)인데 헷갈려서 `--task stand`로도 부름 (`right`도 그대로 됨).
+이름 (11-03 바꿈 — `upright`·`right`·`stand`가 헷갈려서):
+- `pick_standing_puck` (예전 `pick_upright`): **서 있는** 퍽을 집기 — `--task pick_standing`, 팀원 `pick_env.py`
+- `stand_lying_puck` (예전 `stand_up`): **누운** 퍽을 세우기 — `--task stand_lying`, 팀원 `right_env.py` (right a puck = 세우다)
+- `regrasp_after_stand` (예전 `regrasp_stood`): 세운 바로 그 자리에서 다시 쥐기 — `stand_lying` + `regrasp=1`
+- `stand_puck_in_cell` (예전 `stand_in_place`): 칸 안에서 누운 퍽 세우기 (환경 아직 없음)
+- 예전 `--task` 이름(`pick` · `stand` · `right`)도 그대로 됨
 
-아직 환경이 없는 것: `nudge_cell`·`stand_in_place`(기준 동작부터 설계 필요), `navigate`(Nav2와 장애물 장면 필요).
+아직 환경이 없는 것: `nudge_cell`·`stand_puck_in_cell`(기준 동작부터 설계 필요), `navigate`(Nav2와 장애물 장면 필요).
 
 - **camera_look_down 높이**: `plan.yaml` coordinator `inspect_height_m = 0.15`는 시작 박스(70 mm) 위 퍽에서 손끝 아래 방향으로 닿지 않는다(pinocchio IK: 박스 가운데 ≤ 0.10 m, 박스 전체 0.08 m). 학습은 0.08 m, 카메라 기울기 25°까지 허용.
 - **보상 틀** (환경마다 같은 모양): 걸음마다 목표 추종 + · 급한 동작 − · 잔차 크기 − / 끝에 성공 +10 · 최종 오차 + / 떨굼·넘어짐·충돌 −5. 가중치는 각 `*EnvCfg`의 `w_*`.
