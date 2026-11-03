@@ -15,7 +15,7 @@ from isaaclab.app import AppLauncher
 
 parser = argparse.ArgumentParser()
 parser.add_argument("--mode", choices=["zero", "train", "eval"], default="zero")
-parser.add_argument("--task", choices=["place", "pick", "right", "pip", "load", "unload", "reach", "drive"], default="place")
+parser.add_argument("--task", help="stand = 누운 퍽 세우기 (팀원 파일 right_env.py, 예전 이름 right)", choices=["place", "pick", "right", "pip", "load", "unload", "reach", "drive", "stand"], default="place")
 parser.add_argument("--num_envs", type=int, default=4096)  # RTX 5060 Laptop: ~91 % GPU, 4.3 GB (512: 75 %)
 parser.add_argument("--iters", type=int, default=600)
 parser.add_argument("--episodes", type=int, default=1024, help="zero / eval: finished episodes to collect")
@@ -56,6 +56,10 @@ import right_env  # noqa: E402
 import slot_env  # noqa: E402
 import reach_env  # noqa: E402
 import drive_env  # noqa: E402
+
+# 'stand' = 누운 퍽 세우기 — 팀원 환경 이름 'right'(right a puck = 세우다)가 헷갈려서 같은 환경을 이 이름으로도 부름
+gym.register(id="Bee-Stand-Residual", entry_point="right_env:RightEnv", disable_env_checker=True,
+             kwargs={"env_cfg_entry_point": "right_env:RightEnvCfg"})
 import place_env  # noqa: E402
 
 HERE = Path(__file__).resolve().parent
@@ -80,7 +84,8 @@ class PlacePPOCfg(RslRlOnPolicyRunnerCfg):
 def make_env():
     cfg = {"pick": pick_env.PickEnvCfg, "right": right_env.RightEnvCfg, "pip": pip_env.PipEnvCfg,
            "load": slot_env.LoadEnvCfg, "unload": slot_env.UnloadEnvCfg,
-           "reach": reach_env.ReachEnvCfg, "drive": drive_env.DriveEnvCfg}.get(args.task, place_env.PlaceEnvCfg)()
+           "reach": reach_env.ReachEnvCfg, "drive": drive_env.DriveEnvCfg,
+           "stand": right_env.RightEnvCfg}.get(args.task, place_env.PlaceEnvCfg)()
     cfg.scene.num_envs = args.num_envs
     cfg.sim.device = args.device  # --device cpu: CPU PhysX (another run holds the 8 GB GPU)
     cfg.seed = args.seed

@@ -100,8 +100,8 @@ $PY train_place.py --task <task> [--cfg k=v,...] --mode eval  --num_envs 256 --e
 |---|---|---|---|---|
 | `place_cell` | `pip` | | pip_env.py (팀원) | 96.3 % (place, 10-31) |
 | `pick_upright` | `pick` | | pick_env.py (팀원) | |
-| `stand_up` | `right` | | right_env.py (팀원) | |
-| `regrasp_stood` | `right` | `regrasp=1` | right_env.py (팀원, 세우기 + 다시 집기 한 번에) | |
+| `stand_up` | `stand` (예전 `right`) | | right_env.py (팀원) | |
+| `regrasp_stood` | `stand` (예전 `right`) | `regrasp=1` | right_env.py (팀원, 세우기 + 다시 집기 한 번에) | |
 | `load_slot` | `load` | | slot_env.py | 93.8 % (192판; 처음 71.1 %는 뒤 칸에서 손이 20° 기운 자세에 퍽을 똑바로 넣은 시작 상태 오류였음) |
 | `unload_slot` | `unload` | | slot_env.py | 90.6 % |
 | `move_pose` | `reach` | `target=pose` | reach_env.py | 100 % (오차 ≤ 0.3 mm) |
@@ -113,6 +113,8 @@ $PY train_place.py --task <task> [--cfg k=v,...] --mode eval  --num_envs 256 --e
 | `drive_arc` | `drive` | `task=arc` | drive_env.py | 94.5 % |
 | `dock_box` | `drive` | `task=dock` | drive_env.py | 31.4 % (p90 50.8 mm) |
 | `park_home` | `drive` | `task=park` | drive_env.py | 87.5 % |
+
+`stand`: 누운 퍽 세우기. 팀원 파일 이름은 `right_env.py`(right a puck = 세우다)인데 헷갈려서 `--task stand`로도 부름 (`right`도 그대로 됨).
 
 아직 환경이 없는 것: `nudge_cell`·`stand_in_place`(기준 동작부터 설계 필요), `navigate`(Nav2와 장애물 장면 필요).
 

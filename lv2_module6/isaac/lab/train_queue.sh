@@ -10,7 +10,7 @@ PY=${PY:-$HOME/pa-course/IsaacLab-6.1/.venv/bin/python}
 ITERS=${ITERS:-1500}; ENVS=${ENVS:-512}; EVAL=${EVAL:-1024}
 declare -A TASK=(  # skills.yaml name -> train_place.py task and cfg
   [dock_box]="drive task=dock" [drive_straight]="drive task=straight" [park_home]="drive task=park" [drive_arc]="drive task=arc"
-  [load_slot]="load -" [unload_slot]="unload -" [pregrasp]="reach target=above" [regrasp_stood]="right regrasp=1"
+  [load_slot]="load -" [unload_slot]="unload -" [pregrasp]="reach target=above" [regrasp_stood]="stand regrasp=1" [stand_up]="stand -"
 )
 ORDER=(dock_box drive_straight load_slot unload_slot pregrasp park_home drive_arc regrasp_stood)
 [ $# -gt 0 ] && ORDER=("$@")
