@@ -28,6 +28,7 @@
   <depend>perception</depend>
   <depend>control</depend>
   <depend>ml</depend>
+  <depend>ament_index_cpp</depend>
 
   <exec_depend>rosidl_default_runtime</exec_depend>
   <exec_depend>launch</exec_depend>

@@ -222,6 +222,19 @@ string error            # ERROR 이유 (정지한 경우만)
 - 내는 쪽: mission_manager → `/mission/state` (reliable + transient_local, 바뀔 때마다). 흐름: [03-plan.md](project/ros/03-plan.md).
 
 <a id="api-msg-missionsignal"></a>
+### ml/msg/SkillContext ([파일](../lv2_module6/ros2_ws/src/ml/msg/SkillContext.msg))
+
+coordinator가 학습 보정 컨트롤러에 "지금 어느 skill의 어느 단계인지" 알림 (2026-11-03 배포 결정: 닿는 구간·도킹만 시뮬 기준 동작 + 보정).
+
+| 칸 | 뜻 |
+|---|---|
+| `header.stamp` | 이 단계 시작 시각 (정책 입력 "진행"의 기준) |
+| `run_id` | skill 한 번마다 +1 — 바뀌면 보정 컨트롤러가 처짐 적분·보정·이전 행동을 0부터 |
+| `skill` | `place_cell` · `load_slot` · `pick_upright` · `unload_slot` · `dock_box` … · `""` = 보정 끔 |
+| `phase` · `holding` · `residual_live` | 팔: 0 위에서 정지 · 1 내려가기 · 2 안정 · 3 쥐기/놓기 · 4 올리기 · 5 대기 / 처짐 적분이 도는지 / 정책이 보정을 바꿀 수 있는지 |
+| `q_above` · `q_down` | 팔: 내려가기 시작·끝 관절 (정책 입력) |
+| `goal_x` · `goal_y` · `goal_yaw` | 주행: 도킹 목표 (map) |
+
 ### perception/msg/HandTarget · HandRelative ([파일](../lv2_module6/ros2_ws/src/perception/msg/HandRelative.msg))
 
 학습 보정 정책(시뮬 isaac/lab에서 학습)이 보던 "손 카메라로 잰 상대값"을 로봇에서 만든다 (2026-11-03 배포 결정: 퍽에 닿는 구간은 시뮬과 같은 기준 동작 + 학습 보정).
@@ -324,6 +337,7 @@ string message
 | `/gripper_cam/depth/color/points` | sensor_msgs/PointCloud2 | realsense2_camera (gripper_cam) → grasp_scorer | 근접 파지용 |
 | `/tracked_objects` | perception/TrackedObjectArray | perception → vlm_task_planner, coordinator, grasp_scorer | 10Hz · reliable — 두 카메라 융합 결과 ([필드 뜻](#api-msg-trackedobject)) |
 | `/perception/pole_front_cam/detections` · `/perception/gripper_cam/detections` | perception/TrackedObjectArray | perception → hand_relative, (시뮬레이터·디버그) | 추론마다(카메라당 ≤4Hz) · reliable — 융합 전 카메라별 검출, `id` = 붙은 트랙 |
+| `/skill_context` | ml/SkillContext | coordinator → rl_arm_correction, rl_nav_correction | 단계 바뀔 때마다 · reliable — 지금 skill·단계 (학습 보정을 켜고 입력을 만듦) |
 | `/hand_relative/target` | perception/HandTarget | coordinator → hand_relative | 닿는 구간 시작 전 한 번 · reliable + transient_local — 무엇을 잴지 (`puck` 퍽 번호 · `cell` 상자 태그와 계획 칸 · `slot` 적재함 칸 · `none`) |
 | `/hand_relative` | perception/HandRelative | hand_relative → rl_arm_correction | 손 카메라 검출마다(≤4Hz, `slot`은 20Hz) — base_link 기준 퍽 − 손끝 / 칸 − 손 안 퍽 바닥, 사각 퍽 면 방향 오차, 퍽 축, 옆 퍽. 학습 보정 정책 입력과 같은 정의 ([scripts/hand_geom.py](../lv2_module6/ros2_ws/src/perception/scripts/hand_geom.py)) |
 

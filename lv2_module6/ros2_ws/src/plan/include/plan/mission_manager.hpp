@@ -35,6 +35,7 @@
 #include "perception/msg/mission_signal.hpp"
 #include "perception/msg/tracked_object_array.hpp"
 #include "plan/mission_solver.hpp"
+#include "plan/plan_next.hpp"
 #include "plan/msg/basket_state.hpp"
 #include "plan/msg/mission_state.hpp"
 #include "plan/msg/sub_goal_array.hpp"
@@ -149,6 +150,17 @@ private:
   std::vector<std::string> results_;
   std::string build_json_, verify_json_;
   std::vector<std::vector<int>> seen_tags_;      // 재검증 — 장소마다 본 tag (12개 중복·누락)
+  // planner: rule (jobs_ 순서대로) | plan_next (학습된 플래너가 다음 퍽·복귀 시점을 고름 — 퍽 하나 처리는 bring 그대로)
+  std::string planner_;
+  PlanNext plan_next_;
+  bool plan_next_ok_ = false;
+  PlanNext::State pn_;              // plan_next 상태 (퍽 i = 시작 박스 i/2, x 오프셋 순)
+  std::vector<size_t> pn_job_;      // 퍽 i → jobs_ 번호
+  int pn_action_ = -1;
+  rclcpp::Time build_started_{0, 0, RCL_ROS_TIME};
+  bool build_pn_start();             // 상태 만들기 (안 되면 false → rule로)
+  void build_pn();                   // 다음 행동 고르고 실행
+  void job_done(size_t i, bool ok);  // 퍽 하나 끝 → rule: 다음 job · plan_next: 상태 갱신 후 다시 고르기
   std::set<int> lying_;                          // 조사 때 누워 있던 퍽 tag — 집을 때 세워서 (stand → stand_pick)
   double stand_check_s_ = 1.0;                   // stand 뒤 인지가 선 퍽을 볼 때까지 기다림
   int placed_ = 0, photo_n_ = 0;

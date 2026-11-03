@@ -86,5 +86,8 @@ if(BUILD_TESTING)
     TIMEOUT 60)
 endif()
 
+# 헤더 (mlp_policy.hpp — plan의 plan_next도 씀)
+install(DIRECTORY include/ DESTINATION include/${PROJECT_NAME})
+ament_export_include_directories(include/${PROJECT_NAME})
 ament_export_dependencies(rosidl_default_runtime)
 ament_package()
