@@ -18,10 +18,15 @@ find_package(controller_interface REQUIRED)
 find_package(hardware_interface REQUIRED)
 find_package(pluginlib REQUIRED)
 find_package(rclcpp_lifecycle REQUIRED)
+find_package(realtime_tools REQUIRED)
+find_package(ament_index_cpp REQUIRED)
+find_package(tf2_ros REQUIRED)
 
+find_package(std_msgs REQUIRED)
 rosidl_generate_interfaces(${PROJECT_NAME}
   srv/ScoreGrasps.srv
-  DEPENDENCIES geometry_msgs)
+  msg/SkillContext.msg
+  DEPENDENCIES geometry_msgs std_msgs)
 rosidl_get_typesupport_target(msgs_cpp ${PROJECT_NAME} rosidl_typesupport_cpp)
 include_directories(include)
 
@@ -41,10 +46,22 @@ install(TARGETS grasp_scorer rl_nav_tuner rl_nav_correction DESTINATION lib/${PR
 # --- rl_arm_correction: ROS 노드가 아니라 controller_manager가 불러 쓰는 chainable controller 플러그인
 add_library(rl_arm_correction SHARED src/rl_arm_correction.cpp)
 target_compile_features(rl_arm_correction PUBLIC cxx_std_17)
+target_include_directories(rl_arm_correction PUBLIC include)
 target_link_libraries(rl_arm_correction controller_interface::controller_interface
-  hardware_interface::hardware_interface pluginlib::pluginlib rclcpp::rclcpp rclcpp_lifecycle::rclcpp_lifecycle)
+  hardware_interface::hardware_interface pluginlib::pluginlib rclcpp::rclcpp rclcpp_lifecycle::rclcpp_lifecycle
+  realtime_tools::realtime_tools ament_index_cpp::ament_index_cpp ${perception_TARGETS} ${msgs_cpp})
 pluginlib_export_plugin_description_file(controller_interface rl_arm_correction.xml)
 install(TARGETS rl_arm_correction LIBRARY DESTINATION lib)
+
+# 학습 정책 파일 — 워크스페이스 공용 lv2_module6/ros2_ws/model/{arm_correction,nav_correction,plan}/*.policy 를 share/ml/model에
+#   (scripts/export_policy.py가 시뮬 학습 결과 .pt에서 만듦 · 파일이 없으면 그 skill은 보정 없음)
+set(ML_MODEL_DIR "${CMAKE_CURRENT_SOURCE_DIR}/../../model" CACHE PATH "ros2_ws/model")
+foreach(d arm_correction nav_correction plan)
+  if(EXISTS "${ML_MODEL_DIR}/${d}")
+    install(DIRECTORY "${ML_MODEL_DIR}/${d}" DESTINATION share/${PROJECT_NAME}/model FILES_MATCHING PATTERN "*.policy")
+  endif()
+endforeach()
+install(PROGRAMS scripts/export_policy.py DESTINATION lib/${PROJECT_NAME})
 
 # 파라미터 (bringup이 share/ml/config/ml.yaml을 노드에 넘긴다)
 install(DIRECTORY config DESTINATION share/${PROJECT_NAME})
@@ -55,6 +72,11 @@ install(DIRECTORY launch DESTINATION share/${PROJECT_NAME})
 if(BUILD_TESTING)
   find_package(ament_cmake_gtest REQUIRED)
   ament_add_gtest(test_rl_nav_correction test/test_rl_nav_correction.cpp TIMEOUT 60 ENV ROS_DOMAIN_ID=103)
+  ament_add_gtest(test_mlp_policy test/test_mlp_policy.cpp TIMEOUT 60)
+  target_include_directories(test_mlp_policy PRIVATE include)
+  target_compile_definitions(test_mlp_policy PRIVATE MODEL_DIR="${ML_MODEL_DIR}")
+  ament_add_gtest(test_arm_obs test/test_arm_obs.cpp TIMEOUT 60)
+  target_include_directories(test_arm_obs PRIVATE include)
   target_link_libraries(test_rl_nav_correction ${PROJECT_NAME}_nodes)
   ament_add_test(test_launch GENERATE_RESULT_FOR_RETURN_CODE_ZERO
     COMMAND ros2 launch "${CMAKE_CURRENT_SOURCE_DIR}/launch/ml.launch.py" --show-args
