@@ -5,7 +5,7 @@
 
 행동 = skill 하나 + 대상 퍽. 시작 조건이 안 맞는 행동은 action_masks()로 막는다 (sb3-contrib MaskablePPO).
 보상 = 채점표: 장소별 주사위 눈 +10 (그 장소 퍽 전부 칸 안) · 복귀 +10 − 걸린 시간 조금.
-확률(PROBS)·시간(SKILL_S)은 임시값 — skill별 Isaac 평가 결과로 바꿔 넣는다 (문서: learning/README.md).
+확률(PROBS)·시간(SKILL_S)은 임시값 — skill별 Isaac 평가 결과로 바꿔 넣는다.
 """
 import math
 
