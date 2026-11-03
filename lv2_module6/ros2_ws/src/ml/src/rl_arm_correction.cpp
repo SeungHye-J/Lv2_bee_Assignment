@@ -21,6 +21,7 @@ CallbackReturn RlArmCorrection::on_init() {
   // 발열 방지: 쉬는 자세(stow, plan basket.yaml pose_stow)에선 적분 안 함 · 상한에 windup_s 붙으면 풂. [] = 끔
   auto_declare<std::vector<double>>("rest_pose", {0.0, -1.910001, 1.370083, 0.595157, 0.0});
   auto_declare<double>("rest_tol", 0.03);           // [rad] 모든 관절이 이 안이면 쉬는 자세
+  auto_declare<double>("debug_hz", 20.0);          // ~/debug (ml/ArmCorrectionDebug) 주기 — 0 = 안 냄
   auto_declare<double>("windup_s", 2.0);            // [s] 0 = 막힘 감지 끔
   auto_declare<double>("policy_hz", 50.0);          // 시뮬 정책 주기
   auto_declare<double>("max_cam_age_s", 1.0);       // 손 카메라 값이 이보다 오래되면 Δ 그대로
@@ -54,6 +55,12 @@ CallbackReturn RlArmCorrection::on_configure(const rclcpp_lifecycle::State &) {
       reset_sag_ = true;
       res->success = true;
     });
+  const double debug_hz = node->get_parameter("debug_hz").as_double();
+  if (debug_hz > 0.0) {  // 실기 디버깅: 보정이 무엇을 했는지 bag에 남김 (실시간 루프는 try_publish — 못 보내면 건너뜀)
+    debug_dt_ = 1.0 / debug_hz;
+    debug_pub_ = node->create_publisher<ml::msg::ArmCorrectionDebug>("~/debug", rclcpp::SystemDefaultsQoS());
+    debug_rt_ = std::make_unique<realtime_tools::RealtimePublisher<ml::msg::ArmCorrectionDebug>>(debug_pub_);
+  }
   policy_dt_ = 1.0 / node->get_parameter("policy_hz").as_double();
   max_cam_age_s_ = node->get_parameter("max_cam_age_s").as_double();
   std::string dir = node->get_parameter("model_dir").as_string();
@@ -180,13 +187,15 @@ return_type RlArmCorrection::update_and_write_commands(const rclcpp::Time & time
   for (int i = 0; i < 5; ++i) corr_[i] = sag_[i].corr;  // 정책 관측용
 
   const auto it = enabled_ && ok ? skills_.find(ctx_.skill) : skills_.end();
+  bool cam_ok = false;
+  double cam_age = -1.0;
   if (it == skills_.end()) {  // 보정 꺼짐: 닿는 구간이 아니거나 이 skill 정책이 없음 → Δ = 0 (처짐 적분은 계속)
     if (delta_ != J5{}) reset_run();
   } else {
     since_policy_ += dt;
     const bool cam_kind = it->second.layout == ArmLayout::Pick ? hand_.kind == "puck" : (hand_.kind == "cell" || hand_.kind == "slot");
-    const double cam_age = (time - rclcpp::Time(hand_.header.stamp, time.get_clock_type())).seconds();
-    const bool cam_ok = hand_.valid && cam_kind && cam_age >= -0.1 && cam_age <= max_cam_age_s_;
+    cam_age = (time - rclcpp::Time(hand_.header.stamp, time.get_clock_type())).seconds();
+    cam_ok = hand_.valid && cam_kind && cam_age >= -0.1 && cam_age <= max_cam_age_s_;
     if (since_policy_ >= policy_dt_ - 1e-6 && ctx_.q_above.size() == 5 && ctx_.q_down.size() == 5 && cam_ok) {
       since_policy_ = 0.0;
       ArmObsIn in;
@@ -215,6 +224,26 @@ return_type RlArmCorrection::update_and_write_commands(const rclcpp::Time & time
       corr_[i] = sag_[i].corr;
     }
     (void)command_interfaces_[i].set_value(ref[i] + corr_[i] + delta_[i]);
+  }
+  since_debug_ += dt;
+  if (debug_rt_ && ok && since_debug_ >= debug_dt_ - 1e-6) {
+    since_debug_ = 0.0;
+    debug_.header.stamp = time;
+    debug_.skill = ctx_.skill;
+    debug_.run_id = run_id_;
+    for (int i = 0; i < 5; ++i) {
+      debug_.ref[i] = ref[i];
+      debug_.q[i] = q[i];
+      debug_.corr[i] = corr_[i];
+      debug_.delta[i] = delta_[i];
+      debug_.sag_blocked[i] = sag_[i].blocked;
+    }
+    debug_.still = still;
+    debug_.rest = rest;
+    debug_.policy_on = it != skills_.end();
+    debug_.cam_ok = cam_ok;
+    debug_.cam_age = cam_age;
+    (void)debug_rt_->try_publish(debug_);
   }
   return return_type::OK;
 }

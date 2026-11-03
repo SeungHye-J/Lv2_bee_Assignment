@@ -20,6 +20,7 @@
 #include <cmath>
 #include <atomic>
 #include <map>
+#include <memory>
 #include <string>
 #include <vector>
 
@@ -27,8 +28,10 @@
 #include "hardware_interface/types/hardware_interface_type_values.hpp"
 #include "ml/arm_obs.hpp"
 #include "ml/mlp_policy.hpp"
+#include "ml/msg/arm_correction_debug.hpp"
 #include "ml/msg/skill_context.hpp"
 #include "perception/msg/hand_relative.hpp"
+#include "realtime_tools/realtime_publisher.hpp"
 #include "realtime_tools/realtime_thread_safe_box.hpp"
 #include "std_srvs/srv/trigger.hpp"
 
@@ -100,6 +103,10 @@ private:
   uint32_t run_id_ = 0;
   J5 corr_{}, delta_{}, prev_act_{}, prev_ref_{};
   std::array<SagJoint, 5> sag_{};
+  rclcpp::Publisher<ml::msg::ArmCorrectionDebug>::SharedPtr debug_pub_;
+  std::unique_ptr<realtime_tools::RealtimePublisher<ml::msg::ArmCorrectionDebug>> debug_rt_;
+  ml::msg::ArmCorrectionDebug debug_;
+  double debug_dt_ = 0.05, since_debug_ = 0.0;
   std::vector<double> rest_pose_;  // 비면 쉬는 자세 판정 안 함
   bool have_prev_ = false;
   std::atomic<bool> reset_sag_{false};
