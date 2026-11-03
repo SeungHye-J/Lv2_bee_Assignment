@@ -18,6 +18,10 @@ CallbackReturn RlArmCorrection::on_init() {
   auto_declare<double>("sag_gain", 4.2);            // [1/s] 학습: 85 ms마다 오차 30 % 제거 = −ln(0.7)/0.085 (송정혁)
   auto_declare<double>("sag_max", 0.2);             // [rad]
   auto_declare<double>("still_rate", 0.005);        // [rad/s] reference가 이보다 느리면 '멈춤'
+  // 발열 방지: 쉬는 자세(stow, plan basket.yaml pose_stow)에선 적분 안 함 · 상한에 windup_s 붙으면 풂. [] = 끔
+  auto_declare<std::vector<double>>("rest_pose", {0.0, -1.910001, 1.370083, 0.595157, 0.0});
+  auto_declare<double>("rest_tol", 0.03);           // [rad] 모든 관절이 이 안이면 쉬는 자세
+  auto_declare<double>("windup_s", 2.0);            // [s] 0 = 막힘 감지 끔
   auto_declare<double>("policy_hz", 50.0);          // 시뮬 정책 주기
   auto_declare<double>("max_cam_age_s", 1.0);       // 손 카메라 값이 이보다 오래되면 Δ 그대로
   auto_declare<std::string>("model_dir", "");       // 비면 share/ml/model/arm_correction
@@ -36,6 +40,13 @@ CallbackReturn RlArmCorrection::on_configure(const rclcpp_lifecycle::State &) {
   sag_gain_ = node->get_parameter("sag_gain").as_double();
   sag_max_ = node->get_parameter("sag_max").as_double();
   still_rate_ = node->get_parameter("still_rate").as_double();
+  rest_pose_ = node->get_parameter("rest_pose").as_double_array();
+  rest_tol_ = node->get_parameter("rest_tol").as_double();
+  windup_s_ = node->get_parameter("windup_s").as_double();
+  if (!rest_pose_.empty() && rest_pose_.size() != 5) {
+    RCLCPP_ERROR(node->get_logger(), "rest_pose는 관절 5개 (지금 %zu) — 쉬는 자세 판정 끔", rest_pose_.size());
+    rest_pose_.clear();
+  }
   // 스킬 시작마다 호출 (학습 에피소드도 corr = 0에서 시작). 실제 리셋은 다음 update에서 (송정혁)
   reset_srv_ = node->create_service<std_srvs::srv::Trigger>(
     "~/reset_sag", [this](const std::shared_ptr<std_srvs::srv::Trigger::Request>,
@@ -132,11 +143,11 @@ void RlArmCorrection::reset_run() {  // 보정 Δ만 (처짐 적분은 ~/reset_s
 }
 
 return_type RlArmCorrection::update_and_write_commands(const rclcpp::Time & time, const rclcpp::Duration & period) {
-  if (reset_sag_.exchange(false) || !sag_enabled_) corr_.fill(0.0);
+  if (reset_sag_.exchange(false) || !sag_enabled_) sag_.fill(SagJoint{});
   if (auto c = ctx_box_.try_get()) {  // 못 잡으면 (콜백이 쓰는 중) 지난 값으로
     if (c->run_id != ctx_.run_id || c->skill != ctx_.skill) {
       // 새 닿는 구간: 시뮬 에피소드처럼 보정·처짐 적분 0부터 (skill이 꺼질 때는 처짐 적분 유지)
-      if (!c->skill.empty()) corr_.fill(0.0);
+      if (!c->skill.empty()) sag_.fill(SagJoint{});
       run_id_ = c->run_id;
       reset_run();
     }
@@ -164,6 +175,9 @@ return_type RlArmCorrection::update_and_write_commands(const rclcpp::Time & time
     prev_ref_[i] = ref[i];
   }
   have_prev_ = ok;
+  bool rest = ok && !rest_pose_.empty();
+  for (int i = 0; rest && i < 5; ++i) rest = std::abs(ref[i] - rest_pose_[i]) <= rest_tol_;
+  for (int i = 0; i < 5; ++i) corr_[i] = sag_[i].corr;  // 정책 관측용
 
   const auto it = enabled_ && ok ? skills_.find(ctx_.skill) : skills_.end();
   if (it == skills_.end()) {  // 보정 꺼짐: 닿는 구간이 아니거나 이 skill 정책이 없음 → Δ = 0 (처짐 적분은 계속)
@@ -196,7 +210,10 @@ return_type RlArmCorrection::update_and_write_commands(const rclcpp::Time & time
   }
   for (size_t i = 0; i < joints_.size() && i < 5; ++i) {
     if (!ok) continue;  // reference가 아직 없음 — 아무것도 안 씀 (예전처럼)
-    if (sag_enabled_ && still) corr_[i] = sag_step(corr_[i], ref[i], delta_[i], q[i], dt, sag_gain_, sag_max_);
+    if (sag_enabled_) {
+      sag_joint_step(sag_[i], still, rest, ref[i], delta_[i], q[i], dt, sag_gain_, sag_max_, windup_s_);
+      corr_[i] = sag_[i].corr;
+    }
     (void)command_interfaces_[i].set_value(ref[i] + corr_[i] + delta_[i]);
   }
   return return_type::OK;

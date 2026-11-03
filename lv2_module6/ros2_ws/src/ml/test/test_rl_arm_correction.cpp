@@ -22,3 +22,29 @@ TEST(SagStep, KeepsResidual) {
 TEST(SagStep, Clamps) {
   EXPECT_DOUBLE_EQ(ml::sag_step(0.19, 0.0, 0.0, -10.0, 0.01, 4.2, 0.2), 0.2);
 }
+
+TEST(SagGuard, RestPoseReleases) {  // stow: 쌓인 보정을 0으로 풀고 더 쌓지 않음
+  ml::SagJoint j;
+  j.corr = 0.1;
+  for (int k = 0; k < 200; ++k) ml::sag_joint_step(j, true, true, 0.5, 0.0, 0.4, 0.01, 4.2, 0.2, 2.0);
+  EXPECT_NEAR(j.corr, 0.0, 1e-3);
+}
+
+TEST(SagGuard, BlockedReleases) {  // 닿아서 못 감 (q가 안 따라옴): 상한에 2 s 붙으면 풀고 쉼
+  ml::SagJoint j;
+  for (int k = 0; k < 300; ++k) ml::sag_joint_step(j, true, false, 0.5, 0.0, 0.0, 0.01, 4.2, 0.2, 2.0);
+  EXPECT_TRUE(j.blocked);
+  for (int k = 0; k < 200; ++k) ml::sag_joint_step(j, true, false, 0.5, 0.0, 0.0, 0.01, 4.2, 0.2, 2.0);
+  EXPECT_NEAR(j.corr, 0.0, 1e-3);
+}
+
+TEST(SagGuard, NormalSagNotBlocked) {  // 보통 처짐 (상한 안에서 따라옴)은 그대로 고침
+  ml::SagJoint j;
+  double q = 0.45;
+  for (int k = 0; k < 500; ++k) {
+    ml::sag_joint_step(j, true, false, 0.5, 0.0, q, 0.01, 4.2, 0.2, 2.0);
+    q = 0.45 + j.corr;  // 처짐 0.05 rad
+  }
+  EXPECT_FALSE(j.blocked);
+  EXPECT_NEAR(j.corr, 0.05, 1e-3);
+}
