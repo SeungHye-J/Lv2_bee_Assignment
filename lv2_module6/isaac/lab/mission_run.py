@@ -64,24 +64,29 @@ PUCK_NAMES = [c.GetName() for c in STAGE.GetPrimAtPath("/World/pucks").GetChildr
 BOX_NAMES = [f"start_boxes/start_{i}" for i in range(1, 7)]
 LOC_NAMES = ["shelf_L1", "shelf_L2", "shelf_L3"]
 HOME = (-1.987, -2.471)  # start zone centre: mission (734, 950) mm in the scene frame (start_1 = (1468, 950) -> (-1.253, -2.471))
-PRE_M = 0.15  # line up this far out on the face normal before docking (demo: an angled approach shoves the box)
+PRE_M = 0.24  # line up this far out on the face normal before docking (demo: an angled approach shoves the box);
+# 0.24: the turn-in-place sweep of the rear corners is 0.29 m (root at the wheel axis, body x -0.245..0.069, y +-0.153),
+# at 0.15 the robot turning away from a box hit it (run 1: L2 shoved 137 mm / 38 deg)
 RES, X0, Y0, X1, Y1 = 0.04, -2.80, -3.50, 1.80, 3.00
-R_WALL, R_BOX = 0.22, 0.20  # grid inflation [m]: robot half width + margin
+R_WALL, R_BOX = 0.26, 0.26  # grid inflation [m]: turning sweep 0.29 minus the waypoints only turning where it is clear
 
 
 @configclass
 class MissionSceneCfg(InteractiveSceneCfg):
     demo = AssetBaseCfg(prim_path="{ENV_REGEX_NS}/demo", spawn=sim_utils.UsdFileCfg(usd_path=dc.DEMO_USD))
     robot = pe.robot_cfg().replace(prim_path="{ENV_REGEX_NS}/robot")
-    dice = RigidObjectCfg(prim_path="{ENV_REGEX_NS}/demo/shelf_L1", spawn=None)
     start = RigidObjectCfg(prim_path="{ENV_REGEX_NS}/demo/start_boxes/start_1", spawn=None)
 
     def __post_init__(self):
         super().__post_init__()
         self.robot.init_state.pos, self.robot.init_state.rot = dc.ROBOT_POSE
-        for name, path in (("dice", "/World/shelf_L1"), ("start", "/World/start_boxes/start_1")):
+        for name, path in (("start", "/World/start_boxes/start_1"),):
             pos, rot = dc.usd_pose(path)
             getattr(self, name).init_state = RigidObjectCfg.InitialStateCfg(pos=pos, rot=rot)
+        for k, n in enumerate(LOC_NAMES):
+            pos, rot = dc.usd_pose(f"/World/{n}")
+            setattr(self, f"loc{k}", RigidObjectCfg(prim_path="{ENV_REGEX_NS}/demo/" + n, spawn=None,
+                                                     init_state=RigidObjectCfg.InitialStateCfg(pos=pos, rot=rot)))
         for n in PUCK_NAMES:
             pos, rot = dc.usd_pose(f"/World/pucks/{n}")
             setattr(self, n, RigidObjectCfg(prim_path="{ENV_REGEX_NS}/demo/pucks/" + n, spawn=None,
@@ -161,7 +166,7 @@ def astar(a, b):
     ok = (DW > R_WALL) & (DB > R_BOX)
     gy_, gx_ = np.mgrid[0:NY, 0:NX]
     for (ci, cj) in (s, g):  # start / goal next to a box (docked, home corner): let the robot leave or reach it
-        ok |= (np.hypot(gy_ - ci, gx_ - cj) * RES < 0.20) & (DW > 0.15) & (DB > 0.04)
+        ok |= (np.hypot(gy_ - ci, gx_ - cj) * RES < 0.25) & (DW > 0.15) & (DB > 0.04)
     best, prev, pq = {s: 0.0}, {}, [(0.0, s)]
     while pq:
         _, u = heapq.heappop(pq)
@@ -205,8 +210,8 @@ def face(box, h):
 
 
 def face_ok(box, h):
-    dock, pre = face(box, h)
-    return free(*pre[:2]) and free(*dock[:2], r_wall=0.17, r_box=0.0)
+    dock, pre = face(box, h)  # walls do not move: a little less room to them (L3 south face, start_2 sat at 0.265 m)
+    return free(*pre[:2], r_wall=0.22) and free(*dock[:2], r_wall=0.17, r_box=0.0)
 
 
 # ------------------------------------------------------------------------------------------------ the run
@@ -278,6 +283,10 @@ class Mission:
         if self.docked is not None:  # back straight out first
             x, y = x - PRE_M * math.cos(yaw), y - PRE_M * math.sin(yaw)
             b.drive_to(x, y, yaw, reverse=True, label="back off")
+        # arm in before driving: a puck held out front after a pick swept the boxes on the turns (run 1: L2 shoved
+        # 138 mm / 38 deg, L3 73 mm); holding -> carry pose beside the robot (demo load / unload use it), empty -> stow
+        held = self.d.in_hand()
+        b.move(dc.CARRY[1] if held else dc.STOW, dc.CLOSE if held else dc.OPEN, 0.0, "arm in for driving")
         path = astar((x, y), pre[:2])
         if path is None:
             print(f"[mission] no path to {kind} {idx}", flush=True)
@@ -288,11 +297,21 @@ class Mission:
             b.drive_to(nx_, ny_, hd)
         b.drive_to(*dock, label=f"dock {kind} {idx + 1} heading {math.degrees(h):.0f}")
         self.docked = (kind, idx, h)
+        moved = [round(1000 * math.hypot(self.loc_now(k)[0] - LOCS[k][0], self.loc_now(k)[1] - LOCS[k][1])) for k in range(3)]
+        if max(moved) > 5:
+            print(f"[mission] location boxes moved {moved} mm", flush=True)
         return True
+
+    def loc_now(self, loc):
+        """Live centre and grid yaw of location box `loc` (docking can shove it)."""
+        o = self.scene[f"loc{loc}"]
+        p = o.data.root_pos_w.torch[0] - self.org
+        yaw = mu.euler_xyz_from_quat(o.data.root_quat_w.torch)[2][0].item()
+        return p[0].item(), p[1].item(), math.remainder(yaw, math.pi / 2)
 
     def loc_face(self, loc, cell):
         """Heading at location `loc` for arena cell (row 0 north, col 0 west) and the cell index in demo place() terms."""
-        cx, cy, y0 = LOCS[loc]
+        cx, cy, y0 = self.loc_now(loc)
         r, c = divmod(cell, 3)
         ox, oy = (c - 1) * bc.CELL_PITCH, (1 - r) * bc.CELL_PITCH
         ox, oy = ox * math.cos(y0) - oy * math.sin(y0), ox * math.sin(y0) + oy * math.cos(y0)
@@ -329,20 +348,23 @@ class Mission:
 
     def cell_err(self, i):
         loc, cell = self.targets[i]
-        cx, cy, y0 = LOCS[loc]
+        cx, cy, y0 = self.loc_now(loc)
         r, c = divmod(cell, 3)
         ox, oy = (c - 1) * bc.CELL_PITCH, (1 - r) * bc.CELL_PITCH
         tx, ty = cx + ox * math.cos(y0) - oy * math.sin(y0), cy + ox * math.sin(y0) + oy * math.cos(y0)
         p = self.scene[self.names[i]].data.root_pos_w.torch[0] - self.org
         return math.hypot(p[0].item() - tx, p[1].item() - ty)
 
-    def placed_state(self, i):
+    def placed_state(self, i, say=False):
         kind, k = self.where(i)
-        if kind != "loc":
-            return ms.LOST
-        if not self.standing(i):
-            return ms.PLACED_LYING
-        return ms.OK if self.cell_err(i) < 0.010 else ms.OFF
+        st = ms.LOST if kind != "loc" else ms.PLACED_LYING if not self.standing(i) else ms.OK if self.cell_err(i) < 0.010 else ms.OFF
+        if say:
+            loc = self.targets[i][0]
+            cx, cy, y0 = self.loc_now(loc)
+            moved = math.hypot(cx - LOCS[loc][0], cy - LOCS[loc][1])
+            print(f"[mission]   judge puck {i}: on {kind} {k}, cell error {1000 * self.cell_err(i):.1f} mm, "
+                  f"L{loc + 1} box moved {1000 * moved:.0f} mm / {math.degrees(y0 - LOCS[loc][2]):+.1f} deg", flush=True)
+        return st
 
     # ---- one planner action
     def do(self, i, skill):
@@ -380,7 +402,8 @@ class Mission:
         if not self.go("loc", loc, h):
             return None
         self.use(i)
-        dc.DICE_BOX, dc.DOCK = (LOCS[loc][0], LOCS[loc][1], h), face(LOCS[loc], h)[0]
+        lx, ly, _ = self.loc_now(loc)
+        dc.DICE_BOX, dc.DOCK = (lx, ly, h), face((lx, ly, 0.0), h)[0]
         if skill == ms.UNLOAD:
             if d.unload(self.slot_of[i]):
                 self.free_slots.append(self.slot_of.pop(i))
@@ -388,11 +411,11 @@ class Mission:
             return ms.BASKET if self.where(i)[0] is None and not d.in_hand() else ms.LOST
         if skill == ms.PLACE:
             d.place(cell_rel)
-            return ms.HAND if d.in_hand() else self.placed_state(i)
+            return ms.HAND if d.in_hand() else self.placed_state(i, say=True)
         if skill == ms.REPICK:
             if d.pick():
                 return ms.HAND
-            return self.placed_state(i)
+            return self.placed_state(i, say=True)
         return None
 
     def home(self):
@@ -411,12 +434,18 @@ class Mission:
 
 
 class RunSim(ms.MissionSim):
-    """Planner state of the real run; skills without an Isaac implementation yet are masked."""
+    """Planner state of the real run; skills without an Isaac implementation yet are masked, and an action that failed
+    3 times in a row without changing anything is masked too (the abstract mission never repeats a failure forever,
+    the planner had no reason to stop re-picking a puck its grasp could not take: 190 times in run 1)."""
+    fails = {}
 
     def action_masks(self):
         m = super().action_masks()
         m[ms.NUDGE::ms.N_PER_PUCK] = False
         m[ms.STAND_PLACED::ms.N_PER_PUCK] = False
+        for a, n in self.fails.items():
+            if n >= 3:
+                m[a] = False
         return m
 
 
@@ -451,8 +480,17 @@ def main():
     planner = torch.jit.load(ours.plan_model or str(HERE / "policies" / "plan_next.pt"), map_location="cpu").eval()
     print(f"[mission] skills: place {dc.args.policy}, pick {dc.args.pick_policy}, stand {dc.args.right_policy}; planner {ours.planner}", flush=True)
 
-    dc.reset_scene.__globals__["PUCKS"] = {}  # reset_scene only for the robot here
-    dc.reset_scene(scene, demo.bot)
+    robot = scene["robot"]  # robot at its scene pose, arm at stow (demo_cycle.reset_scene without its two pucks)
+    root = robot.data.default_root_pose.torch.clone()
+    root[:, :3] += scene.env_origins
+    robot.write_root_pose_to_sim_index(root_pose=root)
+    jp = robot.data.default_joint_pos.torch.clone()
+    stow = torch.tensor(dc.STOW, device=root.device)
+    jp[:, demo.bot.arm] = stow
+    robot.write_joint_state_to_sim_index(position=jp, velocity=torch.zeros_like(jp))
+    robot.set_joint_position_target_index(target=jp[:, demo.bot.arm], joint_ids=demo.bot.arm)
+    scene.write_data_to_sim()
+    demo.bot.reset_state(stow)
     mission = Mission(sim, scene, demo)
     lying = mission.draw(rng)
     for _ in range(int(1.0 / dc.DT)):  # settle
@@ -485,11 +523,12 @@ def main():
         if st is None:
             print("[mission] skill could not start, stop", flush=True)
             break
+        env.fails[a] = env.fails.get(a, 0) + 1 if st == before else 0
         env.status[i], env.tries[i] = st, env.tries[i] + 1
         env.at = (i // 2) if skill in (ms.PICK, ms.STAND) else (6 + env.targets[i][0]) if skill not in (ms.LOAD,) else env.at
         print(f"[mission]   -> {STATUS[st]}", flush=True)
     # final judge: every puck on its cell now (a later place can knock an earlier one)
-    final = [mission.placed_state(i) if env.status[i] in (ms.OK, ms.OFF, ms.PLACED_LYING) else env.status[i] for i in range(12)]
+    final = [mission.placed_state(i, say=True) if env.status[i] in (ms.OK, ms.OFF, ms.PLACED_LYING) else env.status[i] for i in range(12)]
     score = 0
     for loc in range(3):
         mine = [i for i in range(12) if env.targets[i][0] == loc]
