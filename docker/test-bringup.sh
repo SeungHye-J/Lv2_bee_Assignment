@@ -42,7 +42,11 @@ stop_nodes  # 이전 실행의 고아 노드가 있으면 DDS 그래프가 꼬�
 source install/setup.bash
 
 # ML 노드는 도커에서 띄우지 않는다 (GPU·모델 없음 — faker ML 대역이 대신, ml 패키지는 test-packages로 검사)
+<<<<<<< HEAD
 NODES="/perception /user_input /vlm_task_planner /coordinator /mission_manager /explorer /arm_safety_monitor /manual_control /body_filter /state_manager"
+=======
+NODES="/perception /hand_relative /user_input /vlm_task_planner /coordinator /explorer /arm_safety_monitor /manual_control /body_filter /state_manager"
+>>>>>>> origin/feature/hand-relative
 
 # job control: 백그라운드 launch가 SIGINT를 무시하지 않게 (ros2 launch는 SIGINT로 정상 종료)
 set -m
