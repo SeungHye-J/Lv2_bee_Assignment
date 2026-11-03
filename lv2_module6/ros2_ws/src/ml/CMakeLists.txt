@@ -36,7 +36,8 @@ add_library(${PROJECT_NAME}_nodes STATIC src/grasp_scorer.cpp src/rl_nav_tuner.c
 target_include_directories(${PROJECT_NAME}_nodes PUBLIC include)
 target_compile_features(${PROJECT_NAME}_nodes PUBLIC cxx_std_17)
 target_link_libraries(${PROJECT_NAME}_nodes PUBLIC rclcpp::rclcpp ${geometry_msgs_TARGETS} ${sensor_msgs_TARGETS}
-  ${nav_msgs_TARGETS} ${nav2_msgs_TARGETS} ${perception_TARGETS} ${msgs_cpp} diagnostic_updater::diagnostic_updater)
+  ${nav_msgs_TARGETS} ${nav2_msgs_TARGETS} ${perception_TARGETS} ${msgs_cpp} diagnostic_updater::diagnostic_updater
+  tf2_ros::tf2_ros ament_index_cpp::ament_index_cpp)
 foreach(node grasp_scorer rl_nav_tuner rl_nav_correction)
   add_executable(${node} src/${node}_main.cpp)
   target_link_libraries(${node} ${PROJECT_NAME}_nodes)
@@ -77,6 +78,8 @@ if(BUILD_TESTING)
   target_compile_definitions(test_mlp_policy PRIVATE MODEL_DIR="${ML_MODEL_DIR}")
   ament_add_gtest(test_arm_obs test/test_arm_obs.cpp TIMEOUT 60)
   target_include_directories(test_arm_obs PRIVATE include)
+  ament_add_gtest(test_nav_obs test/test_nav_obs.cpp TIMEOUT 60)
+  target_include_directories(test_nav_obs PRIVATE include)
   target_link_libraries(test_rl_nav_correction ${PROJECT_NAME}_nodes)
   ament_add_test(test_launch GENERATE_RESULT_FOR_RETURN_CODE_ZERO
     COMMAND ros2 launch "${CMAKE_CURRENT_SOURCE_DIR}/launch/ml.launch.py" --show-args

@@ -62,11 +62,13 @@
 #include "std_msgs/msg/bool.hpp"
 #include "geometry_msgs/msg/pose_stamped.hpp"
 #include "geometry_msgs/msg/twist_stamped.hpp"
+#include "ml/msg/skill_context.hpp"
 #include "ml/srv/score_grasps.hpp"
 #include "moveit_msgs/action/execute_trajectory.hpp"
 #include "moveit_msgs/srv/apply_planning_scene.hpp"
 #include "moveit_msgs/srv/get_motion_plan.hpp"
 #include "nav2_msgs/action/navigate_to_pose.hpp"
+#include "perception/msg/hand_target.hpp"
 #include "perception/msg/tracked_object_array.hpp"
 #include "plan/msg/sub_goal_array.hpp"
 #include "plan/msg/task_status.hpp"
@@ -198,6 +200,20 @@ private:
   Step grip_timed_step(double joint_m, double effort_a, double secs);
   Step wait_step(double secs);
 
+  // ---------- 닿는 구간 (2026-11-03 배포 결정, bee skill-training 9장): 빈 공간은 MoveIt, 퍽에 닿는 구간은 시뮬과 같은
+  //   기준 동작 + 학습 보정. plan()이 정한 above(지금 자세) → down → 쥐기(close)/놓기 → above, 시뮬 place_env·pick_env와 같은
+  //   단계·시간 (정지 0.3 s · 팀 한계 0.3배 부드러운 보간 · 안정 0.3 s · 쥐기 0.5 s / 놓기 0.4 s · 대기). 단계마다 /skill_context
+  //   (rl_arm_correction이 그 skill 정책을 켜고 입력을 만듦) · 끝나면 skill "" (보정 끔). contact_mode: moveit이면 안 씀 (예전 그대로)
+  Step contact_step(const std::string & skill, std::function<bool(stand::Q5 &, stand::Q5 &)> plan, bool close);
+  Step ctx_step(const std::string & skill, uint8_t phase, bool holding, bool live, const stand::Q5 & above, const stand::Q5 & down);
+  void skill_ctx(const std::string & skill, uint8_t phase, bool holding, bool live, const stand::Q5 & above,
+                 const stand::Q5 & down, double gx = 0.0, double gy = 0.0, double gyaw = 0.0);
+  // map 손끝 목표 → 손 아래 해석 IK (near의 손목 방향 그대로) — stand_plan ik_down, base_footprint 기준
+  bool ik_ee(const geometry_msgs::msg::PoseStamped & ee, const stand::Q5 & near, stand::Q5 & out);
+  // hand_relative에 무엇을 잴지 (puck: 퍽 번호 · cell: 칸 가운데 map · slot: 적재함 칸 · none)
+  void hand_target(const std::string & kind, int puck_tag, int slot, double x = 0.0, double y = 0.0, double z = 0.0);
+  bool sim_contact() const { return contact_mode_ == "sim"; }
+
   // ---------- 처짐 보정 초기화 — 팔 skill 시작 때 한 번 (서비스 없으면 WARN 한 번)
   void reset_sag();
   std::string held_shape_of(uint32_t id) const;  // 퍽 details shape (모르면 box)
@@ -278,6 +294,13 @@ private:
   double approach_speed_, approach_pre_m_, approach_pos_tol_, approach_yaw_tol_, approach_timeout_s_;
   double ap_x_ = 0, ap_y_ = 0, ap_yaw_ = 0, ap_best_ = 1e9;
   int ap_stage_ = 0;  // 0 = 앞 자리로 · 1 = 목표 방향으로 돌기 · 2 = 직선 전진
+  // approach_mode sim: 시뮬 drive_env 기준 제어 (목표 쪽으로 돌기 → 옆 어긋남 고치며 직진 → 마지막 방향) + rl_nav_correction 보정
+  void approach_tick_sim();
+  std::string approach_mode_, contact_mode_;
+  double ap_still_s_ = 0.0;
+  rclcpp::Publisher<ml::msg::SkillContext>::SharedPtr skill_ctx_pub_;
+  rclcpp::Publisher<perception::msg::HandTarget>::SharedPtr hand_target_pub_;
+  uint32_t skill_run_ = 0;
   rclcpp::Time ap_started_{0, 0, RCL_ROS_TIME}, ap_progress_{0, 0, RCL_ROS_TIME};
   std::map<std::string, std::vector<double>> poses_;      // stow · carry_left · carry_right
   std::vector<std::string> basket_carry_;                 // 칸마다 left | right
