@@ -26,6 +26,7 @@ find_package(visualization_msgs REQUIRED)
 find_package(perception REQUIRED)
 find_package(control REQUIRED)
 find_package(ml REQUIRED)
+find_package(ament_index_cpp REQUIRED)
 
 rosidl_generate_interfaces(${PROJECT_NAME}
   msg/SubGoal.msg
@@ -42,13 +43,13 @@ include_directories(include)
 #     선언·설명은 include/plan/<노드>.hpp
 add_library(${PROJECT_NAME}_nodes STATIC src/user_input.cpp src/vlm_task_planner.cpp src/coordinator.cpp src/stand_plan.cpp src/explorer.cpp
   src/mission_solver.cpp src/mission_manager.cpp)
-target_include_directories(${PROJECT_NAME}_nodes PUBLIC include)
+target_include_directories(${PROJECT_NAME}_nodes PUBLIC include ${ml_INCLUDE_DIRS})
 target_compile_features(${PROJECT_NAME}_nodes PUBLIC cxx_std_17)
 target_link_libraries(${PROJECT_NAME}_nodes PUBLIC rclcpp::rclcpp rclcpp_action::rclcpp_action
   ${std_msgs_TARGETS} ${std_srvs_TARGETS} ${geometry_msgs_TARGETS} ${nav2_msgs_TARGETS} ${nav_msgs_TARGETS}
   tf2::tf2 tf2_ros::tf2_ros
   ${moveit_msgs_TARGETS} ${control_msgs_TARGETS} ${shape_msgs_TARGETS} ${visualization_msgs_TARGETS}
-  ${perception_TARGETS} ${control_TARGETS} ${ml_TARGETS} ${msgs_cpp} diagnostic_updater::diagnostic_updater
+  ${perception_TARGETS} ${control_TARGETS} ${ml_TARGETS} ${msgs_cpp} diagnostic_updater::diagnostic_updater ament_index_cpp::ament_index_cpp
   ${OpenCV_LIBS})
 foreach(node user_input vlm_task_planner coordinator explorer mission_manager)
   add_executable(${node} src/${node}_main.cpp)
@@ -72,6 +73,10 @@ if(BUILD_TESTING)
   target_link_libraries(test_explorer ${PROJECT_NAME}_nodes)
   ament_add_gtest(test_mission_solver test/test_mission_solver.cpp TIMEOUT 60)
   target_link_libraries(test_mission_solver ${PROJECT_NAME}_nodes)
+  ament_add_gtest(test_plan_next test/test_plan_next.cpp TIMEOUT 60)
+  target_link_libraries(test_plan_next ${PROJECT_NAME}_nodes)
+  target_compile_definitions(test_plan_next PRIVATE MODEL_DIR="${CMAKE_CURRENT_SOURCE_DIR}/../../model"
+    CASES="${CMAKE_CURRENT_SOURCE_DIR}/test/plan_next_cases.txt")
   ament_add_test(test_launch GENERATE_RESULT_FOR_RETURN_CODE_ZERO
     COMMAND ros2 launch "${CMAKE_CURRENT_SOURCE_DIR}/launch/plan.launch.py" --show-args
     TIMEOUT 60)

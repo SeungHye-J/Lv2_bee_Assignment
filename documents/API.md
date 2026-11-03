@@ -222,6 +222,33 @@ string error            # ERROR 이유 (정지한 경우만)
 - 내는 쪽: mission_manager → `/mission/state` (reliable + transient_local, 바뀔 때마다). 흐름: [03-plan.md](project/ros/03-plan.md).
 
 <a id="api-msg-missionsignal"></a>
+### ml/msg/SkillContext ([파일](../lv2_module6/ros2_ws/src/ml/msg/SkillContext.msg))
+
+coordinator가 학습 보정 컨트롤러에 "지금 어느 skill의 어느 단계인지" 알림 (2026-11-03 배포 결정: 닿는 구간·도킹만 시뮬 기준 동작 + 보정).
+
+| 칸 | 뜻 |
+|---|---|
+| `header.stamp` | 이 단계 시작 시각 (정책 입력 "진행"의 기준) |
+| `run_id` | skill 한 번마다 +1 — 바뀌면 보정 컨트롤러가 처짐 적분·보정·이전 행동을 0부터 |
+| `skill` | `place_cell` · `load_slot` · `pick_standing_puck` · `unload_slot` · `dock_box` … · `""` = 보정 끔 |
+| `phase` · `holding` · `residual_live` | 팔: 0 위에서 정지 · 1 내려가기 · 2 안정 · 3 쥐기/놓기 · 4 올리기 · 5 대기 / 처짐 적분이 도는지 / 정책이 보정을 바꿀 수 있는지 |
+| `q_above` · `q_down` | 팔: 내려가기 시작·끝 관절 (정책 입력) |
+| `goal_x` · `goal_y` · `goal_yaw` | 주행: 도킹 목표 (map) |
+
+### perception/msg/HandTarget · HandRelative ([파일](../lv2_module6/ros2_ws/src/perception/msg/HandRelative.msg))
+
+학습 보정 정책(시뮬 isaac/lab에서 학습)이 보던 "손 카메라로 잰 상대값"을 로봇에서 만든다 (2026-11-03 배포 결정: 퍽에 닿는 구간은 시뮬과 같은 기준 동작 + 학습 보정).
+
+| skill | `HandTarget.kind` | `HandRelative.rel` (base_link, m) | 그 밖에 쓰는 칸 |
+|---|---|---|---|
+| pick · unload · regrasp | `puck` (`puck_tag`, −1 = 손에 가장 가까운 퍽) | 퍽 가운데(반 높이) − 손끝 | `face_yaw`(사각 퍽 면 − 손 방향, ±45°) · `is_box` |
+| stand | `puck` | 퍽 가운데 − 손끝 | `axis`(가까운 끝 → 먼 끝) · `neighbour` · `neighbour_rel` |
+| place | `cell` (`box_tag`, `point` 계획 칸, `box_point` 계획 상자) | 칸 가운데 − 손 안 퍽 바닥 | 상자가 밀렸으면(≤ 5 cm) 지금 본 상자만큼 칸을 옮김 |
+| load | `slot` (`slot` 0~11) | 적재함 칸 가운데 − 손 안 퍽 바닥 | 카메라 없이 TF만 (적재함은 로봇에 고정) |
+
+- 손 안 퍽 바닥 = 손끝 + 손 회전 · (0, 0, 0.0606) — 정상 파지 위치 (손 카메라가 밑면을 못 봄). 시뮬 정책은 손 안 오차 ±2~3 mm까지 보며 학습 — 로봇에선 0으로 들어감.
+- 값이 ≤ 4Hz로 오므로(손 카메라 추론 주기) 받는 쪽은 새 값이 올 때까지 마지막 값을 쓴다. `valid=false`면 정책 입력 0 (시뮬 정책이 "못 봄"을 배운 적은 없음 — 그때는 보정 끄기 권장).
+
 ### perception/msg/MissionSignal ([파일](../lv2_module6/ros2_ws/src/perception/msg/MissionSignal.msg))
 
 ```text
@@ -309,7 +336,10 @@ string message
 | `/gripper_cam/aligned_depth_to_color/image_nvblox` | sensor_msgs/Image (16UC1, mm) | gripper_depth_gate (scan_cam_gate) → nvblox_node | gripper_cam 정렬 depth — 팔이 스캔 자세(`scan_pose.yaml`)에 멈춰 있을 때만(0.5m 안은 0), 아니면 전부 0 (지도 만들 때 두 번째 카메라) |
 | `/gripper_cam/depth/color/points` | sensor_msgs/PointCloud2 | realsense2_camera (gripper_cam) → grasp_scorer | 근접 파지용 |
 | `/tracked_objects` | perception/TrackedObjectArray | perception → vlm_task_planner, coordinator, grasp_scorer | 10Hz · reliable — 두 카메라 융합 결과 ([필드 뜻](#api-msg-trackedobject)) |
-| `/perception/pole_front_cam/detections` · `/perception/gripper_cam/detections` | perception/TrackedObjectArray | perception → (시뮬레이터·디버그) | 추론마다(카메라당 ≤4Hz) · reliable — 융합 전 카메라별 검출, `id` = 붙은 트랙 |
+| `/perception/pole_front_cam/detections` · `/perception/gripper_cam/detections` | perception/TrackedObjectArray | perception → hand_relative, (시뮬레이터·디버그) | 추론마다(카메라당 ≤4Hz) · reliable — 융합 전 카메라별 검출, `id` = 붙은 트랙 |
+| `/skill_context` | ml/SkillContext | coordinator → rl_arm_correction, rl_nav_correction | 단계 바뀔 때마다 · reliable — 지금 skill·단계 (학습 보정을 켜고 입력을 만듦) |
+| `/hand_relative/target` | perception/HandTarget | coordinator → hand_relative | 닿는 구간 시작 전 한 번 · reliable + transient_local — 무엇을 잴지 (`puck` 퍽 번호 · `cell` 상자 태그와 계획 칸 · `slot` 적재함 칸 · `none`) |
+| `/hand_relative` | perception/HandRelative | hand_relative → rl_arm_correction | 손 카메라 검출마다(≤4Hz, `slot`은 20Hz) — base_link 기준 퍽 − 손끝 / 칸 − 손 안 퍽 바닥, 사각 퍽 면 방향 오차, 퍽 축, 옆 퍽. 학습 보정 정책 입력과 같은 정의 ([scripts/hand_geom.py](../lv2_module6/ros2_ws/src/perception/scripts/hand_geom.py)) |
 
 - depth 단위는 16UC1 = 밀리미터. D435 최소 측정 거리 약 0.2~0.3m — 그리퍼가 퍽에 바짝 붙으면 빈다.
 

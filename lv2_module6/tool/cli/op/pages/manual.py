@@ -410,10 +410,10 @@ class GripperShowItem(MenuItem):
 
 def ask_grip_current(item) -> float | None:
     """그리퍼 명령마다 쥐는 힘 한계 [A]를 묻는다 — 빈칸 Enter = 지금 값 · Esc = 명령 취소(None)."""
-    value, ok = item.ui.read_float('쥐는 힘 한계 [A] (펌웨어가 0.05~1.2로 자름)', item.bus.grip_current, positive=True)
+    value, ok = item.ui.read_float('쥐는 힘 한계 [A] (펌웨어가 0.00269~1.2로 자름)', item.bus.grip_current, positive=True)
     if not ok:
         return None
-    item.bus.grip_current = min(1.2, max(0.05, value))
+    item.bus.grip_current = min(1.2, max(0.00269, value))
     return item.bus.grip_current
 
 
@@ -469,7 +469,7 @@ class GripperMenu(Menu):
         return [GripperShowItem(self.app), GripperOpenItem(self.app),
                 GripperCloseItem(self.app), GripperPositionItem(self.app),
                 FloatSettingItem(self.app, '5', '쥐는 힘 한계', 'A', lambda: self.bus.grip_current,
-                                 lambda v: setattr(self.bus, 'grip_current', min(1.2, max(0.05, v))), positive=True),
+                                 lambda v: setattr(self.bus, 'grip_current', min(1.2, max(0.00269, v))), positive=True),
                 RecoverItem(self.app)]
 
     def center(self):

@@ -262,7 +262,7 @@ def build_parser() -> argparse.ArgumentParser:
     gripper.add_argument('action', type=str.lower, choices=('open', 'close', 'position', 'show'))
     gripper.add_argument('value', nargs='?', help='position일 때 목표 [m] (0=닫힘, 0.0265=열림)')
     gripper.add_argument('--current', type=_positive_float, default=None, metavar='A',
-                         help='쥐는 힘 한계 [A] (펌웨어가 0.05~1.2로 자름) — 생략하면 gripper_controller max_effort (0.6)')
+                         help='쥐는 힘 한계 [A] (펌웨어가 0.00269~1.2로 자름) — 생략하면 gripper_controller max_effort (0.6)')
     gripper.add_argument('--force', action='store_true', help='MANUAL 상태 확인을 건너뜀 (위험)')
 
     map_parser = sub.add_parser('map', help='지도 모드·지도 전환·저장')

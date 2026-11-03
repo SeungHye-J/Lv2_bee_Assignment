@@ -88,6 +88,11 @@ Coordinator::Coordinator()
   approach_yaw_tol_ = declare_parameter<double>("approach_yaw_tol", 0.03);
   approach_timeout_s_ = declare_parameter<double>("approach_timeout_s", 30.0);
   cmd_vel_pub_ = create_publisher<geometry_msgs::msg::TwistStamped>("/cmd_vel_nav", rclcpp::QoS(10));
+  // 배포 결정 2026-11-03: 닿는 구간·도킹은 시뮬과 같은 기준 동작 + 학습 보정 (moveit · legacy = 예전 그대로)
+  contact_mode_ = declare_parameter<std::string>("contact_mode", "sim");
+  approach_mode_ = declare_parameter<std::string>("approach_mode", "sim");
+  skill_ctx_pub_ = create_publisher<ml::msg::SkillContext>("/skill_context", rclcpp::QoS(10).reliable());
+  hand_target_pub_ = create_publisher<perception::msg::HandTarget>("/hand_relative/target", rclcpp::QoS(1).reliable().transient_local());
   grasp_check_ = declare_parameter<bool>("grasp_check", true);
   grasp_min_pos_m_ = declare_parameter<double>("grasp_min_pos_m", 0.003);
   grasp_min_effort_ = declare_parameter<double>("grasp_min_effort", 0.25);
@@ -710,6 +715,11 @@ void Coordinator::approach(const SubGoal & g) {
   ap_best_ = 1e9;
   ap_started_ = ap_progress_ = now();
   RCLCPP_INFO(get_logger(), "approach (%.3f, %.3f, %.2f) — 지금 (%.3f, %.3f, %.2f)", ap_x_, ap_y_, ap_yaw_, x, y, yaw);
+  ap_still_s_ = 0.0;
+  if (approach_mode_ == "sim") {  // rl_nav_correction이 dock_box 정책을 켬 (목표 = 도킹 자세)
+    ++skill_run_;
+    skill_ctx("dock_box", 0, false, false, {}, {}, ap_x_, ap_y_, ap_yaw_);
+  }
   approach_timer_ = create_wall_timer(std::chrono::milliseconds(50), [this]() { approach_tick(); });
 }
 
@@ -721,6 +731,7 @@ void Coordinator::stop_base() {
 }
 
 void Coordinator::approach_tick() {
+  if (approach_mode_ == "sim") { approach_tick_sim(); return; }
   double x, y, yaw;
   if (!running_ || !robot_pose(x, y, yaw)) return;
   const double c = std::cos(ap_yaw_), s = std::sin(ap_yaw_);
@@ -766,6 +777,47 @@ void Coordinator::approach_tick() {
     approach_timer_->cancel();
     stop_base();
     RCLCPP_WARN(get_logger(), "approach 멈춤 (단계 %d · 남은 %.3f)", ap_stage_, remain);
+    fail("approach_blocked");
+    return;
+  }
+  cmd_vel_pub_->publish(cmd);
+}
+
+// 시뮬 drive_env._baseline과 같은 식 (isaac/lab/drive_env.py, demo_cycle drive_to): 목표가 1 cm 밖이면 목표 쪽으로 돌고(10° 넘게
+// 어긋나면) 옆 어긋남을 고치며 직진 (≤ 0.12 m/s), 안이면 마지막 방향으로 돌기. 위치 1 cm · 방향 1.5° 안에서 0.5 s 멈추면 끝.
+// 이 명령은 /cmd_vel_nav → rl_nav_correction(dock_box 정책 보정) → velocity_smoother → 바퀴
+void Coordinator::approach_tick_sim() {
+  double x, y, yaw;
+  if (!running_ || !robot_pose(x, y, yaw)) return;
+  const auto wrap = [](double a) { return std::remainder(a, 2 * M_PI); };
+  const double c = std::cos(yaw), s = std::sin(yaw);
+  const double gx = c * (ap_x_ - x) + s * (ap_y_ - y), gy = -s * (ap_x_ - x) + c * (ap_y_ - y), gyaw = wrap(ap_yaw_ - yaw);
+  const double dist = std::hypot(gx, gy), head = std::atan2(gy, gx);
+  const bool far = dist > 0.01, turn_first = far && std::abs(head) > 10.0 * M_PI / 180.0;
+  geometry_msgs::msg::TwistStamped cmd;
+  cmd.header.stamp = now();
+  cmd.header.frame_id = "base_footprint";
+  cmd.twist.linear.x = far && !turn_first ? std::clamp(1.5 * gx, -0.12, 0.12) : 0.0;
+  cmd.twist.angular.z = turn_first ? std::clamp(3.0 * head, -1.0, 1.0) : far ? std::clamp(4.0 * gy, -0.5, 0.5)
+                                                                              : std::clamp(3.0 * gyaw, -1.0, 1.0);
+  const auto t = now();
+  if (!far && std::abs(gyaw) < 1.5 * M_PI / 180.0) ap_still_s_ += 0.05;
+  else ap_still_s_ = 0.0;
+  if (ap_still_s_ >= 0.5) {
+    approach_timer_->cancel();
+    stop_base();
+    skill_ctx("", 0, false, false, {}, {});
+    RCLCPP_INFO(get_logger(), "approach 도착 (sim) — 앞 %.4f m · 옆 %.4f m · 방향 %.3f rad", gx, gy, gyaw);
+    next();
+    return;
+  }
+  const double remain = dist + 0.1 * std::abs(gyaw);
+  if (remain < ap_best_ - 0.003) { ap_best_ = remain; ap_progress_ = t; }
+  if ((t - ap_progress_).seconds() > 4.0 || (t - ap_started_).seconds() > approach_timeout_s_) {
+    approach_timer_->cancel();
+    stop_base();
+    skill_ctx("", 0, false, false, {}, {});
+    RCLCPP_WARN(get_logger(), "approach 멈춤 (sim · 남은 %.3f m, %.3f rad)", dist, gyaw);
     fail("approach_blocked");
     return;
   }
@@ -1083,10 +1135,18 @@ void Coordinator::load(const SubGoal & g) {
   const std::string shape = held_.shape.empty() ? "box" : held_.shape;
   if (slot_q(shape, "q_over", slot).empty()) { fail("basket_table_missing"); return; }
   reset_sag();
-  auto steps = std::make_shared<std::vector<Step>>(std::vector<Step>{
-    joints_step(poses_["carry_" + basket_carry_[slot]]), joints_step(slot_q(shape, "q_over", slot)),
-    joints_step(slot_q(shape, "q_low", slot)), gripper_step(GRIPPER_OPEN_M),
-    joints_step(slot_q(shape, "q_lift", slot)), joints_step(poses_["stow"])});
+  const auto to_q5 = [](const std::vector<double> & v) { stand::Q5 q{}; std::copy_n(v.begin(), 5, q.begin()); return q; };
+  const auto q_over = to_q5(slot_q(shape, "q_over", slot)), q_low = to_q5(slot_q(shape, "q_low", slot));
+  auto steps = std::make_shared<std::vector<Step>>(sim_contact()
+    ? std::vector<Step>{  // carry → 칸 위 (MoveIt) → 닿는 구간 (load_slot 정책: 칸 위 → q_low → 벌림 → 칸 위) → stow
+      joints_step(poses_["carry_" + basket_carry_[slot]]), joints_step(slot_q(shape, "q_over", slot)),
+      [this, slot](std::function<void(bool)> cb) { hand_target("slot", -1, slot); cb(true); },
+      contact_step("load_slot", [q_over, q_low](stand::Q5 & a, stand::Q5 & d) { a = q_over; d = q_low; return true; }, false),
+      joints_step(poses_["stow"])}
+    : std::vector<Step>{
+      joints_step(poses_["carry_" + basket_carry_[slot]]), joints_step(slot_q(shape, "q_over", slot)),
+      joints_step(slot_q(shape, "q_low", slot)), gripper_step(GRIPPER_OPEN_M),
+      joints_step(slot_q(shape, "q_lift", slot)), joints_step(poses_["stow"])});
   RCLCPP_INFO(get_logger(), "load: 칸 %d (%s · carry_%s)", slot, shape.c_str(), basket_carry_[slot].c_str());
   run_steps(steps, 0, [this, slot, shape](bool ok) {
     if (!ok) { fail("load_failed"); return; }
@@ -1111,10 +1171,19 @@ void Coordinator::unload(const SubGoal & g) {
   if (slot_q(shape, "q_grasp", slot).empty()) { fail("basket_table_missing"); return; }
   reset_sag();
   const auto carry = poses_["carry_" + basket_carry_[slot]];
-  auto steps = std::make_shared<std::vector<Step>>(std::vector<Step>{
-    joints_step(carry), gripper_step(GRIPPER_OPEN_M), joints_step(slot_q(shape, "q_over", slot)),
-    joints_step(slot_q(shape, "q_grasp", slot)), gripper_step(GRIPPER_CLOSED_M, grip_current_a_), held_step(),
-    joints_step(slot_q(shape, "q_over", slot)), joints_step(carry)});
+  const auto to_q5 = [](const std::vector<double> & v) { stand::Q5 q{}; std::copy_n(v.begin(), 5, q.begin()); return q; };
+  const auto q_over = to_q5(slot_q(shape, "q_over", slot)), q_grasp = to_q5(slot_q(shape, "q_grasp", slot));
+  const int tag = basket_[slot].tag;
+  auto steps = std::make_shared<std::vector<Step>>(sim_contact()
+    ? std::vector<Step>{  // carry → 벌림 → 칸 위 (MoveIt) → 닿는 구간 (unload_slot 정책: q_grasp → 쥐기 → 칸 위) → carry
+      joints_step(carry), gripper_step(GRIPPER_OPEN_M), joints_step(slot_q(shape, "q_over", slot)),
+      [this, tag](std::function<void(bool)> cb) { hand_target("puck", tag, -1); cb(true); },
+      contact_step("unload_slot", [q_over, q_grasp](stand::Q5 & a, stand::Q5 & d) { a = q_over; d = q_grasp; return true; }, true),
+      joints_step(carry)}
+    : std::vector<Step>{
+      joints_step(carry), gripper_step(GRIPPER_OPEN_M), joints_step(slot_q(shape, "q_over", slot)),
+      joints_step(slot_q(shape, "q_grasp", slot)), gripper_step(GRIPPER_CLOSED_M, grip_current_a_), held_step(),
+      joints_step(slot_q(shape, "q_over", slot)), joints_step(carry)});
   RCLCPP_INFO(get_logger(), "unload: 칸 %d (%s · carry_%s)", slot, shape.c_str(), basket_carry_[slot].c_str());
   grasp_empty_ = false;
   run_steps(steps, 0, [this, slot, shape](bool ok) {
@@ -1198,6 +1267,102 @@ Coordinator::Step Coordinator::wait_step(double secs) {
     stand_timer_ = create_wall_timer(std::chrono::duration<double>(secs), [this, cb, gen]() {
       stand_timer_->cancel();
       if (gen == gen_) cb(true);
+    });
+  };
+}
+
+// ---------- 닿는 구간 — 시뮬 기준 동작 + 학습 보정 (coordinator.hpp 설명)
+namespace {
+constexpr double CONTACT_VS = 0.3;                       // 팀 관절 한계 × (시뮬 vel_scale)
+constexpr double CONTACT_HOLD_S = 0.3, CONTACT_SETTLE_S = 0.3, CONTACT_CLOSE_S = 0.5, CONTACT_RELEASE_S = 0.4;
+constexpr double CONTACT_ABOVE_M = 0.05;                 // 시뮬 above_m (손끝이 내려갈 자리 위)
+}  // namespace
+
+void Coordinator::skill_ctx(const std::string & skill, uint8_t phase, bool holding, bool live, const stand::Q5 & above,
+                            const stand::Q5 & down, double gx, double gy, double gyaw) {
+  ml::msg::SkillContext m;
+  m.header.stamp = now();  // 이 단계 시작 시각 (정책 입력 '진행'의 기준)
+  m.run_id = skill_run_;
+  m.skill = skill;
+  m.phase = phase;
+  m.holding = holding;
+  m.residual_live = live;
+  if (!skill.empty() && skill != "dock_box") {
+    m.q_above.assign(above.begin(), above.end());
+    m.q_down.assign(down.begin(), down.end());
+  }
+  m.goal_x = gx;
+  m.goal_y = gy;
+  m.goal_yaw = gyaw;
+  skill_ctx_pub_->publish(m);
+}
+
+Coordinator::Step Coordinator::ctx_step(const std::string & skill, uint8_t phase, bool holding, bool live,
+                                        const stand::Q5 & above, const stand::Q5 & down) {
+  return [this, skill, phase, holding, live, above, down](std::function<void(bool)> cb) {
+    skill_ctx(skill, phase, holding, live, above, down);
+    cb(true);
+  };
+}
+
+void Coordinator::hand_target(const std::string & kind, int puck_tag, int slot, double x, double y, double z) {
+  perception::msg::HandTarget t;
+  t.kind = kind;
+  t.puck_tag = puck_tag;
+  t.box_tag = -1;  // ponytail: 상자 밀림 보정은 상자 태그·계획 상자 위치를 넘길 때 (mission_manager가 아는 값)
+  t.point.x = x;
+  t.point.y = y;
+  t.point.z = z;
+  t.slot = slot;
+  hand_target_pub_->publish(t);
+}
+
+bool Coordinator::ik_ee(const geometry_msgs::msg::PoseStamped & ee, const stand::Q5 & near, stand::Q5 & out) {
+  geometry_msgs::msg::TransformStamped tf;
+  try {
+    tf = tf_buffer_->lookupTransform("base_footprint", ee.header.frame_id, tf2::TimePointZero);
+  } catch (const std::exception &) {
+    return false;
+  }
+  const auto & r = tf.transform.rotation;
+  const auto & tr = tf.transform.translation;
+  const tf2::Transform t(tf2::Quaternion(r.x, r.y, r.z, r.w), tf2::Vector3(tr.x, tr.y, tr.z));
+  const tf2::Vector3 p = t * tf2::Vector3(ee.pose.position.x, ee.pose.position.y, ee.pose.position.z);
+  stand::V3 axis{};
+  stand::fk(near, &axis);  // 손가락이 닫히는 방향 — 지금 손목 그대로
+  return stand::ik_down({p.x(), p.y(), p.z()}, std::atan2(axis[1], axis[0]), near, out);
+}
+
+Coordinator::Step Coordinator::contact_step(const std::string & skill, std::function<bool(stand::Q5 &, stand::Q5 &)> plan,
+                                            bool close) {
+  return [this, skill, plan, close](std::function<void(bool)> cb) {
+    stand::Q5 above{}, down{};
+    if (!plan(above, down)) {
+      RCLCPP_WARN(get_logger(), "%s: 닿는 구간 자세를 못 구함 (IK·TF)", skill.c_str());
+      cb(false);
+      return;
+    }
+    ++skill_run_;
+    const auto move = [this](stand::Q5 from, stand::Q5 to) {  // 시뮬처럼 from→to 부드러운 보간 (팀 한계 × 0.3)
+      return traj_step([from, to](const stand::Q5 &) { return stand::sample_move(from, to, CONTACT_VS, STAND_DT); });
+    };
+    auto steps = std::make_shared<std::vector<Step>>(std::vector<Step>{
+      ctx_step(skill, 0, true, true, above, down), wait_step(CONTACT_HOLD_S),       // 0 위에서 멈춤 (처짐 적분)
+      ctx_step(skill, 1, false, true, above, down), move(above, down),             // 1 내려가기
+      ctx_step(skill, 2, true, true, above, down), wait_step(CONTACT_SETTLE_S),     // 2 안정
+      ctx_step(skill, 3, true, false, above, down),                                // 3 쥐기 · 놓기 (보정 고정)
+      close ? grip_timed_step(GRIPPER_CLOSED_M, grip_current_a_, CONTACT_CLOSE_S)
+            : grip_timed_step(GRIPPER_OPEN_M, -1.0, CONTACT_RELEASE_S)});
+    if (close) steps->push_back(held_step());
+    steps->push_back(ctx_step(skill, 4, false, false, above, down));              // 4 올리기
+    steps->push_back(move(down, above));
+    steps->push_back(ctx_step(skill, 5, !close, false, above, down));             // 5 대기
+    steps->push_back(wait_step(close ? 0.3 : 0.5));
+    RCLCPP_INFO(get_logger(), "%s: 닿는 구간 (시뮬 기준 동작 + 보정) run %u", skill.c_str(), skill_run_);
+    run_steps(steps, 0, [this, cb](bool ok) {
+      skill_ctx("", 0, false, false, {}, {});  // 보정 끔
+      hand_target("none", -1, -1);
+      cb(ok);
     });
   };
 }
@@ -1295,6 +1460,27 @@ void Coordinator::stand_pick(const SubGoal &) {
 void Coordinator::execute_pick(const geometry_msgs::msg::PoseStamped & grasp, std::function<void(bool)> done,
                                double approach) {
   arm_contact_ = false;
+  if (sim_contact()) {  // 퍽 위 5 cm까지 MoveIt → 닿는 구간 (pick_standing_puck 정책)
+    auto pre = grasp;
+    pre.pose.position.z += CONTACT_ABOVE_M;
+    int tag = -1;
+    if (const auto * o = find(picking_id_))
+      for (const auto & kv : o->details) if (kv.key == "tag" && is_id(kv.value)) tag = std::stoi(kv.value);
+    move_arm(pre, [this, grasp, done, tag](bool ok) {
+      if (!ok) { done(false); return; }
+      set_gripper(GRIPPER_OPEN_M, [this, grasp, done, tag](bool ok2) {
+        if (!ok2) { done(false); return; }
+        hand_target("puck", tag, -1);
+        contact_step("pick_standing_puck", [this, grasp](stand::Q5 & above, stand::Q5 & down) {
+          return arm_now(above) && ik_ee(grasp, above, down);
+        }, true)([this, done](bool ok3) {
+          if (!ok3) { set_gripper(GRIPPER_OPEN_M, [done](bool) { done(false); }); return; }
+          done(true);
+        });
+      });
+    });
+    return;
+  }
   auto pre = grasp;
   pre.pose.position.z += approach;
   move_arm(pre, [this, grasp, done, approach](bool ok) {  // 접근
@@ -1330,6 +1516,20 @@ void Coordinator::execute_place(const geometry_msgs::msg::PoseStamped & target, 
 
 void Coordinator::place_at(const geometry_msgs::msg::PoseStamped & release, std::function<void(bool)> done) {
   arm_contact_ = false;
+  if (sim_contact()) {  // 칸 위 5 cm까지 MoveIt → 닿는 구간 (place_cell 정책): 손 안 퍽 바닥이 칸 윗면에 닿는 자리에서 벌림 (시뮬 place_m 0)
+    auto down = release;
+    down.pose.position.z -= place_release_m_;
+    auto above = down;
+    above.pose.position.z += CONTACT_ABOVE_M;
+    const double top = down.pose.position.z - held_bottom_m_;
+    hand_target("cell", -1, -1, down.pose.position.x, down.pose.position.y, top);
+    move_arm(above, [this, down, done](bool ok) {
+      if (!ok) { done(false); return; }
+      contact_step("place_cell", [this, down](stand::Q5 & a, stand::Q5 & d) { return arm_now(a) && ik_ee(down, a, d); },
+                   false)(done);
+    });
+    return;
+  }
   auto above = release;
   above.pose.position.z += place_approach_m_;
   move_arm(above, [this, release, above, done](bool ok) {  // 위

@@ -75,7 +75,7 @@ E,0,-1,0,0,0,0,0,0                                           바퀴R 응답 없�
 | --- | --- | --- | --- |
 | 바퀴L · 바퀴R | 속도 | rad/s (바퀴 각속도) | `rpm(v × WHEEL_*_DIR) / 0.229` → Goal Velocity(104) — BulkWrite |
 | joint1~5 | 위치 | rad (0 = 서보 중앙) | `raw = 2048 + ARM_DIR × rad × 4096/2π` → Goal Position(116) — BulkWrite |
-| 그리퍼 전류 (9번째, 선택) | 쥐는 힘 한계 | A | `GRIPPER_CURRENT_MIN_MA~MAX_MA`(50~1200 mA)로 잘라 Goal Current(102) — **바뀔 때만** 씀 (매 주기 쓰면 버스 시간). 생략·빈칸 = 지금 값 유지, 처음엔 `GRIPPER_GOAL_CURRENT_MA`(600). 토크를 다시 켤 때도 마지막 값. SBC는 URDF 그리퍼에 `effort` 명령 인터페이스가 있으면 보낸다 (gripper_controller `max_effort_interface` — 액션 goal `effort`, 없으면 `max_effort`) |
+| 그리퍼 전류 (9번째, 선택) | 쥐는 힘 한계 | A | `GRIPPER_CURRENT_MIN_MA~MAX_MA`(2.69~1200 mA — 아래는 Goal Current 1단위)로 잘라 Goal Current(102) — **바뀔 때만** 씀 (매 주기 쓰면 버스 시간). 생략·빈칸 = 지금 값 유지, 처음엔 `GRIPPER_GOAL_CURRENT_MA`(600). 토크를 다시 켤 때도 마지막 값. SBC는 URDF 그리퍼에 `effort` 명령 인터페이스가 있으면 보낸다 (gripper_controller `max_effort_interface` — 액션 goal `effort`, 없으면 `max_effort`) |
 | 그리퍼 | URDF `gripper_left_joint` (손가락 하나) | m, 0 = 닫힘 · + = 열림 | `config.h` 표(`GRIPPER_FINGER_M` ↔ `GRIPPER_SERVO_RAD`) 구간별 직선 → 서보 raw. 제원 스트로크 20~75 mm(손가락 0~27.5 mm, URDF 상한 26.5 mm) 전체. 간격 20~38 mm는 실측, 그 위는 실측 기울기로 늘린 값(TODO 끝까지 열어 실측) |
 
 - 빈칸 = 유지: 팔·그리퍼는 명령 생략, 바퀴는 0(정지).

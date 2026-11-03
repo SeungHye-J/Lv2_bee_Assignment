@@ -1,6 +1,8 @@
 // mission_manager 구현 — 노드 설명·입출력은 include/plan/mission_manager.hpp, main은 mission_manager_main.cpp
 #include "plan/mission_manager.hpp"
 
+#include "ament_index_cpp/get_package_share_directory.hpp"
+
 #include <algorithm>
 #include <cmath>
 #include <cstdio>
@@ -88,6 +90,16 @@ MissionManager::MissionManager()
   home_hold_s_ = declare_parameter<double>("home_hold_s", 3.0);
   log_dir_ = declare_parameter<std::string>("log_dir", "~/.ros/mission");
   photo_topic_ = declare_parameter<std::string>("photo_topic", "/gripper_cam/color/image_raw");
+  // 학습된 플래너 (learning/plan/mission_sim.py에서 학습 · ml/model/plan/plan_next.policy) — 기본은 지금 규칙 순서
+  planner_ = declare_parameter<std::string>("planner", "rule");
+  std::string pn_path = declare_parameter<std::string>("plan_model", "");
+  if (pn_path.empty()) pn_path = ament_index_cpp::get_package_share_directory("ml") + "/model/plan/plan_next.policy";
+  if (planner_ == "plan_next") {
+    std::string why;
+    plan_next_ok_ = plan_next_.load(pn_path, why);
+    if (plan_next_ok_) RCLCPP_INFO(get_logger(), "planner plan_next: %s", pn_path.c_str());
+    else RCLCPP_WARN(get_logger(), "plan_next를 못 씀 (%s) — 규칙 순서로", why.c_str());
+  }
   // plan_id를 노드가 뜰 때마다 다른 구간에서 시작 — /task/status가 latched라 재시작하면 지난 실행의 같은 id 결과가 바로 들어왔음
   plan_seq_ = static_cast<uint32_t>(std::time(nullptr) % 1000) * 1000;
   if (log_dir_.rfind("~/", 0) == 0 && std::getenv("HOME")) log_dir_ = std::string(std::getenv("HOME")) + log_dir_.substr(1);
@@ -160,6 +172,7 @@ void MissionManager::on_command(const std::string & cmd) {
     return;
   }
   active_ = true;
+  pn_action_ = -1;
   pucks_.clear();
   puck_at_.clear();
   alloc_.clear();
@@ -371,6 +384,7 @@ void MissionManager::solve_allocation() {
 
 // ---------- BUILD — 퍽마다 [손에 쥐기 → 놓기 → 확인]. 실패하면 기록하고 다음 퍽
 void MissionManager::build(size_t i) {
+  if (i == 0 && planner_ == "plan_next" && plan_next_ok_ && build_pn_start()) { build_pn(); return; }
   if (i >= jobs_.size()) {
     write_log("build.json", "{\"placed\": " + str(placed_) + ", \"total\": " + str(static_cast<int>(jobs_.size())) +
               ", \"pucks\": [" + build_json_ + "]}\n");
@@ -388,7 +402,7 @@ void MissionManager::bring(size_t i) {
   const auto skip = [this, i, job](const std::string & why) {
     result("puck " + str(job.tag) + ": " + why);
     build_json_ += std::string(build_json_.empty() ? "" : ", ") + "{\"tag\": " + str(job.tag) + ", \"ok\": false, \"why\": " + q(why) + "}";
-    build(i + 1);
+    job_done(i, false);
   };
   const auto target = cell_target(job.loc, job.cell);
   const double tx = target.first, ty = target.second;
@@ -426,6 +440,58 @@ void MissionManager::bring(size_t i) {
   });
 }
 
+void MissionManager::job_done(size_t i, bool ok) {
+  if (pn_action_ < 0) { build(i + 1); return; }  // 규칙 순서
+  // plan_next: 이 퍽 결과로 상태를 고치고 다시 고름 — 퍽 하나 처리(bring)에 다시 시도가 들어 있어 실패면 포기(LOST)로 봄
+  const int p = PlanNext::puck_of(pn_action_);
+  pn_.status[p] = ok ? PlanNext::OK : PlanNext::LOST;
+  pn_.tries[p] += 1;
+  pn_.at = 6 + static_cast<int>(jobs_[i].loc);
+  plan_next_.record(pn_action_, true);
+  build_pn();
+}
+
+bool MissionManager::build_pn_start() {
+  // 퍽 i = 시작 박스 i/2 (가상 미션과 같은 번호) — 박스마다 x 오프셋 순. 12개·박스마다 2개가 아니면 규칙 순서로
+  std::vector<size_t> order(jobs_.size());
+  for (size_t j = 0; j < order.size(); ++j) order[j] = j;
+  std::sort(order.begin(), order.end(), [this](size_t a, size_t b) {
+    return puck_at_[jobs_[a].tag] < puck_at_[jobs_[b].tag];
+  });
+  if (order.size() != static_cast<size_t>(PlanNext::N_PUCK)) return false;
+  for (size_t k = 0; k < order.size(); ++k)
+    if (puck_at_[jobs_[order[k]].tag].first != k / 2) { RCLCPP_WARN(get_logger(), "plan_next: 박스마다 퍽 2개가 아님 — 규칙 순서로"); return false; }
+  pn_ = PlanNext::State{};
+  pn_job_ = order;
+  for (int p = 0; p < PlanNext::N_PUCK; ++p) {
+    const Job & job = jobs_[order[p]];
+    pn_.loc[p] = static_cast<int>(job.loc);
+    pn_.cell[p] = job.cell;
+    pn_.status[p] = basket_slot_of(job.tag) >= 0 ? PlanNext::BASKET : lying_.count(job.tag) ? PlanNext::BOX_LYING : PlanNext::BOX_UP;
+  }
+  plan_next_.reset();
+  build_started_ = now();
+  return true;
+}
+
+void MissionManager::build_pn() {
+  pn_.t = (now() - build_started_).seconds();
+  pn_action_ = plan_next_.next(pn_);
+  if (pn_action_ == PlanNext::RETURN) {
+    write_log("build.json", "{\"placed\": " + str(placed_) + ", \"total\": " + str(static_cast<int>(jobs_.size())) +
+              ", \"planner\": \"plan_next\", \"pucks\": [" + build_json_ + "]}\n");
+    pn_action_ = -1;
+    finish(true);
+    return;
+  }
+  const int p = PlanNext::puck_of(pn_action_);
+  const size_t j = pn_job_[p];
+  static const char * skills[] = {"pick", "stand", "load", "unload", "place", "nudge", "re-pick", "stand_placed"};
+  note("plan_next: " + std::string(skills[PlanNext::skill_of(pn_action_)]) + " 퍽 " + str(jobs_[j].tag) + " → L" +
+       str(static_cast<int>(jobs_[j].loc) + 1) + " 칸 " + str(jobs_[j].cell));
+  bring(j);  // 손에 쥐기(적재함이면 꺼내기, 누웠으면 세우기) → 놓기 → 확인 — 끝나면 job_done
+}
+
 void MissionManager::place_check(size_t i, int tries) {
   const Job job = jobs_[i];
   const auto target = cell_target(job.loc, job.cell);
@@ -437,7 +503,7 @@ void MissionManager::place_check(size_t i, int tries) {
                    str(static_cast<int>(job.loc) + 1) + "\", \"cell\": " + str(job.cell) + ", \"ok\": " + (ok ? "true" : "false") +
                    ", \"why\": " + q(why) + "}";
     publish_state();
-    build(i + 1);
+    job_done(i, ok);
   };
   run({SubGoal().set__skill("place").set__target(point(tx, ty, box_top_z_))}, [this, i, tries, tx, ty, next](bool ok, const std::string & why) {
     if (!ok) { next(false, "place_failed " + why); return; }

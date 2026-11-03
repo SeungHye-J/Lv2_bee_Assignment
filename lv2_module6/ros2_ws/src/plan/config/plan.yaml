@@ -58,6 +58,11 @@ coordinator:
     # approach "x,y,yaw" — 박스 앞 마지막 몇 cm를 /cmd_vel_nav로 저속 직선 (Nav2는 로봇을 원 0.18로 봐서 못 붙음)
     approach_speed: 0.05     # [m/s] 직선 속도 (앞 자리로 갈 때는 2배)
     approach_pre_m: 0.10     # [m] 목표 뒤 이만큼에서 목표 방향으로 돌고 직선으로 들어감 (박스 바로 앞 제자리 회전 금지 — 앞 모서리가 닿음)
+    # 배포 결정 2026-11-03 (bee skill-training 9장): 닿는 구간·도킹은 시뮬과 같은 기준 동작 + 학습 보정
+    contact_mode: "sim"      # sim: 퍽·칸 위까지 MoveIt → 위에서 정지 → 부드러운 보간으로 내려가기(해석 IK) → 쥐기/놓기 → 올리기,
+                             #      단계마다 /skill_context (rl_arm_correction 정책) · moveit: 예전 (전부 MoveIt)
+    approach_mode: "sim"     # sim: 시뮬 drive_env 기준 제어 (돌기 → 직진 ≤ 0.12 m/s → 마지막 방향) + dock_box 정책 (rl_nav_correction)
+                             #      legacy: 위 approach_speed·approach_pre_m 직선 방식
     approach_pos_tol: 0.005  # [m] 도착 (목표 방향 축 남은 거리)
     approach_yaw_tol: 0.03   # [rad] 방향 맞춤
     approach_timeout_s: 30.0 # [s] 전체 · 4초 동안 3 mm도 못 줄이면 approach_blocked
@@ -92,6 +97,8 @@ mission_manager:             # 주사위 기억 미션 (documents/mission/README
                                              #   Isaac 도달 지도(dice_reach.py): 0.08이면 3×3 칸 9개 다 닿음 · 0.10이면 먼 줄 양끝 못 닿음
     approach_tries: 3                        # 접근 자리 실패 시 다른 변으로 몇 번까지
     retries: 2                               # skill(집기·놓기·inspect)이 실패하면 다시 하는 횟수. 그래도 안 되면 그 퍽만 실패로 두고 다음
+    planner: "rule"                          # BUILD 순서: rule (배정 순서대로) | plan_next (학습된 플래너가 다음 퍽·복귀 시점을 고름 — 마지막 단계)
+    plan_model: ""                           # 비면 share/ml/model/plan/plan_next.policy
     place_tol: 0.010                         # [m] 놓은 뒤 확인 · 재검증 — 칸 중심에서 이 안이어야 성공
     place_search: 0.05                       # [m] 놓은 뒤 확인 때 칸에서 이 안의 퍽만 그 퍽으로 봄
     match_radius: 0.04                       # [m] 조사 때 퍽 자리와 트랙을 짝짓는 거리
