@@ -83,7 +83,7 @@ class DriveEnvCfg(DirectRLEnvCfg):
     task = "straight"
     v_max, w_max = 0.12, 1.0  # baseline caps (demo drive_to); the residual may go to the robot limits below
     v_lim, w_lim = 0.26, 2.0
-    res_v, res_w = 0.05, 0.3  # residual scale for action +-1
+    res_v, res_w = 0.02, 0.1  # residual scale for action +-1 (0.05 / 0.3 pulled the dock base controller apart)
     wheel_scale = (0.97, 1.03)  # per wheel speed error
     latency_s = (0.02, 0.06)  # command latency range
     pose_noise_m, yaw_noise_deg = 0.005, 0.5  # policy's goal from a SLAM-like pose

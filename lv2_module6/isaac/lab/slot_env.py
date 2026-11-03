@@ -11,6 +11,7 @@ perception / hand errors, latency and sag integral as the parent envs; the polic
 from __future__ import annotations
 
 import math
+import os
 from pathlib import Path
 
 import gymnasium as gym
@@ -79,6 +80,11 @@ class LoadEnv(pe.PlaceEnv):
                 self.stats["err"] += self.final_err[ids].tolist()
             self.stats["dropped"] += self.dropped[env_ids].tolist()
             self.stats["tipped"] += self.tipped[env_ids].tolist()
+            if os.environ.get("BEE_DEBUG"):  # where and when the puck left the hand before the release
+                for i in env_ids[self.dropped[env_ids]].tolist():
+                    rel = (self._puck_bottom_b()[i] - self.plan["cell_b"][self.cell[i]]) * 1000
+                    print(f"[drop] slot {self.cell[i].item() % 12} {KINDS[self.cell[i].item() // 12]} phase {self._phase()[i].item()} "
+                          f"t {self.t[i].item():.2f}/{self.t_ph[i, 2].item():.2f} s puck-slot mm {[round(v) for v in rel.tolist()]}", flush=True)
         DirectRLEnv._reset_idx(self, env_ids)
         m, dev, cfg = len(env_ids), self.device, self.cfg
         u = lambda *s: torch.rand(m, *s, device=dev) * 2 - 1
@@ -131,11 +137,16 @@ class LoadEnv(pe.PlaceEnv):
         p_ee = self.plan["p_above"][cell] + off
         bottom_b = p_ee + (rot @ d_true[..., None])[..., 0]
         pos_w = bottom_b + self.base_off + self.scene.env_origins[env_ids]
-        ax = rot @ self.close_axis_ee
-        yaw = torch.atan2(ax[:, 1], ax[:, 0]) + math.radians(4.0) * u()
-        yaw = torch.where(self._kinds()[env_ids], yaw, math.pi * u())
-        zero = torch.zeros(m, device=dev)
-        quat = math_utils.quat_from_euler_xyz(zero, zero, yaw)
+        # puck axis along the tool (the far-row over poses pitch the hand 20 deg: an upright puck there sits inside the
+        # fingers and is thrown out at the first step), box faces square to the fingers, cylinder any turn about its axis
+        z_p = -rot[:, :, 2]
+        x_p = rot @ self.close_axis_ee
+        x_p = x_p - (x_p * z_p).sum(1, keepdim=True) * z_p
+        x_p = x_p / x_p.norm(dim=1, keepdim=True)
+        a = torch.where(self._kinds()[env_ids], math.radians(4.0) * u(), math.pi * u())[:, None]
+        y_p = torch.cross(z_p, x_p, dim=1)
+        x_p, y_p = torch.cos(a) * x_p + torch.sin(a) * y_p, -torch.sin(a) * x_p + torch.cos(a) * y_p
+        quat = math_utils.quat_from_matrix(torch.stack([x_p, y_p, z_p], dim=2))
         self.puck.write_root_pose_to_sim_index(root_pose=torch.cat([pos_w, quat], dim=1), env_ids=env_ids)
         self.puck.write_root_velocity_to_sim_index(root_velocity=torch.zeros(m, 6, device=dev), env_ids=env_ids)
         self.puck_after_up[env_ids] = pos_w

@@ -15,6 +15,7 @@ Reuses place_env.PlaceEnv (latency ring buffer, sag integral, phase clock); the 
 from __future__ import annotations
 
 import math
+import os
 
 import gymnasium as gym
 import numpy as np
@@ -87,6 +88,9 @@ class ReachEnv(pe.PlaceEnv):
         self.goal = torch.zeros(n, dtype=torch.long, device=dev)
         self.grip_before = self.grip_after = bc.gap_joint(40.0)
         print(f"[reach] target {cfg.target}: {len(goals)} goal poses")
+        if os.environ.get("BEE_DEBUG"):
+            for k, (q, p) in enumerate(zip(goals, self.goal_p.tolist())):
+                print(f"[goal] {k} q {np.round(q, 2).tolist()} p mm {[round(1000 * v) for v in p]}")
 
     def _err(self):
         return self.goal_p[self.goal] - self._ee_b()[0]
@@ -133,6 +137,10 @@ class ReachEnv(pe.PlaceEnv):
                 log["Metrics/err_mm"] = 1000 * self.final_err[ids].mean().item()
                 self.stats["success"] += self.success[ids].tolist()
                 self.stats["err"] += self.final_err[ids].tolist()
+                if os.environ.get("BEE_DEBUG"):
+                    for i in ids[~self.success[ids]].tolist():
+                        print(f"[fail] goal {self.goal[i].item()} err {1000 * self.final_err[i].item():.1f} mm "
+                              f"err xyz {[round(1000 * v) for v in self._err()[i].tolist()]}", flush=True)
             self.stats["dropped"] += [False] * len(env_ids)
             self.stats["tipped"] += self.tipped[env_ids].tolist()
         DirectRLEnv._reset_idx(self, env_ids)

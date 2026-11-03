@@ -169,6 +169,9 @@ def main():
         agent.max_iterations = args.iters
         agent.seed = args.seed
         agent.experiment_name = f"bee_{args.task}_residual"
+        if args.task in ("load", "unload", "reach", "drive"):  # new skill envs: std in log space (scalar std hit 0.00 on dock)
+            agent.actor.distribution_cfg.std_type = "log"
+            agent.algorithm.entropy_coef = 0.005
         agent = handle_deprecated_rsl_rl_cfg(agent, version("rsl-rl-lib"))
         log_dir = HERE / "logs" / args.run / time.strftime("%Y-%m-%d_%H-%M-%S")
         wenv = RslRlVecEnvWrapper(env, clip_actions=agent.clip_actions)

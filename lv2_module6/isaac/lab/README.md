@@ -92,6 +92,8 @@ $PY train_place.py --task <task> [--cfg k=v,...] --mode train --num_envs 512 --i
 $PY train_place.py --task <task> [--cfg k=v,...] --mode eval  --num_envs 256 --episodes 1024 --policy policies/<skill>.pt
 #   창으로 보기: --num_envs 16 --viz newton (가벼움) 또는 --viz kit
 #   8 GB GPU에는 학습 하나만 (둘이면 PhysX GPU 메모리 부족). GPU가 바쁘면 --device cpu
+#   여러 skill 차례로: ./train_queue.sh [skill ...]  → logs/queue_summary.tsv (기준선·학습 뒤 성공률)
+#   새 환경(load·unload·reach·drive)은 행동 표준편차를 로그 공간으로 (그냥 두면 dock에서 0.00으로 무너져 학습이 멈췄음)
 ```
 
 | skill | `--task` | `--cfg` | 환경 파일 | 기준선 성공 (잔차 0, 2026-11-03 pa27) |
@@ -100,11 +102,11 @@ $PY train_place.py --task <task> [--cfg k=v,...] --mode eval  --num_envs 256 --e
 | `pick_upright` | `pick` | | pick_env.py (팀원) | |
 | `stand_up` | `right` | | right_env.py (팀원) | |
 | `regrasp_stood` | `right` | `regrasp=1` | right_env.py (팀원, 세우기 + 다시 집기 한 번에) | |
-| `load_slot` | `load` | | slot_env.py | 71.1 % (128판, 28판 내려가다 놓침) |
+| `load_slot` | `load` | | slot_env.py | 93.8 % (192판; 처음 71.1 %는 뒤 칸에서 손이 20° 기운 자세에 퍽을 똑바로 넣은 시작 상태 오류였음) |
 | `unload_slot` | `unload` | | slot_env.py | 90.6 % |
 | `move_pose` | `reach` | `target=pose` | reach_env.py | 100 % (오차 ≤ 0.3 mm) |
 | `camera_clear_view` | `reach` | `target=clear` | reach_env.py | 100 % (scan 자세가 정해질 때까지 stow) |
-| `pregrasp` | `reach` | `target=above` | reach_env.py | 88.3 % (최대 18.8 mm) · 300회 학습 뒤 89.1 % |
+| `pregrasp` | `reach` | `target=above` | reach_env.py | 88.3~91.0 % — 먼 줄은 맞아도 판정 시간 안에 안 멈춤(흔들림), 목표 5번(손목 −2.35)은 18 mm 어긋남 |
 | `camera_look_down` | `reach` | `target=look` | reach_env.py | 100 % (높이 0.08 m, 아래 참고) |
 | `drive_straight` | `drive` | `task=straight` | drive_env.py | 68.0 % (허용 10 mm, 중앙값 8.3 mm) |
 | `drive_turn` | `drive` | `task=turn` | drive_env.py | 100 % |
