@@ -41,13 +41,3 @@ TEST(ArmObs, PickLayoutAddsFace) {
   ml::arm_obs(ml::ArmLayout::Pick, in, o.data());
   EXPECT_DOUBLE_EQ(o[34], 0.0);     // 원기둥은 면 방향 0
 }
-
-TEST(ArmObs, SagStepKeepsResidual) {
-  ml::J5 corr{}, ref{}, delta{}, q{};
-  ref.fill(1.0); delta.fill(0.02); q.fill(0.97);  // 처짐 0.05 rad (보정 0.02 포함 목표 1.02)
-  ml::sag_step(corr, ref, delta, q, 0.3, 0.2);
-  EXPECT_NEAR(corr[0], 0.3 * 0.05, 1e-12);
-  corr.fill(0.199);
-  ml::sag_step(corr, ref, delta, q, 0.3, 0.2);
-  EXPECT_DOUBLE_EQ(corr[0], 0.2);   // 상한
-}

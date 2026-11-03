@@ -21,6 +21,7 @@ find_package(rclcpp_lifecycle REQUIRED)
 find_package(realtime_tools REQUIRED)
 find_package(ament_index_cpp REQUIRED)
 find_package(tf2_ros REQUIRED)
+find_package(std_srvs REQUIRED)
 
 find_package(std_msgs REQUIRED)
 rosidl_generate_interfaces(${PROJECT_NAME}
@@ -50,7 +51,7 @@ target_compile_features(rl_arm_correction PUBLIC cxx_std_17)
 target_include_directories(rl_arm_correction PUBLIC include)
 target_link_libraries(rl_arm_correction controller_interface::controller_interface
   hardware_interface::hardware_interface pluginlib::pluginlib rclcpp::rclcpp rclcpp_lifecycle::rclcpp_lifecycle
-  realtime_tools::realtime_tools ament_index_cpp::ament_index_cpp ${perception_TARGETS} ${msgs_cpp})
+  realtime_tools::realtime_tools ament_index_cpp::ament_index_cpp ${perception_TARGETS} ${msgs_cpp} ${std_srvs_TARGETS})
 pluginlib_export_plugin_description_file(controller_interface rl_arm_correction.xml)
 install(TARGETS rl_arm_correction LIBRARY DESTINATION lib)
 
@@ -78,6 +79,8 @@ if(BUILD_TESTING)
   target_compile_definitions(test_mlp_policy PRIVATE MODEL_DIR="${ML_MODEL_DIR}")
   ament_add_gtest(test_arm_obs test/test_arm_obs.cpp TIMEOUT 60)
   target_include_directories(test_arm_obs PRIVATE include)
+  ament_add_gtest(test_rl_arm_correction test/test_rl_arm_correction.cpp)
+  target_link_libraries(test_rl_arm_correction rl_arm_correction)
   ament_add_gtest(test_nav_obs test/test_nav_obs.cpp TIMEOUT 60)
   target_include_directories(test_nav_obs PRIVATE include)
   target_link_libraries(test_rl_nav_correction ${PROJECT_NAME}_nodes)

@@ -55,10 +55,4 @@ inline size_t arm_obs(ArmLayout l, const ArmObsIn & in, double * out) {
   return k;
 }
 
-// 처짐 적분 한 번 (시뮬 place_env._sag_step · demo_cycle Bot.step): 붙들고 있을 때 corr_dt마다
-//   corr ← clamp(corr + gain·(q_ref + delta − q), ±max) — 처짐만 빼고 보정(delta)은 남김
-inline void sag_step(J5 & corr, const J5 & q_ref, const J5 & delta, const J5 & q, double gain, double max_abs) {
-  for (int i = 0; i < 5; ++i) corr[i] = std::clamp(corr[i] + gain * (q_ref[i] + delta[i] - q[i]), -max_abs, max_abs);
-}
-
 }  // namespace ml

@@ -7,12 +7,16 @@
 //   state interface:     <joint>/position, velocity           (관측)
 //   구독: /skill_context (ml/SkillContext, coordinator) · /hand_relative (perception/HandRelative)
 // update (update_rate, 100Hz): command = q_ref + 처짐 적분 corr + 학습 보정 Δ
-//   - skill_context의 skill에 정책 파일이 있을 때만 켜짐 (닿는 구간). 아니면 corr = Δ = 0 → JTC 그대로 통과
-//   - 처짐 적분: holding일 때 corr_dt마다 corr += gain·(q_ref + Δ − q) (시뮬 place_env._sag_step과 같음)
+//   - corr = 처짐 보정 적분 (송정혁, isaac/lab place_env._sag_step과 같은 법칙, 시간 기준): reference가 멈춰 있을 때만
+//     (모든 관절 |d ref/dt| < still_rate) corr += sag_gain·dt·(reference + Δ − 현재각), ±sag_max. 움직이는 동안은 유지.
+//     학습은 85 ms마다 오차 30 % 제거 → sag_gain = −ln(0.7)/0.085 ≈ 4.2 /s. 스킬 시작마다 ~/reset_sag 로 0.
+//     skill과 상관없이 늘 돈다 (sag_enabled)
+//   - Δ: skill_context의 skill에 정책 파일이 있을 때만 (닿는 구간). 아니면 Δ = 0
 //   - 정책: policy_hz(50)로 arm_obs(…) → MlpPolicy → a ∈ [−1, 1] → residual_live면 Δ = residual_rad·a (아니면 마지막 Δ 유지)
 //   - run_id가 바뀌면 corr·Δ·이전 행동을 0부터 (시뮬 에피소드 시작)
 //   - 손 카메라 값(/hand_relative)이 max_cam_age_s보다 오래되거나 valid가 아니면 Δ를 바꾸지 않음
 #include <array>
+#include <atomic>
 #include <map>
 #include <string>
 #include <vector>
@@ -24,8 +28,14 @@
 #include "ml/msg/skill_context.hpp"
 #include "perception/msg/hand_relative.hpp"
 #include "realtime_tools/realtime_thread_safe_box.hpp"
+#include "std_srvs/srv/trigger.hpp"
 
 namespace ml {
+
+// 처짐 보정 적분 한 스텝 (송정혁): corr + gain·dt·(ref + delta − q), ±max로 자름
+inline double sag_step(double corr, double ref, double delta, double q, double dt, double gain, double max) {
+  return std::clamp(corr + gain * dt * (ref + delta - q), -max, max);
+}
 
 using controller_interface::CallbackReturn;
 using controller_interface::InterfaceConfiguration;
@@ -65,12 +75,15 @@ private:
   ml::msg::SkillContext ctx_;            // 마지막으로 받은 것 (실시간 쪽 복사본)
   perception::msg::HandRelative hand_;
   uint32_t run_id_ = 0;
-  J5 corr_{}, delta_{}, prev_act_{};
-  double since_sag_ = 0.0, since_policy_ = 0.0;
+  J5 corr_{}, delta_{}, prev_act_{}, prev_ref_{};
+  bool have_prev_ = false;
+  std::atomic<bool> reset_sag_{false};
+  rclcpp::Service<std_srvs::srv::Trigger>::SharedPtr reset_srv_;
+  double since_policy_ = 0.0;
   std::vector<double> obs_, act_;
   // 파라미터 (on_configure에서 읽음 — 실시간 루프에서 get_parameter 안 함)
-  bool enabled_ = true;
-  double max_delta_ = 0.05, residual_rad_ = 0.05, gain_ = 0.3, corr_dt_ = 5.0 / 60.0, corr_max_ = 0.2;
+  bool enabled_ = true, sag_enabled_ = true;
+  double max_delta_ = 0.05, residual_rad_ = 0.05, sag_gain_ = 4.2, sag_max_ = 0.2, still_rate_ = 0.005;
   double policy_dt_ = 0.02, max_cam_age_s_ = 1.0;
 };
 

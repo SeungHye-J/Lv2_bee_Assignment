@@ -43,6 +43,7 @@ OFFSET = {name: 0.0 for name in ARM}
 NM_PER_A = 1.78
 TEMP_C = 35  # same as faker/fake_opencr (no thermal model)
 BATTERY_V = 12.0  # same as faker/fake_opencr (no discharge model)
+GRIP_FORCE_FILE = "/tmp/opencr_grip_force"  # dummy only (no such serial command yet): finger force cap [N] per finger
 COMMAND_TIMEOUT = 0.5  # [s] firmware COMMAND_TIMEOUT_MS
 ERROR_PERIOD = 0.5  # [s] firmware MOTOR_CHECK_MS
 
@@ -99,12 +100,34 @@ class Board:
             self.attach()
         self.t += dt
         self.read_commands()
+        self.grip_force()
         if self.t - self.last_cmd > COMMAND_TIMEOUT:  # watchdog: wheels stop, arm keeps its target
             self.set_targets(wheels=[0.0, 0.0])
         self.send(self.state_line())
         if self.t - self.last_err >= ERROR_PERIOD:
             self.send("E" + ",0" * 8)
             self.last_err = self.t
+
+    def grip_force(self):
+        """Dummy grip force: the firmware sets one gripper current at boot and the serial protocol cannot change it.
+        Write a force [N per finger] to GRIP_FORCE_FILE to cap the finger drives; delete it for the USD value."""
+        if self.t - getattr(self, "grip_t", -1.0) < 0.05:
+            return
+        self.grip_t = self.t
+        try:
+            f = float(open(GRIP_FORCE_FILE).read())
+        except (OSError, ValueError):
+            f = None
+        if f == getattr(self, "grip_f", None):
+            return
+        mf = self.view.get_dof_max_forces()
+        if not hasattr(self, "grip_f0"):
+            self.grip_f0 = float(mf[0, self.idx[FINGERS[0]]])
+        for dof in FINGERS:
+            mf[0, self.idx[dof]] = self.grip_f0 if f is None else f
+        self.view.set_dof_max_forces(mf, np.array([0], dtype=np.int32))
+        self.grip_f = f
+        print(f"[opencr_bridge] finger force cap {self.grip_f0 if f is None else f:.2f} N")
 
     def set_targets(self, wheels=None, arm=None):
         all_ = np.array([0], dtype=np.int32)
