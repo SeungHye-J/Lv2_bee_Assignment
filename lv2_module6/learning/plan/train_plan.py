@@ -2,7 +2,8 @@
 
     python3 train_plan.py train --steps 300000 --out plan_next.zip   # 기준선 따라 하기 → 강화학습
     python3 train_plan.py eval --model plan_next.zip --episodes 1000   # 기준선(지금 규칙)과 비교
-    python3 train_plan.py eval --episodes 1000                         # 기준선만
+    python3 train_plan.py eval --episodes 1000                         # 기준선·계산기만
+    python3 train_plan.py train --teacher solver                       # 계산기를 따라 한 뒤 강화학습
 """
 import argparse
 import statistics
@@ -11,6 +12,9 @@ import numpy as np
 
 from baseline import baseline_action
 from mission_sim import MissionSim
+from solver import solver_action
+
+TEACHERS = {"baseline": baseline_action, "solver": solver_action}
 
 
 def run(env, choose, episodes, seed):
@@ -37,7 +41,8 @@ def main():
     ap.add_argument("--episodes", type=int, default=1000)
     ap.add_argument("--seed", type=int, default=10_000)  # 평가 문제는 학습과 다른 시드
     ap.add_argument("--lr", type=float, default=1e-4, help="강화학습 학습률 (따라 하기 뒤에는 작게)")
-    ap.add_argument("--bc_episodes", type=int, default=500, help="기준선 따라 하기 판 수 (0 = 강화학습만)")
+    ap.add_argument("--bc_episodes", type=int, default=500, help="따라 하기 판 수 (0 = 강화학습만)")
+    ap.add_argument("--teacher", choices=TEACHERS, default="baseline", help="따라 할 플래너: 지금 규칙 · 계산기")
     a = ap.parse_args()
 
     from sb3_contrib import MaskablePPO
@@ -45,13 +50,14 @@ def main():
         model = MaskablePPO("MlpPolicy", MissionSim(seed=0), n_steps=4096, batch_size=512, gamma=0.995,
                             ent_coef=0.001, learning_rate=a.lr, verbose=0, seed=0)
         if a.bc_episodes:
-            warm_start(model, a.bc_episodes)
-            print("기준선 따라 하기 뒤:", run(MissionSim(), policy_of(model), 300, a.seed))
+            warm_start(model, a.bc_episodes, TEACHERS[a.teacher])
+            print(f"{a.teacher} 따라 하기 뒤:", run(MissionSim(), policy_of(model), 300, a.seed))
         model.learn(total_timesteps=a.steps)
         model.save(a.out)
         a.model = a.out
     env = MissionSim()
     print("기준선 (지금 규칙):", run(env, baseline_action, a.episodes, a.seed))
+    print("계산기 (최단 순서):", run(env, solver_action, a.episodes, a.seed))
     if a.model:
         print("plan_next (학습):  ", run(env, policy_of(MaskablePPO.load(a.model)), a.episodes, a.seed))
 
@@ -60,8 +66,8 @@ def policy_of(model):
     return lambda e: int(model.predict(e._obs(), action_masks=e.action_masks(), deterministic=True)[0])
 
 
-def warm_start(model, episodes, epochs=30):
-    """기준선(지금 규칙)을 먼저 따라 하게 함 (행동 복제) — 처음부터 강화학습만 하면 '바로 복귀'에 갇힘."""
+def warm_start(model, episodes, teacher, epochs=30):
+    """teacher(지금 규칙 또는 계산기)를 먼저 따라 하게 함 (행동 복제) — 처음부터 강화학습만 하면 '바로 복귀'에 갇힘."""
     import torch
     env = MissionSim(seed=1)
     obs, masks, acts = [], [], []
@@ -69,7 +75,7 @@ def warm_start(model, episodes, epochs=30):
         env.reset(seed=1 + k)
         done = False
         while not done:
-            act = baseline_action(env)
+            act = teacher(env)
             obs.append(env._obs()); masks.append(env.action_masks()); acts.append(act)
             _, _, term, trunc, _ = env.step(act)
             done = term or trunc

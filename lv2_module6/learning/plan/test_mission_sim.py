@@ -4,6 +4,7 @@ from gymnasium.utils.env_checker import check_env
 
 from baseline import baseline_action
 from mission_sim import PIPS, RETURN, MissionSim, random_problem
+from solver import solver_action
 
 
 def play(env, choose, seed):
@@ -29,11 +30,25 @@ def test_problem_is_valid():
             assert cells == sorted(PIPS[len(cells)])
 
 
+SURE = {"lying_at_start": 0.0, "pick": 1.0, "stand": 1.0, "load": 1.0, "unload": 1.0, "place_ok": 1.0,
+        "place_ok_center_after_neighbours": 1.0, "place_off": 0.0, "place_lying": 0.0}
+
+
 def test_baseline_perfect_when_skills_never_fail():
-    sure = {"lying_at_start": 0.0, "pick": 1.0, "stand": 1.0, "load": 1.0, "unload": 1.0, "place_ok": 1.0,
-            "place_ok_center_after_neighbours": 1.0, "place_off": 0.0, "place_lying": 0.0}
     for seed in range(20):
-        assert play(MissionSim(probs=sure), baseline_action, seed)["score"] == 40
+        assert play(MissionSim(probs=SURE), baseline_action, seed)["score"] == 40
+
+
+def test_solver_perfect_and_not_slower():
+    for seed in range(20):
+        b = play(MissionSim(probs=SURE), baseline_action, seed)
+        s = play(MissionSim(probs=SURE), solver_action, seed)
+        assert s["score"] == 40 and s["time"] <= b["time"] + 1e-6, (seed, s, b)
+
+
+def test_solver_ends_with_failures():
+    for seed in range(200):
+        play(MissionSim(), solver_action, seed)
 
 
 def test_masks_and_random_policy_end():
