@@ -20,6 +20,7 @@ find_package(diagnostic_updater REQUIRED)
 find_package(pluginlib REQUIRED)
 find_package(rclcpp_lifecycle REQUIRED)
 find_package(std_srvs REQUIRED)
+find_package(nav2_msgs REQUIRED)
 
 rosidl_generate_interfaces(${PROJECT_NAME}
   msg/ArmSafetyEvent.msg
@@ -35,7 +36,7 @@ target_include_directories(${PROJECT_NAME}_nodes PUBLIC include)
 target_compile_features(${PROJECT_NAME}_nodes PUBLIC cxx_std_17)
 target_link_libraries(${PROJECT_NAME}_nodes PUBLIC rclcpp::rclcpp rclcpp_action::rclcpp_action ${sensor_msgs_TARGETS} ${action_msgs_TARGETS}
   ${geometry_msgs_TARGETS} ${std_msgs_TARGETS} ${trajectory_msgs_TARGETS} ${control_msgs_TARGETS} ${msgs_cpp} ${std_srvs_TARGETS}
-  diagnostic_updater::diagnostic_updater)
+  ${nav2_msgs_TARGETS} diagnostic_updater::diagnostic_updater)
 foreach(node arm_safety_monitor manual_control)
   add_executable(${node} src/${node}_main.cpp)
   target_link_libraries(${node} ${PROJECT_NAME}_nodes)
@@ -47,7 +48,7 @@ add_library(beebot_system_hardware SHARED src/beebot_system_hardware.cpp)
 target_compile_features(beebot_system_hardware PUBLIC cxx_std_17)
 target_link_libraries(beebot_system_hardware hardware_interface::hardware_interface
   pluginlib::pluginlib rclcpp::rclcpp rclcpp_lifecycle::rclcpp_lifecycle diagnostic_updater::diagnostic_updater ${std_srvs_TARGETS}
-  ${msgs_cpp})
+  ${std_msgs_TARGETS} ${msgs_cpp})
 pluginlib_export_plugin_description_file(hardware_interface control_plugins.xml)
 install(TARGETS beebot_system_hardware LIBRARY DESTINATION lib)
 

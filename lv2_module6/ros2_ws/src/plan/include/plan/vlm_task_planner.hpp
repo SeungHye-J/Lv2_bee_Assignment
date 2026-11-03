@@ -2,7 +2,7 @@
 
 // vlm_task_planner (🛠 직접 작성, 담당: 권형중) — 설계: documents/project/ros/03-plan.md
 //   입력: /cmd/user_command (명령), /mission/qr (장소 바코드 작업 지시 — perception), /tracked_objects (지금 보이는 물체),
-//         /task/status (FAILED면 재계획), /mission/signal (신호등 암호 미션 — signal_decoder)
+//         /task/status (FAILED면 재계획), /mission/signal (신호등 암호 미션 — perception signal_decoder)
 //   출력: /task/sub_goals (plan/SubGoalArray, reliable + transient_local) → coordinator
 // VLM은 "무엇을, 어떤 순서로"만 정한다. 어떻게 움직일지·파지 후보 재시도는 coordinator 몫.
 // VLM 경로: vlm_endpoint가 비어 있지 않으면 호스트 ai-service에 POST /plan (계약: lv2_module6/ai-service/README)
@@ -10,7 +10,7 @@
 //   컨테이너는 network_mode: host라 127.0.0.1이 호스트다. endpoint가 비면(기본·CI) 템플릿만.
 // 재계획은 명령 하나당 max_replans(기본 1)회 — coordinator의 "같은 단계 2회 연속 실패면 정지"와 짝.
 // 신호등 암호 미션 (documents/mission/README.md)은 VLM 없이 규칙으로 — /mission/signal {색, 개수, 번호 합, 목적지 태그}가 오면
-//   번호(퍽 윗면 태그)를 아는 그 색 퍽 중 합이 맞는 조합(로봇에서 가까운 것 우선)을 골라 적재함에 싣고 목적지 장소(location, tag)로 →
+//   번호(퍽 윗면 태그)를 아는 그 색 퍽 중 합이 맞는 조합(로봇에서 가까운 것 우선)을 골라 적재함에 싣고 목적지 장소 상자(location_box, tag)로 →
 //   조합이 없으면 번호를 모르는 그 색(또는 색 모름) 퍽을 inspect하는 계획 → 끝나면 다시 판단. 목적지 태그를 아직 못 봤으면 기다림.
 // 수납 확인: 옮기기가 끝나면 바로, 그 뒤로는 verify_period_s마다 (AUTO · 하던 계획이 끝났을 때만) 목적지로 가서 본다 (look) →
 //   옮긴 태그 번호가 목적지 근처(verify_radius_m)에 다 있으면 끝 · 다른 곳에서 보이면 다시 옮김(recarry) · 안 보이면 알림(say).
@@ -26,7 +26,7 @@
 #include "diagnostic_updater/diagnostic_updater.hpp"
 #include "perception/msg/tracked_object_array.hpp"
 #include "plan/msg/sub_goal_array.hpp"
-#include "plan/msg/mission_signal.hpp"
+#include "perception/msg/mission_signal.hpp"
 #include "plan/msg/task_status.hpp"
 #include "rclcpp/rclcpp.hpp"
 #include "sensor_msgs/msg/image.hpp"
@@ -72,10 +72,10 @@ struct SignalPlan {
   std::vector<int> carry_tags;  // carry일 때 옮기는 퍽 번호 (수납 확인용)
   std::string why;
 };
-SignalPlan signal_plan(const TrackedObjectArray & objs, const plan::msg::MissionSignal & sig, double rx, double ry,
+SignalPlan signal_plan(const TrackedObjectArray & objs, const perception::msg::MissionSignal & sig, double rx, double ry,
   const std::set<uint32_t> & inspected, int capacity);
 
-// 수납 확인 한 번 판단 — 목적지 장소(location, dest_tag) 근처 radius 안에 tags(옮긴 퍽 번호)가 다 있는지
+// 수납 확인 한 번 판단 — 목적지 장소 상자(location_box, dest_tag) 윗면 가운데 근처 radius 안에 tags(옮긴 퍽 번호)가 다 있는지
 //   looked=false: wait(목적지 태그 못 봄) · look(목적지로 가서 근처의 번호 모르는 퍽 inspect)
 //   looked=true (look 끝난 뒤): ok(다 있음) · recarry(빠진 번호를 다른 곳에서 찾음 → 다시 옮김) · missing(못 찾음)
 struct VerifyPlan {
@@ -127,7 +127,7 @@ private:
   // 320px JPEG base64 (ai-service images[]용) — OpenCV 의존
   static std::string encode_jpeg_base64(const sensor_msgs::msg::Image & msg);
 
-  int tray_capacity_;  // 적재함 용량 (coordinator tray_slots 개수와 같게)
+  int tray_capacity_;  // 적재함 용량 (coordinator 적재함 칸 수 — basket.yaml 12칸)
   int max_replans_, replans_ = 0;  // 메인 스레드만 (구독 콜백·진단)
   std::string vlm_endpoint_;       // 비면 VLM 안 씀 (기본·CI) — 예: http://127.0.0.1:8000
   double vlm_timeout_s_;
@@ -148,8 +148,8 @@ private:
   rclcpp::Subscription<std_msgs::msg::String>::SharedPtr qr_sub_;
   rclcpp::Subscription<TrackedObjectArray>::SharedPtr objects_sub_;
   rclcpp::Subscription<TaskStatus>::SharedPtr status_sub_;
-  rclcpp::Subscription<plan::msg::MissionSignal>::SharedPtr signal_sub_;
-  plan::msg::MissionSignal signal_;
+  rclcpp::Subscription<perception::msg::MissionSignal>::SharedPtr signal_sub_;
+  perception::msg::MissionSignal signal_;
   bool signal_active_ = false;          // 신호등 미션 진행 중 (옮기기 끝나거나 조합 없음이면 끝)
   std::set<uint32_t> inspected_;        // 이번 미션에서 inspect한 퍽 (같은 퍽을 다시 보지 않게)
   std::string plan_kind_;               // 마지막으로 낸 계획 종류 (inspect면 끝난 뒤 이어서 판단)

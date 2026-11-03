@@ -16,7 +16,7 @@ from rclpy.parameter import Parameter
 
 from geometry_msgs.msg import TwistStamped
 from sensor_msgs.msg import JointState
-from std_msgs.msg import Bool, Empty, String
+from std_msgs.msg import Bool, Empty, Int32MultiArray, String
 
 from .consts import (ARM_JOINTS, DIAG_LEVELS, GRIPPER_CLOSE, GRIPPER_JOINT,
                     GRIPPER_OPEN, WHEEL_JOINTS)
@@ -28,6 +28,15 @@ except ImportError:  # nav2_msgs가 없는 환경에서도 나머지 명령은 �
     SaveMapSrv = None
 
 
+# 수동 주행 속도 상한 (텔레오퍼 -/= · 메뉴 속도 설정) — Waffle Pi 사양 (바퀴 상한 ≈ 8 rad/s × 0.033 m)
+MAX_LIN, MAX_ANG = 0.26, 1.82
+# 텔레오퍼 키 → (전후, 회전) 방향. 사선(둘 다 0 아님) = 설정 선속도 그대로 + 반경 DIAG_RADIUS 원호.
+# 후진 사선은 회전 부호 반대 (teleop_twist_keyboard와 같음: z = 뒤로 가며 왼쪽으로 휘어짐)
+TELEOP_MOVES = {'w': (1, 0), 'x': (-1, 0), 'a': (0, 1), 'd': (0, -1), 's': (0, 0),
+                'q': (1, 1), 'e': (1, -1), 'z': (-1, -1), 'c': (-1, 1)}
+DIAG_RADIUS = 0.5  # [m] 사선 원호 반경
+
+
 class Bus:
     def __init__(self, node, state, prompt, term: Terminal):
         self.node = node
@@ -35,6 +44,7 @@ class Bus:
         self.prompt = prompt
         self.term = term
         self.linear = 0.15
+        self.grip_current = 0.6  # 그리퍼 메뉴의 쥐는 힘 한계 [A] (controllers.yaml max_effort와 같게 시작)
         self.angular = 0.8
         self.duration = 1.0
         self.pub_operation = node.create_publisher(String, "/cmd/operation_mode", 10)
@@ -45,6 +55,7 @@ class Bus:
         self.pub_map_name = node.create_publisher(String, "/cmd/map_name", 10)
         self.pub_restart = node.create_publisher(String, "/cmd/restart", 10)
         self.pub_reboot = node.create_publisher(Empty, "/cmd/manual/reboot_motors", 10)
+        self.pub_beep = node.create_publisher(Int32MultiArray, "/cmd/beep", 10)
 
     def _poll(self, seconds: float = 0.2):
         """콜백을 잠깐 돌려 상태를 갱신한다."""
@@ -75,11 +86,13 @@ class Bus:
         msg.position = [float(v) for v in targets.values()]
         self._publish(self.pub_arm, msg)
 
-    def _send_gripper(self, position: float):
+    def _send_gripper(self, position: float, current: float | None = None):
         msg = JointState()
         msg.header.stamp = self.node.get_clock().now().to_msg()
         msg.name = [GRIPPER_JOINT]
         msg.position = [float(position)]
+        if current is not None:  # effort = 쥐는 힘 한계 [A] → manual_control → 그리퍼 액션 goal effort → 펌웨어 C 9번째
+            msg.effort = [float(current)]
         self._publish(self.pub_arm, msg)
 
     def _send_map_mode(self, mode: str):
@@ -95,9 +108,14 @@ class Bus:
     def _rad_deg(value: float) -> str:
         return f'{value:+.3f} rad ({math.degrees(value):+.1f}°)'
 
+    def _waiting(self, what: str, end: float, total: float):
+        """처리 중 창에 지금 기다리는 대상과 경과 (메뉴 밖이면 무시 — base.py 규약)."""
+        self.prompt.progress(f'{what} … {total - max(0.0, end - time.monotonic()):.0f}/{total:.0f}초')
+
     def _wait_value(self, key: str, expected: str, timeout: float = 5.0) -> bool:
         end = time.monotonic() + timeout
         while time.monotonic() < end and rclpy.ok():
+            self._waiting(f'state_manager가 {key} = {expected}로 바꾸길 기다리는 중', end, timeout)
             self._poll(0.1)
             if self.state.values.get(key, '').upper() == expected.upper():
                 return True
@@ -106,6 +124,7 @@ class Bus:
     def _wait_emergency(self, expected: bool, timeout: float = 2.0) -> bool:
         end = time.monotonic() + timeout
         while time.monotonic() < end and rclpy.ok():
+            self._waiting(f'비상정지 {"ON" if expected else "OFF"} 반영 기다리는 중', end, timeout)
             self._poll(0.1)
             if self.state.emergency == expected:
                 return True
@@ -116,6 +135,7 @@ class Bus:
         """/joint_states가 올 때까지 대기 (Jetson discovery 느림 대응)."""
         end = time.monotonic() + timeout
         while time.monotonic() < end and rclpy.ok():
+            self._waiting('/joint_states 기다리는 중 (bringup·OpenCR)', end, timeout)
             self._poll(0.2)
             if self.state.joints:
                 return True
@@ -126,6 +146,8 @@ class Bus:
         # (status는 5초. 모드 gate는 더 길게 — 못 보면 거부라 재시도만 하면 됨)
         end = time.monotonic() + 8.0
         while time.monotonic() < end and rclpy.ok():
+            if not self.state.operation:
+                self._waiting('/state/operation_mode 기다리는 중 (state_manager)', end, 8.0)
             self._poll(0.2)
             if self.state.operation:
                 break
@@ -190,6 +212,7 @@ class Bus:
         # joint_states(100Hz)가 먼저 와도 state 토픽 매칭까지 기다린다.
         end = time.monotonic() + 5.0
         while time.monotonic() < end and rclpy.ok():
+            self._waiting('/state/* 기다리는 중 (state_manager)', end, 5.0)
             self._poll(0.2)
             if self.state.values or self.state.devices:
                 break
@@ -220,12 +243,19 @@ class Bus:
             print('재시작 가능 : ' + ', '.join(line.split()[0] for line in restartable))
 
         if self.state.joints:
-            wheels = [f'{name}={self.state.joints[name]:.3f}' for name in WHEEL_JOINTS
+            def amp(name):
+                # 모터 전류 [A] — /joint_states effort. 없으면 빈 문자열 (예전 펌웨어).
+                a = self.state.joint_effort.get(name)
+                return '' if a is None or a != a else f' {a:+.2f}A'
+            wheels = [f'{name}={self.state.joints[name]:.3f}{amp(name)}' for name in WHEEL_JOINTS
                       if name in self.state.joints]
-            arms = [f'{name}={self.state.joints[name]:+.3f}/{math.degrees(self.state.joints[name]):+.1f}°'
+            arms = [f'{name}={self.state.joints[name]:+.3f}/{math.degrees(self.state.joints[name]):+.1f}°{amp(name)}'
                     for name in (*ARM_JOINTS, GRIPPER_JOINT) if name in self.state.joints]
             if wheels:
                 print('바퀴        : ' + '  '.join(wheels))
+            bat = self.state.battery_v
+            if bat == bat and bat > 0.0:
+                print(f'배터리      : {bat:.2f} V')
             if arms:
                 print('관절        : ' + '  '.join(arms))
             if not wheels and not arms:
@@ -252,6 +282,10 @@ class Bus:
         target = args.mode.upper()
         if target == 'EXPLORE' and self.state.map_mode not in ('MAPPING', ''):
             print('WARN: EXPLORE는 지도 모드 MAPPING에서만 허용됩니다', file=sys.stderr)
+        if target == 'TEACH':
+            if self.state.map_mode == 'MAPPING':
+                print('WARN: TEACH는 지도 모드 MAPPING에서는 거절됩니다 (팔 스캔 자세 고정)', file=sys.stderr)
+            print('TEACH: 팔(joint1~5)·그리퍼 토크가 꺼집니다 — 팔이 처지니 손으로 잡으세요. 끝나면 `arm capture` → `mode manual`(토크 켬)')
         self._publish(self.pub_operation, String(data=target))
         if self._wait_value('operation_mode', target, 2.5):
             print(f'조작 모드 → {target}')
@@ -311,50 +345,59 @@ class Bus:
     # ------------------------------------------------------------------ teleop
 
     def cmd_teleop(self, args) -> int:
+        """키보드 수동 주행 — w/x/a/d·방향키 이동 · q/e/z/c 사선(원호) · s/space 정지 · -/= 속도± · b 삑 · Esc 종료.
+        속도는 방향 × 설정값이라 달리는 중에 바꿔도 바로 반영. 0.1초마다 다시 보냄 (manual_control cmd_timeout 0.5초)."""
         if not self.ensure_manual_or_switch(args.force):
             return 1
         if not sys.stdin.isatty():
             print('거부: teleop은 터미널에서 실행해야 합니다', file=sys.stderr)
             return 2
-
-        from .dialogs import KeyReader
-        linear = 0.0
-        angular = 0.0
-        lin_speed = args.linear
-        ang_speed = args.angular
+        from .dialogs import Dialog, KeyReader
+        move = (0, 0)  # (전후, 회전) 방향
+        lin_speed, ang_speed = min(args.linear, MAX_LIN), min(args.angular, MAX_ANG)
         last_send = 0.0
-        key_count = 0
-        last_key = '-'
-        con = getattr(self.term, 'out', None) or sys.stdout  # 캡처를 우회해 화면에 직접
-        # 방향키도 w/x/a/d와 같게
+        last_bar = 0.0
+        last_key, key_count = '-', 0
+        box = Dialog(self.prompt, '텔레오퍼 → /cmd/manual/cmd_vel', [])  # 공용 박스 — console로 그려 캡처를 우회
         alias = {'up': 'w', 'down': 'x', 'left': 'a', 'right': 'd', ' ': 's'}
         try:
             with KeyReader(self.term) as keys:  # cbreak + 시작 전 눌린 키 비우기
                 while rclpy.ok():
-                    cols, rows = self.term.size()
-                    w = min(cols - 4, 62)
-                    left = max(1, (cols - w) // 2 + 1)
-                    top = max(1, (rows - 9) // 2 + 1)
+                    linear = move[0] * lin_speed
+                    # 사선 = 설정 선속도 그대로 + 반경 DIAG_RADIUS 원호 (ω = v / R → 속도를 바꿔도 휘는 모양이 같음)
+                    angular = move[1] * (lin_speed / DIAG_RADIUS if move[0] else ang_speed)
                     wl = self.state.joint_vel.get('wheel_left_joint')
                     wr = self.state.joint_vel.get('wheel_right_joint')
-                    actual = (f'실제 좌{wl:+.2f} 우{wr:+.2f} rad/s'
+                    actual = (f'실제 바퀴 좌{wl:+.2f} 우{wr:+.2f} rad/s'
                               if wl is not None and wr is not None else '실제 ? (joint_states 무응답)')
-                    estop = ' · E-STOP' if self.state.emergency else ''
+                    # 다이어로그가 떠 있는 동안 뒤 프레임은 안 그리므로, 전류·온도·배터리는 여기 넣는다
+                    al = self.state.joint_effort.get('wheel_left_joint')
+                    ar = self.state.joint_effort.get('wheel_right_joint')
+                    cur = (f'전류 L {al * 1000:+.0f} R {ar * 1000:+.0f} mA'
+                           if al is not None and ar is not None else '전류 ? (effort 없음)')
+                    tl = self.state.motor_temp.get('wheel_left_joint', -1)
+                    tr = self.state.motor_temp.get('wheel_right_joint', -1)
+                    temp = f'온도 L {tl} R {tr}°C' if tl >= 0 and tr >= 0 else '온도 ?'
+                    bat = self.state.battery_v
+                    bat_txt = f'{bat:.2f} V' if bat == bat and bat > 0.0 else '-'
+                    err = [n for n in ('wheel_left_joint', 'wheel_right_joint')
+                           if self.state.motor_text.get(n, '정상') not in ('', '정상')]
+                    err_txt = (' · ' + self.term.paint('에러 ' + ', '.join(err), RED)) if err else ''
                     key_txt = f'키 {last_key} ×{key_count}' if key_count else '키 입력 대기 중'
-                    sent_at = time.strftime('%H:%M:%S', time.localtime(last_send)) if last_send else '--:--:--'
-                    rows_txt = ['텔레오퍼',
-                                f'모드: {self.state.operation or "-"}{estop}',
-                                f'명령 v={linear:+.2f} m/s ω={angular:+.2f} rad/s',
-                                actual,
-                                f'{key_txt} · 전송 {sent_at}',
-                                f'설정 선속도 {lin_speed:.2f} m/s',
-                                self.term.paint('w/x/a/d·방향키 이동 · s/space 정지 · e/c 속도 · q/Esc 종료', DIM)]
-                    con.write(f'\033[{top};{left}H┌' + '─' * (w - 2) + '┐')
-                    for i, line in enumerate(rows_txt):
-                        con.write(f'\033[{top + 1 + i};{left}H│' + self.term.fit(line, w - 2) + '│')
-                    con.write(f'\033[{top + 1 + len(rows_txt)};{left}H└' + '─' * (w - 2) + '┘')
-                    con.flush()
+                    box.lines = [box.title,
+                                 f'모드: {self.state.operation or "-"}' + (' · E-STOP' if self.state.emergency else ''),
+                                 f'명령 v={linear:+.2f} m/s ω={angular:+.2f} rad/s',
+                                 actual,
+                                 f'{cur} · {temp} · 배터리 {bat_txt}{err_txt}',
+                                 f'{key_txt} · 설정 v {lin_speed:.2f} m/s · ω {ang_speed:.2f} rad/s',
+                                 self.term.paint('w/x/a/d·방향키 이동 · q/e/z/c 사선 · s/space 정지', DIM),
+                                 self.term.paint('-/= 속도± · b 삑 · Esc 종료', DIM)]
+                    box.draw('key')
                     now = time.monotonic()
+                    if now - last_bar >= 0.5:  # 박스 뒤 상단 상태바·중앙(가리지 않은 줄) 갱신
+                        self.prompt.refresh_bar()
+                        self.prompt.refresh_center(getattr(box, '_geom', None))
+                        last_bar = now
                     if now - last_send >= 0.1:
                         self._send_velocity(linear, angular)
                         last_send = now
@@ -362,28 +405,23 @@ class Bus:
                     self._poll(0.01)
                     if key is None:
                         continue
-                    if key in ('q', 'Q', 'esc', 'eof', '\x03'):
+                    if key in ('esc', 'eof', '\x03'):
                         break
                     key = alias.get(key, key)
                     key_count += 1
                     last_key = 'space' if key == 's' else key
-                    if key == 'w':
-                        linear, angular = lin_speed, 0.0
-                    elif key == 'x':
-                        linear, angular = -lin_speed, 0.0
-                    elif key == 'a':
-                        linear, angular = 0.0, ang_speed
-                    elif key == 'd':
-                        linear, angular = 0.0, -ang_speed
-                    elif key == 's':
-                        linear = angular = 0.0
-                    elif key == 'e':
-                        lin_speed = min(lin_speed + 0.05, 0.50)
-                    elif key == 'c':
-                        lin_speed = max(lin_speed - 0.05, 0.02)
+                    if key in TELEOP_MOVES:
+                        move = TELEOP_MOVES[key]
+                    elif key == 'b':
+                        self.pub_beep.publish(Int32MultiArray())
+                    elif key in ('=', '+'):  # 상한 = Waffle Pi 사양
+                        lin_speed, ang_speed = min(lin_speed + 0.05, MAX_LIN), min(ang_speed + 0.3, MAX_ANG)
+                    elif key in ('-', '_'):
+                        lin_speed, ang_speed = max(lin_speed - 0.05, 0.05), max(ang_speed - 0.3, 0.2)
         finally:
-            self._send_velocity(0.0, 0.0)
-            self._poll(0.2)
+            for _ in range(3):
+                self._send_velocity(0.0, 0.0)
+                self._poll(0.05)
             print('텔레오퍼 종료 — 바퀴 정지')
         return 0
 
@@ -427,6 +465,7 @@ class Bus:
         print('재부팅 요청 보냄 → 에러 난 모터만 재부팅, 팔은 천천히 명령 자세로 돌아감')
         end = time.monotonic() + 8.0
         while time.monotonic() < end and rclpy.ok():
+            self._waiting('모터 재부팅 뒤 에러가 풀리길 기다리는 중', end, 8.0)
             self._poll(0.5)
             if not self.state.motor_errors():
                 print('OK: 모터 에러 풀림')
@@ -435,9 +474,54 @@ class Bus:
               ' — manual_control 진단 "마지막 모터 재부팅"·기구 걸림 확인', file=sys.stderr)
         return 1
 
+    PLAN_YAML = Path(__file__).resolve().parents[3] / 'ros2_ws' / 'src' / 'plan' / 'config' / 'plan.yaml'
+
+    def cmd_capture(self) -> int:
+        """지금 팔·그리퍼 자세를 plan.yaml(coordinator) 형식으로 보여 준다 — 파일은 안 고침, 사람이 붙여 넣는다."""
+        if not self._wait_joints():
+            print('/joint_states 없음 — bringup/OpenCR 확인', file=sys.stderr)
+            return 1
+        self._poll(0.3)  # 최신 값
+        missing = [j for j in ARM_JOINTS if j not in self.state.joints]
+        if missing:
+            print('/joint_states에 없는 팔 관절: ' + ', '.join(missing), file=sys.stderr)
+            return 1
+        values = [self.state.joints[j] for j in ARM_JOINTS]
+        print('  '.join(f'{j}={self._rad_deg(v)}' for j, v in zip(ARM_JOINTS, values)))
+        gripper = self.state.joints.get(GRIPPER_JOINT)
+        print(f'\n{self.PLAN_YAML} 의 coordinator: ros__parameters: 아래에 붙여 넣으세요 (bringup 재시작 후 적용)\n')
+        print('    initial_pose: [' + ', '.join(f'{v:.4f}' for v in values) + ']')
+        if gripper is None:
+            print('    # initial_gripper: (/joint_states에 gripper_left_joint 없음)')
+        else:
+            print(f'    initial_gripper: {gripper:.4f}')
+        return 0
+
+    def initial_pose(self) -> tuple[dict[str, float], float | None, str] | None:
+        """시작 자세 — 떠 있는 coordinator 파라미터(지금 적용 중인 값)를 먼저, 없으면 plan.yaml.
+        반환: ({관절: rad}, 그리퍼 m 또는 None(음수 = 안 건드림), 출처)"""
+        cli = self.param_client('coordinator', '/')
+        if cli is not None and cli.wait_for_services(timeout_sec=2.0):
+            vals = self.param_get_vals(cli, ['initial_pose_joints', 'initial_pose', 'initial_gripper'])
+            if vals and len(vals) == 3 and list(vals[0].string_array_value) and list(vals[1].double_array_value):
+                g = vals[2].double_value
+                return (dict(zip(vals[0].string_array_value, vals[1].double_array_value)),
+                        g if g >= 0.0 else None, 'coordinator 파라미터')
+        try:
+            import yaml
+            p = yaml.safe_load(self.PLAN_YAML.read_text())['coordinator']['ros__parameters']
+            g = float(p.get('initial_gripper', -1.0))
+            return (dict(zip(p['initial_pose_joints'], map(float, p['initial_pose']))),
+                    g if g >= 0.0 else None, str(self.PLAN_YAML))
+        except Exception as exc:
+            print(f'시작 자세를 못 읽음 (coordinator 없음 · {self.PLAN_YAML}: {exc})', file=sys.stderr)
+            return None
+
     def cmd_arm(self, args) -> int:
         if args.action == 'reboot':
             return self.cmd_reboot(args.force)
+        if args.action == 'capture':
+            return self.cmd_capture()
         if args.action == 'show':
             self._wait_joints()
             values = [f'{name}={self._rad_deg(self.state.joints[name])}' for name in ARM_JOINTS if name in self.state.joints]
@@ -452,6 +536,15 @@ class Bus:
 
         if args.action == 'home':
             targets = {name: 0.0 for name in ARM_JOINTS}
+        elif args.action == 'initial':
+            pose = self.initial_pose()
+            if pose is None:
+                return 1
+            targets, gripper, source = pose
+            print(f'시작 자세 ({source}): ' + '  '.join(f'{n}={self._rad_deg(v)}' for n, v in targets.items()) +
+                  (f'  그리퍼={gripper:.4f}m' if gripper is not None else ''))
+            if gripper is not None:
+                self._send_gripper(gripper)
         else:
             try:
                 targets = self._parse_targets(args.targets)
@@ -479,10 +572,107 @@ class Bus:
             return 1
 
         self._send_arm(targets)
-        print('팔 목표: ' + '  '.join(f'{name}={value:.3f}' for name, value in targets.items()))
+        print('팔 목표: ' + '  '.join(f'{name}={self._rad_deg(value)}' for name, value in targets.items()))
+        self.warn_controller('arm_controller')
         return 0
 
+    def controller_states(self) -> dict[str, str] | None:
+        """controller_manager의 컨트롤러 상태 {이름: active|inactive|…} — 응답 없으면 None."""
+        try:
+            from controller_manager_msgs.srv import ListControllers
+        except ImportError:
+            return None
+        cli = self.node.create_client(ListControllers, '/controller_manager/list_controllers')
+        try:
+            if not cli.wait_for_service(timeout_sec=2.0):
+                return None
+            res = self.param_wait(cli.call_async(ListControllers.Request()), 3.0)
+            items = getattr(res, 'controller', None)
+            return {c.name: c.state for c in items} if items is not None else None
+        finally:
+            self.node.destroy_client(cli)
+
+    # bringup spawner 순서 (ros_system.launch.py) — 체인은 뒤에서부터 (rl_arm_correction → arm_controller)
+    CONTROLLERS = ('joint_state_broadcaster', 'imu_sensor_broadcaster', 'diff_drive_controller',
+                   'gripper_controller', 'rl_arm_correction', 'arm_controller')
+
+    def cmd_beep(self, args=None) -> int:
+        """OpenCR 부저 — 인자 없으면 기본음(2000 Hz 150 ms), `beep <Hz> <ms>`면 높이·길이 (펌웨어가 100~8000 · 10~2000으로 자름).
+        /cmd/beep → BeebotSystemHardware → 펌웨어 B 줄. 모드와 무관."""
+        vals = list(getattr(args, 'value', None) or [])
+        if vals and len(vals) != 2:
+            print('사용: beep 또는 beep <Hz 100~8000> <ms 10~2000> (예: beep 4000 300)', file=sys.stderr)
+            return 2
+        try:
+            data = [int(v) for v in vals]
+        except ValueError:
+            print(f'숫자가 아님: {" ".join(vals)}', file=sys.stderr)
+            return 2
+        self._publish(self.pub_beep, Int32MultiArray(data=data))
+        print('삑 ' + (f'{data[0]} Hz {data[1]} ms (B,{data[0]},{data[1]})' if data else '기본음 (B)'))
+        return 0
+
+    def cmd_recover(self, args=None) -> int:
+        """조작이 안 될 때 복구 — ① 모터 Hardware Error면 재부팅 ② 꺼진(inactive) 컨트롤러 다시 켜기.
+        관절이 URDF 한계 밖이면 ②가 또 실패한다 → 토크 끄고 손으로 옮긴 뒤 다시."""
+        self.prompt.step('1/2 모터 에러 확인')
+        self._poll(2.5)  # /state/devices 갱신 (2초 주기)
+        if self.state.motor_errors():
+            self.cmd_reboot()
+        else:
+            print('모터 에러 없음')
+        self.prompt.step('2/2 컨트롤러 확인')
+        states = self.controller_states()
+        if states is None:
+            print('FAIL: controller_manager 응답 없음 — bringup이 떠 있나? (./run-cli start)', file=sys.stderr)
+            return 1
+        off = [n for n in self.CONTROLLERS if states.get(n) == 'inactive']
+        if off:
+            try:
+                from controller_manager_msgs.srv import SwitchController
+            except ImportError:
+                print('controller_manager_msgs 없음', file=sys.stderr)
+                return 1
+            cli = self.node.create_client(SwitchController, '/controller_manager/switch_controller')
+            try:
+                req = SwitchController.Request()
+                req.activate_controllers = off
+                req.strictness = SwitchController.Request.BEST_EFFORT  # 되는 것만이라도
+                self.prompt.step('2/2 컨트롤러 켜는 중: ' + ', '.join(off))
+                res = self.param_wait(cli.call_async(req), 10.0) if cli.wait_for_service(timeout_sec=2.0) else None
+                if res is None:
+                    print('FAIL: switch_controller 응답 없음', file=sys.stderr)
+            finally:
+                self.node.destroy_client(cli)
+            states = self.controller_states() or states
+        bad = [f'{n} {states.get(n, "없음")}' for n in self.CONTROLLERS if states.get(n) != 'active']
+        print('컨트롤러: ' + '  '.join(f'{n}={states.get(n, "없음")}' for n in self.CONTROLLERS))
+        if bad:
+            print('FAIL: 아직 꺼짐 — ' + ', '.join(bad) + '. 관절이 URDF 한계 밖이면(bringup 로그 "out of bounds") '
+                  '팔 → 8 토크 끄기 → 손으로 한계 안으로 → 9 토크 켜기 → 다시 복구.', file=sys.stderr)
+            if any(n not in states for n in self.CONTROLLERS):
+                print('  "없음" = 로드도 안 됨 (bringup 때 앞 컨트롤러가 실패해 spawner가 멈춤) — 다시 켜기로는 안 됨 → ./run-cli restart',
+                      file=sys.stderr)
+            return 1
+        print('OK: 전부 active — 조작 가능')
+        return 0
+
+    def warn_controller(self, name: str):
+        """명령을 받을 컨트롤러가 active가 아니면 알림 — 아니면 명령이 조용히 사라진다."""
+        states = self.controller_states()
+        state = (states or {}).get(name)
+        if states is None or state == 'active':
+            return
+        why = ('로드도 안 됨 (bringup 때 spawner가 앞에서 멈춤) → ./run-cli restart' if state is None else
+               '꺼짐 → z) 복구. 관절이 URDF 한계 밖이면(bringup 로그 "out of bounds") 팔 → 8 토크 끄기 → 손으로 옮기기 → 9 토크 켜기 → z) 복구')
+        print(f'WARN: {name} {state or "없음"} — 이 명령은 실행되지 않습니다. {why}', file=sys.stderr)
+
     # ----------------------------------------------------------------- gripper
+
+    def gripper_current_text(self) -> str:
+        """그리퍼 모터 전류 — /joint_states effort(A). 쥐는 힘 한계는 펌웨어 config.h GRIPPER_GOAL_CURRENT_MA."""
+        a = self.state.joint_effort.get(GRIPPER_JOINT)
+        return '전류 ? (effort 없음)' if a is None else f'전류 {a * 1000:.0f} mA'
 
     def cmd_gripper(self, args) -> int:
         if args.action == 'show':
@@ -490,7 +680,7 @@ class Bus:
             if GRIPPER_JOINT not in self.state.joints:
                 print('/joint_states에 gripper_left_joint 없음', file=sys.stderr)
                 return 1
-            print(f'{GRIPPER_JOINT}={self.state.joints[GRIPPER_JOINT]:.4f}')
+            print(f'{GRIPPER_JOINT}={self.state.joints[GRIPPER_JOINT]:.4f} m  {self.gripper_current_text()}')
             return 0
 
         if args.action == 'open':
@@ -515,8 +705,10 @@ class Bus:
 
         if not self.ensure_manual_or_switch(args.force):
             return 1
-        self._send_gripper(position)
-        print(f'그리퍼 목표: {position:.4f} m')
+        current = getattr(args, 'current', None)
+        self._send_gripper(position, current)
+        print(f'그리퍼 목표: {position:.4f} m' + (f' · 쥐는 힘 한계 {current:.2f} A' if current is not None else ' · 쥐는 힘 기본 (max_effort)'))
+        self.warn_controller('gripper_controller')
         return 0
 
     # --------------------------------------------------------------------- map
@@ -550,7 +742,7 @@ class Bus:
         if not map_dir.is_dir():
             return []
         return sorted(p.name for p in map_dir.iterdir()
-                      if p.is_dir() and (p / 'rtabmap.db').is_file())
+                      if p.is_dir() and (p / 'nvblox.nvblx').is_file())
 
     def cmd_map(self, args) -> int:
         map_dir = self.default_map_dir(args.map_dir)
@@ -584,15 +776,15 @@ class Bus:
                 return 2
             self._poll(0.5)
             if self.state.map_mode == 'COURSE':
-                # COURSE엔 RTAB-Map이 없어 전환 불가 — 재시작으로 갈아탐
+                # COURSE(정지 지도)는 state_manager가 바꾸지 않음 — launch 재시작으로 갈아탐
                 return self._map_restart_for(target, None)
-            self._send_map_mode(target)
-            if self._wait_value('map_mode', target, 4.0):
-                print(f'지도 모드 → {target}')
+            if self.state.map_mode == target:
+                print(f'이미 지도 모드 {target}')
                 return 0
-            print(f'요청 실패: 현재 지도 모드 {self.state.map_mode or "알 수 없음"} '
-                  '(RTAB-Map이 꺼져 있거나 전환 중)', file=sys.stderr)
-            return 1
+            if target == 'LOCALIZATION' and not self.state.values.get('map_name'):
+                print('거부: 지금 지도 폴더가 없음 — map switch <이름>으로 고르세요', file=sys.stderr)
+                return 2
+            return self._map_restart_reply(lambda: self._send_map_mode(target), f'지도 모드 → {target}')
 
         if args.action == 'switch':
             if not args.name:
@@ -600,15 +792,16 @@ class Bus:
                 return 2
             self._poll(0.5)
             if self.state.map_mode == 'COURSE':
-                # COURSE엔 RTAB-Map이 없어 갈아끼우기 불가 — 재시작으로 갈아탐
                 return self._map_restart_for('LOCALIZATION', args.name)
-            self._send_map_name(args.name)
-            if self._wait_value('map_name', args.name, 5.0):
-                print(f'지도 → {args.name}')
+            if args.name == self.state.values.get('map_name') and self.state.map_mode == 'LOCALIZATION':
+                print(f'이미 지도 {args.name}')
                 return 0
-            print(f'요청 실패: 현재 지도 {self.state.values.get("map_name") or "-"} '
-                  '(없는 지도이거나 RTAB-Map/state_manager 확인)', file=sys.stderr)
-            return 1
+            maps = [n for n in (self.state.values.get('map_list') or '').splitlines() if n]
+            if maps and args.name not in maps:
+                print(f'거부: 지도 없음 "{args.name}" (nvblox.nvblx 있는 폴더만)', file=sys.stderr)
+                print('있는 지도: ' + ', '.join(maps), file=sys.stderr)
+                return 2
+            return self._map_restart_reply(lambda: self._send_map_name(args.name), f'지도 → {args.name}')
 
         if args.action == 'save':
             return self._map_save(args, map_dir)
@@ -616,9 +809,30 @@ class Bus:
         print(f'모르는 map action: {args.action}', file=sys.stderr)
         return 2
 
+    def _map_restart_reply(self, send, desc: str, timeout: float = 3.0) -> int:
+        """지도 모드·지도 바꾸기 = state_manager가 launch 전체를 다시 띄움 (cuVSLAM·nvblox는 실행 중 전환이 없음).
+        끝까지 기다리지 않는다 — nvblox 지도 저장 + 다시 뜨기에 수십 초이고, 그동안 state_manager도 꺼진다.
+        /state/restart의 첫 응답("all: 재시작 중 …" | "거절: …")만 보여 준다."""
+        self.state.values.pop('restart', None)
+        send()
+        end = time.monotonic() + timeout
+        while time.monotonic() < end and rclpy.ok():
+            self._poll(0.1)
+            note = self.state.values.get('restart')
+            if note:
+                if note.startswith('거절'):
+                    print(f'요청 실패: {note}', file=sys.stderr)
+                    return 1
+                print(f'{desc} — {note}')
+                print('다시 뜨는 데 수십 초 걸립니다 (nvblox 지도 저장 → SLAM 시작). 확인: map status')
+                return 0
+        print('요청 실패: state_manager 응답 없음 — 거절 이유는 /diagnostics의 state_manager '
+              '"지도 모드 전환 실패"에 있음', file=sys.stderr)
+        return 1
+
     def _map_restart_for(self, mode: str, name: str | None) -> int:
-        """COURSE에서 MAPPING/LOCALIZATION·지도 전환 요청이 오면 launch 재시작으로 갈아탐.
-        (RTAB-Map이 꺼져 있어 /cmd/map_mode·/cmd/map_name이 통하지 않음)"""
+        """COURSE(정지 지도)에서 MAPPING/LOCALIZATION·지도 전환 요청 → launch 재시작으로 갈아탐
+        (state_manager는 COURSE를 바꾸지 않으므로 /cmd/restart를 직접 보냄)."""
         if mode == 'MAPPING':
             launch_args, desc = 'map:=slam', 'MAPPING(스캔)'
         elif name:
@@ -627,41 +841,44 @@ class Bus:
             launch_args, desc = 'map:=saved', 'LOCALIZATION(최근 지도)'
         if not self.prompt.confirm('재시작할까요?', default=False, body=[
                 '지금은 COURSE(정지 지도)라 바로 전환이 안 됩니다.',
-                f'launch 재시작으로 {desc} 모드로 갈아탑니다: all {launch_args}']):
+                f'launch 재시작으로 {desc} 모드로 갈아탑니다: all {launch_args}',
+                '주의: SLAM(cuVSLAM + nvblox)은 GPU가 있어야 함 — GPU 없는 테스트베드에선 시작하다 멈춥니다.']):
             return 1
-        return self._map_do_restart(launch_args)
+        return self._map_restart_reply(lambda: self._publish(self.pub_restart, String(data=f'all {launch_args}')),
+                                       f'재시작 all {launch_args}')
 
-    def _map_do_restart(self, launch_args: str) -> int:
-        # cmd_restart는 target만 받으므로 full 텍스트를 직접 보낸다
-        from std_msgs.msg import String as _String
-        pub = self.node.create_publisher(_String, '/cmd/restart', 10)
-        self._poll(0.2)
-        msg = _String()
-        msg.data = f'all {launch_args}'
-        pub.publish(msg)
-        print(f'요청: /cmd/restart "{msg.data}" (재시작 중이면 /state/restart 확인)')
-        return 0
+    def _robot_map_dir(self) -> str:
+        """state_manager의 map_dir 파라미터 — map_saver가 도는 쪽(로봇·컨테이너)의 지도 폴더. 못 읽으면 ''."""
+        cli = self.param_client('state_manager', '/')
+        if cli is None or not cli.wait_for_services(timeout_sec=1.0):
+            return ''
+        vals = self.param_get_vals(cli, ['map_dir'])
+        return str(getattr(vals[0], 'string_value', '') or '') if vals else ''
 
     def _map_save(self, args, map_dir: Path) -> int:
         if SaveMapSrv is None:
             print('거부: nav2_msgs가 없어 map save를 사용할 수 없습니다', file=sys.stderr)
             return 2
         name = self.state.values.get('map_name') or ''
+        # 경로는 map_saver가 쓰는 쪽 기준 — CLI가 원격 PC·컨테이너 밖이면 이 컴퓨터 경로가 로봇에 없다.
+        #   --file·--map-dir를 주지 않으면 state_manager의 map_dir을 쓴다 (못 읽을 때만 이 컴퓨터의 ros2_ws/map)
+        robot_dir = '' if (args.file or args.map_dir) else self._robot_map_dir()
         if args.file:
             path = Path(args.file).expanduser()
         else:
             if not name:
                 print('거부: 현재 지도 이름이 없습니다 — --file로 경로를 지정하세요', file=sys.stderr)
                 return 2
-            path = map_dir / name / 'map'
+            path = Path(robot_dir or map_dir) / name / 'map'
         if path.suffix.lower() in ('.yaml', '.pgm'):
             path = path.with_suffix('')
-        path = path.resolve()
-        path.parent.mkdir(parents=True, exist_ok=True)
+        if not robot_dir:  # 이 컴퓨터 경로일 때만 — 로봇 쪽 지도 폴더는 bringup이 이미 만듦
+            path = path.resolve()
+            path.parent.mkdir(parents=True, exist_ok=True)
 
         client = self.node.create_client(SaveMapSrv, '/map_saver/save_map')
         if not client.wait_for_service(timeout_sec=2.0):
-            print('거부: /map_saver/save_map 서비스 없음 (RTAB-Map/지도 저장 서버 확인)', file=sys.stderr)
+            print('거부: /map_saver/save_map 서비스 없음 (지도 저장 서버는 map:=slam·saved일 때만 뜸)', file=sys.stderr)
             self.node.destroy_client(client)
             return 1
 
@@ -673,6 +890,7 @@ class Bus:
         req.free_thresh = 0.25
         req.occupied_thresh = 0.65
         future = client.call_async(req)
+        self.prompt.progress('/map_saver/save_map 응답 기다리는 중 (최대 10초)')
         rclpy.spin_until_future_complete(self.node, future, timeout_sec=10.0)
         if not future.done():
             print('요청 실패: /map_saver/save_map 응답 없음', file=sys.stderr)
@@ -689,14 +907,150 @@ class Bus:
     # ----------------------------------------------------------------- restart
 
     def cmd_restart(self, args) -> int:
-        if not args.yes:
-            print('거부: 재시작은 전체 스택에 영향을 줍니다 — 확인 후 --yes를 붙이세요',
-                  file=sys.stderr)
-            return 2
         data = 'all' if args.target == 'all' else f'node {args.target}'
         self._publish(self.pub_restart, String(data=data))
         print(f'재시작 요청: {data}')
         return 0
+
+    # ------------------------------------------------------------------- node
+
+    LIFECYCLE_STATES = {0: 'unknown', 1: 'unconfigured', 2: 'inactive', 3: 'active', 4: 'finalized'}
+
+    def node_rows(self) -> list[dict]:
+        """노드 목록 — 그래프(실행 중 ROS 노드) + state_manager 재시작 목록(pid) 합침.
+        lifecycle = <노드>/get_state 서비스가 있으면 True (Nav2 수명주기 노드)."""
+        self._poll(0.3)
+        pids: dict[str, str] = {}
+        for line in (self.state.values.get('restartable') or '').splitlines():
+            parts = line.split()
+            if parts:
+                pids[parts[0]] = parts[1] if len(parts) > 1 else '?'
+        me = self.node.get_name()
+        graph: set[str] = set()
+        try:
+            for n, ns in self.node.get_node_names_and_namespaces():
+                if n != me and not n.startswith('_'):
+                    graph.add(n if ns in ('/', '') else f'{ns.strip("/")}/{n}')
+        except Exception:
+            pass
+        try:
+            services = {name for name, _ in self.node.get_service_names_and_types()}
+        except Exception:
+            services = set()
+        rows = []
+        for name in sorted(graph | set(pids)):
+            rows.append({'name': name, 'pid': pids.get(name), 'alive': name in graph,
+                         'lifecycle': f'/{name}/get_state' in services})
+        return rows
+
+    def lifecycle_state(self, name: str, timeout: float = 2.0) -> str | None:
+        """수명주기 노드 상태 (active · inactive · unconfigured …), 응답 없으면 None."""
+        try:
+            from lifecycle_msgs.srv import GetState
+        except ImportError:
+            return None
+        cli = self.node.create_client(GetState, f'/{name}/get_state')
+        try:
+            if not cli.wait_for_service(timeout_sec=timeout):
+                return None
+            res = self.param_wait(cli.call_async(GetState.Request()), timeout)
+            return self.LIFECYCLE_STATES.get(res.current_state.id, res.current_state.label) if res else None
+        finally:
+            self.node.destroy_client(cli)
+
+    def lifecycle_activate(self, name: str) -> bool:
+        """수명주기 노드를 active까지 — unconfigured면 configure → activate, inactive면 activate.
+        lifecycle_manager가 기동 중 응답 시간 초과로 멈춘 경우(bond 없음)를 사람이 이어 주는 용도."""
+        try:
+            from lifecycle_msgs.msg import Transition
+            from lifecycle_msgs.srv import ChangeState
+        except ImportError:
+            print('lifecycle_msgs 없음', file=sys.stderr)
+            return False
+        steps = {'unconfigured': [(Transition.TRANSITION_CONFIGURE, 'configure'), (Transition.TRANSITION_ACTIVATE, 'activate')],
+                 'inactive': [(Transition.TRANSITION_ACTIVATE, 'activate')], 'active': []}
+        state = self.lifecycle_state(name)
+        if state not in steps:
+            print(f'{name}: 상태 {state or "응답 없음"} — 활성화할 수 없음', file=sys.stderr)
+            return False
+        cli = self.node.create_client(ChangeState, f'/{name}/change_state')
+        try:
+            for tid, label in steps[state]:
+                req = ChangeState.Request()
+                req.transition.id = tid
+                self.prompt.step(f'{name} {label} (최대 15초)')
+                res = self.param_wait(cli.call_async(req), 15.0)
+                if not res or not res.success:
+                    print(f'{name}: {label} 실패 ({"시간 초과" if not res else "거절"}) — 그 노드 로그 확인', file=sys.stderr)
+                    return False
+                print(f'{name}: {label} OK')
+        finally:
+            self.node.destroy_client(cli)
+        print(f'{name}: {self.lifecycle_state(name) or "?"}')
+        return True
+
+    def node_status_lines(self, name: str) -> list[str]:
+        row = next((r for r in self.node_rows() if r['name'] == name), None)
+        lines = [f'[{name}]']
+        if row is None:
+            return lines + [' 그래프에도 재시작 목록에도 없음 (안 떠 있음)']
+        lines.append(f' 실행: {"그래프에 보임" if row["alive"] else "그래프에 안 보임 (죽었거나 디스커버리 늦음)"}'
+                     f' · pid {row["pid"] or "-"}{"" if row["pid"] else " (state_manager 재시작 목록에 없음)"}')
+        if row['lifecycle']:
+            lines.append(f' 수명주기: {self.lifecycle_state(name) or "응답 없음"} (active가 아니면 3) 활성화)')
+        try:
+            ns = '/'
+            pubs = self.node.get_publisher_names_and_types_by_node(name.split('/')[-1], ns)
+            subs = self.node.get_subscriber_names_and_types_by_node(name.split('/')[-1], ns)
+            lines.append(f' 발행 {len(pubs)}개 · 구독 {len(subs)}개')
+        except Exception:
+            pass
+        diags = [d for d in self.state.diagnostics if name in d]
+        for d in diags[:6]:
+            level, message = self.state.diagnostics[d]
+            lines.append(f' 진단 {self.diag_short(d)}: {DIAG_LEVELS.get(level, "?")} {message}')
+        return lines
+
+    def node_restart(self, name: str) -> int:
+        """state_manager로 재시작 → 수명주기 노드면 다시 뜬 뒤 active까지."""
+        rows = {r['name']: r for r in self.node_rows()}
+        row = rows.get(name)
+        if row and not row['pid']:
+            print(f'거부: {name}은 state_manager 재시작 목록에 없음 (이 launch 밖 노드)', file=sys.stderr)
+            return 1
+        old_pid = row['pid'] if row else None
+        self.cmd_restart(argparse.Namespace(target=name))
+        if not (row and row['lifecycle']):
+            return 0
+        print(f'{name}: 수명주기 노드 — 다시 뜰 때까지 기다린 뒤 활성화')
+        self.prompt.step(f'1/2 {name} 다시 뜨기 기다림')
+        end = time.monotonic() + 20.0
+        while time.monotonic() < end and rclpy.ok():
+            self._waiting(f'{name} 새 프로세스·수명주기 서비스 기다리는 중', end, 20.0)
+            self._poll(1.0)
+            new = {r['name']: r for r in self.node_rows()}.get(name)
+            if new and new['pid'] and new['pid'] != old_pid and self.lifecycle_state(name, 1.0):
+                return 0 if self.lifecycle_activate(name) else 1
+        print(f'FAIL: {name} 20초 안에 다시 안 뜸 — /tmp/restart_{name}.log 확인', file=sys.stderr)
+        return 1
+
+    def cmd_node(self, args) -> int:
+        if args.action == 'list':
+            for r in self.node_rows():
+                life = f' [{self.lifecycle_state(r["name"], 1.0) or "?"}]' if r['lifecycle'] else ''
+                print(f'{r["name"]:<32} {"●" if r["alive"] else "✗"} pid {r["pid"] or "-":<8}{life}')
+            return 0
+        if not args.name:
+            print('노드 이름이 필요합니다', file=sys.stderr)
+            return 2
+        if args.action == 'status':
+            print('\n'.join(self.node_status_lines(args.name)))
+            return 0
+        if args.action == 'activate':
+            return 0 if self.lifecycle_activate(args.name) else 1
+        if args.action == 'restart':
+            return self.node_restart(args.name)
+        return 2
 
     # ------------------------------------------------------------------- menu
 
@@ -780,6 +1134,7 @@ class Bus:
         return found
 
     def param_wait(self, future, timeout: float = 5.0):
+        self.prompt.progress(f'노드 응답 기다리는 중 (최대 {timeout:.0f}초)')
         rclpy.spin_until_future_complete(self.node, future, timeout_sec=timeout)
         if not future.done():
             return None
@@ -872,6 +1227,7 @@ class Bus:
         """status --diagnostics <이름 일부> — 이름에 그 글자가 든 진단 항목의 레벨·메시지·값 전부"""
         end = time.monotonic() + 5.0  # /diagnostics_agg는 1초마다 — discovery 느린 Jetson 고려
         while time.monotonic() < end and rclpy.ok():
+            self._waiting('/diagnostics_agg 기다리는 중', end, 5.0)
             self._poll(0.2)
             if any(text.lower() in n.lower() for n in self.state.diagnostics):
                 break
@@ -887,7 +1243,7 @@ class Bus:
 
     @staticmethod
     def diag_short(name: str) -> str:
-        """/diagnostics_agg 이름 '/Beebot/계획·임무/signal_decoder: 상태' → '계획·임무 / signal_decoder: 상태'"""
+        """/diagnostics_agg 이름 '/Beebot/인지/signal_decoder: 상태' → '인지 / signal_decoder: 상태'"""
         parts = [p for p in name.split('/') if p and p != 'Beebot']
         return ' / '.join(parts) or name
 
@@ -925,12 +1281,19 @@ class Bus:
             print('지도 목록 : -')
 
     def show_joints(self):
-        self._poll(0.5)
+        self._wait_joints()
         found = False
         for name in (*WHEEL_JOINTS, *ARM_JOINTS, GRIPPER_JOINT):
-            if name in self.state.joints:
-                deg = '' if name in WHEEL_JOINTS else f'  ({math.degrees(self.state.joints[name]):+.1f} deg)'
-                print(f'  {name:18s} {self.state.joints[name]: .4f} rad{deg}')
-                found = True
+            if name not in self.state.joints:
+                continue
+            deg = '' if name in WHEEL_JOINTS else f'  ({math.degrees(self.state.joints[name]):+.1f} deg)'
+            a = self.state.joint_effort.get(name)
+            amp = '' if a is None or a != a else f'  {a:+.2f} A'
+            temp = self.state.motor_temp.get(name, -1)
+            temp_txt = '' if temp is None or temp < 0 else f'  {temp}°C'
+            err = self.state.motor_text.get(name, '')
+            err_txt = '' if err in ('', '정상') else f'  [{err}]'
+            print(f'  {name:18s} {self.state.joints[name]: .4f} rad{deg}{amp}{temp_txt}{err_txt}')
+            found = True
         if not found:
             print('/joint_states에 팔 관절이 없습니다 — bringup/OpenCR 확인', file=sys.stderr)

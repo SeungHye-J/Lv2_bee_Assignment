@@ -1,4 +1,5 @@
-// plan 기본 테스트: coordinator는 허용 동작(navigate·pick·place·say)이 아닌 계획을 거부하고 FAILED를 보낸다 (규칙 1)
+// plan 기본 테스트: coordinator는 허용 동작(navigate·pick·place·inspect·say·pose·load·unload)이 아닌 계획을 거부하고 FAILED를 보낸다 (규칙 1)
+#include <algorithm>
 #include <cmath>
 #include <gtest/gtest.h>
 
@@ -65,6 +66,41 @@ TEST_F(RosTest, RejectsUnknownSkill) {
   EXPECT_EQ(got->reason.rfind("invalid_plan", 0), 0u) << got->reason;
 }
 
+// pose는 아는 자세 이름만 · load·unload의 target(칸 번호)은 물체 id로 검증하지 않음 (05-arm.md)
+TEST_F(RosTest, ValidatesPoseAndSlotTargets) {
+  auto node = std::make_shared<Coordinator>();
+  auto probe = std::make_shared<rclcpp::Node>("probe_skills");
+  const auto latched = rclcpp::QoS(10).reliable().transient_local();
+  auto objects_pub = probe->create_publisher<TrackedObjectArray>("/tracked_objects", rclcpp::QoS(5).reliable());
+  auto goals_pub = probe->create_publisher<SubGoalArray>("/task/sub_goals", latched);
+  std::vector<TaskStatus> got;
+  auto sub = probe->create_subscription<TaskStatus>("/task/status", latched,
+    [&](TaskStatus::SharedPtr m) { got.push_back(*m); });
+  rclcpp::executors::SingleThreadedExecutor exec;
+  exec.add_node(node);
+  exec.add_node(probe);
+  auto send = [&](uint32_t id, const std::string & skill, const std::string & target) {
+    SubGoalArray plan;
+    plan.plan_id = id;
+    SubGoal g;
+    g.step = 1;
+    g.skill = skill;
+    g.target = target;
+    plan.goals.push_back(g);
+    goals_pub->publish(plan);
+  };
+  auto has = [&](uint32_t id, auto pred) { for (auto & s : got) if (s.plan_id == id && pred(s)) return true; return false; };
+  send(21, "pose", "fly");
+  ASSERT_TRUE(spin_until(exec, [&]() { objects_pub->publish(TrackedObjectArray()); },
+    [&]() { return has(21, [](const TaskStatus & s) { return s.state == TaskStatus::FAILED; }); }));
+  EXPECT_TRUE(has(21, [](const TaskStatus & s) { return s.reason == "invalid_plan:pose fly"; }));
+  // 칸 5 — /tracked_objects에 id 5가 없어도 계획은 받음 (실행은 MoveIt 대기)
+  send(22, "load", "5");
+  ASSERT_TRUE(spin_until(exec, [&]() { objects_pub->publish(TrackedObjectArray()); },
+    [&]() { return has(22, [](const TaskStatus & s) { return s.state == TaskStatus::RUNNING; }); }));
+  EXPECT_FALSE(has(22, [](const TaskStatus & s) { return s.reason.rfind("invalid_plan", 0) == 0; }));
+}
+
 // 수동 모드로 바뀌면 진행 중 작업을 멈추고 FAILED(manual_override)를 보낸다
 TEST_F(RosTest, ManualModeStopsRunningPlan) {
   auto node = std::make_shared<Coordinator>();
@@ -104,10 +140,63 @@ TEST_F(RosTest, ManualModeStopsRunningPlan) {
 }
 
 // 적재함 (MISSION ③): 칸 파라미터 해석 · 같은 곳 여러 개 비켜 놓기 · MOVE_TO_B 템플릿 = 싣고(place tray) → 이동 → 꺼내서(pick tray) 내려놓기
-TEST(Tray, SlotsAndSpread) {
-  const auto slots = tray_slots({-0.14, 0.05, -0.095, -0.05, 9.0});  // 홀수 — 마지막 버림
-  ASSERT_EQ(slots.size(), 2u);
-  EXPECT_DOUBLE_EQ(slots[1].first, -0.095);
+TEST(Tray, BasketSlot) {
+  // 적재함 12칸 고르기 (load next · unload last · 칸 번호, 옛 "tray" = 같은 뜻)
+  std::vector<std::string> filled(12, "");
+  std::vector<int> order;
+  std::string why;
+  EXPECT_EQ(basket_slot("next", filled, order, true, why), 0);
+  EXPECT_EQ(basket_slot("tray", filled, order, true, why), 0);
+  EXPECT_EQ(basket_slot("last", filled, order, false, why), -1);
+  EXPECT_EQ(why, "slot_empty");
+  filled[0] = "box";
+  filled[3] = "cyl";
+  order = {3, 0};
+  EXPECT_EQ(basket_slot("next", filled, order, true, why), 1);   // 빈 칸 중 가장 낮은 번호
+  EXPECT_EQ(basket_slot("last", filled, order, false, why), 0);  // 마지막에 실은 칸
+  EXPECT_EQ(basket_slot("tray", filled, order, false, why), 0);
+  EXPECT_EQ(basket_slot("3", filled, order, false, why), 3);
+  EXPECT_EQ(basket_slot("3", filled, order, true, why), -1);
+  EXPECT_EQ(why, "slot_full");
+  EXPECT_EQ(basket_slot("5", filled, order, false, why), -1);
+  EXPECT_EQ(why, "slot_empty");
+  EXPECT_EQ(basket_slot("12", filled, order, true, why), -1);
+  EXPECT_EQ(why, "slot_invalid");
+  EXPECT_EQ(basket_slot("-1", filled, order, true, why), -1);
+  EXPECT_EQ(why, "slot_invalid");
+  // load next는 쓰는 칸(usable)만 — 1번 칸을 빼면 빈 칸 중 다음 2번
+  std::vector<bool> usable(12, true);
+  usable[1] = false;
+  EXPECT_EQ(basket_slot("next", filled, order, true, why, usable), 2);
+  EXPECT_EQ(basket_slot("1", filled, order, true, why, usable), 1);  // 칸 번호를 직접 주면 그대로
+  std::fill(filled.begin(), filled.end(), "box");
+  EXPECT_EQ(basket_slot("next", filled, order, true, why), -1);
+  EXPECT_EQ(why, "slot_full");
+}
+
+TEST(Tray, GraspHeld) {
+  // 퍽이 끼어 덜 닫힘(위치) + 전류. 전류를 모르면(NaN) 위치만
+  EXPECT_TRUE(grasp_held(0.005, 0.35, 0.003, 0.25));
+  EXPECT_TRUE(grasp_held(0.005, -0.35, 0.003, 0.25));   // 방향 부호 무관
+  EXPECT_FALSE(grasp_held(0.0005, 0.35, 0.003, 0.25));  // 끝까지 닫힘 — 빈손
+  EXPECT_FALSE(grasp_held(0.005, 0.05, 0.003, 0.25));   // 힘이 안 걸림
+  EXPECT_TRUE(grasp_held(0.005, std::nan(""), 0.003, 0.25));
+}
+
+TEST(Tray, BoxSpread) {
+  // 상자 0.205 각 · 가장자리 0.03 안쪽까지 → 비킬 수 있는 최대 0.0725. 상자 yaw 90°면 축이 돌아감
+  auto [x0, y0] = box_spread(0, 0.08, 0.1025, 0.1025, 0.03, 0.0);
+  EXPECT_NEAR(x0, 0.0, 1e-9);
+  EXPECT_NEAR(y0, 0.0, 1e-9);
+  auto [x1, y1] = box_spread(1, 0.08, 0.1025, 0.1025, 0.03, 0.0);  // spread_offset (0, 0.08) → 0.0725로 자름
+  EXPECT_NEAR(x1, 0.0, 1e-9);
+  EXPECT_NEAR(y1, 0.0725, 1e-9);
+  auto [x2, y2] = box_spread(1, 0.08, 0.1025, 0.1025, 0.03, M_PI / 2);
+  EXPECT_NEAR(x2, -0.0725, 1e-9);
+  EXPECT_NEAR(y2, 0.0, 1e-9);
+}
+
+TEST(Tray, Spread) {
   EXPECT_EQ(spread_offset(0, 0.08), std::make_pair(0.0, 0.0));
   EXPECT_EQ(spread_offset(1, 0.08), std::make_pair(0.0, 0.08));
   EXPECT_EQ(spread_offset(2, 0.08), std::make_pair(0.0, -0.08));
@@ -156,21 +245,21 @@ TEST(Signal, PickCombo) {
 }
 
 TEST(Signal, MissionPlan) {
-  plan::msg::MissionSignal sig;
+  perception::msg::MissionSignal sig;
   sig.color = "red";
   sig.count = 2;
   sig.sum = 5;
   sig.dest_tag = 13;
   TrackedObjectArray objs;
   objs.objects = {obj(1, "puck", "red", 2, 0.5), obj(2, "puck", "red", -1, 0.6), obj(3, "puck", "green", -1, 0.4),
-                  obj(4, "puck", "", -1, 0.9), obj(9, "location", "", 13, 2.0)};
+                  obj(4, "puck", "", -1, 0.9), obj(9, "location_box", "", 13, 2.0)};
   std::set<uint32_t> inspected;
   // 번호 아는 빨간 퍽이 1개뿐 → 번호 모르는 빨간·색 모름 퍽을 가까운 순으로 inspect (초록은 안 봄)
   auto r = signal_plan(objs, sig, 0.0, 0.0, inspected, 4);
   ASSERT_EQ(r.kind, "inspect");
   EXPECT_EQ(r.inspect_ids, (std::vector<uint32_t>{2, 4}));
   EXPECT_EQ(r.goals[0].skill, "inspect");
-  // 봤더니 2번 퍽 = 태그 3 → 2+3 = 5 → 옮기기 (목적지 = 장소 태그 13인 물체 9)
+  // 봤더니 2번 퍽 = 태그 3 → 2+3 = 5 → 옮기기 (목적지 = 장소 상자(태그 13) 물체 9)
   objs.objects[1] = obj(2, "puck", "red", 3, 0.6);
   inspected = {2, 4};
   r = signal_plan(objs, sig, 0.0, 0.0, inspected, 4);
@@ -188,9 +277,9 @@ TEST(Signal, MissionPlan) {
 }
 
 TEST(Signal, VerifyPlan) {
-  // 목적지 = 장소 태그 13인 물체 9 (x 2.0) · 옮긴 번호 2·3 · 반경 0.2
+  // 목적지 = 장소 상자(태그 13) 물체 9 (x 2.0) · 옮긴 번호 2·3 · 반경 0.2
   TrackedObjectArray objs;
-  objs.objects = {obj(9, "location", "", 13, 2.0), obj(1, "puck", "red", 2, 2.05), obj(2, "puck", "red", -1, 1.9),
+  objs.objects = {obj(9, "location_box", "", 13, 2.0), obj(1, "puck", "red", 2, 2.05), obj(2, "puck", "red", -1, 1.9),
                   obj(5, "puck", "red", -1, 0.5)};
   // 보러 가기 — 목적지로 navigate · 근처의 번호 모르는 퍽(2)만 inspect (멀리 있는 5는 안 봄)
   auto r = verify_plan(objs, 13, {2, 3}, 0.2, false);

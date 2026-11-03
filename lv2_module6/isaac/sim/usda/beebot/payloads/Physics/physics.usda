@@ -22,7 +22,7 @@ over "beebot"
             )
             {
                 double[] newton:inertia = [0.02813, 0.032644, 0.027766, -0.000021613, 0.0064439, -0.0000014858]
-                point3f physics:centerOfMass = (-0.085426, -0.000171, 0.080461)
+                point3f physics:centerOfMass = (-0.05077, -0.000171, 0.080461)
                 float3 physics:diagonalInertia = (0.021501513, 0.032643862, 0.034394626)
                 float physics:mass = 2.4006
                 quatf physics:principalAxes = (-0.38919315, 0.0012590096, 0.92114383, 0.004594014)
@@ -67,24 +67,6 @@ over "beebot"
                 }
 
                 over "sphere_1" (
-                    prepend apiSchemas = ["NewtonCollisionAPI", "MaterialBindingAPI"]
-                )
-                {
-                    rel material:binding:physics = </beebot/PhysicsMaterials/caster_ball> (
-                        bindMaterialAs = "strongerThanDescendants"
-                    )
-                }
-
-                over "sphere_2" (
-                    prepend apiSchemas = ["NewtonCollisionAPI", "MaterialBindingAPI"]
-                )
-                {
-                    rel material:binding:physics = </beebot/PhysicsMaterials/caster_ball> (
-                        bindMaterialAs = "strongerThanDescendants"
-                    )
-                }
-
-                over "sphere_3" (
                     prepend apiSchemas = ["NewtonCollisionAPI", "MaterialBindingAPI"]
                 )
                 {
@@ -142,6 +124,23 @@ over "beebot"
                     float3 physics:diagonalInertia = (0.0000069173952, 0.00004620642, 0.000046614987)
                     float physics:mass = 0.072
                     quatf physics:principalAxes = (-0.017250448, 0.7031419, 0.71062493, -0.017495882)
+
+                    over "box" (
+                        prepend apiSchemas = ["NewtonCollisionAPI"]
+                    )
+                    {
+                    }
+                }
+
+                over "battery_link" (
+                    prepend apiSchemas = ["PhysicsRigidBodyAPI", "PhysicsMassAPI", "NewtonMassAPI"]
+                )
+                {
+                    double[] newton:inertia = [0.000079218, 0.000074382, 0.000016793, 0, 0, 0]
+                    point3f physics:centerOfMass = (0, 0, 0)
+                    float3 physics:diagonalInertia = (0.000079218, 0.000074382, 0.000016793)
+                    float physics:mass = 0.106
+                    quatf physics:principalAxes = (1, 0, 0, 0)
 
                     over "box" (
                         prepend apiSchemas = ["NewtonCollisionAPI"]
@@ -211,9 +210,12 @@ over "beebot"
                                         quatf physics:principalAxes = (-0.64092994, 0.29831067, -0.29741922, 0.6416864)
 
                                         over "finger_left_link" (
-                                            prepend apiSchemas = ["PhysicsRigidBodyAPI", "PhysicsMassAPI", "NewtonMassAPI"]
+                                            prepend apiSchemas = ["PhysicsRigidBodyAPI", "PhysicsMassAPI", "NewtonMassAPI", "MaterialBindingAPI"]
                                         )
                                         {
+                                            rel material:binding:physics = </beebot/PhysicsMaterials/finger_pad> (
+                                                bindMaterialAs = "strongerThanDescendants"
+                                            )
                                             double[] newton:inertia = [0.000016044439735163095, 0.00003826239119656881, 0.000030067540639167056, 0.000004605246566598353, 3.5963237119675897e-9, 1.574772744694366e-9]
                                             point3f physics:centerOfMass = (0.02155894, -0.018420806, 0.0000081806)
                                             float3 physics:diagonalInertia = (0.000015127707, 0.00003006754, 0.00003917912)
@@ -222,9 +224,12 @@ over "beebot"
                                         }
 
                                         over "finger_right_link" (
-                                            prepend apiSchemas = ["PhysicsRigidBodyAPI", "PhysicsMassAPI", "NewtonMassAPI"]
+                                            prepend apiSchemas = ["PhysicsRigidBodyAPI", "PhysicsMassAPI", "NewtonMassAPI", "MaterialBindingAPI"]
                                         )
                                         {
+                                            rel material:binding:physics = </beebot/PhysicsMaterials/finger_pad> (
+                                                bindMaterialAs = "strongerThanDescendants"
+                                            )
                                             double[] newton:inertia = [0.000016044441819836038, 0.000038264034133980986, 0.000030069181530455354, -0.000004605674890118894, -3.59581954148148e-9, 1.5747659280713153e-9]
                                             point3f physics:centerOfMass = (0.02155799, 0.018420806, -0.0000081806)
                                             float3 physics:diagonalInertia = (0.000015127608, 0.00003006918, 0.000039180868)
@@ -308,7 +313,7 @@ over "beebot"
         {
             float drive:angular:physics:damping = 0.0105
             float drive:angular:physics:maxForce = 4.1
-            float drive:angular:physics:stiffness = 0.35
+            float drive:angular:physics:stiffness = 0.42
             token drive:angular:physics:type = "force"
             float newton:velocityLimit = 275.99377
             uniform token physics:axis = "Z"
@@ -331,7 +336,7 @@ over "beebot"
         {
             float drive:angular:physics:damping = 0.0105
             float drive:angular:physics:maxForce = 4.1
-            float drive:angular:physics:stiffness = 0.35
+            float drive:angular:physics:stiffness = 0.42
             token drive:angular:physics:type = "force"
             float newton:velocityLimit = 275.99377
             uniform token physics:axis = "Z"
@@ -354,7 +359,7 @@ over "beebot"
         {
             float drive:angular:physics:damping = 0.0105
             float drive:angular:physics:maxForce = 4.1
-            float drive:angular:physics:stiffness = 0.35
+            float drive:angular:physics:stiffness = 0.42
             token drive:angular:physics:type = "force"
             float newton:velocityLimit = 275.99377
             uniform token physics:axis = "Z"
@@ -377,7 +382,7 @@ over "beebot"
         {
             float drive:angular:physics:damping = 0.0105
             float drive:angular:physics:maxForce = 4.1
-            float drive:angular:physics:stiffness = 0.35
+            float drive:angular:physics:stiffness = 0.42
             token drive:angular:physics:type = "force"
             float newton:velocityLimit = 275.99377
             uniform token physics:axis = "Z"
@@ -400,7 +405,7 @@ over "beebot"
         {
             float drive:angular:physics:damping = 0.0105
             float drive:angular:physics:maxForce = 4.1
-            float drive:angular:physics:stiffness = 0.35
+            float drive:angular:physics:stiffness = 0.42
             token drive:angular:physics:type = "force"
             float newton:velocityLimit = 275.99377
             uniform token physics:axis = "Z"
@@ -488,6 +493,18 @@ over "beebot"
             quatf physics:localRot1 = (1, 0, 0, 0)
         }
 
+        def PhysicsFixedJoint "battery_joint"
+        {
+            custom rel physics:body0
+            append rel physics:body0 = </beebot/Geometry/base_footprint/base_link>
+            custom rel physics:body1
+            append rel physics:body1 = </beebot/Geometry/base_footprint/base_link/battery_link>
+            point3f physics:localPos0 = (-0.2324, 0, 0.1062)
+            point3f physics:localPos1 = (0, 0, 0)
+            quatf physics:localRot0 = (1, 0, 0, 0)
+            quatf physics:localRot1 = (1, 0, 0, 0)
+        }
+
         def PhysicsFixedJoint "arm_mount_joint"
         {
             custom rel physics:body0
@@ -522,6 +539,15 @@ over "beebot"
             float physics:dynamicFriction = 0.9
             float physics:restitution = 0
             float physics:staticFriction = 1
+        }
+
+        def Material "finger_pad" (
+            prepend apiSchemas = ["PhysicsMaterialAPI"]
+        )
+        {
+            float physics:dynamicFriction = 0.8
+            float physics:restitution = 0
+            float physics:staticFriction = 0.9
         }
 
         def Material "caster_ball" (

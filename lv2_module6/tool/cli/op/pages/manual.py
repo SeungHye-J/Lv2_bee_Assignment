@@ -5,9 +5,9 @@ import argparse
 import math
 import sys
 
-from ..consts import ARM_JOINTS, GRIPPER_JOINT, GRIPPER_OPEN
+from ..consts import ARM_JOINTS, GRIPPER_JOINT, GRIPPER_OPEN, WHEEL_JOINTS
 from ..defs import BACK, MAIN, QUIT, STAY
-from ..terminal import RED, YELLOW
+from ..terminal import GREEN, RED, YELLOW
 from .base import GoMenu, Menu, MenuItem
 
 
@@ -21,10 +21,11 @@ def _finite(raw: str) -> str | None:
 
 
 class TeleopItem(MenuItem):
+    shows_busy = False  # 전체 화면 텔레오퍼
     key = '1'
 
     def label(self):
-        return '텔레오퍼 (w/x/a/d·방향키 · e/c 속도)'
+        return '텔레오퍼 (w/x/a/d·방향키 · q/e/z/c 사선 · -/= 속도 · b 삑)'
 
     def run(self):
         self.bus.cmd_teleop(argparse.Namespace(
@@ -51,6 +52,56 @@ class DriveItem(MenuItem):
         return STAY
 
 
+CURRENT_FULL_A = 1.5  # 전류 막대 끝 (XM430 정지 전류 대략) — 눈금일 뿐 한계 아님
+# 좁은 표(6칸)에 맞춘 이름 — wheel_/joint1 구분이 잘리지 않게
+MOTOR_SHORT = {'wheel_left_joint': 'wheelL', 'wheel_right_joint': 'wheelR',
+               'joint1': 'joint1', 'joint2': 'joint2', 'joint3': 'joint3',
+               'joint4': 'joint4', 'joint5': 'joint5', 'gripper_left_joint': 'grip'}
+
+
+def motor_row(page, name: str, unit: str) -> str:
+    """모터 한 줄 (팔·그리퍼·바퀴 공용) — 좁은 중앙 패널(≈50칸)에 맞춘 압축 표기.
+
+    관절  각도(°)  속도   전류(mA, 막대 0~1.5A)  온도  [에러]
+    """
+    st = page.state
+    pos = st.joints.get(name)
+    vel = st.joint_vel.get(name)
+    cur = st.joint_effort.get(name)
+    temp = st.motor_temp.get(name, -1)
+    pos_txt = ('      ?' if pos is None else
+               f'{math.degrees(pos):+7.1f}' if unit == 'deg' else f'{pos * 1000:7.1f}')
+    vel_txt = '     ?' if vel is None or vel != vel else f'{vel:+6.2f}'
+    if cur is None or cur != cur:  # 없음·NaN — 예전 펌웨어(바퀴 전류 없음)·토픽 미수신
+        cur_txt = '   -  '
+        bar = '     '
+    else:
+        n = min(5, round(abs(cur) / CURRENT_FULL_A * 5))
+        bar = (page.term.paint('█' * n, RED if n >= 4 else YELLOW if n >= 3 else GREEN)
+               + '·' * (5 - n))
+        cur_txt = f'{cur * 1000:+5.0f}'
+    temp_txt = '  -' if temp < 0 else page.term.paint(f'{temp:3d}', RED if temp >= 70 else '')
+    err = st.motor_text.get(name, '')
+    err_txt = '' if err in ('', '정상') else ' ' + page.term.paint(err, RED)
+    return f' {MOTOR_SHORT.get(name, name[:6]):<6} {pos_txt} {vel_txt} {cur_txt} {bar} {temp_txt}°{err_txt}'
+
+
+WHEEL_RADIUS_M = 0.033  # controllers.yaml diff_drive_controller wheel_radius
+WHEEL_SEPARATION_M = 0.287  # 같은 곳 wheel_separation
+
+MOTOR_HEADER = ' 관절    각도(°)   속도    mA 0─1.5A  온도'
+
+
+def wheel_lines(page) -> list[str]:
+    """바퀴 실시간 표 (수동 주행·바퀴 화면 공용) — 각도 = 부팅 뒤 누적, 전류 = 모터 Present Current."""
+    st = page.state
+    vel = [st.joint_vel.get(n) for n in WHEEL_JOINTS]
+    speed = (f'{(vel[0] + vel[1]) / 2 * WHEEL_RADIUS_M:+.3f} m/s · 회전 {(vel[1] - vel[0]) * WHEEL_RADIUS_M / WHEEL_SEPARATION_M:+.2f} rad/s'
+             if None not in vel else '?')
+    return (['[바퀴 상태 — 실시간]  각도 = 부팅 뒤 누적 회전 · 속도 rad/s', MOTOR_HEADER.replace('관절', '바퀴')]
+            + [motor_row(page, n, 'deg') for n in WHEEL_JOINTS] + [f' 차체 ≈ {speed}'])
+
+
 class ManualMenu(Menu):
     title = '수동 주행 / 텔레오퍼'
 
@@ -61,7 +112,8 @@ class ManualMenu(Menu):
                 DriveItem(self.app, '4', 'left', '좌회전'),
                 DriveItem(self.app, '5', 'right', '우회전'),
                 DriveItem(self.app, '6', 'stop', '정지'),
-                GoMenu(self.app, '7', '속도/시간 설정', DriveSettingsMenu(self.app))]
+                GoMenu(self.app, '7', '속도/시간 설정', DriveSettingsMenu(self.app)),
+                RecoverItem(self.app)]
 
     def center(self):
         st = self.state
@@ -73,7 +125,8 @@ class ManualMenu(Menu):
             f' 각속도 {self.bus.angular:.2f} rad/s',
             f' 시간 {self.bus.duration:.2f} s',
             ' 2)~6)은 한 번씩 움직임 · 계속 조종은 1) 텔레오퍼',
-        ]
+            '',
+        ] + wheel_lines(self)
 
 
 class FloatSettingItem(MenuItem):
@@ -119,6 +172,23 @@ class DriveSettingsMenu(Menu):
                 f' 주행시간 {b.duration:.2f} s']
 
 
+class WheelMenu(Menu):
+    """바퀴만 보는 화면 — 실시간 표 + 텔레오퍼·정지·복구 (한 번씩 움직이기·속도 설정은 4) 수동 주행)."""
+    title = '바퀴'
+
+    def items(self):
+        return [TeleopItem(self.app),
+                DriveItem(self.app, '2', 'stop', '정지'),
+                RecoverItem(self.app)]
+
+    def center(self):
+        st = self.state
+        lines = wheel_lines(self)
+        lines += ['', f' 모드: {st.operation or "-"} · E-STOP: {"ON" if st.emergency else "OFF"}',
+                  ' 한 번씩 움직이기·속도 설정은 메인 4) 수동 주행']
+        return lines
+
+
 class ArmShowItem(MenuItem):
     key = '1'
 
@@ -143,7 +213,7 @@ class ArmMoveItem(MenuItem):
 
     def _pick_joint(self):
         st = self.state
-        items = [(n, f'{n} = {st.joints[n]:+.3f} rad' if n in st.joints else n)
+        items = [(n, f'{n} = {self.bus._rad_deg(st.joints[n])}' if n in st.joints else n)
                  for n in ARM_JOINTS]
         while True:
             name = self.ui.select('관절 선택', items, ['[관절 고르기]', ' Esc = 취소'])
@@ -164,7 +234,7 @@ class ArmMoveItem(MenuItem):
             if name is None:
                 return STAY
             label = '변화량 [rad]' if self._delta else '목표 [rad]'
-            cur = f'현재 {st.joints[name]:+.3f} rad' if name in st.joints else '현재 ?'
+            cur = f'현재 {self.bus._rad_deg(st.joints[name])}' if name in st.joints else '현재 ?'
             raw = self.ui.modal_input('값 입력', [f'{name} {label}', cur], '값>',
                                       validate=_finite)
             if raw is not None:
@@ -194,6 +264,70 @@ class ArmHomeItem(MenuItem):
         return STAY
 
 
+class ArmInitialItem(MenuItem):
+    key = '7'
+
+    def label(self):
+        return '시작 자세로 (plan.yaml initial_pose · initial_gripper)'
+
+    def run(self):
+        if not self.bus.ensure_arm_or_switch():
+            return STAY
+        pose = self.bus.initial_pose()
+        if pose is None:
+            return STAY
+        targets, gripper, source = pose
+        body = [f'출처: {source}'] + [f'{n} = {self.bus._rad_deg(v)}' for n, v in targets.items()]
+        if gripper is not None:
+            body.append(f'그리퍼 {gripper:.4f} m')
+        body.append('현재 자세와 주변을 확인하세요 (MoveIt 없이 직선 보간 — 충돌 회피 안 함).')
+        if not self.ui.confirm('시작 자세로 이동할까요?', default=False, body=body):
+            return STAY
+        self.bus.cmd_arm(argparse.Namespace(action='initial', targets=[], force=False))
+        return STAY
+
+
+class ArmTorqueItem(MenuItem):
+    """토크 끄기 = (MANUAL 확보 후) TEACH 전환 · 켜기 = MANUAL 전환 (manual_control이 지금 자세를 목표로 맞춘 뒤 켬).
+    컨트롤러가 안 떠도(관절 한계 밖 등) 하드웨어 서비스로 동작 — 손으로 팔을 옮겨 풀 때."""
+
+    def __init__(self, app, key: str, on: bool):
+        super().__init__(app)
+        self.key = key
+        self._on = on
+
+    def label(self):
+        return '토크 켜기 (MANUAL — 지금 자세에서 멈춤)' if self._on else '토크 끄기 (TEACH — 팔·그리퍼 힘 빠짐)'
+
+    def run(self):
+        if self._on:  # TEACH → MANUAL 전환이 곧 토크 켜기 (이미 MANUAL이면 그대로)
+            self.bus.cmd_mode(argparse.Namespace(mode='manual'))
+            return STAY
+        if self.state.operation == 'TEACH':
+            print('이미 토크 꺼짐 (TEACH)')
+            return STAY
+        # 조작이니 다른 팔 명령처럼 MANUAL에서만 — 아니면 전환을 먼저 묻는다
+        if not self.bus.ensure_manual_or_switch():
+            return STAY
+        if not self.ui.confirm('팔·그리퍼 토크를 끌까요?', default=False,
+                               body=['팔이 처집니다 — 손으로 잡고 있으세요. 바퀴는 그대로.']):
+            return STAY
+        self.bus.cmd_mode(argparse.Namespace(mode='teach'))
+        return STAY
+
+
+class RecoverItem(MenuItem):
+    """조작 메뉴 공통 — 모터 에러 재부팅 + 꺼진 컨트롤러 다시 켜기 (bringup 재시작 없이)."""
+    key = 'z'
+
+    def label(self):
+        return '복구 (모터 재부팅 + 꺼진 컨트롤러 다시 켜기)'
+
+    def run(self):
+        self.bus.cmd_recover()
+        return STAY
+
+
 class ArmRebootItem(MenuItem):
     key = '5'
 
@@ -205,6 +339,28 @@ class ArmRebootItem(MenuItem):
         return STAY
 
 
+class ArmPoseCaptureItem(MenuItem):
+    key = '6'
+
+    def label(self):
+        return '손으로 자세 잡기(TEACH) → 시작 자세 값 보기'
+
+    def run(self):
+        if self.state.operation != 'TEACH':
+            if not self.ui.confirm('TEACH 모드로 바꿀까요? (팔·그리퍼 토크 끔)', default=False,
+                                   body=['토크가 꺼지면 팔이 처집니다 — 손으로 잡을 준비를 하세요.',
+                                         '바퀴는 그대로입니다.']):
+                return STAY
+            if self.bus.cmd_mode(argparse.Namespace(mode='teach')) != 0:
+                return STAY
+        self.ui.confirm('손으로 팔·그리퍼 자세를 잡은 뒤 확인을 누르세요', default=True,
+                        body=['지금 각을 읽고 바로 MANUAL로 바꿔 그 자리에서 토크를 켭니다.',
+                              '다 잡을 때까지 팔을 놓지 마세요.'])
+        self.bus.cmd_capture()
+        self.bus.cmd_mode(argparse.Namespace(mode='manual'))  # TEACH를 나가면 manual_control이 지금 자세로 토크 켬
+        return STAY
+
+
 class ArmMenu(Menu):
     title = '팔'
 
@@ -213,18 +369,28 @@ class ArmMenu(Menu):
                 ArmMoveItem(self.app, '2', False),
                 ArmMoveItem(self.app, '3', True),
                 ArmHomeItem(self.app),
-                ArmRebootItem(self.app)]
+                ArmRebootItem(self.app),
+                ArmPoseCaptureItem(self.app),
+                ArmInitialItem(self.app),
+                ArmTorqueItem(self.app, '8', False),
+                ArmTorqueItem(self.app, '9', True),
+                RecoverItem(self.app)]
 
     def center(self):
         st = self.state
-        values = [f'{n}={st.joints[n]:+.3f} rad ({math.degrees(st.joints[n]):+.1f}°)'
-                  for n in ARM_JOINTS if n in st.joints]
-        center = ['[팔 관절]']
-        center += [f' {v}' for v in values] if values else [' (joint_states 없음)']
+        # 한글은 두 칸이라 f-string 정렬 대신 칸을 맞춘 글자 그대로
+        center = ['[팔 상태 — 실시간]', MOTOR_HEADER]
+        if not any(n in st.joints for n in ARM_JOINTS):
+            center.append(' (joint_states 없음)')
+        else:
+            center += [motor_row(self, n, 'deg') for n in ARM_JOINTS]
+            center.append(motor_row(self, GRIPPER_JOINT, 'mm'))
         errors = st.motor_errors()
         if errors:
             center.append(f' {self.term.paint("모터 에러: " + ", ".join(errors), RED)} → 5) 재부팅')
-        if st.operation != 'MANUAL':
+        if st.operation == 'TEACH':
+            center.append(f' {self.term.paint("토크 꺼짐 (TEACH) — 손으로 자세 · 9) 토크 켜기", RED)}')
+        elif st.operation != 'MANUAL':
             center.append(f' {self.term.paint("MANUAL 모드가 아닙니다", YELLOW)}')
         if st.map_mode == 'MAPPING':
             center.append(f' {self.term.paint("MAPPING 중 팔 명령 거절", YELLOW)}')
@@ -242,6 +408,15 @@ class GripperShowItem(MenuItem):
         return STAY
 
 
+def ask_grip_current(item) -> float | None:
+    """그리퍼 명령마다 쥐는 힘 한계 [A]를 묻는다 — 빈칸 Enter = 지금 값 · Esc = 명령 취소(None)."""
+    value, ok = item.ui.read_float('쥐는 힘 한계 [A] (펌웨어가 0.00269~1.2로 자름)', item.bus.grip_current, positive=True)
+    if not ok:
+        return None
+    item.bus.grip_current = min(1.2, max(0.00269, value))
+    return item.bus.grip_current
+
+
 class GripperOpenItem(MenuItem):
     key = '2'
 
@@ -249,7 +424,9 @@ class GripperOpenItem(MenuItem):
         return '열기'
 
     def run(self):
-        self.bus.cmd_gripper(argparse.Namespace(action='open', value=None, force=False))
+        current = ask_grip_current(self)
+        if current is not None:
+            self.bus.cmd_gripper(argparse.Namespace(action='open', value=None, force=False, current=current))
         return STAY
 
 
@@ -260,7 +437,9 @@ class GripperCloseItem(MenuItem):
         return '닫기'
 
     def run(self):
-        self.bus.cmd_gripper(argparse.Namespace(action='close', value=None, force=False))
+        current = ask_grip_current(self)
+        if current is not None:
+            self.bus.cmd_gripper(argparse.Namespace(action='close', value=None, force=False, current=current))
         return STAY
 
 
@@ -277,7 +456,9 @@ class GripperPositionItem(MenuItem):
             return STAY
         if raw.strip().lower() in ('b', 'back', ''):
             return STAY
-        self.bus.cmd_gripper(argparse.Namespace(action='position', value=raw.strip(), force=False))
+        current = ask_grip_current(self)
+        if current is not None:
+            self.bus.cmd_gripper(argparse.Namespace(action='position', value=raw.strip(), force=False, current=current))
         return STAY
 
 
@@ -286,11 +467,14 @@ class GripperMenu(Menu):
 
     def items(self):
         return [GripperShowItem(self.app), GripperOpenItem(self.app),
-                GripperCloseItem(self.app), GripperPositionItem(self.app)]
+                GripperCloseItem(self.app), GripperPositionItem(self.app),
+                FloatSettingItem(self.app, '5', '쥐는 힘 한계', 'A', lambda: self.bus.grip_current,
+                                 lambda v: setattr(self.bus, 'grip_current', min(1.2, max(0.00269, v))), positive=True),
+                RecoverItem(self.app)]
 
     def center(self):
-        if GRIPPER_JOINT in self.state.joints:
-            grip_txt = f'{GRIPPER_JOINT}={self.state.joints[GRIPPER_JOINT]:.4f} m'
-        else:
-            grip_txt = '(joint_states 없음)'
-        return ['[그리퍼]', f' 현재: {grip_txt}']
+        pos = self.state.joints.get(GRIPPER_JOINT)
+        gap = f'간격 {20 + 2 * pos * 1000:.1f} mm (= 20 + 2×손가락)' if pos is not None else '(joint_states 없음)'
+        return ['[그리퍼 상태 — 실시간]', MOTOR_HEADER.replace('관절      각도(°  rad)', '그리퍼    손가락 이동'),
+                motor_row(self, GRIPPER_JOINT, 'mm'), f' {gap}', '',
+                f' 쥐는 힘 한계: {self.bus.grip_current:.2f} A (열기·닫기·위치 지정 때마다 물음 — 빈칸 Enter = 이 값)']

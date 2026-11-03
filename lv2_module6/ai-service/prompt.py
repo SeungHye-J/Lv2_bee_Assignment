@@ -10,12 +10,13 @@ import math
 ALLOWED = "navigate · pick · place · inspect · say"
 # 적재함 (coordinator target "tray") — 여러 퍽을 옮길 때는 손에 들고 다니지 않고 실어 나른다
 TRAY_RULE = ("적재함: pick·place의 target에 \"tray\"를 쓰면 로봇 뒤 적재함이다 — place tray = 손에 든 퍽을 다음 빈 칸에 싣기, "
-             "pick tray = 실은 퍽을 하나 꺼내기(나중에 실은 것부터). 최대 4개. 여러 퍽을 옮길 때는 퍽마다 navigate·pick·place tray로 싣고 "
+             "pick tray = 실은 퍽을 하나 꺼내기(나중에 실은 것부터). 최대 12개. 여러 퍽을 옮길 때는 퍽마다 navigate·pick·place tray로 싣고 "
              "목적지로 navigate한 뒤 실은 수만큼 pick tray·place <목적지 id>. "
              "같은 곳에 여러 번 place하면 coordinator가 겹치지 않게 비켜 놓는다.")
 # 표식 — 퍽 번호(윗면 16mm AprilTag)는 gripper_cam이 위에서 봐야 읽힘 → inspect
-MARKER_RULE = ("표식: 퍽 tag = 윗면 번호(빨강 0~3 · 초록 4~7 · 파랑 8~11, R1~R4·G1~G4·B1~B4). class location = 장소, tag 12·13·14 = L1·L2·L3. "
-               "class barcode의 content = 그 장소(가까운 location)에 붙은 작업 지시 문자열. "
+MARKER_RULE = ("표식: 퍽 tag = 윗면 AprilTag 번호 0~11 (번호는 무작위 — 색과 무관, 색은 color). "
+               "class location_box = 장소 상자(놓는 곳), tag 12·13·14 = L1·L2·L3 · class start_box = 태그 없는 상자(퍽이 처음 있던 곳). "
+               "class barcode의 content = 그 장소(가까운 location_box)에 붙은 작업 지시 문자열. "
                "번호가 필요한데 tag가 없는 퍽은 먼저 inspect <퍽 id>(위에서 내려다보기 — 집지 않음)로 번호를 읽게 하라.")
 # pick·place는 팔이 닿아야 함 — 바닥 퍽은 로봇 중심에서 약 0.13~0.31m (simulator 팔 범위 · coordinator reach_m 0.30)
 REACH_M = 0.30

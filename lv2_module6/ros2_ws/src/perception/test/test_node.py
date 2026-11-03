@@ -508,11 +508,11 @@ def test_resolve_model_path(tmp_path):
 
 # ---------- 표식 (발제 배포 표식: 퍽 AprilTag 0~11 · 장소 12~14 · 바코드) · 신호등 단계 구분
 def test_tags_and_markers():
-    """AprilTag 36h11 디코드 → 퍽 박스 안 번호 · 번호 → 색 / 신호등 두 색 이상 켜짐 = all / 태그 다른 퍽·장소는 다른 물체 · 번호 기억"""
+    """AprilTag 36h11 디코드 → 퍽 박스 안 번호 (번호와 색은 따로) / 신호등 두 색 이상 켜짐 = all / 태그 다른 퍽·장소는 다른 물체 · 번호 기억"""
     import cv2
     import numpy as np
     from builtin_interfaces.msg import Time
-    from perception_node import classify_color, detect_tags, tag_color, tag_detector, tag_in_box, to_msg
+    from perception_node import classify_color, detect_tags, tag_detector, tag_in_box, to_msg
 
     dic = cv2.aruco.getPredefinedDictionary(cv2.aruco.DICT_APRILTAG_36h11)
     img = np.full((240, 320, 3), 255, np.uint8)
@@ -520,10 +520,8 @@ def test_tags_and_markers():
     img[40:120, 180:260] = cv2.cvtColor(cv2.aruco.generateImageMarker(dic, 13, 80), cv2.COLOR_GRAY2BGR)  # L2
     tags = detect_tags(tag_detector(), img)
     assert sorted(t[0] for t in tags) == [2, 13]
-    assert tag_in_box(tags, (30, 30, 110, 110), set(range(12))) == 2
-    assert tag_in_box(tags, (170, 30, 270, 130), set(range(12))) is None  # 장소 태그는 퍽 번호 아님
-    colors = {"red": [0, 1, 2, 3], "green": [4, 5, 6, 7], "blue": [8, 9, 10, 11]}
-    assert tag_color(2, colors) == "red" and tag_color(9, colors) == "blue" and tag_color(13, colors) == ""
+    assert tag_in_box(tags, (30, 30, 110, 110), set(range(12)))[0] == 2
+    assert tag_in_box(tags, (170, 30, 270, 130), set(range(12))) == (None, None)  # 장소 태그는 퍽 번호 아님
 
     roi = np.full((40, 14, 3), (40, 40, 40), np.uint8)
     roi[2:10, 4:10] = (40, 40, 220)    # 빨강
@@ -560,3 +558,160 @@ def test_barcode_code128():
     ok, texts, _, points = barcode_detector()(cv2.cvtColor(scene, cv2.COLOR_GRAY2BGR))
     assert ok and list(texts) == ["P2-01"]
     assert np.asarray(points).reshape(-1, 4, 2).shape == (1, 4, 2)  # 꼭짓점 4개 — 위치(깊이) 구하는 데 씀
+
+
+# ---------- 퍽 방향 (그리퍼 손 각도) · 모양 · 거리
+def test_puck_yaw():
+    """대칭 주기 맞춤 · 정면 옆면 태그 → 사각기둥 yaw 0 (주기 90°) · 누운 퍽 점들의 긴 축 · 정사각형 점들은 방향 없음 · 모양 이름"""
+    import cv2
+    import numpy as np
+    from perception_node import axis_yaw, detect_tags, puck_shape, tag_detector, tag_shape, tag_yaw, wrap_yaw
+
+    assert abs(wrap_yaw(np.radians(100), np.pi / 2) - np.radians(10)) < 1e-9   # 사각기둥: 100° = 10°
+    assert abs(wrap_yaw(np.radians(-170), np.pi) - np.radians(10)) < 1e-9      # 누운 퍽: −170° = 10°
+
+    # 카메라가 추적 좌표 +x를 수평으로 봄 (광학 x → −y · y → −z · z → +x) — 정면에 세운 태그 = 퍽 옆면이 카메라를 향함
+    rot = np.array([[0, 0, 1], [-1, 0, 0], [0, -1, 0]], float)
+    dic = cv2.aruco.getPredefinedDictionary(cv2.aruco.DICT_APRILTAG_36h11)
+    marker = getattr(cv2.aruco, "generateImageMarker", None) or cv2.aruco.drawMarker  # OpenCV 4.7+ · 4.6
+    img = np.full((240, 320, 3), 255, np.uint8)
+    img[90:150, 130:190] = cv2.cvtColor(marker(dic, 5, 60), cv2.COLOR_GRAY2BGR)
+    tags = detect_tags(tag_detector(), img)
+    assert [t[0] for t in tags] == [5] and tags[0][3].shape == (4, 2)  # 꼭짓점 4개도 돌려줌
+    yaw, face = tag_yaw(tags[0][3], 0.016, 300.0, 300.0, 160.0, 120.0, rot)
+    assert face == "side" and abs(wrap_yaw(yaw, np.pi / 2)) < np.radians(5)  # 법선이 카메라 쪽(−x) → 90° 주기로 0
+
+    rng = np.random.default_rng(0)
+    t = rng.uniform(-0.03, 0.03, 300)  # 길이 6cm · 폭 3cm 누운 퍽 — 긴 축 30°
+    a = np.radians(30)
+    pts = np.stack([t * np.cos(a), t * np.sin(a)], -1) + rng.normal(0, 0.003, (300, 2))
+    assert abs(wrap_yaw(axis_yaw(pts, 30, 1.8) - a, np.pi)) < np.radians(5)
+    assert axis_yaw(rng.uniform(-0.015, 0.015, (300, 2)), 30, 1.8) is None  # 정사각형(서있는 퍽 윗면) — 긴 축 없음
+    assert axis_yaw(pts[:10], 30, 1.8) is None                               # 점이 너무 적음
+
+    assert puck_shape("puck_red_box") == "box" and puck_shape("puck_green_cyl") == "cyl"
+    assert puck_shape("puck") == "" and puck_shape("person") == ""
+
+    # 몸통 면 태그 → 무조건 사각기둥 · 위·아래 면 태그나 자세 모름 → 모름
+    assert tag_shape("side", "standing") == "box" and tag_shape("top", "lying") == "box"
+    assert tag_shape("top", "standing") == "" and tag_shape("side", "lying") == ""
+    assert tag_shape("side", "") == "" and tag_shape("", "standing") == ""
+
+
+def test_location_yaw():
+    """장소 태그(L1~L3, 48mm)가 박스 옆면에서 카메라를 바라봄 → location_box 물체에 yaw (태그 앞쪽 = 카메라 쪽 −x → 180°), 주기 360"""
+    import cv2
+    import numpy as np
+    from builtin_interfaces.msg import Time
+    from perception_node import detect_tags, tag_detector, tag_yaw, to_msg
+
+    rot = np.array([[0, 0, 1], [-1, 0, 0], [0, -1, 0]], float)  # 카메라가 추적 좌표 +x를 수평으로 봄 (test_puck_yaw와 같음)
+    dic = cv2.aruco.getPredefinedDictionary(cv2.aruco.DICT_APRILTAG_36h11)
+    marker = getattr(cv2.aruco, "generateImageMarker", None) or cv2.aruco.drawMarker  # OpenCV 4.7+ · 4.6
+    img = np.full((240, 320, 3), 255, np.uint8)
+    img[60:160, 110:210] = cv2.cvtColor(marker(dic, 13, 100), cv2.COLOR_GRAY2BGR)  # L2
+    tags = detect_tags(tag_detector(), img)
+    assert [t[0] for t in tags] == [13]
+    yaw, face = tag_yaw(tags[0][3], 0.048, 300.0, 300.0, 160.0, 120.0, rot)
+    assert face == "side" and abs(abs(yaw) - np.pi) < np.radians(5)  # 법선이 카메라 쪽(−x)
+
+    os.environ.setdefault("ROS_DOMAIN_ID", "101")
+    rclpy.init()
+    try:
+        node = PerceptionNode()
+        assert abs(node.location_tag_size - 0.048) < 1e-9
+        a = node.fuse("pole_front_cam", Time(), [{**_det((1.0, 0.0, 0.035), cls="location_box", color=""), "tag": 13,
+                                                   "yaw": yaw, "yaw_period": 2 * np.pi}])
+        msg = to_msg(a[0], node.to_map(node.tracks[a[0]]))
+        q = msg.pose.pose.orientation
+        assert abs(abs(2 * np.arctan2(q.z, q.w)) - np.pi) < np.radians(5)
+        kv = {k.key: k.value for k in msg.details}
+        assert kv["tag"] == "13" and kv["yaw_period"] == "360"
+        # 방향 모르는 다음 관측이 아는 방향을 덮지 않음
+        node.fuse("pole_front_cam", Time(sec=1), [{**_det((1.0, 0.0, 0.035), cls="location_box", color=""), "tag": 13}])
+        assert node.tracks[a[0]]["yaw"] is not None
+    finally:
+        rclpy.shutdown()
+
+
+# ---------- 상자 (사용자 11/02 — 로봇팔이 놓고 집으려면 상자 크기·가운데·방향 필요): depth 윗면 → start_box / location_box
+def _box_depth(boxes, extra=None, cam_h=0.8):
+    """위에서 비스듬히 내려다보는 카메라로 찍은 가짜 depth — boxes = [(가운데 x, y, 한 변, 높이, yaw[rad])] (바닥 z=0)
+    extra = 그 밖의 물체 [(x, y, 반지름, 높이)] (원통 — 방해물). 화소마다 광선을 쏴서 처음 닿는 면까지 거리"""
+    import numpy as np
+    rot = _cam_rot(0.0, 50.0)
+    trans = np.array([0.0, 0.0, cam_h])
+    h, w = 240, 320
+    fx = fy = 300.0
+    vv, uu = np.mgrid[0:h, 0:w].astype(float)
+    ray = np.stack([(uu - 160) / fx, (vv - 120) / fy, np.ones_like(uu)], -1) @ rot.T  # 추적 좌표 방향 (광학 z=1당)
+    depth = np.where(ray[..., 2] < 0, -cam_h / np.minimum(ray[..., 2], -1e-9), 0.0)   # 바닥까지 (광학 z 거리)
+    for (bx, by, side, bh, yaw) in boxes:   # 윗면만 (옆면은 생략 — 윗면 높이 점이 있으면 충분)
+        t = (bh - cam_h) / np.minimum(ray[..., 2], -1e-9)
+        px, py = trans[0] + t * ray[..., 0] - bx, trans[1] + t * ray[..., 1] - by
+        lx, ly = px * np.cos(-yaw) - py * np.sin(-yaw), px * np.sin(-yaw) + py * np.cos(-yaw)
+        hit = (ray[..., 2] < 0) & (abs(lx) < side / 2) & (abs(ly) < side / 2) & (t < depth)
+        depth = np.where(hit, t, depth)
+    for (ox, oy, r, oh) in (extra or []):   # 원통: 높이마다 원 안이면 닿음 (위쪽부터 촘촘히)
+        for z in np.linspace(oh, 0.0, 40):
+            t = (z - cam_h) / np.minimum(ray[..., 2], -1e-9)
+            px, py = trans[0] + t * ray[..., 0] - ox, trans[1] + t * ray[..., 1] - oy
+            hit = (ray[..., 2] < 0) & (px ** 2 + py ** 2 < r ** 2) & (t < depth)
+            depth = np.where(hit, t, depth)
+    return depth.astype(np.float32), rot, trans, fx, fy, 160.0, 120.0
+
+
+def test_box_tops():
+    """돌아간 205 상자 → 가운데·크기·방향(90° 주기) · 4개 붙인 판 → 큰 상자 하나 · 하얀 원통 방해물 · 작은 물체는 상자 아님"""
+    import numpy as np
+    from perception_node import find_box_tops, tag_on_box, wrap_yaw
+
+    args = (0.0, (0.05, 0.09), 0.17, 1.0, 0.02)
+    d, rot, trans, fx, fy, cx, cy = _box_depth([(1.0, 0.1, 0.205, 0.07, np.radians(30))])
+    tops = find_box_tops(d, rot, trans, fx, fy, cx, cy, *args, step=2)
+    assert len(tops) == 1
+    c, (a, b), yaw, z = tops[0]
+    assert np.linalg.norm(c - (1.0, 0.1)) < 0.03 and abs(a - 0.205) < 0.04 and abs(b - 0.205) < 0.04
+    assert abs(wrap_yaw(yaw - np.radians(30), np.pi / 2)) < np.radians(6) and abs(z - 0.07) < 0.01
+    assert tag_on_box((1.0 - 0.11, 0.1), tops[0], 0.08) and not tag_on_box((1.5, 0.1), tops[0], 0.08)
+
+    # 4개 붙인 판(410×410) → 하나로, 크기 그대로 잼
+    big = [(1.1 + dx, dy, 0.205, 0.07, 0.0) for dx in (-0.1025, 0.1025) for dy in (-0.1025, 0.1025)]
+    tops = find_box_tops(*_box_depth(big), *args, step=2)
+    assert len(tops) == 1 and abs(tops[0][1][0] - 0.41) < 0.05 and abs(tops[0][1][1] - 0.41) < 0.05
+
+    # 하얀 원통 방해물(지름 20cm · 30cm) — 윗면 높이 단면이 원이지만 위로 이어져서 상자 아님 · 작은 물체(10cm)도 아님
+    tops = find_box_tops(*_box_depth([(1.0, 0.0, 0.10, 0.07, 0.0)], extra=[(1.2, -0.3, 0.10, 0.30)]), *args, step=2)
+    assert tops == []
+
+
+def test_box_tracks():
+    """상자 검출 → start_box (주기 90) · 장소 태그 붙은 상자 → location_box(tag · 태그 방향 360°를 윗면 방향이 덮지 않음)
+    · 같은 자리 start_box는 장소 상자가 생기면 지움 · 태그만 보이면 태그에서 반 변 안쪽"""
+    import numpy as np
+    from builtin_interfaces.msg import Time
+    from perception_node import to_msg
+
+    os.environ.setdefault("ROS_DOMAIN_ID", "101")
+    rclpy.init()
+    try:
+        node = PerceptionNode()
+        assert list(node.location_box_size) == [0.205, 0.205, 0.07]
+        sb = {**_det((1.0, 0.5, 0.07), cls="start_box", color=""), "size": np.array([0.2, 0.2, 0.07]),
+              "yaw": 0.3, "yaw_period": np.pi / 2}
+        a = node.fuse("pole_front_cam", Time(), [sb])
+        msg = to_msg(a[0], node.to_map(node.tracks[a[0]]))
+        kv = {k.key: k.value for k in msg.details}
+        assert msg.class_name == "start_box" and kv["yaw_period"] == "90" and abs(msg.size.x - 0.2) < 1e-6
+        # 장소 상자: 태그 방향(360°) 먼저 → 윗면 방향(90°)이 와도 안 바뀜
+        lb = {**_det((2.0, 0.0, 0.07), cls="location_box", color=""), "tag": 12, "yaw": np.pi, "yaw_period": 2 * np.pi}
+        b = node.fuse("pole_front_cam", Time(sec=1), [lb])
+        node.fuse("pole_front_cam", Time(sec=2), [{**lb, "yaw": 0.1, "yaw_period": np.pi / 2}])
+        assert node.tracks[b[0]]["yaw_period"] == 2 * np.pi and abs(node.tracks[b[0]]["yaw"] - np.pi) < 1e-9
+        # 같은 상자를 뒤에서 봐 생긴 start_box → 장소 상자 자리라 지움
+        c = node.fuse("pole_front_cam", Time(sec=3), [{**sb, "z": np.array([2.05, 0.0, 0.07])}])
+        node.tracks[a[0]]["hits"] = node.tracks[b[0]]["hits"] = 5  # 여러 번 잡혀 기억하는 상자 (2초 규칙 밖)
+        node.prune(3.0, set(c) | {a[0], b[0]}, _view(0.0))
+        assert c[0] not in node.tracks and b[0] in node.tracks and a[0] in node.tracks
+    finally:
+        rclpy.shutdown()

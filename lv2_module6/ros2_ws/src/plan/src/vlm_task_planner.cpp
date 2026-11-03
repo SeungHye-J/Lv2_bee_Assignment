@@ -394,7 +394,7 @@ std::string detail(const perception::msg::TrackedObject & o, const std::string &
   return "";
 }
 
-SignalPlan signal_plan(const TrackedObjectArray & objs, const plan::msg::MissionSignal & sig, double rx, double ry,
+SignalPlan signal_plan(const TrackedObjectArray & objs, const perception::msg::MissionSignal & sig, double rx, double ry,
   const std::set<uint32_t> & inspected, int capacity) {
   SignalPlan r;
   auto dist = [&](const perception::msg::TrackedObject & o) {
@@ -404,7 +404,7 @@ SignalPlan signal_plan(const TrackedObjectArray & objs, const plan::msg::Mission
   std::vector<const perception::msg::TrackedObject *> known, unknown;
   for (const auto & o : objs.objects) {
     const std::string tag = detail(o, "tag");
-    if (o.class_name == "location" && tag == std::to_string(sig.dest_tag)) dest = std::to_string(o.id);
+    if (o.class_name == "location_box" && tag == std::to_string(sig.dest_tag)) dest = std::to_string(o.id);
     if (o.class_name != "puck" && o.class_name != "puck_lying") continue;
     if (!tag.empty()) {
       if (o.color == sig.color) known.push_back(&o);  // 태그가 있으면 perception이 색도 태그 번호대로 맞춤
@@ -468,7 +468,7 @@ VerifyPlan verify_plan(const TrackedObjectArray & objs, int dest_tag, const std:
   VerifyPlan r;
   const perception::msg::TrackedObject * dest = nullptr;
   for (const auto & o : objs.objects)
-    if (o.class_name == "location" && detail(o, "tag") == std::to_string(dest_tag)) dest = &o;
+    if (o.class_name == "location_box" && detail(o, "tag") == std::to_string(dest_tag)) dest = &o;
   if (!dest) {
     r.kind = "wait";
     r.why = "목적지 태그 " + std::to_string(dest_tag) + " 안 보임";
@@ -535,7 +535,7 @@ VlmTaskPlanner::VlmTaskPlanner()
   max_replans_ = declare_parameter<int>("max_replans", 1);
   vlm_endpoint_ = declare_parameter<std::string>("vlm_endpoint", "");
   vlm_timeout_s_ = declare_parameter<double>("vlm_timeout_s", 120.0);
-  tray_capacity_ = declare_parameter<int>("tray_capacity", 4);
+  tray_capacity_ = declare_parameter<int>("tray_capacity", 12);
   verify_period_s_ = declare_parameter<double>("verify_period_s", 60.0);
   verify_radius_m_ = declare_parameter<double>("verify_radius_m", 0.20);
   tf_buffer_ = std::make_unique<tf2_ros::Buffer>(get_clock());
@@ -544,7 +544,7 @@ VlmTaskPlanner::VlmTaskPlanner()
   cmd_sub_ = create_subscription<std_msgs::msg::String>("/cmd/user_command", rclcpp::QoS(10).reliable(),
     [this](std_msgs::msg::String::ConstSharedPtr m) { on_command("명령", m->data); });
   // 장소에 붙은 바코드(작업 지시 문자열, 발제 P2-01 …) · QR — perception이 읽음. 명령과 똑같이 계획 (VLM이 해석)
-  // 템플릿(VLM 없음): 가까운 퍽 1개를 장소(location)로
+  // 템플릿(VLM 없음): 가까운 퍽 1개를 장소 상자(location_box)로
   qr_sub_ = create_subscription<std_msgs::msg::String>("/mission/qr", rclcpp::QoS(1).reliable().transient_local(),
     [this](std_msgs::msg::String::ConstSharedPtr m) { on_command("QR 문제", m->data); });
   objects_sub_ = create_subscription<TrackedObjectArray>("/tracked_objects", rclcpp::QoS(5).reliable(),
@@ -561,8 +561,8 @@ VlmTaskPlanner::VlmTaskPlanner()
       // 물체 집합이 바뀔 때만 재시도 — 같은 목록(빈 목록 포함)으로 매번 VLM을 때리면 초당 요청 폭주
       if (pending_ && changed) make_plan();  // 물체 목록보다 명령이 먼저 왔으면 지금 계획
     });
-  signal_sub_ = create_subscription<plan::msg::MissionSignal>("/mission/signal", rclcpp::QoS(1).reliable().transient_local(),
-    [this](plan::msg::MissionSignal::ConstSharedPtr m) {
+  signal_sub_ = create_subscription<perception::msg::MissionSignal>("/mission/signal", rclcpp::QoS(1).reliable().transient_local(),
+    [this](perception::msg::MissionSignal::ConstSharedPtr m) {
       RCLCPP_INFO(get_logger(), "신호등 미션: %s %d개 · 합 %d · 목적지 태그 %d", m->color.c_str(), m->count, m->sum, m->dest_tag);
       replans_ = 0;
       {
@@ -669,8 +669,8 @@ void VlmTaskPlanner::make_plan() {
       RCLCPP_WARN_THROTTLE(get_logger(), *get_clock(), 5000, "/tracked_objects 대기 — 계획 보류");
       return;
     }
-    if (find_in(*objs, "puck").empty() || find_in(*objs, "location").empty()) {
-      RCLCPP_WARN_THROTTLE(get_logger(), *get_clock(), 5000, "/tracked_objects에 퍽·장소 태그가 없음 — 계획 보류");
+    if (find_in(*objs, "puck").empty() || find_in(*objs, "location_box").empty()) {
+      RCLCPP_WARN_THROTTLE(get_logger(), *get_clock(), 5000, "/tracked_objects에 퍽·장소 상자가 없음 — 계획 보류");
       return;
     }
     std::string cmd;
@@ -701,9 +701,9 @@ void VlmTaskPlanner::on_command(const char * source, const std::string & text) {
 
 void VlmTaskPlanner::make_template(const TrackedObjectArray & objs, const std::string & cmd) {
   // cmd는 부르는 쪽이 넘김 — VLM 실패 폴백은 mutex_를 잡은 채 부르므로 여기서 잠그면 교착 (실측: 그 뒤 명령을 못 받았음)
-  // VLM 없을 때의 최소 계획: 퍽 1개를 장소(location)로 — 지시 문자열 해석은 VLM 몫
+  // VLM 없을 때의 최소 계획: 퍽 1개를 장소 상자(location_box)로 — 지시 문자열 해석은 VLM 몫
   (void)cmd;
-  const auto puck = find_in(objs, "puck"), dest = find_in(objs, "location");
+  const auto puck = find_in(objs, "puck"), dest = find_in(objs, "location_box");
   if (puck.empty() || dest.empty()) return;  // 물체 사라짐 — 보류 유지
   pending_ = false;
   plan_kind_ = "template";
@@ -729,7 +729,7 @@ void VlmTaskPlanner::publish_plan(std::vector<SubGoal> goals, const char * how) 
 
 void VlmTaskPlanner::make_signal_plan() {
   TrackedObjectArray::ConstSharedPtr objs;
-  plan::msg::MissionSignal sig;
+  perception::msg::MissionSignal sig;
   {
     std::lock_guard<std::mutex> lock(mutex_);
     objs = objects_;

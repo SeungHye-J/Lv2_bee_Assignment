@@ -9,6 +9,7 @@ from .base import InfoItem, Menu, MenuItem
 
 class NodeItem(MenuItem):
     """노드 하나 — Enter가 그 노드의 파라미터 화면."""
+    shows_busy = False  # 하위 화면을 연다
 
     def __init__(self, app, key: str, name: str, ns: str):
         super().__init__(app)

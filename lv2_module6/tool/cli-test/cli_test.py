@@ -71,7 +71,8 @@ def _seed(app: ot.OperatorTool):
         ['joint1', 'joint2', 'joint3', 'joint4', 'joint5',
          'gripper_left_joint', 'wheel_left_joint', 'wheel_right_joint'],
         [0.0, -0.5, 0.8, 0.4, 0.0, 0.026, 1.2, 1.2],
-        [0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.5, 0.5])
+        [0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.5, 0.5],
+        [0.0, 0.0, 0.0, 0.0, 0.0, 0.35, 0.0, 0.0])
     st.on_diagnostics([
         fake_ros.DiagnosticStatus(level=0, name='beebot: 상태', message='정상',
                                   values=[fake_ros.KeyValue(key='모드', value='AUTO')]),
