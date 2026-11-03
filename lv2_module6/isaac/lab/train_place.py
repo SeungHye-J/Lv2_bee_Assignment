@@ -15,7 +15,7 @@ from isaaclab.app import AppLauncher
 
 parser = argparse.ArgumentParser()
 parser.add_argument("--mode", choices=["zero", "train", "eval"], default="zero")
-parser.add_argument("--task", choices=["place", "pick", "right", "pip"], default="place")
+parser.add_argument("--task", choices=["place", "pick", "right", "pip", "load", "unload"], default="place")
 parser.add_argument("--num_envs", type=int, default=4096)  # RTX 5060 Laptop: ~91 % GPU, 4.3 GB (512: 75 %)
 parser.add_argument("--iters", type=int, default=600)
 parser.add_argument("--episodes", type=int, default=1024, help="zero / eval: finished episodes to collect")
@@ -53,6 +53,7 @@ from rsl_rl.runners import OnPolicyRunner  # noqa: E402
 import pick_env  # noqa: E402
 import pip_env  # noqa: E402
 import right_env  # noqa: E402
+import slot_env  # noqa: E402
 import place_env  # noqa: E402
 
 HERE = Path(__file__).resolve().parent
@@ -75,7 +76,8 @@ class PlacePPOCfg(RslRlOnPolicyRunnerCfg):
 
 
 def make_env():
-    cfg = {"pick": pick_env.PickEnvCfg, "right": right_env.RightEnvCfg, "pip": pip_env.PipEnvCfg}.get(args.task, place_env.PlaceEnvCfg)()
+    cfg = {"pick": pick_env.PickEnvCfg, "right": right_env.RightEnvCfg, "pip": pip_env.PipEnvCfg,
+           "load": slot_env.LoadEnvCfg, "unload": slot_env.UnloadEnvCfg}.get(args.task, place_env.PlaceEnvCfg)()
     cfg.scene.num_envs = args.num_envs
     cfg.seed = args.seed
     if args.vel_scale is not None:
