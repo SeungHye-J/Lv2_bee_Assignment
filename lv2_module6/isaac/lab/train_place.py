@@ -15,7 +15,8 @@ from isaaclab.app import AppLauncher
 
 parser = argparse.ArgumentParser()
 parser.add_argument("--mode", choices=["zero", "train", "eval"], default="zero")
-parser.add_argument("--task", help="stand = 누운 퍽 세우기 (팀원 파일 right_env.py, 예전 이름 right)", choices=["place", "pick", "right", "pip", "load", "unload", "reach", "drive", "stand"], default="place")
+parser.add_argument("--task", help="pick_standing = 서 있는 퍽 집기 (pick_env.py) · stand_lying = 누운 퍽 세우기 (right_env.py); 예전 이름 pick · stand · right도 됨",
+                    choices=["place", "pick", "right", "pip", "load", "unload", "reach", "drive", "stand", "pick_standing", "stand_lying"], default="place")
 parser.add_argument("--num_envs", type=int, default=4096)  # RTX 5060 Laptop: ~91 % GPU, 4.3 GB (512: 75 %)
 parser.add_argument("--iters", type=int, default=600)
 parser.add_argument("--episodes", type=int, default=1024, help="zero / eval: finished episodes to collect")
@@ -37,6 +38,7 @@ parser.add_argument("--out", default=None, help="train: exported file name in po
 parser.add_argument("--run", default=None, help="log folder name under logs/ (default <task>)")
 AppLauncher.add_app_launcher_args(parser)
 args = parser.parse_args()
+args.task = {"pick_standing": "pick", "stand_lying": "stand"}.get(args.task, args.task)  # clearer names for the teammate envs
 args.out = args.out or f"{args.task}_residual.pt"
 args.run = args.run or args.task
 app = AppLauncher(args).app
