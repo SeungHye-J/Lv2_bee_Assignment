@@ -1,4 +1,4 @@
-"""skills.yaml 형식 확인 — task가 쓰는 skill이 목록에 있고, rl skill마다 보상이 있는지"""
+"""skills.yaml 형식 확인 — task가 쓰는 skill이 목록에 있고, rl skill마다 보상, yolo·rule마다 평가 지표가 있는지"""
 from pathlib import Path
 
 import yaml
@@ -12,11 +12,13 @@ def test_catalog():
         for n in names:
             assert n in skills, f"{task}: {n} 없음"
     for n, s in skills.items():
-        assert s["method"] in ("rl", "supervised", "measured", "none", "keep"), n
+        assert s["method"] in ("rl", "yolo", "rule", "measured", "none", "keep"), n
         if s["method"] == "rl":
             assert s.get("reward") and s.get("success"), n
-        if s["method"] in ("supervised", "measured"):
+        if s["method"] == "measured":
             assert s.get("loss"), n
+        if s["method"] in ("yolo", "rule"):
+            assert s.get("check"), n
 
 
 if __name__ == "__main__":
