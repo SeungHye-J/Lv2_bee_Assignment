@@ -80,3 +80,39 @@ v2는 놓기를 2배 빠르게 해도(내려가기·올리기 속도 2배, settl
   - 넘어지지 않았으면 다시 집기를 2회까지 한다.
   - 넘어졌으면 사이클을 멈춘다. 위에서 잡는 방식으로는 누운 퍽을 집을 수 없다.
   - 기본 `--seed 0` 첫 사이클은 넘겨주기 전에 창 모드로 성공을 확인했다.
+
+## skill별 학습 환경 (skills.yaml 이름 기준)
+
+미션 skill 목록(`lv2_module6/learning/skills.yaml`, 브랜치 `feature/skill-learning`)의 움직이는 skill을 모두 이 폴더의 잔차 강화학습 환경 하나씩에 연결했다. 모두 `train_place.py`로 같은 방식(rsl_rl PPO, 정책 = 기준 동작 + 잔차)으로 학습·평가한다.
+
+```bash
+cd isaac/lab && PY=~/pa-course/IsaacLab-6.1/.venv/bin/python
+$PY train_place.py --task <task> [--cfg k=v,...] --mode zero  --num_envs 64  --episodes 128   # 기준선 (잔차 0)
+$PY train_place.py --task <task> [--cfg k=v,...] --mode train --num_envs 512 --iters 1500 --run <skill> --out <skill>.pt
+$PY train_place.py --task <task> [--cfg k=v,...] --mode eval  --num_envs 256 --episodes 1024 --policy policies/<skill>.pt
+#   창으로 보기: --num_envs 16 --viz newton (가벼움) 또는 --viz kit
+#   8 GB GPU에는 학습 하나만 (둘이면 PhysX GPU 메모리 부족). GPU가 바쁘면 --device cpu
+```
+
+| skill | `--task` | `--cfg` | 환경 파일 | 기준선 성공 (잔차 0, 2026-11-03 pa27) |
+|---|---|---|---|---|
+| `place_cell` | `pip` | | pip_env.py (팀원) | 96.3 % (place, 10-31) |
+| `pick_upright` | `pick` | | pick_env.py (팀원) | |
+| `stand_up` | `right` | | right_env.py (팀원) | |
+| `regrasp_stood` | `right` | `regrasp=1` | right_env.py (팀원, 세우기 + 다시 집기 한 번에) | |
+| `load_slot` | `load` | | slot_env.py | 71.1 % (128판, 28판 내려가다 놓침) |
+| `unload_slot` | `unload` | | slot_env.py | 90.6 % |
+| `move_pose` | `reach` | `target=pose` | reach_env.py | 100 % (오차 ≤ 0.3 mm) |
+| `camera_clear_view` | `reach` | `target=clear` | reach_env.py | 100 % (scan 자세가 정해질 때까지 stow) |
+| `pregrasp` | `reach` | `target=above` | reach_env.py | 88.3 % (최대 18.8 mm) · 300회 학습 뒤 89.1 % |
+| `camera_look_down` | `reach` | `target=look` | reach_env.py | 100 % (높이 0.08 m, 아래 참고) |
+| `drive_straight` | `drive` | `task=straight` | drive_env.py | 68.0 % (허용 10 mm, 중앙값 8.3 mm) |
+| `drive_turn` | `drive` | `task=turn` | drive_env.py | 100 % |
+| `drive_arc` | `drive` | `task=arc` | drive_env.py | 94.5 % |
+| `dock_box` | `drive` | `task=dock` | drive_env.py | 31.4 % (p90 50.8 mm) |
+| `park_home` | `drive` | `task=park` | drive_env.py | 87.5 % |
+
+아직 환경이 없는 것: `nudge_cell`·`stand_in_place`(기준 동작부터 설계 필요), `navigate`(Nav2와 장애물 장면 필요).
+
+- **camera_look_down 높이**: `plan.yaml` coordinator `inspect_height_m = 0.15`는 시작 박스(70 mm) 위 퍽에서 손끝 아래 방향으로 닿지 않는다(pinocchio IK: 박스 가운데 ≤ 0.10 m, 박스 전체 0.08 m). 학습은 0.08 m, 카메라 기울기 25°까지 허용.
+- **보상 틀** (환경마다 같은 모양): 걸음마다 목표 추종 + · 급한 동작 − · 잔차 크기 − / 끝에 성공 +10 · 최종 오차 + / 떨굼·넘어짐·충돌 −5. 가중치는 각 `*EnvCfg`의 `w_*`.

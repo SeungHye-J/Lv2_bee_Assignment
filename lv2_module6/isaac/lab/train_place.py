@@ -15,7 +15,7 @@ from isaaclab.app import AppLauncher
 
 parser = argparse.ArgumentParser()
 parser.add_argument("--mode", choices=["zero", "train", "eval"], default="zero")
-parser.add_argument("--task", choices=["place", "pick", "right", "pip", "load", "unload", "reach"], default="place")
+parser.add_argument("--task", choices=["place", "pick", "right", "pip", "load", "unload", "reach", "drive"], default="place")
 parser.add_argument("--num_envs", type=int, default=4096)  # RTX 5060 Laptop: ~91 % GPU, 4.3 GB (512: 75 %)
 parser.add_argument("--iters", type=int, default=600)
 parser.add_argument("--episodes", type=int, default=1024, help="zero / eval: finished episodes to collect")
@@ -55,6 +55,7 @@ import pip_env  # noqa: E402
 import right_env  # noqa: E402
 import slot_env  # noqa: E402
 import reach_env  # noqa: E402
+import drive_env  # noqa: E402
 import place_env  # noqa: E402
 
 HERE = Path(__file__).resolve().parent
@@ -79,8 +80,9 @@ class PlacePPOCfg(RslRlOnPolicyRunnerCfg):
 def make_env():
     cfg = {"pick": pick_env.PickEnvCfg, "right": right_env.RightEnvCfg, "pip": pip_env.PipEnvCfg,
            "load": slot_env.LoadEnvCfg, "unload": slot_env.UnloadEnvCfg,
-           "reach": reach_env.ReachEnvCfg}.get(args.task, place_env.PlaceEnvCfg)()
+           "reach": reach_env.ReachEnvCfg, "drive": drive_env.DriveEnvCfg}.get(args.task, place_env.PlaceEnvCfg)()
     cfg.scene.num_envs = args.num_envs
+    cfg.sim.device = args.device  # --device cpu: CPU PhysX (another run holds the 8 GB GPU)
     cfg.seed = args.seed
     if args.vel_scale is not None:
         cfg.vel_scale = args.vel_scale
@@ -145,7 +147,7 @@ def rollout(env, act_fn, label):
         with torch.inference_mode():
             obs, *_ = env.step(act_fn(obs))
         k += 1
-        if k % 50 == 0:
+        if k % 50 == 0 and hasattr(u, "_phase"):  # drive env has no arm phase clock
             ph = u._phase()
             print(f"[{label}] step {k} t {time.time() - t0:.0f} s phases {torch.bincount(ph, minlength=7).tolist()} "
                   f"done {len(u.stats['success'])} in_hand {u.in_hand.sum().item()} t_end {u.t_ph[:, 5].max().item():.2f} t {u.t.max().item():.2f}", flush=True)
@@ -157,7 +159,7 @@ def main():
     env = make_env()
     u = env.unwrapped
     if args.mode == "zero":
-        rollout(env, lambda obs: torch.zeros(u.num_envs, 5, device=u.device), "zero")
+        rollout(env, lambda obs: torch.zeros(u.num_envs, u.cfg.action_space, device=u.device), "zero")
     elif args.mode == "eval":
         policy = torch.jit.load(args.policy, map_location=u.device)
         policy.eval()
