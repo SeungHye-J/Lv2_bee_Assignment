@@ -24,6 +24,7 @@ RlNavTuner::RlNavTuner()
   plan_sub_ = create_subscription<nav_msgs::msg::Path>(
     "/plan", 1, [this](nav_msgs::msg::Path::ConstSharedPtr m) { plan_ = m; });
   limit_pub_ = create_publisher<nav2_msgs::msg::SpeedLimit>("/speed_limit", rclcpp::QoS(1).reliable());
+  controller_prefix_ = declare_parameter<std::string>("controller_param_prefix", "FollowPath.inner");
   params_ = std::make_shared<rclcpp::AsyncParametersClient>(this, "/controller_server");
   timer_ = create_wall_timer(std::chrono::seconds(1), [this]() { tick(); });
   diag_.setHardwareID("beebot");
@@ -61,9 +62,9 @@ void RlNavTuner::tick() {
   limit.speed_limit = p.speed_pct;
   limit_pub_->publish(limit);
   params_->set_parameters({
-    rclcpp::Parameter("FollowPath.max_vel_theta", p.max_vel_theta),
-    rclcpp::Parameter("FollowPath.acc_lim_x", p.acc_lim_x),
-    rclcpp::Parameter("FollowPath.decel_lim_x", p.decel_lim_x)});
+    rclcpp::Parameter(controller_prefix_ + ".max_vel_theta", p.max_vel_theta),
+    rclcpp::Parameter(controller_prefix_ + ".acc_lim_x", p.acc_lim_x),
+    rclcpp::Parameter(controller_prefix_ + ".decel_lim_x", p.decel_lim_x)});
   RCLCPP_INFO(get_logger(), "preset %c (speed %.0f%%)", next, p.speed_pct);
 }
 

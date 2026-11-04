@@ -17,6 +17,7 @@
 | coordinator | 직접 | plan · ROS 2 노드 | 계획 검증(navigate·pick·place·inspect·say), 액션 호출, 실행 규칙, 재시도, 적재함(`tray`) 싣기·꺼내기, `inspect`(퍽 윗면 위로 손끝 → 번호 읽기), 시작 자세, AUTO가 아니면 멈춤 → /task/status |
 | grasp_scorer | 직접 | ml · ROS 2 서비스 노드 | 모델 로드, IK 가능 후보만 채점, /score_grasps 응답 |
 | rl_nav_tuner | 직접 | ml · ROS 2 노드 | 상황 요약 → 프리셋 선택 → /speed_limit + set_parameters |
+| rl_nav_controller | 직접 | ml · Nav2 controller 플러그인 | 관측 51(웨이포인트 5 + 가상스캔 36 + v/w/gyro + 이전행동 2), ONNX 추론, inner DWB 바이패스 |
 | rl_nav_correction | 직접 | ml · ROS 2 노드 | 관측 구성, 정책 추론, Δ 제한, 상한 클리핑, 끊김 시 Δ=0 |
 | rl_arm_correction | 직접 | ml · ros2_control chainable controller | reference에 Δ 더하기, enabled 파라미터 |
 | arm_safety_monitor | 직접 | control · ROS 2 노드 | 전류로 접촉 감지, 궤적 취소, coordinator 보고 |
@@ -61,7 +62,7 @@ lv2_module6/
 └── ros2_ws/src/
     ├── perception/   # perception · body_filter · signal_decoder + msg
     ├── plan/         # user_input · vlm_task_planner · explorer · coordinator + msg
-    ├── ml/           # grasp_scorer · rl_nav_tuner · rl_nav_correction · rl_arm_correction(플러그인) + srv
+    ├── ml/           # grasp_scorer · rl_nav_tuner · rl_nav_correction · rl_nav_controller(nav2 플러그인) · rl_arm_correction(플러그인) + srv
     ├── control/      # arm_safety_monitor · manual_control · BeebotSystemHardware(플러그인) + msg
     ├── manager/      # state_manager (상태 /state/*)
     ├── ros_system/   # 📦 기동 · config (controllers · ekf · twist_mux) · scan_cam_gate

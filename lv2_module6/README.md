@@ -226,7 +226,7 @@ lv2_module6/
 │       ├── perception/   🛠 perception · body_filter · signal_decoder          + msg TrackedObject(Array) · MissionSignal
 │       ├── control/      🛠 arm_safety_monitor · manual_control · BeebotSystemHardware(ros2_control)  + msg ArmSafetyEvent · MotorStatus
 │       ├── manager/      🛠 state_manager (상태의 주인 — /state/operation_mode · /state/map_mode · /state/map_name · /state/emergency · /state/devices(모터 에러 포함))
-│       ├── ml/           🛠 grasp_scorer · rl_nav_tuner · rl_nav_correction · rl_arm_correction  + srv ScoreGrasps
+│       ├── ml/           🛠 grasp_scorer · rl_nav_tuner · rl_nav_correction · rl_nav_controller(Nav2 플러그인) · rl_arm_correction  + srv ScoreGrasps
 │       ├── plan/         🛠 user_input · vlm_task_planner · explorer · coordinator  + msg SubGoal(Array) · TaskStatus
 │       ├── ros_system/   🛠 scan_cam_gate · 📦 robot_state_publisher · controller_manager · twist_mux · RealSense ×2 · EKF · RTAB-Map · Nav2
 │       ├── bringup/      전체 실행 = ros_system + 🛠 노드 전부 + diagnostic_aggregator

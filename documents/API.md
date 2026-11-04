@@ -325,13 +325,15 @@ string message
 
 ### 베이스 명령 체인 ([06](project/ros/06-base.md))
 
-`/cmd_vel_nav` → rl_nav_correction → `/cmd_vel_corrected` → twist_mux → `/cmd_vel_mux` → velocity_smoother → `/cmd_vel_smoothed` → collision_monitor → `/cmd_vel` → diff_drive_controller. 전부 `geometry_msgs/TwistStamped`, 체인 전체 통일 (Jazzy 이후 Nav2 `enable_stamped_cmd_vel: true`).
+`controller_server`(FollowPath = **ml::RlNavController** — 정책 OFF면 inner DWB) → `/cmd_vel_nav` → rl_nav_correction → `/cmd_vel_corrected` → twist_mux → `/cmd_vel_mux` → velocity_smoother → `/cmd_vel_smoothed` → collision_monitor → `/cmd_vel` → diff_drive_controller. 전부 `geometry_msgs/TwistStamped`, 체인 전체 통일 (Jazzy 이후 Nav2 `enable_stamped_cmd_vel: true`).
 
 | 이름 | 타입 | 보내는 쪽 → 받는 쪽 | 주기 · QoS |
 | --- | --- | --- | --- |
 | `/cmd_vel_corrected` | geometry_msgs/TwistStamped | rl_nav_correction → twist_mux (자동, priority 10) | 20Hz — ONNX Δ(±max_delta) 더한 값 |
 | `/rl_nav_correction/debug` | std_msgs/Float32MultiArray | rl_nav_correction → 디버그 | 20Hz — [v_cmd,w_cmd,v_odom,w_odom,w_gyro,t_change_max,Δv,Δw,v_out,w_out,on] |
 | `/rl_nav_correction/toggle` | std_srvs/SetBool (서비스) | 운영자 → rl_nav_correction | ONNX 보정 켜기/끄기 (`enabled` 파라미터와 같은 값) |
+| `/controller_server/FollowPath/toggle` | std_srvs/SetBool (서비스) | 운영자 → ml::RlNavController | Nav2 주행 정책 켜기/끄기 — false = inner DWB |
+| `/controller_server/FollowPath/debug` | std_msgs/Float32MultiArray | ml::RlNavController → 디버그 | 20Hz — [a0, a1, v_out, w_out, scan_min, v_odom, w_odom, on] |
 | `/cmd_vel_manual` | geometry_msgs/TwistStamped | manual_control → twist_mux (수동, priority 100) | 수동 조작 시 |
 | `/cmd/e_stop` | std_msgs/Bool | 운영자 → state_manager → `/state/emergency` → twist_mux (잠금 priority 255) | true면 전부 차단 |
 | `/cmd_vel_mux` | geometry_msgs/TwistStamped | twist_mux → velocity_smoother | 20Hz |

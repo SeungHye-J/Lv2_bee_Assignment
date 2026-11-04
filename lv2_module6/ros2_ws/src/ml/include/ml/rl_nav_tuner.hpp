@@ -28,6 +28,8 @@ public:
 private:
   char choose() const;
 
+  std::string controller_prefix_;  // 예: FollowPath.inner (바이패스 DWB)
+
   void tick();
 
   bool enabled_;
