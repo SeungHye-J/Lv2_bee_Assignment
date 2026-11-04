@@ -17,10 +17,15 @@ CallbackReturn RlArmCorrection::on_init() {
   auto_declare<double>("sag_max", 0.2);             // [rad]
   auto_declare<double>("still_rate", 0.005);        // [rad/s] reference가 이보다 느리면 '멈춤'
   // 발열 방지: 쉬는 자세(stow, plan basket.yaml pose_stow)에선 적분 안 함 · 상한에 windup_s 붙으면 풂. [] = 끔
-  auto_declare<std::vector<double>>("rest_pose", {0.0, -1.910001, 1.370083, 0.595157, 0.0});
+  auto_declare<std::vector<double>>("rest_pose", {0.0, -1.9024, 1.344, 0.9023, 0.0});
   auto_declare<double>("rest_tol", 0.03);           // [rad] 모든 관절이 이 안이면 쉬는 자세
   auto_declare<double>("debug_hz", 20.0);          // ~/debug (ml/ArmCorrectionDebug) 주기 — 0 = 안 냄
   auto_declare<double>("windup_s", 2.0);            // [s] 0 = 막힘 감지 끔
+  auto_declare<bool>("gravity_enabled", false);     // 중력 앞먹임 (헤더 설명)
+  auto_declare<double>("gravity_compliance_j2", 0.0817);  // [rad/Nm] = 1/강성 12.2 Nm/rad
+  auto_declare<double>("gravity_compliance_j3", 0.0532);  // [rad/Nm] = 1/강성 18.8 Nm/rad
+  auto_declare<double>("gravity_ramp_s", 2.0);      // [s] 켜고 끌 때 서서히
+  auto_declare<double>("gravity_max", 0.2);         // [rad] 한 관절 상한
   auto_declare<double>("policy_hz", 50.0);          // 시뮬 정책 주기
   auto_declare<double>("max_cam_age_s", 1.0);       // 손 카메라 값이 이보다 오래되면 Δ 그대로
   return CallbackReturn::SUCCESS;
@@ -43,6 +48,18 @@ CallbackReturn RlArmCorrection::on_configure(const rclcpp_lifecycle::State &) {
     RCLCPP_ERROR(node->get_logger(), "rest_pose는 관절 5개 (지금 %zu) — 쉬는 자세 판정 끔", rest_pose_.size());
     rest_pose_.clear();
   }
+  gravity_enabled_ = node->get_parameter("gravity_enabled").as_bool();
+  gravity_c2_ = node->get_parameter("gravity_compliance_j2").as_double();
+  gravity_c3_ = node->get_parameter("gravity_compliance_j3").as_double();
+  gravity_ramp_s_ = node->get_parameter("gravity_ramp_s").as_double();
+  gravity_max_ = node->get_parameter("gravity_max").as_double();
+  gravity_cb_ = node->add_on_set_parameters_callback([this](const std::vector<rclcpp::Parameter> & params) {
+    for (const auto & p : params)
+      if (p.get_name() == "gravity_enabled") gravity_enabled_ = p.as_bool();
+    rcl_interfaces::msg::SetParametersResult result;
+    result.successful = true;
+    return result;
+  });
   // 스킬 시작마다 호출 (학습 에피소드도 corr = 0에서 시작). 실제 리셋은 다음 update에서 (송정혁)
   reset_srv_ = node->create_service<std_srvs::srv::Trigger>(
     "~/reset_sag", [this](const std::shared_ptr<std_srvs::srv::Trigger::Request>,
@@ -91,6 +108,7 @@ CallbackReturn RlArmCorrection::on_activate(const rclcpp_lifecycle::State &) {
   ctx_ = ml::msg::SkillContext();
   reset_run();
   corr_.fill(0.0);
+  gravity_scale_ = 0.0;
   have_prev_ = false;
   return CallbackReturn::SUCCESS;
 }
@@ -208,13 +226,23 @@ return_type RlArmCorrection::update_and_write_commands(const rclcpp::Time & time
       }
     }
   }
+  // 중력 앞먹임 (헤더 설명)
+  const double gravity_step = dt / std::max(gravity_ramp_s_, 1e-3);
+  gravity_scale_ = gravity_enabled_ ? std::min(1.0, gravity_scale_ + gravity_step) : std::max(0.0, gravity_scale_ - gravity_step);
+  J5 grav{};
+  if (ok && gravity_scale_ > 0.0) {
+    const auto tau = gravity::torques(q[1], q[2], q[3]);
+    grav[1] = gravity_scale_ * std::clamp(-gravity_c2_ * tau[0], -gravity_max_, gravity_max_);
+    grav[2] = gravity_scale_ * std::clamp(-gravity_c3_ * tau[1], -gravity_max_, gravity_max_);
+  }
   for (size_t i = 0; i < joints_.size() && i < 5; ++i) {
     if (!ok) continue;  // reference가 아직 없음 — 아무것도 안 씀 (예전처럼)
+    const double total = delta_[i] + grav[i];  // 둘 다 오차에 넣어 처짐 적분이 지우지 않는다
     if (sag_enabled_) {
-      sag_joint_step(sag_[i], still, rest, ref[i], delta_[i], q[i], dt, sag_gain_, sag_max_, windup_s_);
+      sag_joint_step(sag_[i], still, rest, ref[i], total, q[i], dt, sag_gain_, sag_max_, windup_s_);
       corr_[i] = sag_[i].corr;
     }
-    (void)command_interfaces_[i].set_value(ref[i] + corr_[i] + delta_[i]);
+    (void)command_interfaces_[i].set_value(ref[i] + corr_[i] + total);
   }
   since_debug_ += dt;
   if (debug_rt_ && ok && since_debug_ >= debug_dt_ - 1e-6) {

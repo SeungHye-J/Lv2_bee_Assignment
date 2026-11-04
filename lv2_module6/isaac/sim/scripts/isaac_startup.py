@@ -10,13 +10,11 @@ import os
 
 import carb.settings
 import omni.kit.app
-import omni.timeline
 import omni.usd
 from pxr import PhysxSchema, Usd
 
 HERE = os.path.dirname(os.path.abspath(__file__))
-# BEE_SCENE=scene_lab.usda isaac_sim.sh   another scene in usda/ (default scene_sim.usda)
-SCENE = os.path.join(HERE, "..", "usda", os.environ.get("BEE_SCENE", "scene_sim.usda"))
+SCENE = os.path.join(HERE, "..", "usda", "scene_sim.usda")
 
 
 async def _setup():
@@ -25,10 +23,10 @@ async def _setup():
         await app.next_update_async()
     print(f"[isaac_startup] scene {os.path.abspath(SCENE)}")
     await omni.usd.get_context().open_stage_async(os.path.abspath(SCENE))
-    # Viewport: light RTX - Minimal renderer, no collider debug draw, no guide-purpose prims (the robot's
-    # collision meshes are guides). Set after opening the stage so per-user persistent settings don't win.
+    # Viewport: no collider debug draw, no guide-purpose prims (the robot's collision meshes are guides).
+    # Set after opening the stage so per-user persistent settings don't win.
+    # Render mode stays at the default RTX - Real-Time: /rtx/rendermode is global, so it also drives the ROS camera images.
     settings = carb.settings.get_settings()
-    settings.set("/rtx/rendermode", "MinimalRendering")
     settings.set_int("/persistent/physics/visualizationDisplayColliders", 0)
     settings.set_bool("/persistent/app/hydra/displayPurpose/guide", False)
     stage = omni.usd.get_context().get_stage()
@@ -44,10 +42,6 @@ async def _setup():
         scene.CreateBroadphaseTypeAttr().Set("MBP")
     bridge = os.path.join(HERE, "opencr_bridge.py")  # creates the pty now; it attaches to the robot on the first physics step
     exec(compile(open(bridge).read(), bridge, "exec"), {"__name__": "__main__", "__file__": bridge})
-    if os.environ.get("BEE_AUTOPLAY") == "1":  # press Play (the bridge links /tmp/opencr on the first step)
-        for _ in range(30):
-            await app.next_update_async()
-        omni.timeline.get_timeline_interface().play()
 
 
 asyncio.ensure_future(_setup())

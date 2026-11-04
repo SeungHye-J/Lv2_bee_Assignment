@@ -1,4 +1,4 @@
-"""One manipulator cycle in Isaac Sim on the mission scene isaac/sim/usda/scene_lab.usda (launch: isaac/sim/demo.sh).
+"""One manipulator cycle in Isaac Sim on the mission scene isaac/sim/usda/scene_lab.usda.
 
     from the saved start pose drive to the south face of start_1 -> pick one of its two pucks -> load it into a
     basket slot -> drive east along the bottom corridor to shelf_L1 -> take it out of the slot -> place it on the
@@ -12,7 +12,7 @@ it was trained on (error ref + residual - q); older policies keep ref - q.
 Perception is a stand-in: ground-truth poses plus the noise used in training (puck +-5 mm / 10 deg, cell +-5 mm,
 puck in hand +-2 mm, gripper camera bias 2 mm + noise 1 mm). Driving is a plain P controller on the true base pose.
 
-    python demo_cycle.py --viz kit                 (window; demo.sh does this)
+    python demo_cycle.py --viz kit                 (window)
     python demo_cycle.py --runs 20                 (headless check: success rate over 20 cycles, no window)
 """
 
@@ -138,7 +138,7 @@ POS_NOISE, YAW_NOISE = 0.005, math.radians(10.0)
 SLOTS = [(x, y, 0.09125) for x in (-0.16984, -0.10484, -0.03984) for y in (-0.0975, -0.0325, 0.0325, 0.0975)]
 ST = dict(np.load(Path(__file__).resolve().parent / "slot_table.npz"))  # load / unload poses per slot (slot_table.py)
 LIFT_CLEARS = (0.10, 0.09, 0.08)  # held puck bottom above the start box top before the sweep to carry (pucks: 60 mm)
-STOW = (0.0, math.radians(-109.435), math.radians(78.5), math.radians(34.1), 0.0)  # beebot.usda default pose
+STOW = (0.0, -1.9024, 1.344, 0.9023, 0.0)  # beebot.usda default pose
 # carry pose (cycle_sm.py route "carry", report 20261027_sim_tests 11-13), one per basket side, joint1..5 [rad]:
 # fingertip 0.08 m beside joint1 at +-90 deg from the front, 0.21 m up, tool down, wrist turned 90 deg
 # (+y side mirrored). Was an IK solve at start-up with fixed seeds, which always gave these values.
