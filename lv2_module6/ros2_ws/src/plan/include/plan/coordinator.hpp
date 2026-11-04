@@ -26,6 +26,13 @@
 //   잡기 판정: 닫은 뒤 gripper_left_joint 위치(퍽이 끼어 덜 닫힘) + 전류(effort) — grasp_check (pick·unload)
 //   쥐는 힘: 닫을 때 grip_current_a(0.35 A)를 액션 goal effort로 보냄 (비우면 0.6 A — 놓을 때 전류가 튐)
 //   place <location_box>: 상자 윗면(size.z) 위에 손 안 퍽 바닥(held_bottom_m) + place_release_m에서 벌림, 여러 개면 상자 안·상자 축으로 비켜 놓음
+//   좌표 대상 (mission_manager — 주사위 칸처럼 물체가 아닌 자리, map 기준):
+//     navigate "x,y[,yaw]" — 그 자세로 (yaw 없으면 0) · pose scan — 스캔 자세(scan_pose)
+//     place "x,y,z" — 손 안 퍽 바닥이 z가 되게: 위 place_approach_m → 퍽 바닥 + place_release_m까지 내려 벌림 → 다시 위 (다가가기 안 함)
+//     inspect "x,y,z" — 그 점 위 inspect_height_m로, 손 방향 = 로봇 → 점 (gripper_cam이 그 점을 봄)
+//   approach "x,y,yaw" (map) — 박스 앞 마지막 몇 cm: Nav2는 로봇을 원(0.18)으로 봐서 못 붙는 자리까지 저속으로 붙음.
+//     목표 뒤 approach_pre_m 자리로 가서(돌고 → 가고) 목표 방향으로 돈 뒤 직선 전진 — 박스 바로 앞에선 제자리 회전 안 함 (앞 모서리가 닿음).
+//     /cmd_vel_nav로 냄 (Nav2와 같은 입구 → twist_mux 비상정지·collision_monitor 그대로). 진행이 멈추면 approach_blocked
 //   팔이 닿게 다가가기: pick · place <물체 id> 차례에 대상이 로봇(base_footprint, TF)에서 reach_m 넘게 떨어져 있으면
 //     먼저 그 물체를 바라보며 approach_m 떨어진 자리로 navigate한 뒤 그 단계를 실행 (단계마다 한 번 — VLM이 navigate를 빼먹어도).
 //     navigate <물체 id>도 같은 접근 자세 — 로봇이 있는 쪽에서 물체를 바라봄 (예전: 늘 물체의 −x 쪽 · yaw 0)
@@ -40,6 +47,7 @@
 // TODO(권형중): 2. 이동 전 팔 stow·퍽을 든 채 footprint 확장, 3. 정지 후 0.5초 대기, map→odom TF 대기,
 //               접근 자세 계산, MTC 태스크 구성(접근·열기·파지·attach·들어올리기), 장면에 퍽·장애물 등록
 #include <chrono>
+#include <limits>
 #include <functional>
 #include <map>
 #include <memory>
@@ -53,11 +61,14 @@
 #include "diagnostic_updater/diagnostic_updater.hpp"
 #include "std_msgs/msg/bool.hpp"
 #include "geometry_msgs/msg/pose_stamped.hpp"
+#include "geometry_msgs/msg/twist_stamped.hpp"
+#include "ml/msg/skill_context.hpp"
 #include "ml/srv/score_grasps.hpp"
 #include "moveit_msgs/action/execute_trajectory.hpp"
 #include "moveit_msgs/srv/apply_planning_scene.hpp"
 #include "moveit_msgs/srv/get_motion_plan.hpp"
 #include "nav2_msgs/action/navigate_to_pose.hpp"
+#include "perception/msg/hand_target.hpp"
 #include "perception/msg/tracked_object_array.hpp"
 #include "plan/msg/sub_goal_array.hpp"
 #include "plan/msg/task_status.hpp"
@@ -83,6 +94,8 @@ int basket_slot(const std::string & target, const std::vector<std::string> & fil
                 bool load, std::string & why, const std::vector<bool> & usable = {});
 // 상자 위 n번째(0부터)로 놓을 자리의 (dx, dy) [m, map] — spread_offset을 상자 안(반 변 − margin)으로 자르고 상자 yaw로 돌림
 std::pair<double, double> box_spread(int n, double spacing, double half_x, double half_y, double margin, double yaw);
+// "x,y[,z|yaw]" (map 좌표) 목표 파싱 — 쉼표로 나눈 숫자 2개 이상 (숫자가 아닌 게 섞이거나 1개면 빈 목록)
+std::vector<double> parse_numbers(const std::string & target);
 // 잡기 판정 — 위치(손가락이 퍽에 걸려 덜 닫힘) ≥ min_pos · 전류 |effort| ≥ min_effort (effort가 NaN이면 위치만)
 bool grasp_held(double pos, double effort, double min_pos, double min_effort);
 // 물체를 바라보며 standoff 떨어진 로봇 자세 (map) — 로봇이 있는 쪽에서. 로봇이 물체와 거의 같은 자리면 물체의 −x 쪽
@@ -139,6 +152,11 @@ private:
   void send_nav(const geometry_msgs::msg::Pose & pose, std::function<void(bool)> done);
   // 로봇 위치 (map → base_footprint TF). 없으면 false
   bool robot_xy(double & x, double & y) const;
+  bool robot_pose(double & x, double & y, double & yaw) const;
+  // ---------- approach: 정밀 직선 접근 (20 Hz 루프)
+  void approach(const SubGoal & g);
+  void approach_tick();
+  void stop_base();
   // pick·place <물체 id> 전에: 대상이 reach_m 밖이면 다가가는 navigate를 시작하고 true (끝나면 같은 단계를 다시) · 아니면 false
   bool approach_if_far(const SubGoal & g);
 
@@ -152,6 +170,8 @@ private:
 
   // ---------- 🎬 move_group: 위로 이동 → 벌리기
   void execute_place(const geometry_msgs::msg::PoseStamped & target, std::function<void(bool)> done, double approach = 0.10);
+  // ---------- 좌표 place: 위 → 내려가기 → 벌리기 → 다시 위 (release = 벌릴 손끝 자리)
+  void place_at(const geometry_msgs::msg::PoseStamped & release, std::function<void(bool)> done);
 
   // ---------- inspect: 퍽 위에서 gripper_cam으로 내려다보기 (윗면 태그 읽기)
   void inspect(const SubGoal & g);
@@ -180,6 +200,20 @@ private:
   Step grip_timed_step(double joint_m, double effort_a, double secs);
   Step wait_step(double secs);
 
+  // ---------- 닿는 구간 (2026-11-03 배포 결정, bee skill-training 9장): 빈 공간은 MoveIt, 퍽에 닿는 구간은 시뮬과 같은
+  //   기준 동작 + 학습 보정. plan()이 정한 above(지금 자세) → down → 쥐기(close)/놓기 → above, 시뮬 place_env·pick_env와 같은
+  //   단계·시간 (정지 0.3 s · 팀 한계 0.3배 부드러운 보간 · 안정 0.3 s · 쥐기 0.5 s / 놓기 0.4 s · 대기). 단계마다 /skill_context
+  //   (rl_arm_correction이 그 skill 정책을 켜고 입력을 만듦) · 끝나면 skill "" (보정 끔). contact_mode: moveit이면 안 씀 (예전 그대로)
+  Step contact_step(const std::string & skill, std::function<bool(stand::Q5 &, stand::Q5 &)> plan, bool close);
+  Step ctx_step(const std::string & skill, uint8_t phase, bool holding, bool live, const stand::Q5 & above, const stand::Q5 & down);
+  void skill_ctx(const std::string & skill, uint8_t phase, bool holding, bool live, const stand::Q5 & above,
+                 const stand::Q5 & down, double gx = 0.0, double gy = 0.0, double gyaw = 0.0);
+  // map 손끝 목표 → 손 아래 해석 IK (near의 손목 방향 그대로) — stand_plan ik_down, base_footprint 기준
+  bool ik_ee(const geometry_msgs::msg::PoseStamped & ee, const stand::Q5 & near, stand::Q5 & out);
+  // hand_relative에 무엇을 잴지 (puck: 퍽 번호 · cell: 칸 가운데 map · slot: 적재함 칸 · none)
+  void hand_target(const std::string & kind, int puck_tag, int slot, double x = 0.0, double y = 0.0, double z = 0.0);
+  bool sim_contact() const { return contact_mode_ == "sim"; }
+
   // ---------- 처짐 보정 초기화 — 팔 skill 시작 때 한 번 (서비스 없으면 WARN 한 번)
   void reset_sag();
   std::string held_shape_of(uint32_t id) const;  // 퍽 details shape (모르면 box)
@@ -191,7 +225,9 @@ private:
 
   // ---------- 🎬 /plan_kinematic_path + /execute_trajectory
   //     계획이 실패하면 같은 목표로 arm_plan_tries번까지 (tries_left −1 = 처음)
-  void move_arm(const geometry_msgs::msg::PoseStamped & target, std::function<void(bool)> done, int tries_left = -1);
+  //     yaw(map)를 주면 손 방향도 고정 (±0.15 rad) — 좌표 inspect: gripper_cam이 손끝 앞에 비스듬히 달려 손 방향이 자유면 엉뚱한 곳을 봄
+  void move_arm(const geometry_msgs::msg::PoseStamped & target, std::function<void(bool)> done, int tries_left = -1,
+                double yaw = std::numeric_limits<double>::quiet_NaN());
 
   // ---------- 시작 자세 — bringup 직후 한 번 팔을 initial_pose로 (MoveIt 없이 JTC 토픽)
   //   못 가면 initial_pose_retries번만 다시 보내고 지금 자세로 멈춤 (걸린 채 계속 밀면 과부하)
@@ -216,8 +252,6 @@ private:
   // ---------- 새 계획·직접 목표가 들어오면 진행 중 goal 전부 취소 (옛 결과가 새 단계를 건너뛰지 않게)
   void cancel_all();
 
-  // ---------- "x,y" (map 좌표) 목표 파싱 — navigate 직접 지정용
-  static bool parse_point(const std::string & target, double & x, double & y);
 
   // ---------- 출력
   void status(uint32_t step, uint8_t state, const std::string & reason);
@@ -254,7 +288,20 @@ private:
   size_t approached_ = static_cast<size_t>(-1);  // 다가가기를 이미 한 단계 (idx_) — 단계마다 한 번만
   std::unique_ptr<tf2_ros::Buffer> tf_buffer_;
   std::shared_ptr<tf2_ros::TransformListener> tf_listener_;
-  double place_spacing_, held_bottom_m_, place_release_m_, box_margin_m_;
+  double place_spacing_, held_bottom_m_, place_release_m_, box_margin_m_, place_approach_m_;
+  rclcpp::TimerBase::SharedPtr approach_timer_;
+  rclcpp::Publisher<geometry_msgs::msg::TwistStamped>::SharedPtr cmd_vel_pub_;
+  double approach_speed_, approach_pre_m_, approach_pos_tol_, approach_yaw_tol_, approach_timeout_s_;
+  double ap_x_ = 0, ap_y_ = 0, ap_yaw_ = 0, ap_best_ = 1e9;
+  int ap_stage_ = 0;  // 0 = 앞 자리로 · 1 = 목표 방향으로 돌기 · 2 = 직선 전진
+  // approach_mode sim: 시뮬 drive_env 기준 제어 (목표 쪽으로 돌기 → 옆 어긋남 고치며 직진 → 마지막 방향) + rl_nav_correction 보정
+  void approach_tick_sim();
+  std::string approach_mode_, contact_mode_;
+  double ap_still_s_ = 0.0;
+  rclcpp::Publisher<ml::msg::SkillContext>::SharedPtr skill_ctx_pub_;
+  rclcpp::Publisher<perception::msg::HandTarget>::SharedPtr hand_target_pub_;
+  uint32_t skill_run_ = 0;
+  rclcpp::Time ap_started_{0, 0, RCL_ROS_TIME}, ap_progress_{0, 0, RCL_ROS_TIME};
   std::map<std::string, std::vector<double>> poses_;      // stow · carry_left · carry_right
   std::vector<std::string> basket_carry_;                 // 칸마다 left | right
   std::map<std::string, std::vector<double>> basket_q_;   // "box/q_over" … → 칸 0~11 × 관절 5

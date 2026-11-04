@@ -15,8 +15,8 @@
   'all map:=slam' (그 인자만 바꿔) · 'node perception' (그 노드만, 같은 파라미터)
 
 🛠 노드 (패키지 · 담당):
-  perception: perception, body_filter, signal_decoder(신호등 암호 → /mission/signal) (전승혜)
-  plan:       user_input(외부 텍스트 입력), vlm_task_planner, coordinator (권형중)
+  perception: perception, body_filter, signal_decoder(신호등 암호 → /mission/signal) (전승혜), hand_relative(손 카메라 상대값 → 학습 보정)
+  plan:       user_input(외부 텍스트 입력), vlm_task_planner, coordinator, mission_manager(주사위 미션 순서) (권형중)
   ml:         grasp_scorer, rl_nav_tuner, rl_nav_correction (송정혁)
               rl_arm_correction은 노드가 아니라 컨트롤러 플러그인(ml/RlArmCorrection) — ros_system의 controller_manager가 올린다
   control:    arm_safety_monitor, manual_control (김현하)
@@ -130,6 +130,8 @@ def generate_launch_description():
                               description='false면 학습 노드가 Δ=0 · 기본 프리셋 (노드는 그대로 뜸)'),
         DeclareLaunchArgument('vlm_endpoint', default_value='',
                               description='호스트 ai-service 주소 (비면 템플릿 고정, 예: http://127.0.0.1:8000)'),
+        DeclareLaunchArgument('start_pose', default_value='',
+                              description='mission_manager 출발 자세 arena [x, y, yaw] YAML (비면 plan.yaml start_pose_arena)'),
         DeclareLaunchArgument('grasp_check', default_value='true',
                               description='coordinator 잡기 판정(그리퍼 위치 + 전류) — 물리 없는 대역(faker)은 손가락이 끝까지 닫혀 늘 빈손이라 false'),
         DeclareLaunchArgument('command', default_value='',
@@ -178,11 +180,16 @@ def generate_launch_description():
                          PathJoinSubstitution([FindPackageShare('ros_system'), 'config', 'scan_pose.yaml']),
                          {'grasp_check': ParameterValue(LaunchConfiguration('grasp_check'), value_type=bool)}]),
         node('plan', 'explorer'),
+        # 주사위 미션 — /cmd/mission start로 시작 (abort로 멈춤). 출발 자세만 launch 인자로 덮어씀
+        node('plan', 'mission_manager', condition=IfCondition(PythonExpression(["'", LaunchConfiguration('start_pose'), "' == ''"]))),
+        node('plan', 'mission_manager', {'start_pose_arena': ParameterValue(LaunchConfiguration('start_pose'), value_type=None)},
+             condition=IfCondition(PythonExpression(["'", LaunchConfiguration('start_pose'), "' != ''"]))),
         *[node('ml', n, learning, condition=IfCondition(LaunchConfiguration(f'use_{n}'))) for n in ML_NODES],
         node('control', 'arm_safety_monitor'),
         node('control', 'manual_control'),
         node('perception', 'body_filter'),
         node('perception', 'signal_decoder'),
+        node('perception', 'hand_relative'),  # 손 카메라 상대값 → rl_arm_correction 정책 입력
         node('manager', 'state_manager', {'map_mode': LaunchConfiguration('map_mode'),
                                           'map_name': ParameterValue(LaunchConfiguration('map_name'), value_type=str),
                                           'map_dir': ParameterValue(LaunchConfiguration('map_dir'), value_type=str),
