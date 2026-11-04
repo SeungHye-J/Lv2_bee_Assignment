@@ -107,6 +107,7 @@ controller_server:
       lidar_max: 3.5           # [m] 스캔 최대거리 (정규화 기준)
       max_lin: 0.26            # [m/s] 정책 출력 ±1 스케일
       max_ang: 1.82            # [rad/s]
+      extra_lin_vel: 0.0       # [m/s] 0~0.10 — 정책 출력에 더하는 추가 속도 (max_lin 상한 유지, 0 = 끄기)
       v_min_ratio: -0.2        # 후진 허용 비율 (음수 = 후진)
       inner_plugin: "dwb_core::DWBLocalPlanner"   # 바이패스용 기본 controller
       inner:                   # ← 기존 DWB 설정 (이름 앞에 inner. 붙임)

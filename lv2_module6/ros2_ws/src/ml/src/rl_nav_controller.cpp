@@ -60,6 +60,7 @@ void RlNavController::configure(
   max_lin_ = param<double>(node, name + ".max_lin", max_lin_);
   max_ang_ = param<double>(node, name + ".max_ang", max_ang_);
   v_min_ratio_ = param<double>(node, name + ".v_min_ratio", v_min_ratio_);
+  extra_lin_vel_ = param<double>(node, name + ".extra_lin_vel", extra_lin_vel_);
   points_stride_ = param<int>(node, name + ".points_stride", points_stride_);
   z_min_ = param<double>(node, name + ".z_min", z_min_);
   z_max_ = param<double>(node, name + ".z_max", z_max_);
@@ -313,7 +314,8 @@ geometry_msgs::msg::TwistStamped RlNavController::computeVelocityCommands(
   geometry_msgs::msg::TwistStamped cmd;
   cmd.header.frame_id = costmap_ros_->getBaseFrameID();
   cmd.header.stamp = pose.header.stamp;
-  cmd.twist.linear.x = std::max(double(a0) * max_lin_, v_min_ratio_ * max_lin_) * speed_ratio_;
+  cmd.twist.linear.x = std::clamp(std::max(double(a0) * max_lin_, v_min_ratio_ * max_lin_) * speed_ratio_ + extra_lin_vel_,
+                                   v_min_ratio_ * max_lin_, max_lin_);
   cmd.twist.angular.z = double(a1) * max_ang_;
   if (debug_pub_) {  // A/B 분석용: [a0, a1, v_out, w_out, scan_min, v_odom, w_odom, on]
     std_msgs::msg::Float32MultiArray dbg;
