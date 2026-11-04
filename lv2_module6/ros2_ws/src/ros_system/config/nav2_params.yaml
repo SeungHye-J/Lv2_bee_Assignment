@@ -93,7 +93,7 @@ controller_server:
     FollowPath:
       plugin: "ml::RlNavController"
       enable: false            # true = ONNX 정책 (모델 없으면 자동 바이패스)
-      model_path: "policy.onnx"  # ros2_ws/model/nav_controller/policy.onnx
+      model_path: "nav_controller/policy.onnx"  # share/ml/model/nav_controller/policy.onnx
       scan_source: "points"    # points(점구름 가상 스캔) | scan(실제 LiDAR)
       points_topic: "/pole_front_cam/depth/color/points_filtered"
       points_stride: 4         # 점구름 솎음 (4 = 1/4)

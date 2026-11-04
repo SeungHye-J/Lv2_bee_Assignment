@@ -16,7 +16,7 @@ constexpr int64_t OBS_TRACK = 6;
 RlNavCorrection::RlNavCorrection()
 : rclcpp::Node("rl_nav_correction") {
   declare_parameter<bool>("enabled", true);
-  declare_parameter<std::string>("model_path", "policy.onnx");  // 파일명만 → share/ml/model, 없으면 ros2_ws/model/nav_correction
+  declare_parameter<std::string>("model_path", "nav_correction/policy.onnx");  // share/ml/model/<노드>/<이름>. "" = 통과
   declare_parameter<double>("max_vel_x", 0.26);
   declare_parameter<double>("max_vel_theta", 1.82);
   declare_parameter<double>("timeout_s", 0.2);
@@ -100,19 +100,21 @@ RlNavCorrection::RlNavCorrection()
 std::string RlNavCorrection::resolve_model_path(const std::string & path) const {
   if (path.empty()) return {};
   namespace fs = std::filesystem;
-  if (path.find('/') != std::string::npos) return path;  // 절대·상대 경로는 그대로
-  // 파일 이름만: share/ml/model/<이름> 우선, 없으면 ros2_ws/model/nav_correction/<이름>
+  const fs::path p(path);
+  if (p.is_absolute()) return path;  // 절대 경로는 그대로 (개발용 직접 지정)
+  // 상대 경로: share/ml/model/<경로> 하나만 본다 (설치 공간이 단일 진실 공급원).
+  //   "nav_correction/policy.onnx"처럼 노드별 폴더 포함 — 노드마다 onnx를 가져와도 이름이 안 겹친다.
+  //   bare 파일명("policy.onnx")도 그대로 받음. 소스 트리 폴백 없음.
   std::string share;
   try {
-    share = (fs::path(ament_index_cpp::get_package_share_directory("ml")) / "model" / path).string();
+    share = (fs::path(ament_index_cpp::get_package_share_directory("ml")) / "model" / p).string();
     if (fs::exists(share)) return share;
-  } catch (const std::exception &) {
+  } catch (const std::exception & e) {
+    RCLCPP_WARN(get_logger(), "share/ml 조회 실패 (%s): %s — Δ=0 (통과)", path.c_str(), e.what());
+    return {};
   }
-  // 소스 트리: <ros2_ws>/src/ml/src/rl_nav_correction.cpp → 위로 4번 = <ros2_ws>
-  const fs::path src = fs::path(__FILE__).parent_path().parent_path().parent_path().parent_path() /
-                       "model" / "nav_correction" / path;
-  if (fs::exists(src)) return fs::weakly_canonical(src).string();
-  return share.empty() ? path : share;  // 못 찾음 — 메시지에 기대 경로를 보여준다
+  RCLCPP_WARN(get_logger(), "모델 파일 없음: %s (기대: %s) — Δ=0 (통과)", path.c_str(), share.c_str());
+  return {};
 }
 
 bool RlNavCorrection::load_model(const std::string & path) {
@@ -125,10 +127,7 @@ bool RlNavCorrection::load_model(const std::string & path) {
     return false;
   }
   const std::string resolved = resolve_model_path(path);
-  if (resolved.empty()) {
-    RCLCPP_WARN(get_logger(), "모델 파일 없음: %s — Δ=0 (통과)", path.c_str());
-    return false;
-  }
+  if (resolved.empty()) return false;  // 없음·실패는 resolve_model_path가 경고
   try {
     policy_.load(resolved);
     obs_dim_ = policy_.inputs();

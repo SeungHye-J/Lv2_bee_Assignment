@@ -45,7 +45,7 @@ void RlNavController::configure(
   logger_ = node->get_logger();
 
   const auto inner = param<std::string>(node, name + ".inner_plugin", "dwb_core::DWBLocalPlanner");
-  const auto model = param<std::string>(node, name + ".model_path", "policy.onnx");
+  const auto model = param<std::string>(node, name + ".model_path", "nav_controller/policy.onnx");
   enable_ = param<bool>(node, name + ".enable", false);
   const auto scan_source = param<std::string>(node, name + ".scan_source", "points");
   const auto points_topic = param<std::string>(
@@ -120,17 +120,14 @@ void RlNavController::load_model(const std::string & path) {
   if (path.empty()) return;
   std::string resolved = path;
   namespace fs = std::filesystem;
-  if (path.find('/') == std::string::npos) {  // 파일명만 → share/rl_nav_controller/model, 없으면 ros2_ws/model/nav_controller
+  const fs::path p(path);
+  if (!p.is_absolute()) {  // 상대 경로: share/ml/model/<경로> 하나만 본다 (rl_nav_correction과 같은 규칙).
+    //   "nav_controller/policy.onnx"처럼 노드별 폴더 포함 — 노드마다 onnx를 가져와도 이름이 안 겹친다.
     try {
-      const fs::path share = fs::path(ament_index_cpp::get_package_share_directory("rl_nav_controller")) /
-                             "model" / path;
+      const fs::path share = fs::path(ament_index_cpp::get_package_share_directory("ml")) /
+                             "model" / p;
       if (fs::exists(share)) resolved = share.string();
     } catch (const std::exception &) {
-    }
-    if (resolved == path) {
-      const fs::path src = fs::path(__FILE__).parent_path().parent_path().parent_path().parent_path() /
-                           "model" / "nav_controller" / path;
-      if (fs::exists(src)) resolved = fs::weakly_canonical(src).string();
     }
   }
   try {
