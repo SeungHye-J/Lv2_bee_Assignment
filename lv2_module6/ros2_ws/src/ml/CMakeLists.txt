@@ -91,7 +91,9 @@ install(DIRECTORY config DESTINATION share/${PROJECT_NAME})
 #   노드별 폴더로 겹치지 않게 (nav_correction · nav_controller · grasp_scorer …)
 set(MODEL_DIR "${CMAKE_CURRENT_SOURCE_DIR}/../../model")
 if(IS_DIRECTORY "${MODEL_DIR}")
-  install(DIRECTORY "${MODEL_DIR}/" DESTINATION share/${PROJECT_NAME}/model PATTERN ".gitkeep" EXCLUDE)
+  # yolo는 perception이 share/perception/model에 설치 — ml에서 중복 설치 안 함
+  install(DIRECTORY "${MODEL_DIR}/" DESTINATION share/${PROJECT_NAME}/model
+    PATTERN ".gitkeep" EXCLUDE PATTERN "yolo" EXCLUDE)
 endif()
 # 패키지 단독 실행용 (전체 로봇은 bringup)
 install(DIRECTORY launch DESTINATION share/${PROJECT_NAME})
