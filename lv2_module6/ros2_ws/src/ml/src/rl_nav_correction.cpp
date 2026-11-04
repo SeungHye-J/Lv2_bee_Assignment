@@ -29,7 +29,6 @@ RlNavCorrection::RlNavCorrection()
   max_v_ = get_parameter("max_vel_x").as_double();
   max_w_ = get_parameter("max_vel_theta").as_double();
   timeout_s_ = get_parameter("timeout_s").as_double();
-  limit_v_ = max_v_;
   action_scale_lin_ = get_parameter("action_scale_lin").as_double();
   action_scale_ang_ = get_parameter("action_scale_ang").as_double();
   max_delta_lin_ = get_parameter("max_delta_lin").as_double();
@@ -61,11 +60,6 @@ RlNavCorrection::RlNavCorrection()
   imu_sub_ = create_subscription<sensor_msgs::msg::Imu>(
     "/imu", rclcpp::SensorDataQoS().keep_last(1),
     [this](sensor_msgs::msg::Imu::ConstSharedPtr m) { imu_ = m; });
-  limit_sub_ = create_subscription<nav2_msgs::msg::SpeedLimit>(
-    "/speed_limit", rclcpp::QoS(1).reliable(), [this](nav2_msgs::msg::SpeedLimit::ConstSharedPtr m) {
-      const double v = m->percentage ? max_v_ * m->speed_limit / 100.0 : m->speed_limit;
-      limit_v_ = (m->speed_limit <= 0.0) ? max_v_ : std::min(max_v_, v);  // 0 = 제한 없음
-    });
   pub_ = create_publisher<TwistStamped>("/cmd_vel_corrected", rclcpp::QoS(1).reliable());
   debug_pub_ = create_publisher<std_msgs::msg::Float32MultiArray>("~/debug", rclcpp::QoS(1).reliable());
   toggle_srv_ = create_service<std_srvs::srv::SetBool>(
@@ -91,7 +85,7 @@ RlNavCorrection::RlNavCorrection()
     s.add("관측 차원", static_cast<int>(obs_dim_));
     s.add("마지막 Δ [m/s, rad/s]", std::to_string(last_delta_v_).substr(0, 7) + ", " +
                                       std::to_string(last_delta_w_).substr(0, 7));
-    s.add("속도 상한 [m/s]", limit_v_);
+    s.add("속도 상한 [m/s]", max_v_);
     s.add("보정한 명령 수", corrected_);
     s.add("추론 실패 수", infer_fail_);
   });
@@ -192,7 +186,7 @@ void RlNavCorrection::on_cmd(const TwistStamped & in) {
   last_delta_v_ = dv;
   last_delta_w_ = dw;
 
-  const auto out = apply_delta({in.twist.linear.x, in.twist.angular.z}, {dv, dw}, limit_v_, max_w_);
+  const auto out = apply_delta({in.twist.linear.x, in.twist.angular.z}, {dv, dw}, max_v_, max_w_);
   TwistStamped msg = in;
   msg.twist.linear.x = out.first;
   msg.twist.angular.z = out.second;
