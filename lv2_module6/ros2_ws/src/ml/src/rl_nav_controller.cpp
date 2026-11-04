@@ -46,7 +46,7 @@ void RlNavController::configure(
 
   const auto inner = param<std::string>(node, name + ".inner_plugin", "dwb_core::DWBLocalPlanner");
   const auto model = param<std::string>(node, name + ".model_path", "nav_controller/policy.onnx");
-  enable_ = param<bool>(node, name + ".enable", false);
+  enable_ = param<bool>(node, name + ".enable", true);
   const auto scan_source = param<std::string>(node, name + ".scan_source", "points");
   const auto points_topic = param<std::string>(
     node, name + ".points_topic", "/pole_front_cam/depth/color/points_filtered");
