@@ -18,6 +18,9 @@ find_package(controller_interface REQUIRED)
 find_package(hardware_interface REQUIRED)
 find_package(pluginlib REQUIRED)
 find_package(rclcpp_lifecycle REQUIRED)
+find_package(std_srvs REQUIRED)
+find_package(std_msgs REQUIRED)
+find_package(realtime_tools REQUIRED)
 
 rosidl_generate_interfaces(${PROJECT_NAME}
   srv/ScoreGrasps.srv
@@ -42,9 +45,14 @@ install(TARGETS grasp_scorer rl_nav_tuner rl_nav_correction DESTINATION lib/${PR
 add_library(rl_arm_correction SHARED src/rl_arm_correction.cpp)
 target_compile_features(rl_arm_correction PUBLIC cxx_std_17)
 target_link_libraries(rl_arm_correction controller_interface::controller_interface
-  hardware_interface::hardware_interface pluginlib::pluginlib rclcpp::rclcpp rclcpp_lifecycle::rclcpp_lifecycle)
+  hardware_interface::hardware_interface pluginlib::pluginlib rclcpp::rclcpp rclcpp_lifecycle::rclcpp_lifecycle
+  ${std_srvs_TARGETS} ${std_msgs_TARGETS} realtime_tools::realtime_tools)
 pluginlib_export_plugin_description_file(controller_interface rl_arm_correction.xml)
 install(TARGETS rl_arm_correction LIBRARY DESTINATION lib)
+
+# --- rl_policy: 팔 잔차 정책 추론 (Python · torch) — 정책 파일은 isaac/lab/policies에서 복사한 TorchScript (_sag: 처짐 적분까지 봄)
+install(PROGRAMS scripts/rl_policy_node.py DESTINATION lib/${PROJECT_NAME} RENAME rl_policy)
+install(DIRECTORY policies DESTINATION share/${PROJECT_NAME})
 
 # 파라미터 (bringup이 share/ml/config/ml.yaml을 노드에 넘긴다)
 install(DIRECTORY config DESTINATION share/${PROJECT_NAME})
@@ -56,6 +64,12 @@ if(BUILD_TESTING)
   find_package(ament_cmake_gtest REQUIRED)
   ament_add_gtest(test_rl_nav_correction test/test_rl_nav_correction.cpp TIMEOUT 60 ENV ROS_DOMAIN_ID=103)
   target_link_libraries(test_rl_nav_correction ${PROJECT_NAME}_nodes)
+  ament_add_gtest(test_grasp_scorer test/test_grasp_scorer.cpp TIMEOUT 60 ENV ROS_DOMAIN_ID=111)
+  target_link_libraries(test_grasp_scorer ${PROJECT_NAME}_nodes)
+  ament_add_gtest(test_rl_arm_correction test/test_rl_arm_correction.cpp)
+  target_link_libraries(test_rl_arm_correction rl_arm_correction)
+  find_package(ament_cmake_pytest REQUIRED)
+  ament_add_pytest_test(test_rl_policy test/test_rl_policy.py TIMEOUT 60)
   ament_add_test(test_launch GENERATE_RESULT_FOR_RETURN_CODE_ZERO
     COMMAND ros2 launch "${CMAKE_CURRENT_SOURCE_DIR}/launch/ml.launch.py" --show-args
     TIMEOUT 60)

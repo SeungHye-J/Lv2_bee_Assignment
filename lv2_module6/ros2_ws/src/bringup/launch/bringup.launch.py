@@ -126,6 +126,8 @@ def generate_launch_description():
                               description='false면 ml 노드(grasp_scorer · rl_nav_tuner · rl_nav_correction)를 띄우지 않음 — 아래 셋의 기본값'),
         *[DeclareLaunchArgument(f'use_{n}', default_value=LaunchConfiguration('use_ml'),
                                 description=f'false면 {n}을 띄우지 않음 (faker가 그 대역 fake_{n}을 띄울 때)') for n in ML_NODES],
+        DeclareLaunchArgument('use_rl_policy', default_value=LaunchConfiguration('use_ml'),
+                              description='false면 rl_policy(팔 잔차 정책 추론, torch 필요)를 띄우지 않음'),
         DeclareLaunchArgument('learning_enabled', default_value='true',
                               description='false면 학습 노드가 Δ=0 · 기본 프리셋 (노드는 그대로 뜸)'),
         DeclareLaunchArgument('vlm_endpoint', default_value='',
@@ -179,6 +181,8 @@ def generate_launch_description():
                          {'grasp_check': ParameterValue(LaunchConfiguration('grasp_check'), value_type=bool)}]),
         node('plan', 'explorer'),
         *[node('ml', n, learning, condition=IfCondition(LaunchConfiguration(f'use_{n}'))) for n in ML_NODES],
+        # 팔 잔차 정책 추론 (Python · torch) — coordinator rl_policy: true인 pick·place 구간에서만 Δ를 냄
+        node('ml', 'rl_policy', learning, condition=IfCondition(LaunchConfiguration('use_rl_policy'))),
         node('control', 'arm_safety_monitor'),
         node('control', 'manual_control'),
         node('perception', 'body_filter'),
