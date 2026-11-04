@@ -1,7 +1,7 @@
 #pragma once
 
 // rl_nav_correction (🛠 직접 작성, 담당: 송정혁) — 설계: documents/project/ros/06-base.md, 11-learn.md
-//   입력: /cmd_vel_nav (Nav2, 20Hz), /plan (경로 오차), /odom·/imu (실제 움직임), /speed_limit (재클리핑 상한)
+//   입력: /cmd_vel_nav (Nav2, 20Hz), /odom·/imu (실제 움직임)
 //   출력: /cmd_vel_corrected (geometry_msgs/TwistStamped) → velocity_smoother
 //   서비스: ~/toggle (std_srvs/SetBool) — ONNX 보정 켜기/끄기 (파라미터 enabled와 같은 값)
 // ONNX 정책 (Isaac Lab/rsl_rl 학습, ONNX Runtime C++):
@@ -9,7 +9,7 @@
 //     v_cmd·w_cmd = /cmd_vel_nav, v_odom·w_odom = /odom twist, w_gyro = /imu angular_velocity.z
 //     t_change = 명령이 마지막으로 바뀐 뒤 경과 [s] (t_change_max로 자름)
 //   출력 2 → clamp [-1,1] × (action_scale_lin, action_scale_ang) = Δ [m/s, rad/s]
-//   Δ는 max_delta_lin·max_delta_ang로 한 번 더 자르고, 더한 뒤 min(프리셋 상한, /speed_limit)으로 재클리핑.
+//   Δ는 max_delta_lin·max_delta_ang로 한 번 더 자르고, 더한 뒤 max_vel_x·max_vel_theta로 재클리핑.
 //   model_path가 비었거나 파일이 없거나 obs 차원이 6이 아니면 Δ=0 (통과) — 로봇은 계속 움직인다.
 //   enabled=false · 센서(timeout_s=0.2s) 끊김도 Δ=0.
 // 모델 경로: 상대 경로면 share/ml/model/<경로> 하나만 본다 (설치 공간이 단일 진실 공급원).
@@ -25,7 +25,6 @@
 #include "diagnostic_updater/diagnostic_updater.hpp"
 #include "geometry_msgs/msg/twist_stamped.hpp"
 #include "ml/onnx_policy.hpp"
-#include "nav2_msgs/msg/speed_limit.hpp"
 #include "nav_msgs/msg/odometry.hpp"
 #include "nav_msgs/msg/path.hpp"
 #include "rclcpp/rclcpp.hpp"
@@ -61,7 +60,7 @@ private:
   void on_toggle(const std::shared_ptr<std_srvs::srv::SetBool::Request> req,
                  std::shared_ptr<std_srvs::srv::SetBool::Response> res);
 
-  double max_v_, max_w_, timeout_s_, limit_v_;
+  double max_v_, max_w_, timeout_s_;
   double action_scale_lin_ = 0.05, action_scale_ang_ = 0.10;
   double max_delta_lin_ = 0.05, max_delta_ang_ = 0.10;
   double t_change_max_ = 2.0;
@@ -79,7 +78,6 @@ private:
   rclcpp::Subscription<nav_msgs::msg::Path>::SharedPtr plan_sub_;
   rclcpp::Subscription<nav_msgs::msg::Odometry>::SharedPtr odom_sub_;
   rclcpp::Subscription<sensor_msgs::msg::Imu>::SharedPtr imu_sub_;
-  rclcpp::Subscription<nav2_msgs::msg::SpeedLimit>::SharedPtr limit_sub_;
   rclcpp::Publisher<TwistStamped>::SharedPtr pub_;
   rclcpp::Publisher<std_msgs::msg::Float32MultiArray>::SharedPtr debug_pub_;
   rclcpp::Service<std_srvs::srv::SetBool>::SharedPtr toggle_srv_;
