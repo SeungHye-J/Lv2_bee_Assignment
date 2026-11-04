@@ -31,7 +31,7 @@ public:
     poses_["scan"] = scan_pose_;  // pose scan (mission_manager — 바코드·신호 볼 때 팔이 pole_front_cam 시야를 안 가림)
     initial_enabled_ = declare_parameter<bool>("initial_pose_enabled", true);
     initial_joints_ = declare_parameter<std::vector<std::string>>("initial_pose_joints", {"joint1", "joint2", "joint3", "joint4", "joint5"});
-    initial_pose_ = declare_parameter<std::vector<double>>("initial_pose", {0.0, -1.91, 1.3701, 0.5952, 0.0});
+    initial_pose_ = declare_parameter<std::vector<double>>("initial_pose", {0.0, -1.9024, 1.344, 0.9023, 0.0});
     initial_tol_ = declare_parameter<double>("initial_pose_tolerance", 0.05);
     initial_move_s_ = declare_parameter<double>("initial_pose_move_s", 3.0);
     initial_retries_ = declare_parameter<int>("initial_pose_retries", 1);

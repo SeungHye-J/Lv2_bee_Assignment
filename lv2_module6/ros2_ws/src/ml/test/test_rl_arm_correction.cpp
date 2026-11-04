@@ -23,6 +23,16 @@ TEST(SagStep, Clamps) {
   EXPECT_DOUBLE_EQ(ml::sag_step(0.19, 0.0, 0.0, -10.0, 0.01, 4.2, 0.2), 0.2);
 }
 
+// URDF 질량으로 낸 값 (팔을 앞으로 편 자세 · stow 근처) — 모델이 바뀌면 opencr_bridge.py도 함께 갱신
+TEST(Gravity, TorquesMatchUrdf) {
+  const auto zero = ml::gravity::torques(0.0, 0.0, 0.0);
+  EXPECT_NEAR(zero[0], 1.2757, 1e-3);
+  EXPECT_NEAR(zero[1], 1.1287, 1e-3);
+  const auto bent = ml::gravity::torques(-0.28, 0.98, 0.87);
+  EXPECT_NEAR(bent[0], 0.4788, 1e-3);
+  EXPECT_NEAR(bent[1], 0.5750, 1e-3);
+}
+
 TEST(SagGuard, RestPoseReleases) {  // stow: 쌓인 보정을 0으로 풀고 더 쌓지 않음
   ml::SagJoint j;
   j.corr = 0.1;

@@ -5,7 +5,7 @@ Isaac Lab 6.1 (`~/pa-course/IsaacLab-6.1/.venv`)에서 돈다. 로봇·퍽·상�
 ## 시연
 
 ```bash
-isaac/sim/demo.sh
+cd isaac/lab && ~/pa-course/IsaacLab-6.1/.venv/bin/python demo_cycle.py --device cpu --viz kit --hold
 ```
 
 창이 뜨고 `usda/demo_cycle.usda`에서 한 사이클을 돈다. 순서는 다음과 같다.
@@ -26,7 +26,7 @@ isaac/sim/demo.sh
 | `--puck b` | 원기둥 퍽 |
 | `--cell 0..5` | 놓을 칸 (0~2 가까운 줄, 3~5 가운데 줄, 4 = 가운데) |
 | `--seed -1` | 인식 잡음 무작위 (기본 0) |
-| `HEADLESS=1 … --runs 20` | 창 없이 성공률만 |
+| `--viz`·`--hold` 빼고 `--runs 20` | 창 없이 성공률만 |
 
 ## 무엇이 학습됐나
 

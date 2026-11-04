@@ -1,4 +1,4 @@
-"""Offline plan for the ROS stand-up + regrasp dummy (isaac/sim/stand_dummy.sh) in scene_lab.usda, read as placed by the
+"""Offline plan for the ROS stand-up + regrasp dummy (isaac/sim/stand_dummy.sh, removed: see git history) in scene_lab.usda, read as placed by the
 user (robot facing start_1, puck_box_green_6 lying on it); nothing is moved. The dummy first drives straight ahead to
 the training dock (start_1 centre 0.08 m + half a box ahead of the root, right_env BOX_CX); the plan is made for that
 dock pose, so the real stopping error adds to the perception error (as on the robot). Perception stand-in: true pose + the
