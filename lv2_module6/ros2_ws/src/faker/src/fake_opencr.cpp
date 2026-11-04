@@ -19,6 +19,7 @@ constexpr double GRIPPER_VEL_MAX = 0.05;
 constexpr double COMMAND_TIMEOUT = 0.5;
 constexpr double ERROR_PERIOD = 0.5;    // 펌웨어 MOTOR_CHECK_MS — E 줄 주기
 constexpr int FAKE_TEMP_C = 35;         // S 끝 모터 온도 °C (실기 상온 부하 정도 — 시뮬레이션은 발열 모델 없음)
+constexpr double FAKE_BATTERY_V = 12.0;  // S 맨 끝 배터리 V (만충 근처 고정 — 방전 모델 없음)
 constexpr double STATE_PERIOD = 0.010;  // 펌웨어 STATE_PERIOD_MS (10ms) — S는 부팅 직후부터 C와 무관하게 항상
 }  // namespace
 
@@ -185,7 +186,7 @@ bool FakeOpenCR::read_command(std::array<double, 8> & cmd) {
       continue;
     }
     std::array<double, 8> v{};
-    if (parse_command(line, v)) {
+    if (parse_command(line, v, 9)) {  // C는 9번째(그리퍼 전류 A)까지 — 시뮬레이션엔 힘 모델이 없어 버림
       cmd = v;
       got = true;
     }
@@ -194,28 +195,28 @@ bool FakeOpenCR::read_command(std::array<double, 8> & cmd) {
   return got;
 }
 
-bool FakeOpenCR::parse_command(const std::string & line, std::array<double, 8> & v) {
+bool FakeOpenCR::parse_command(const std::string & line, std::array<double, 8> & v, size_t max_fields) {
   // 펌웨어 parse_fields와 같은 규칙:
   //   빈 필드(`,,` · 끝에 쉼표 포함)는 유지(NaN) — 팔·그리퍼는 명령 생략, 바퀴는 0(정지).
   //   모자란 뒷 필드도 유지로 채운다. 예: C,1,,0.4 / C,0.4,0.4
-  //   필드가 8개를 넘거나, 숫자가 아니거나, 숫자 뒤에 쓰레기가 있으면 줄 전체를 버린다.
+  //   필드가 max_fields개(C 9 · T·R 8)를 넘거나, 숫자가 아니거나, 숫자 뒤에 쓰레기가 있으면 줄 전체를 버린다. 8번째 뒤는 검사만.
   if (line.compare(0, 2, "C,") != 0) return false;
   const char * text = line.c_str() + 2;
   size_t i = 0;
   while (true) {
-    if (*text == ',' || *text == '\0') {
-      v[i] = std::numeric_limits<double>::quiet_NaN();
-    } else {
+    double d = std::numeric_limits<double>::quiet_NaN();
+    if (*text != ',' && *text != '\0') {
       char * end = nullptr;
-      v[i] = std::strtod(text, &end);
-      if (end == text || !std::isfinite(v[i])) return false;
+      d = std::strtod(text, &end);
+      if (end == text || !std::isfinite(d)) return false;
       text = end;
     }
+    if (i < v.size()) v[i] = d;
     ++i;
     if (*text == '\0') break;
     if (*text != ',') return false;
     ++text;
-    if (i == 8) return false;  // 필드가 8개를 넘음
+    if (i == max_fields) return false;  // 필드가 너무 많음
   }
   for (; i < 8; ++i) v[i] = std::numeric_limits<double>::quiet_NaN();
   return true;
@@ -289,6 +290,7 @@ void FakeOpenCR::write_state() {
   for (int i = 0; i < 2; ++i) {
     push(wheel_pos_[i]);
     push(wheel_vel_[i]);
+    push(0.0);  // 바퀴 전류 A — 시뮬레이션은 부하 모델 없음 (펌웨어처럼 pos·vel·A 세 칸 연속)
   }
   std::normal_distribution<double> gauss(0.0, noise_);
   for (int j = 0; j < 6; ++j) {
@@ -308,6 +310,8 @@ void FakeOpenCR::write_state() {
   push(0.0);
   push(9.81);
   for (size_t i = 0; i < hw_error_.size(); ++i) line += "," + std::to_string(FAKE_TEMP_C);  // 모터 온도 °C 8개 (펌웨어처럼 정수)
+  std::snprintf(buf, sizeof(buf), ",%.2f", FAKE_BATTERY_V);  // 배터리 V (43번째 — 맨 끝)
+  line += buf;
   line += '\n';
   std::ofstream out(serial_in_, std::ios::app);
   if (out) {

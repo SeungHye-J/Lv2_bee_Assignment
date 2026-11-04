@@ -16,9 +16,9 @@ def plan(req):
     """→ (goals, err, raw) — 템플릿은 LLM을 안 쓰므로 raw는 항상 ""."""
     objects = req.get("objects", [])
     puck = find(objects, "puck")
-    goal = find(objects, "location")
+    goal = find(objects, "location_box")
     if not puck or not goal:
-        return None, "puck·location 없음 — 계획 보류", ""
+        return None, "puck·location_box 없음 — 계획 보류", ""
     return [
         {"step": 1, "skill": "navigate", "target": puck, "relation": "front", "offset_m": 0.2},
         {"step": 2, "skill": "pick", "target": puck, "relation": "", "offset_m": 0.0},

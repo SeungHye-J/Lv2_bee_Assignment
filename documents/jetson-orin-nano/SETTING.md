@@ -85,10 +85,20 @@ rosdep update
 
 *5. 환경 변수 (~/.bashrc)*
 ```bash
-echo -e '\n# ROS 2 Lyrical\nsource /opt/ros/lyrical/setup.bash\nexport ROS_DOMAIN_ID=88' >> ~/.bashrc
+cat >> ~/.bashrc <<'EOF'
+
+# ROS 2 Lyrical — Jetson 안에서만 (공유 메모리만, 네트워크로 안 나감)
+source /opt/ros/lyrical/setup.bash
+export ROS_DOMAIN_ID=0
+export ROS_AUTOMATIC_DISCOVERY_RANGE=SUBNET
+export FASTDDS_DEFAULT_PROFILES_FILE=$HOME/Lv2_bee_Assignment/lv2_module6/ros2_ws/fastdds_local.xml
+EOF
 source ~/.bashrc
 ```
-• `ROS_DOMAIN_ID=88` 팀 공통값, 꼭 맞출 것
+• Jetson은 ROS를 **기기 안에서만** 돌린다(bringup·`tool/run-cli`·`ros2` 명령 모두 Jetson에서). `fastdds_local.xml`이 DDS 전송을 공유 메모리(SHM)로만 제한해 노드 찾기·토픽이 네트워크로 나가지 않는다 — PC docker·시뮬레이터·다른 팀과 안 섞임
+• bringup·run-cli·`ros2` 명령이 **모두 같은 프로파일**이어야 서로 보인다 → `~/.bashrc`에 두고 새 터미널에서 실행
+• `ROS_LOCALHOST_ONLY`·`ROS_AUTOMATIC_DISCOVERY_RANGE=LOCALHOST`·`ROS_DISCOVERY_SERVER`는 쓰지 말 것 — LOCALHOST는 노드 일부가 안 보이고, Discovery Server는 서비스 응답이 버려져(`failed to send response … timeout`) lifecycle_manager가 velocity_smoother·collision_monitor를 못 켜 텔레오퍼가 안 움직임 (2026-10-26 실기)
+• PC에서 Jetson 토픽을 직접 봐야 할 때만: 프로파일을 `fastdds.xml`(UDP 포함)로 바꾸고 양쪽 `ROS_DOMAIN_ID`를 같게 — 아래 Wi-Fi 주의 참고
 • 부트캠프 Wi-Fi는 멀티캐스트가 막혀서 자동 탐색이 안 됨 → `ROS_STATIC_PEERS`에 상대 IP 필수. 여러 대면 `"IP1;IP2"`
 • 이름(`xxx.local`) 대신 *IP로* 적을 것. 이름은 상대가 꺼져 있으면 노드 실행 자체가 실패함
 • 내 IP 확인: `hostname -I`
@@ -222,243 +232,23 @@ sudo apt update
 sudo apt install -y ros-$ROS_DISTRO-realsense2-camera
 ```
 
-# RTAB-Map (Jetson Ubuntu 24.04, ROS 2 Lyrical)
+# SLAM — cuVSLAM + nvblox (Jetson GPU)
 
 > 실행·로그·오류 추적은 [`DEBUG.md`](../ros/DEBUG.md)에 정리되어 있다.
 
-NVIDIA arm64 저장소의 `ros-lyrical-pcl-conversions`는 **PCL 1.15**를 요구한다.
-Jetson Ubuntu 24.04에는 **PCL 1.14**만 있으므로 이 패키지는 설치할 수 없다.
-`pcl_conversions`는 소스로 빌드하고, `rtabmap_ros`도 소스로 빌드한다.
+SLAM은 cuVSLAM(위치 — map→odom) + nvblox(지도 — /map)다.
+설치·실행·실기 시험 순서는 [`CUVSLAM.md`](CUVSLAM.md)에 있다.
 
-## 1. 사전 패키지
-
-```bash
-sudo apt update
-sudo apt install -y \
-  libpcl-dev \
-  libeigen3-dev \
-  ros-lyrical-image-geometry \
-  ros-lyrical-cv-bridge \
-  ros-lyrical-image-transport \
-  ros-lyrical-laser-geometry \
-  ros-lyrical-message-filters \
-  ros-lyrical-pcl-msgs
-```
-
-> `ros-lyrical-pcl-conversions`, `ros-lyrical-pcl-ros`는 설치하지 않는다.  
-> 위 PCL 1.15 의존성 때문에 `Unable to correct problems`가 난다.
-
-## 2. 소스 받기
-
-```bash
-mkdir -p ~/ros2_rtabmap_ws/src
-cd ~/ros2_rtabmap_ws
-
-git clone -b lyrical-devel https://github.com/introlab/rtabmap.git src/rtabmap
-git clone -b lyrical-devel https://github.com/introlab/rtabmap_ros.git src/rtabmap_ros
-```
-
-`pcl_conversions`는 **반드시 `ros2` 브랜치**를 쓴다.  
-`jazzy` 브랜치는 Lyrical의 `message_filters` 헤더(.hpp)와 맞지 않아
-`message_filters/message_event.h: No such file` 에러가 난다.
-
-```bash
-git clone -b ros2 https://github.com/ros-perception/perception_pcl.git src/perception_pcl
-```
-
-## 3. 빌드 (순서 중요)
-
-```bash
-cd ~/ros2_rtabmap_ws
-source /opt/ros/lyrical/setup.bash
-
-# 3-1. PCL 1.14에 맞는 pcl_conversions
-colcon build --symlink-install \
-  --packages-select pcl_conversions \
-  --parallel-workers 1 \
-  --cmake-args -DCMAKE_BUILD_TYPE=Release
-
-source install/setup.bash
-
-# 3-2. pcl_conversions를 쓰는 rtabmap_conversions
-rm -rf build/rtabmap_conversions install/rtabmap_conversions
-colcon build --symlink-install \
-  --packages-select rtabmap_conversions \
-  --parallel-workers 1 \
-  --cmake-args -DCMAKE_BUILD_TYPE=Release
-
-source install/setup.bash
-
-# 3-3. 나머지 rtabmap/rtabmap_ros
-export MAKEFLAGS="-j2"
-colcon build --symlink-install \
-  --parallel-workers 1 \
-  --cmake-args -DCMAKE_BUILD_TYPE=Release
-```
-
-전체 빌드 후 `rtabmap_launch`만 빠지는 경우가 있다.
-이때 `--packages-select rtabmap_launch`만 쓰면 **의존 패키지 `rtabmap_odom`·`rtabmap_viz`가 없어서**
-다음 에러가 날 수 있다.
-
-```text
-Failed to find ... rtabmap_viz/package.sh
-Failed to find ... rtabmap_odom/package.sh
-```
-
-이 경우 `rtabmap_launch`의 의존성까지 같이 빌드한다.
-
-```bash
-source install/setup.bash
-
-colcon build --symlink-install \
-  --packages-up-to rtabmap_launch \
-  --parallel-workers 1 \
-  --event-handlers console_direct+ \
-  --cmake-args -DCMAKE_BUILD_TYPE=Release
-```
-
-`rtabmap_launch`는 우리 `ros_system`이 직접 `rtabmap.launch.py`를 쓰지는 않지만,
-`ros2 launch`의 패키지 검색에서 빠지지 않도록 설치해 둔다.
-
-## 4. 설치 확인
-
-```bash
-source ~/ros2_rtabmap_ws/install/setup.bash
-
-ros2 pkg prefix pcl_conversions
-ros2 pkg prefix rtabmap_launch
-ros2 pkg prefix rtabmap_slam
-ros2 pkg prefix rtabmap_sync
-ros2 pkg prefix rtabmap_util
-ros2 pkg prefix rtabmap_odom
-ros2 pkg prefix rtabmap_viz
-```
-
-모두 실제 경로가 나와야 한다.
-
-## 5. 실행
-
-`start.sh`는 `~/ros2_rtabmap_ws/install/setup.bash`를 자동으로 source한다.
-
-```bash
-cd ~/Lv2_bee_Assignment/lv2_module6/ros2_ws
-./start.sh
-```
-
-수동으로 source하려면:
-
-```bash
-source ~/ros2_rtabmap_ws/install/setup.bash
-```
-
-## 6. 자주 나는 빌드 에러
-
-### `libpcl-common1.15` / `libpcl-io1.15` 없음
-
-`ros-lyrical-pcl-conversions`를 apt로 설치하려 해서 생긴다.  
-설치하지 말고 위 2번부터 소스 빌드한다.
-
-### `Failed to find ... rtabmap_viz/package.sh` / `rtabmap_odom/package.sh`
-
-`rtabmap_launch`만 `--packages-select`로 빌드해서 생긴다.  
-`--packages-up-to rtabmap_launch`로 의존 패키지까지 빌드한다.
-
-```bash
-cd ~/ros2_rtabmap_ws
-source /opt/ros/lyrical/setup.bash
-source install/setup.bash
-
-colcon build --symlink-install \
-  --packages-up-to rtabmap_launch \
-  --parallel-workers 1 \
-  --event-handlers console_direct+ \
-  --cmake-args -DCMAKE_BUILD_TYPE=Release
-```
-
-의존 패키지를 하나씩 먼저 빌드하려면:
-
-```bash
-cd ~/ros2_rtabmap_ws
-source /opt/ros/lyrical/setup.bash
-source install/setup.bash
-
-# 1) rtabmap_odom
-colcon build --symlink-install \
-  --packages-select rtabmap_odom \
-  --parallel-workers 1 \
-  --event-handlers console_direct+
-
-# 2) rtabmap_viz (Qt/RViz — 실패하면 에러를 먼저 해결)
-colcon build --symlink-install \
-  --packages-select rtabmap_viz \
-  --parallel-workers 1 \
-  --event-handlers console_direct+
-
-# 3) rtabmap_launch
-colcon build --symlink-install \
-  --packages-select rtabmap_launch \
-  --parallel-workers 1 \
-  --event-handlers console_direct+
-```
-
-또는 의존성까지 한 번에:
-
-```bash
-colcon build --symlink-install \
-  --packages-up-to rtabmap_launch \
-  --parallel-workers 1 \
-  --event-handlers console_direct+ \
-  --cmake-args -DCMAKE_BUILD_TYPE=Release
-```
+- **cuVSLAM** — Orin + JetPack 7은 배포 휠이 안 돼(`Illegal instruction`) PyCuVSLAM **소스 빌드** (CUVSLAM.md 2절).
+- **nvblox** — Isaac ROS 5.0 apt의 Lyrical nvblox는 x86(amd64)만 있다. Jetson은 `~/isaac_ros_ws`에 소스 빌드하거나 Isaac ROS 컨테이너 (CUVSLAM.md 2-1절).
+- `start.sh`는 `~/isaac_ros_ws/install/setup.bash`가 있으면 자동으로 source한다 (다른 곳이면 `SLAM_WS=<경로> ./start.sh`).
+- 둘 중 하나라도 없으면 launch가 시작할 때 무엇이 없는지 알리고 멈춘다. SLAM 없이 띄우려면 `use_slam:=false`.
 
 확인:
 
 ```bash
-source ~/ros2_rtabmap_ws/install/setup.bash
-
-ros2 pkg prefix rtabmap_launch
-ros2 pkg prefix rtabmap_odom
-ros2 pkg prefix rtabmap_viz
-
-cd ~/Lv2_bee_Assignment/lv2_module6/ros2_ws
-./start.sh
-```
-
-### `Findpcl_conversions.cmake` 없음
-
-```bash
-source ~/ros2_rtabmap_ws/install/setup.bash
-ros2 pkg prefix pcl_conversions
-```
-
-가 안 되면 3-1의 `pcl_conversions` 빌드가 안 된 것이다.
-
-### `message_filters/message_event.h` 없음
-
-`perception_pcl`을 `jazzy` 브랜치로 받은 경우다.
-
-```bash
-cd ~/ros2_rtabmap_ws/src/perception_pcl
-git fetch origin ros2
-git checkout ros2
-git pull
-```
-
-그 뒤 `pcl_conversions`를 다시 빌드한다.
-
-### `Findpcl_msgs.cmake` 없음
-
-```bash
-sudo apt install -y ros-lyrical-pcl-msgs
-source /opt/ros/lyrical/setup.bash
-ros2 pkg prefix pcl_msgs
-```
-
-가 안 되면 `pcl_msgs`도 소스 빌드한다.
-
-```bash
-git clone -b jazzy https://github.com/ros-perception/pcl_msgs.git \
-  ~/ros2_rtabmap_ws/src/pcl_msgs
+python3 -c "import cuvslam; print(cuvslam.get_version())"
+ros2 pkg prefix nvblox_ros && ros2 pkg executables nvblox_ros | grep nvblox_node
 ```
 
 # 1. Arduino CLI 설치

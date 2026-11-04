@@ -2,6 +2,25 @@
 from __future__ import annotations
 
 import time
+from collections import deque
+
+
+class Rate:
+    """토픽 수신 빈도 — 최근 2초 안의 수신 시각으로 Hz, 마지막 수신 뒤 경과."""
+
+    def __init__(self):
+        self.times: deque[float] = deque(maxlen=200)
+
+    def tick(self):
+        self.times.append(time.monotonic())
+
+    def age(self) -> float | None:
+        return time.monotonic() - self.times[-1] if self.times else None
+
+    def hz(self) -> float:
+        now = time.monotonic()
+        recent = [t for t in self.times if now - t <= 2.0]
+        return (len(recent) - 1) / (recent[-1] - recent[0]) if len(recent) > 1 and recent[-1] > recent[0] else 0.0
 
 
 class StateStore:
@@ -16,6 +35,10 @@ class StateStore:
         self.diag_values: dict = {}
         self.joints: dict[str, float] = {}
         self.joint_vel: dict[str, float] = {}
+        self.joint_effort: dict[str, float] = {}  # BeebotSystemHardware effort = 모터 전류 [A]
+        self.motor_temp: dict[str, int] = {}      # /motor_status °C (−1 모름)
+        self.motor_text: dict[str, str] = {}      # /motor_status 에러 이름 ("정상" · "과부하" …)
+        self.battery_v = float('nan')             # /motor_status OpenCR 전원 입력(배터리) V — NaN 모름
         self.last_joint_time = 0.0
         self.last_update = 0.0  # 마지막 토픽 수신 시각 (monotonic) — 헤더 갱신시각 표시용
         self.param_clients: dict = {}
@@ -23,6 +46,10 @@ class StateStore:
         self.tracked_count = 0
         self.task_status = ''
         self.say_last = ''
+        self.rates: dict[str, Rate] = {}  # 상단 생존 표시 — 키는 ui.TOPIC_DOTS
+
+    def tick(self, key: str):
+        self.rates.setdefault(key, Rate()).tick()
 
     @property
     def operation(self) -> str:
@@ -56,15 +83,25 @@ class StateStore:
         self.device_details[name] = text
         self._touch()
 
-    def on_joints(self, names, positions, velocities=None):
+    def on_joints(self, names, positions, velocities=None, efforts=None):
         self._touch()
+        self.tick('joint_states')
         vels = list(velocities or [])
+        effs = list(efforts or [])
         for i, name in enumerate(names):
             if i < len(positions):
                 self.joints[name] = positions[i]
             if i < len(vels):
                 self.joint_vel[name] = vels[i]
+            if i < len(effs):
+                self.joint_effort[name] = effs[i]
         self.last_joint_time = time.monotonic()
+
+    def on_motor_status(self, names, temps, texts, battery_v=float('nan')):
+        self._touch()
+        self.battery_v = battery_v
+        self.motor_temp.update(zip(names, temps))
+        self.motor_text.update(zip(names, texts))
 
     def on_diagnostics(self, statuses):
         self._touch()
@@ -84,6 +121,7 @@ class StateStore:
 
     def on_objects(self, objects):
         self._touch()
+        self.tick('tracked_objects')
         try:
             self.tracked_count = len(objects)
         except Exception:

@@ -8,11 +8,11 @@ analyzers:
     perception:
       type: diagnostic_aggregator/GenericAnalyzer
       path: 인지
-      startswith: [ 'perception', 'body_filter' ]
+      startswith: [ 'perception', 'body_filter', 'signal_decoder' ]
     plan:
       type: diagnostic_aggregator/GenericAnalyzer
       path: 계획·임무
-      startswith: [ 'user_input', 'vlm_task_planner', 'coordinator', 'explorer', 'signal_decoder' ]
+      startswith: [ 'user_input', 'vlm_task_planner', 'coordinator', 'explorer' ]
     ml:
       type: diagnostic_aggregator/GenericAnalyzer
       path: 학습
@@ -35,4 +35,4 @@ analyzers:
     system:
       type: diagnostic_aggregator/GenericAnalyzer
       path: 제공 패키지
-      startswith: [ 'ekf_filter_node', 'twist_mux', 'robot_state_publisher', 'rtabmap', 'controller_server', 'bt_navigator' ]
+      startswith: [ 'ekf_filter_node', 'twist_mux', 'robot_state_publisher', 'cuvslam_slam', 'nvblox', 'controller_server', 'bt_navigator' ]

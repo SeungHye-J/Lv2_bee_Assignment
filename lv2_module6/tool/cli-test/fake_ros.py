@@ -166,6 +166,23 @@ class SaveMap:
 
 
 # ---------------------------------------------------------------- QoS
+class Int32MultiArray(_Msg):
+    def __init__(self, data=None):
+        self.data = list(data or [])
+
+
+class Odometry(_Msg):  # CLI는 수신 시각만 씀
+    pass
+
+
+class Imu(_Msg):
+    pass
+
+
+class CameraInfo(_Msg):
+    pass
+
+
 class _QosEnum:
     RELIABLE = 1
     BEST_EFFORT = 2
@@ -331,10 +348,16 @@ class Node:
             vals['operation_mode'] = data
         elif topic == '/cmd/e_stop' and isinstance(data, bool):
             state.emergency = data
-        elif topic == '/cmd/map_mode' and isinstance(data, str):
+        # 진짜 state_manager처럼 지도 모드·지도 바꾸기 = launch 재시작 (/state/restart로 응답, 다시 뜬 뒤 새 값).
+        #   거절 이유(지도 없음 등)는 진단에만 남고 /state/restart엔 아무것도 안 옴 — 그것도 같게
+        elif topic == '/cmd/map_mode' and isinstance(data, str) and vals.get('map_mode') != 'COURSE':
+            arg = 'map:=slam' if data == 'MAPPING' else f'map:=saved map_name:={vals.get("map_name")}'
+            vals['restart'] = f'all: 재시작 중 — launch pid 4242 · 바꾼 인자 {arg} (가짜)'
             vals['map_mode'] = data
-        elif topic == '/cmd/map_name' and isinstance(data, str):
-            vals['map_name'] = data
+        elif topic == '/cmd/map_name' and isinstance(data, str) and vals.get('map_mode') != 'COURSE':
+            if data in (vals.get('map_list') or '').splitlines():
+                vals['restart'] = f'all: 재시작 중 — launch pid 4242 · 바꾼 인자 map:=saved map_name:={data} (가짜)'
+                vals['map_mode'], vals['map_name'] = 'LOCALIZATION', data
         elif topic == '/cmd/restart' and isinstance(data, str):
             vals['restart'] = f'{data} (가짜 수락)'
             # map:= 인자가 있으면 가짜 state_manager가 지도 모드까지 갈아탄 것으로 친다
@@ -380,10 +403,12 @@ def install():
     qos.QoSReliabilityPolicy = _QosEnum
     qos.QoSDurabilityPolicy = _QosEnum
     qos.QoSHistoryPolicy = _QosEnum
-    _mod('std_msgs', msg=_mod('std_msgs.msg', String=String, Bool=Bool, Empty=Empty))
+    qos.qos_profile_sensor_data = QoSProfile(depth=5)
+    _mod('std_msgs', msg=_mod('std_msgs.msg', String=String, Bool=Bool, Empty=Empty, Int32MultiArray=Int32MultiArray))
     _mod('geometry_msgs', msg=_mod('geometry_msgs.msg', TwistStamped=TwistStamped,
                                   Twist=Twist, Vector3=Vector3))
-    _mod('sensor_msgs', msg=_mod('sensor_msgs.msg', JointState=JointState, Header=Header))
+    _mod('sensor_msgs', msg=_mod('sensor_msgs.msg', JointState=JointState, Header=Header, Imu=Imu, CameraInfo=CameraInfo))
+    _mod('nav_msgs', msg=_mod('nav_msgs.msg', Odometry=Odometry))
     _mod('diagnostic_msgs', msg=_mod('diagnostic_msgs.msg', DiagnosticArray=DiagnosticArray,
                                     DiagnosticStatus=DiagnosticStatus, KeyValue=KeyValue))
     _mod('rcl_interfaces',

@@ -156,21 +156,21 @@ TEST(Signal, PickCombo) {
 }
 
 TEST(Signal, MissionPlan) {
-  plan::msg::MissionSignal sig;
+  perception::msg::MissionSignal sig;
   sig.color = "red";
   sig.count = 2;
   sig.sum = 5;
   sig.dest_tag = 13;
   TrackedObjectArray objs;
   objs.objects = {obj(1, "puck", "red", 2, 0.5), obj(2, "puck", "red", -1, 0.6), obj(3, "puck", "green", -1, 0.4),
-                  obj(4, "puck", "", -1, 0.9), obj(9, "location", "", 13, 2.0)};
+                  obj(4, "puck", "", -1, 0.9), obj(9, "location_box", "", 13, 2.0)};
   std::set<uint32_t> inspected;
   // 번호 아는 빨간 퍽이 1개뿐 → 번호 모르는 빨간·색 모름 퍽을 가까운 순으로 inspect (초록은 안 봄)
   auto r = signal_plan(objs, sig, 0.0, 0.0, inspected, 4);
   ASSERT_EQ(r.kind, "inspect");
   EXPECT_EQ(r.inspect_ids, (std::vector<uint32_t>{2, 4}));
   EXPECT_EQ(r.goals[0].skill, "inspect");
-  // 봤더니 2번 퍽 = 태그 3 → 2+3 = 5 → 옮기기 (목적지 = 장소 태그 13인 물체 9)
+  // 봤더니 2번 퍽 = 태그 3 → 2+3 = 5 → 옮기기 (목적지 = 장소 상자(태그 13) 물체 9)
   objs.objects[1] = obj(2, "puck", "red", 3, 0.6);
   inspected = {2, 4};
   r = signal_plan(objs, sig, 0.0, 0.0, inspected, 4);
@@ -188,9 +188,9 @@ TEST(Signal, MissionPlan) {
 }
 
 TEST(Signal, VerifyPlan) {
-  // 목적지 = 장소 태그 13인 물체 9 (x 2.0) · 옮긴 번호 2·3 · 반경 0.2
+  // 목적지 = 장소 상자(태그 13) 물체 9 (x 2.0) · 옮긴 번호 2·3 · 반경 0.2
   TrackedObjectArray objs;
-  objs.objects = {obj(9, "location", "", 13, 2.0), obj(1, "puck", "red", 2, 2.05), obj(2, "puck", "red", -1, 1.9),
+  objs.objects = {obj(9, "location_box", "", 13, 2.0), obj(1, "puck", "red", 2, 2.05), obj(2, "puck", "red", -1, 1.9),
                   obj(5, "puck", "red", -1, 0.5)};
   // 보러 가기 — 목적지로 navigate · 근처의 번호 모르는 퍽(2)만 inspect (멀리 있는 5는 안 봄)
   auto r = verify_plan(objs, 13, {2, 3}, 0.2, false);
@@ -231,4 +231,94 @@ TEST(Coordinator, ApproachPose) {
   p = plan::approach_pose(1.0, 2.0, 1.0, 2.0, 0.3);
   EXPECT_NEAR(p.position.x, 0.7, 1e-9);
   EXPECT_NEAR(p.position.y, 2.0, 1e-9);
+}
+
+// stand (누운 퍽 세우기) · pick 누운 퍽 거절 — 대상 확인은 MoveIt 서버 대기보다 먼저라 서버 없이도 이유가 나옴
+namespace {
+perception::msg::TrackedObject puck_with(uint32_t id, const std::string & posture, bool yaw_known) {
+  perception::msg::TrackedObject o;
+  o.id = id;
+  o.class_name = posture == "lying" ? "puck_lying" : "puck";
+  o.pose.pose.orientation.w = 1.0;
+  diagnostic_msgs::msg::KeyValue kv;
+  kv.key = "posture";
+  kv.value = posture;
+  o.details.push_back(kv);
+  if (yaw_known) {
+    kv.key = "yaw_period";
+    kv.value = "180";
+    o.details.push_back(kv);
+  }
+  return o;
+}
+
+// 한 단계짜리 계획을 보내고 그 계획의 FAILED 이유를 받음 ("" = 시간 안에 실패 없음)
+std::string fail_reason(const std::string & skill, const std::string & target, const perception::msg::TrackedObject & o,
+                        uint32_t plan_id) {
+  auto node = std::make_shared<Coordinator>();
+  auto probe = std::make_shared<rclcpp::Node>("probe_stand_" + std::to_string(plan_id));
+  const auto latched = rclcpp::QoS(10).reliable().transient_local();
+  auto objects_pub = probe->create_publisher<TrackedObjectArray>("/tracked_objects", rclcpp::QoS(5).reliable());
+  auto goals_pub = probe->create_publisher<SubGoalArray>("/task/sub_goals", latched);
+  std::string reason;
+  auto sub = probe->create_subscription<TaskStatus>("/task/status", latched,
+    [&](TaskStatus::SharedPtr m) { if (m->plan_id == plan_id && m->state == TaskStatus::FAILED) reason = m->reason; });
+  rclcpp::executors::SingleThreadedExecutor exec;
+  exec.add_node(node);
+  exec.add_node(probe);
+  SubGoalArray plan;
+  plan.plan_id = plan_id;
+  SubGoal g;
+  g.step = 1;
+  g.skill = skill;
+  g.target = target;
+  plan.goals.push_back(g);
+  TrackedObjectArray objects;
+  objects.objects.push_back(o);
+  goals_pub->publish(plan);
+  spin_until(exec, [&]() { objects_pub->publish(objects); }, [&]() { return !reason.empty(); });
+  return reason;
+}
+}  // namespace
+
+TEST_F(RosTest, StandRejectsStandingPuck) {
+  EXPECT_EQ(fail_reason("stand", "5", puck_with(5, "standing", true), 21), "stand_not_lying");
+}
+
+TEST_F(RosTest, StandNeedsAxis) {
+  EXPECT_EQ(fail_reason("stand", "5", puck_with(5, "lying", false), 22), "stand_no_axis");
+}
+
+TEST_F(RosTest, StandIsAllowedSkill) {
+  // 세울 수 있는 대상이면 계획 수락 → MoveIt 서버를 기다리는 중 (invalid_plan이 아님 · 2초 안엔 실패 없음)
+  auto node = std::make_shared<Coordinator>();
+  node->set_parameter(rclcpp::Parameter("server_wait_s", 30.0));
+  auto probe = std::make_shared<rclcpp::Node>("probe_stand_ok");
+  const auto latched = rclcpp::QoS(10).reliable().transient_local();
+  auto objects_pub = probe->create_publisher<TrackedObjectArray>("/tracked_objects", rclcpp::QoS(5).reliable());
+  auto goals_pub = probe->create_publisher<SubGoalArray>("/task/sub_goals", latched);
+  std::vector<TaskStatus> got;
+  auto sub = probe->create_subscription<TaskStatus>("/task/status", latched,
+    [&](TaskStatus::SharedPtr m) { if (m->plan_id == 23) got.push_back(*m); });
+  rclcpp::executors::SingleThreadedExecutor exec;
+  exec.add_node(node);
+  exec.add_node(probe);
+  SubGoalArray plan;
+  plan.plan_id = 23;
+  SubGoal g;
+  g.step = 1;
+  g.skill = "stand";
+  g.target = "5";
+  plan.goals.push_back(g);
+  TrackedObjectArray objects;
+  objects.objects.push_back(puck_with(5, "lying", true));
+  goals_pub->publish(plan);
+  ASSERT_TRUE(spin_until(exec, [&]() { objects_pub->publish(objects); },
+    [&]() { for (auto & s : got) if (s.state == TaskStatus::RUNNING) return true; return false; }));
+  spin_until(exec, [&]() { objects_pub->publish(objects); }, [] { return false; }, 2.0);
+  for (auto & s : got) EXPECT_NE(s.state, TaskStatus::FAILED) << s.reason;
+}
+
+TEST_F(RosTest, PickRejectsLyingPuck) {
+  EXPECT_EQ(fail_reason("pick", "5", puck_with(5, "lying", true), 24), "pick_lying");
 }

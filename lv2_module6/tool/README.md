@@ -6,7 +6,7 @@
 ```text
 tool/
 ├── README.md
-├── run-cli          # start|stop|restart 실행기 (기본 start)
+├── run-cli          # 메뉴(기본) · start|stop|restart = 로봇 스택(bringup) · 그 밖은 CLI 명령
 ├── run-rviz         # start|stop|restart 실행기 (기본 start)
 ├── rviz/
 │   ├── start.sh
@@ -15,8 +15,6 @@ tool/
 │   └── operator.rviz
 └── cli/
     ├── start.sh
-    ├── stop.sh
-    ├── restart.sh
     ├── DEVELOP.md         # 개발자용 — TUI를 어떻게 만들었나 · 화면 흐름 규약 · 메뉴 추가 · 시험
     ├── operator_tool.py   # 얇은 App: 배선 + argparse + main
     └── op/                # 실제 구현
@@ -30,15 +28,20 @@ tool/
         └── pages/         # Page → Menu → 각 메뉴 화면 (MenuItem)
 ```
 
-`run-cli`/`run-rviz`는 `start|stop|restart`를 받아 각 폴더의 스크립트를 실행한다.
-인자가 없으면 `start`다.
+`run-cli`는 인자가 없으면 대화형 메뉴, `start|stop|restart`는 **로봇 스택(bringup)** 제어, 그 밖은 CLI 한 번 명령이다.
 
 ```bash
 cd tool
-./run-cli            # CLI 시작 (= start)
-./run-cli stop       # 실행 중인 CLI 종료
-./run-cli restart    # CLI 프로세스 재시작
+./run-cli                     # 대화형 메뉴 (TUI)
+./run-cli start               # bringup 시작 (백그라운드 · 로그 ~/.ros/bringup.log · 이미 떠 있으면 그대로)
+./run-cli stop                # 떠 있는 ROS 전부 끄기 (ros2_ws/stop.sh)
+./run-cli restart             # stop → start (= restart all)
+./run-cli restart perception  # 그 노드만 (state_manager · 수명주기 노드는 active까지)
+./run-cli status              # 그 밖은 CLI 명령 (status · mode manual · arm show · node list …)
+./run-cli beep                # OpenCR 부저 기본음 · ./run-cli beep 4000 300 = 높이·길이 (메뉴 0)
 ```
+
+`start`는 이 셸의 환경(`FASTDDS_DEFAULT_PROFILES_FILE` · `ROS_DOMAIN_ID`)을 그대로 넘긴다 — `~/.bashrc`를 고쳤으면 새 터미널에서.
 
 ```bash
 cd tool
@@ -47,15 +50,7 @@ cd tool
 ./run-rviz restart
 ```
 
-주의: `./run-cli restart <대상> --yes`처럼 뒤에 인자가 있으면
-CLI 프로세스 재시작이 아니라 state_manager에 보내는 재시작 '요청' 명령이다.
-
-전체 로봇은 먼저 띄워 둡니다.
-
-```bash
-cd ../ros2_ws
-./start.sh
-```
+로그를 터미널에서 직접 보려면 `ros2_ws/start.sh`로 앞에서 띄워도 된다.
 
 ## 실행
 
@@ -77,9 +72,11 @@ cd tool
   5) 팔
   6) 그리퍼
   7) 지도
-  8) 비상정지
-  9) 재시작
- 10) RViz 열기 (Best Effort QoS)
+  8) 바퀴 (실시간 각도·속도·온도 · 텔레오퍼 · 정지 · 복구)
+  9) 비상정지
+ 10) 노드 (상태 · 재시작 · 전체 재시작)
+ 11) RViz 열기 (Best Effort QoS)
+ 12) 파라미터 (노드별)
   q) 종료
 ```
 
@@ -101,8 +98,8 @@ cd tool
   (폭 70 미만이면 세로로 쌓습니다)
 - `1) 상태 → 5) 진단`: 진단 목록(문제 있는 것 먼저, ● 초록 OK · 노랑 WARN · 빨강 ERROR) → 고르면 그 항목의 값 전부를 2초마다 갱신해서 보여 줌 (신호등 미션 진행 · 모터 에러 등)
 - `2) 장치`에서 장치를 고르면 종류·활성 여부·토픽·관련 진단을 봅니다.
-  `1) 파라미터`는 그 장치 토픽을 내는 노드를 찾아 `11) 파라미터 (노드별)`과 같은 화면을 엽니다
-- `11) 파라미터 (노드별)`: 노드 → 파라미터 목록(현재값 표시) → 고르면 값 입력 → 변경 내용을 확인창에서 보고 적용.
+  `1) 파라미터`는 그 장치 토픽을 내는 노드를 찾아 `12) 파라미터 (노드별)`과 같은 화면을 엽니다
+- `12) 파라미터 (노드별)`: 노드 → 파라미터 목록(현재값 표시) → 고르면 값 입력 → 변경 내용을 확인창에서 보고 적용.
   읽기전용은 거부. `c` config 기본값 비교 · `d` yaml 기본값으로 되돌리기
 - `4) 수동 주행`에서 `텔레오퍼`를 고르면 `w`/`↑`(전진) · `x`/`↓`(후진) · `a`/`←`·`d`/`→`(회전),
   `s`·`space`(정지), `e`·`c`(속도▲▼), `q`/`Esc`(종료)로 바로 주행합니다
@@ -179,7 +176,11 @@ cd tool
 ./run-cli arm set joint1=0.0 joint2=0.4 joint3=-0.2
 ./run-cli arm delta joint2=+0.05
 ./run-cli arm home
+./run-cli arm initial       # 시작 자세로 — 떠 있는 coordinator의 initial_pose·initial_gripper (없으면 plan.yaml) (메뉴: 팔 → 7)
 ./run-cli arm reboot          # 과부하 등 Hardware Error 난 모터만 재부팅 (메뉴: 팔 → 5)
+./run-cli mode teach          # TEACH: 팔(joint1~5)·그리퍼 토크 끔 — 손으로 자세 잡기 (팔이 처지니 잡고 있을 것)
+./run-cli arm capture         # 지금 팔·그리퍼 자세를 plan.yaml initial_pose·initial_gripper 줄로 출력 (파일은 안 고침)
+./run-cli mode manual         # TEACH를 나가면 그 자리에서 토크 켬 (튀지 않게 목표를 지금 각으로 먼저 맞춤)
 
 ./run-cli gripper show
 ./run-cli gripper open
@@ -190,6 +191,7 @@ cd tool
 - `arm set`은 지정한 관절만 보내고, 나머지는 `manual_control`이 현재 각으로 채웁니다.
 - `MAPPING` 중에는 팔 명령이 스캔 자세 고정 때문에 거절됩니다. 그리퍼는 가능합니다.
 - 관절 한계는 `controller_manager`의 joint limiter가 최종 적용합니다.
+- 시작 자세 다시 잡기: 메뉴 **팔 → 6** — TEACH로 바꿈(팔·그리퍼 토크 끔) → 손으로 자세 → 확인 → `initial_pose`·`initial_gripper` 줄 출력 → 바로 MANUAL로(그 자리에서 토크 켬). 출력된 줄을 `ros2_ws/src/plan/config/plan.yaml`(coordinator)에 직접 붙여 넣고 bringup을 재시작하면 시작 자세가 됩니다. MANUAL은 토크가 늘 켜져 있고, 토크를 푸는 건 운영 모드 **TEACH**뿐입니다(메뉴 조작 모드 → 4). TEACH 동안 수동 바퀴·팔·그리퍼 명령과 자동 작업·시작 자세 이동은 멈추고, 바퀴 토크는 그대로입니다. 지도 MAPPING 중에는 TEACH가 거절됩니다.
 - `arm reboot`은 `/state/devices/<wheels·arm·gripper>`에서 모터 에러(`joint2:과부하`)를 보고, 있으면 `/cmd/manual/reboot_motors`를 보낸 뒤 풀릴 때까지(최대 8초) 기다립니다. 에러가 없으면 보내지 않습니다. MANUAL 모드에서만 동작하며, 팔 메뉴에도 에러가 빨간색으로 표시됩니다.
 
 ### 지도
@@ -205,17 +207,29 @@ cd tool
 ./run-cli map save --map-dir /path/to/maps
 ```
 
-`map save`는 `/map_saver/save_map` 서비스를 호출해 `.pgm`·`.yaml`을 저장합니다.
-기본 경로는 `ros2_ws/map/<현재 지도 이름>/map`입니다.
+지도 한 벌 = 폴더 하나 `<map_dir>/<이름>/` (`nvblox.nvblx` 정본 · `map.pgm`·`map.yaml` 미리보기). 목록은 `nvblox.nvblx`가 있는 폴더입니다.
 
-### 재시작
+- `map mode` · `map switch`는 **launch 전체를 다시 띄웁니다** (cuVSLAM·nvblox는 실행 중 전환이 없음 — state_manager가 `all map:=slam` · `all map:=saved map_name:=<이름>`).
+  CLI는 `/state/restart`의 첫 응답(`all: 재시작 중 …` · `거절: …`)만 보여 주고 끝납니다. 다시 뜨는 데 수십 초(nvblox 지도 저장 → SLAM 시작) — 끝났는지는 `map status`.
+- 없는 지도 이름 · 지도 폴더 없이 `localization`은 CLI가 먼저 거절합니다 (state_manager는 거절 이유를 `/diagnostics`에만 남김).
+- COURSE(테스트베드 정지 지도)에서는 확인 뒤 `/cmd/restart`로 갈아탑니다. SLAM은 GPU가 있어야 해서 **GPU 없는 테스트베드에선 시작하다 멈춥니다**.
+- `map save`는 `/map_saver/save_map`(map:=slam·saved일 때만 뜸)을 불러 `.pgm`·`.yaml`을 저장합니다.
+  기본 경로는 `<state_manager의 map_dir>/<현재 지도 이름>/map` — map_saver가 도는 쪽(로봇·컨테이너) 경로라 원격 PC에서 CLI를 써도 맞습니다.
+  `map_dir`을 못 읽으면 이 컴퓨터의 `ros2_ws/map`(또는 `BEEBOT_MAP_DIR`). `--file` · `--map-dir`는 그대로 씁니다.
+
+### 노드 (상태 · 재시작)
 
 ```bash
-./run-cli restart all --yes
-./run-cli restart perception --yes
+./run-cli node list                          # 노드 전부 — ● 보임 / ✗ 안 보임 · pid · 수명주기 노드는 [active] 등
+./run-cli node status velocity_smoother      # 한 노드 상세 (pid · 수명주기 상태 · 발행/구독 수 · 진단)
+./run-cli node activate velocity_smoother    # 수명주기 노드 unconfigured·inactive → active
+./run-cli node restart perception            # 그 노드만 다시 띄움 (수명주기 노드면 다시 뜬 뒤 active까지)
+./run-cli restart                            # 전체 재시작 — stop → start (메뉴 10 a)는 state_manager가 같은 launch 명령으로)
 ```
 
-`--yes` 없이는 실행되지 않습니다. 전체 스택이 재시작되므로 주의합니다.
+- 메뉴 **10) 노드**: 맨 위 `a)` 전체 재시작(RESTART 입력), 그 아래 노드 목록. 노드를 고르면 1) 상태 보기 · 2) 재시작 · 3) 활성화(수명주기 노드만).
+- 수명주기 노드(velocity_smoother · collision_monitor · Nav2 서버)는 `lifecycle_manager_base`·`_navigation`이 기동 때 켭니다. 기동 중 응답 시간 초과 등으로 멈춰 `[unconfigured]`·`[inactive]`로 남으면 바퀴 명령이 `/cmd_vel`까지 못 가 텔레오퍼가 안 움직입니다 → 그 노드를 **3) 활성화**.
+- 재시작은 state_manager 재시작 목록(이 launch 아래 노드)에 있는 것만 됩니다. 명령줄 재시작은 확인 없이 바로 실행합니다.
 
 ## RViz
 
@@ -242,11 +256,11 @@ cd tool
 필요할 때 RViz Displays에서 켜세요.
 
 Jetson에서 로컬로 실행하면 네트워크를 타지 않습니다. PC에서 원격으로 볼 때는
-Jetson과 PC의 `ROS_DOMAIN_ID`를 맞추고, `ROS_LOCALHOST_ONLY`는 끄세요.
+PC도 Jetson과 같은 `ROS_DOMAIN_ID`(Jetson은 0)로 맞추고, `ROS_LOCALHOST_ONLY`는 끄세요.
 
 ```bash
-# Jetson과 PC 모두 같은 값
-export ROS_DOMAIN_ID=42
+# PC — Jetson과 같은 값
+export ROS_DOMAIN_ID=0
 ```
 
 느리면 RViz Image Display의 **Transport Hint**를 `compressed`로 바꾸거나

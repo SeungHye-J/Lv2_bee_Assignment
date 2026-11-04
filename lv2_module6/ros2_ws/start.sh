@@ -48,13 +48,13 @@ ros_setup="/opt/ros/$ROS_DISTRO_NAME/setup.bash"
 # shellcheck disable=SC1090
 source "$ros_setup"
 
-# RTAB-Map을 별도 workspace에 소스 빌드한 경우 overlay를 자동으로 올린다.
-#   ~/ros2_rtabmap_ws/install/setup.bash
-# 없는 경우에도 계속 진행하고, RTAB-Map이 필요한 launch에서 원인이 드러난다.
-RTABMAP_WS="${RTABMAP_WS:-$HOME/ros2_rtabmap_ws}"
-if [ -f "$RTABMAP_WS/install/setup.bash" ]; then
+# nvblox(isaac_ros_nvblox)를 별도 workspace에 소스 빌드한 경우 overlay를 자동으로 올린다 (Jetson arm64용 apt가 없음).
+#   ~/isaac_ros_ws/install/setup.bash — documents/jetson-orin-nano/CUVSLAM.md "nvblox"
+# 없는 경우에도 계속 진행하고, SLAM을 띄울 때 ros_system check_slam이 무엇이 없는지 알려 준다.
+SLAM_WS="${SLAM_WS:-$HOME/isaac_ros_ws}"
+if [ -f "$SLAM_WS/install/setup.bash" ]; then
   # shellcheck disable=SC1091
-  source "$RTABMAP_WS/install/setup.bash"
+  source "$SLAM_WS/install/setup.bash"
 fi
 
 # --- 빌드 (저장소에서 실행할 때만)
@@ -68,6 +68,11 @@ source "$HERE/install/setup.bash"
 # Fast DDS TypeLookup 끔 — 노드 40개에서 UDP 폭주로 controller_manager가 못 뜨는 것 방지 (설명: fastdds.xml)
 export FASTDDS_DEFAULT_PROFILES_FILE="${FASTDDS_DEFAULT_PROFILES_FILE:-$HERE/fastdds.xml}"
 [ -f "$FASTDDS_DEFAULT_PROFILES_FILE" ] || echo "WARN: Fast DDS 프로파일 없음: $FASTDDS_DEFAULT_PROFILES_FILE — 기본 전송으로 실행 (UDP 폭주 가능)"
+# 실기에서 확인한 함정 — 이 둘이면 Nav2 수명주기 서비스 응답이 버려져 velocity_smoother·collision_monitor가 안 켜짐 (텔레오퍼 안 움직임).
+# 기기 안 격리는 fastdds_local.xml(SHM만)로 — documents/jetson-orin-nano/SETTING.md 5
+[ -n "${ROS_DISCOVERY_SERVER:-}" ] && echo "WARN: ROS_DISCOVERY_SERVER=$ROS_DISCOVERY_SERVER — 서비스 응답 timeout으로 Nav2가 안 켜질 수 있음 (격리는 fastdds_local.xml)"
+[ "${ROS_AUTOMATIC_DISCOVERY_RANGE:-}" = LOCALHOST ] || [ "${ROS_LOCALHOST_ONLY:-0}" = 1 ] && echo "WARN: LOCALHOST discovery — 노드 일부가 서로 안 보일 수 있음 (격리는 fastdds_local.xml + SUBNET)"
+echo "Fast DDS 프로파일: $FASTDDS_DEFAULT_PROFILES_FILE"
 
 # 로그 소음 줄이기: RCUTILS_DEFAULT_LOGGER_DEFAULT_LEVEL=WARN ./start.sh (기본 INFO — 전 노드 적용, rcl 표준).
 # 우리 노드 중요 이벤트는 WARN 이상이라 WARN으로 올려도 운영에 지장 없음 (INFO 계획 상세·주기 상태는 안 나옴).

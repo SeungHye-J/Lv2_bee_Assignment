@@ -13,10 +13,11 @@ static const std::array<const char *, 10> IMU_FIELDS = {
   "angular_velocity.x", "angular_velocity.y", "angular_velocity.z",
   "linear_acceleration.x", "linear_acceleration.y", "linear_acceleration.z"};
 static constexpr size_t MOTORS = WHEELS.size() + ARM.size();  // 8 — E·R 필드 · S 온도 순서
-// S 값 개수: 바퀴 pos·vel + 팔·그리퍼 pos·vel·A + IMU 10 = 32, 그 뒤 모터 온도 °C 8 = 40.
-// 온도 없는 예전 펌웨어(32)도 받는다 — 온도만 모름(−1)으로 (업로드 전에 로봇이 안 뜨지 않게)
-static constexpr size_t STATE_VALUES_NO_TEMP = WHEELS.size() * 2 + ARM.size() * 3 + IMU_FIELDS.size();  // 32
-static constexpr size_t STATE_VALUES = STATE_VALUES_NO_TEMP + MOTORS;  // 40
+// S 값 개수: 모터 8개 × (pos · vel · 전류 A) 24 + IMU 10 + 모터 온도 °C 8 + 배터리 V 1 = 43 (순서는 firmware/README.md)
+// 형식은 하나뿐 — 개수가 다르면 예전 펌웨어 (다시 올릴 것)
+static constexpr size_t STATE_VALUES = MOTORS * 3 + IMU_FIELDS.size() + MOTORS + 1;  // 43
+// 배터리 경고 — TurtleBot3 11.1V(3S) LiPo, 11.0V 아래면 곧 모터가 약해짐 (USB만 꽂힌 0V 근처는 "12V 꺼짐")
+static constexpr double BATTERY_WARN_V = 11.0;
 // 모터 온도 경고 — XM430 Temperature Limit 기본 80 °C (넘으면 과열 Hardware Error로 토크가 꺼짐) 전에 알림
 static constexpr int TEMP_WARN_C = 70;
 static const char * motor_name(size_t i) { return i < WHEELS.size() ? WHEELS[i] : ARM[i - WHEELS.size()]; }
@@ -46,6 +47,12 @@ CallbackReturn BeebotSystemHardware::on_init(const hardware_interface::HardwareC
     for (const auto * name : WHEELS) if (!in_urdf(name)) return missing(name);
     for (const auto * name : ARM) if (!in_urdf(name)) return missing(name);
   }
+  for (const auto & j : info_.joints)  // URDF 바퀴에 effort 상태(전류 A)가 있으면 S 맨 끝 2칸을 채움
+    if (j.name == WHEELS[0])
+      for (const auto & si : j.state_interfaces) wheel_effort_ |= si.name == hardware_interface::HW_IF_EFFORT;
+  for (const auto & j : info_.joints)  // URDF가 그리퍼 effort 명령을 내놨으면 C 9번째 칸으로 보냄
+    if (j.name == "gripper_left_joint")
+      for (const auto & c : j.command_interfaces) gripper_effort_cmd_ |= c.name == hardware_interface::HW_IF_EFFORT;
   for (const auto & j : info_.joints) {  // 영점 오프셋 — 조립·서보 혼 각도가 URDF 0과 다를 때 (실측해서 URDF에 적는다)
     const auto it = j.parameters.find("offset");
     offset_[j.name] = it != j.parameters.end() ? std::stod(it->second) : 0.0;  // 미리 채워 read/write에서 삽입 없게
@@ -79,6 +86,20 @@ CallbackReturn BeebotSystemHardware::on_configure(const rclcpp_lifecycle::State 
       "~/reboot_motors", [this](const std_srvs::srv::Trigger::Request::SharedPtr req,
                                 std_srvs::srv::Trigger::Response::SharedPtr res) { reboot_motors(req, res); });
   }
+  if (!beep_sub_ && get_node()) {  // /cmd/beep — OpenCR 부저 ([] 기본음 · [Hz, ms]) · 상태 무관, 그대로 B 줄로
+    beep_sub_ = get_node()->create_subscription<std_msgs::msg::Int32MultiArray>(
+      "/cmd/beep", 10, [this](std_msgs::msg::Int32MultiArray::ConstSharedPtr m) {
+        // 0 = 없음 → 기본음은 (0,0)이 아니라 표시 비트로. Hz·ms 범위는 펌웨어가 자름
+        const uint32_t hz = m->data.size() >= 1 ? static_cast<uint32_t>(std::max(0, m->data[0])) : 0;
+        const uint32_t ms = m->data.size() >= 2 ? static_cast<uint32_t>(std::max(0, m->data[1])) : 0;
+        beep_req_ = (uint64_t{1} << 63) | (uint64_t{hz} << 32) | ms;
+      });
+  }
+  if (!torque_srv_ && get_node()) {  // ~/set_arm_torque — 팔(joint1~5)·그리퍼 토크 끄기·켜기 (펌웨어 T) — 손으로 자세 잡기
+    torque_srv_ = get_node()->create_service<std_srvs::srv::SetBool>(
+      "~/set_arm_torque", [this](const std_srvs::srv::SetBool::Request::SharedPtr req,
+                                 std_srvs::srv::SetBool::Response::SharedPtr res) { set_arm_torque(req, res); });
+  }
   return mock_ || open_port() ? CallbackReturn::SUCCESS : CallbackReturn::ERROR;
 }
 
@@ -105,6 +126,8 @@ CallbackReturn BeebotSystemHardware::on_activate(const rclcpp_lifecycle::State &
       std::this_thread::sleep_for(std::chrono::milliseconds(20));
     }
     if (received_.load() == 0) {
+      if (const size_t n = wrong_size_.load())
+        RCLCPP_ERROR(get_logger(), "OpenCR S 값 %zu개 — 이 SBC는 %zu개 형식만 받음: 예전 펌웨어 → firmware/upload.sh로 다시 올릴 것", n, STATE_VALUES);
       RCLCPP_ERROR(get_logger(), "OpenCR 상태(S) 3초 동안 없음 — 실제 팔 각도를 몰라 활성화 안 함 (펌웨어·USB 확인, 해석 실패 %zu줄이면 모터 응답 없음 nan — 12V 확인)", bad_.load());
       return CallbackReturn::ERROR;
     }
@@ -147,6 +170,12 @@ void BeebotSystemHardware::report(diagnostic_updater::DiagnosticStatusWrapper & 
     s.mergeSummary(DiagnosticStatus::WARN, "모터 온도 높음: " + hot + " (" + std::to_string(TEMP_WARN_C) + "°C 이상 — 80°C면 과열로 멈춤)");
   if (!mock_ && !errors.empty())
     s.mergeSummary(DiagnosticStatus::ERROR, "모터 에러: " + errors + " → ~/reboot_motors 서비스로 재부팅");
+  if (!mock_ && !arm_torque_.load()) s.mergeSummary(DiagnosticStatus::WARN, "팔·그리퍼 토크 꺼짐 (손으로 자세 잡기)");
+  const double bat = battery_v_.load();
+  if (!mock_ && !std::isnan(bat) && bat < BATTERY_WARN_V)
+    s.mergeSummary(DiagnosticStatus::WARN, bat < 5.0 ? "배터리 12V 꺼짐 (USB 전원만 — 모터 응답 없음)" : "배터리 낮음 " + std::to_string(bat).substr(0, 4) + "V — 충전");
+  s.add("배터리 [V]", std::isnan(bat) ? std::string("모름") : std::to_string(bat).substr(0, 5));
+  s.add("팔·그리퍼 토크", arm_torque_.load() ? "켬" : "끔");
   s.add("mock", mock_);
   s.add("port", port_);
   s.add("마지막 S [s 전]", mock_ ? 0.0 : age);
@@ -240,13 +269,18 @@ bool BeebotSystemHardware::apply_state(const std::string & text) {
     if (end == field.c_str()) return false;
     v.push_back(d);
   }
-  if (v.size() != STATE_VALUES && v.size() != STATE_VALUES_NO_TEMP) return false;
+  if (v.size() != STATE_VALUES) {
+    wrong_size_ = v.size();  // 활성화 실패 메시지에 — 예전 펌웨어면 개수가 다름
+    return false;
+  }
   // 펌웨어는 한 번도 못 읽은 모터(부팅 때 12V 꺼짐 등)를 nan으로 보낸다 — 모르는 자세를 상태로 쓰지 않는다
-  for (size_t k = 0; k < WHEELS.size() * 2 + ARM.size() * 3; ++k) if (std::isnan(v[k])) return false;
+  for (size_t k = 0; k < MOTORS * 3; ++k) if (std::isnan(v[k])) return false;
   size_t i = 0;
   for (const auto * name : WHEELS) {
     set_state(std::string(name) + "/position", v[i++]);
     set_state(std::string(name) + "/velocity", v[i++]);
+    if (wheel_effort_) set_state(std::string(name) + "/effort", v[i]);  // URDF 바퀴에 effort 상태가 있을 때만
+    ++i;
   }
   for (const auto * name : ARM) {
     double p = v[i++] - offset_[name];  // 서보 값 → 관절값
@@ -263,15 +297,17 @@ bool BeebotSystemHardware::apply_state(const std::string & text) {
     set_state(std::string(name) + "/effort", v[i++]);
   }
   for (const auto * field : IMU_FIELDS) set_state(imu_ + "/" + field, v[i++]);
-  if (v.size() == STATE_VALUES)
-    for (size_t k = 0; k < MOTORS; ++k) hw_temp_[k] = static_cast<int>(std::lround(v[i++]));  // °C, −1 = 모름
+  for (size_t k = 0; k < MOTORS; ++k) hw_temp_[k] = static_cast<int>(std::lround(v[i++]));  // °C, −1 = 모름
+  battery_v_ = v[i++];
   return true;
 }
 
 void BeebotSystemHardware::publish_motor_status() {
   std::array<int, MOTORS> now{}, temp{};
   for (size_t i = 0; i < MOTORS; ++i) now[i] = hw_error_[i].load(), temp[i] = hw_temp_[i].load();
-  if (motor_published_ && now == motor_sent_ && temp == temp_sent_) return;  // 바뀔 때만 (transient_local이라 늦게 붙어도 마지막 값)
+  const double bat = battery_v_.load();
+  const bool bat_changed = std::isnan(bat) != std::isnan(battery_sent_) || std::abs(bat - battery_sent_) >= 0.1;  // 0.1V 단위로만 (잡음에 매번 내지 않게)
+  if (motor_published_ && now == motor_sent_ && temp == temp_sent_ && !bat_changed) return;  // 바뀔 때만 (transient_local이라 늦게 붙어도 마지막 값)
   control::msg::MotorStatus m;
   m.header.stamp = get_node()->now();
   for (size_t i = 0; i < MOTORS; ++i) {
@@ -280,9 +316,11 @@ void BeebotSystemHardware::publish_motor_status() {
     m.text.push_back(now[i] == 0 ? "정상" : error_text(now[i]));
     m.temperature.push_back(temp[i]);
   }
+  m.battery_voltage = static_cast<float>(bat);
   motor_pub_->publish(m);
   motor_sent_ = now;
   temp_sent_ = temp;
+  battery_sent_ = bat;
   motor_published_ = true;
 }
 
@@ -320,7 +358,37 @@ void BeebotSystemHardware::reboot_motors(const std_srvs::srv::Trigger::Request::
   RCLCPP_WARN(get_logger(), "%s", res->message.c_str());
 }
 
+void BeebotSystemHardware::set_arm_torque(const std_srvs::srv::SetBool::Request::SharedPtr req,
+                                          std_srvs::srv::SetBool::Response::SharedPtr res) {
+  if (mock_) {
+    res->success = false;
+    res->message = "mock — 토크 없음";
+    return;
+  }
+  torque_req_ = req->data ? 1 : 0;  // write()가 다음 주기에 T 줄로 보냄 (시리얼 쓰기는 제어 주기 한 곳에서만)
+  res->success = true;
+  res->message = req->data ? "팔·그리퍼 토크 켬 (지금 자세를 목표로)" : "팔·그리퍼 토크 끔 — 손으로 자세를 잡을 수 있음 (팔이 처질 수 있으니 잡고 있을 것)";
+  RCLCPP_WARN(get_logger(), "%s", res->message.c_str());
+}
+
 return_type BeebotSystemHardware::write_serial() {
+  if (const uint64_t b = beep_req_.exchange(0)) {  // B (기본음) · B,<Hz>,<ms> — 0이면 그 칸 빈칸 = 펌웨어 기본값
+    const uint32_t hz = static_cast<uint32_t>(b >> 32) & 0x7fffffffu, ms = static_cast<uint32_t>(b);
+    std::string line = "B";
+    if (hz || ms) line += "," + (hz ? std::to_string(hz) : "") + "," + (ms ? std::to_string(ms) : "");
+    line += '\n';
+    if (::write(fd_, line.data(), line.size()) < 0 && errno != EAGAIN)
+      RCLCPP_ERROR(get_logger(), "OpenCR B 쓰기 실패: %s", strerror(errno));
+  }
+  if (const int t = torque_req_.exchange(-1); t >= 0) {  // T,<바퀴L>,<바퀴R>,<j1>…<j5>,<그리퍼> — 바퀴 빈칸 = 그대로
+    std::string line = "T,,";
+    for (size_t i = 0; i < ARM.size(); ++i) line += t ? ",1" : ",0";  // joint1~5 + 그리퍼
+    line += '\n';
+    if (::write(fd_, line.data(), line.size()) < 0 && errno != EAGAIN)
+      RCLCPP_ERROR(get_logger(), "OpenCR T 쓰기 실패: %s", strerror(errno));
+    else
+      arm_torque_ = t != 0;
+  }
   if (const uint32_t mask = reboot_mask_.exchange(0)) {  // R,<8필드> — 고른 모터만 1
     std::string r = "R";
     for (size_t i = 0; i < MOTORS; ++i) r += (mask & (1u << i)) ? ",1" : ",";
@@ -344,6 +412,14 @@ return_type BeebotSystemHardware::write_serial() {
     }
     std::snprintf(num, sizeof(num), ",%.4f", p + offset_[name]);  // 관절값 → 서보 값
     out += num;
+  }
+  // 9번째 = 그리퍼 쥐는 힘 한계 A (gripper_controller max_effort · 액션 goal effort) — 생략 = 펌웨어 유지
+  if (gripper_effort_cmd_) {
+    const double a = get_command<double>("gripper_left_joint/effort");
+    if (!std::isnan(a)) {
+      std::snprintf(num, sizeof(num), ",%.3f", a);
+      out += num;
+    }
   }
   out += '\n';
   if (::write(fd_, out.data(), out.size()) >= 0) ++sent_;
