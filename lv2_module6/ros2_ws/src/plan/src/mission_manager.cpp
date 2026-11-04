@@ -66,7 +66,7 @@ MissionManager::MissionManager()
   for (const auto & b : boxes(declare_parameter<std::vector<double>>("locations",
          {3.670, 0.950, 2.202, 3.700, 3.670, 5.354}), 0.0)) locations_.push_back({b.x, b.y});
   loc_boxes_ = boxes(declare_parameter<std::vector<double>>("location_boxes",
-    {3.670, 0.950, 0.1025, 2.202, 3.495, 0.41, 3.670, 5.354, 0.1025}), -1.0);
+    {3.670, 0.950, 0.1025, 2.202, 3.700, 0.1025, 3.670, 5.354, 0.1025}), -1.0);
   for (const auto v : declare_parameter<std::vector<int64_t>>("location_tags", {12, 13, 14})) loc_tags_.push_back(static_cast<int>(v));
   puck_dx_ = declare_parameter<std::vector<double>>("puck_offsets_x", {-0.040, 0.040});
   box_top_z_ = declare_parameter<double>("box_top_z", 0.070);

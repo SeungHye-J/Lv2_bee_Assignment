@@ -85,7 +85,7 @@ mission_manager:             # 주사위 기억 미션 (documents/mission/README
     box_half: 0.1025                         # 205 박스 반 변
     puck_offsets_x: [-0.040, 0.040]          # 박스 위 퍽 두 개 — 중심 X±40
     locations: [3.670, 0.950, 2.202, 3.700, 3.670, 5.354]   # L1·L2·L3 격자 중심
-    location_boxes: [3.670, 0.950, 0.1025, 2.202, 3.495, 0.41, 3.670, 5.354, 0.1025]   # 장소가 놓인 박스 [x, y, 반 변] — L2는 중앙 받침대 820
+    location_boxes: [3.670, 0.950, 0.1025, 2.202, 3.700, 0.1025, 3.670, 5.354, 0.1025]   # 장소가 놓인 박스 [x, y, 반 변] — 셋 다 205 박스 (11-04 운영 확인: L2 받침대도 같은 크기)
     location_tags: [12, 13, 14]              # L1·L2·L3 장소 태그 번호
     tag_correction_max: 0.05                 # [m] 놓기 직전 인지 location_box(상자 윗면 가운데)가 예상 상자 중심에서 어긋난 만큼 칸을 옮기는 최대 거리 — 넘으면 잘못 본 것으로 보고 보정 안 함
     # 적재함: 장부(칸 → tag)는 coordinator가 씀 (/coordinator/basket) — 쓰는 칸은 coordinator basket_use. 다 차면 나머지는 시작 박스에서 직접 운반
