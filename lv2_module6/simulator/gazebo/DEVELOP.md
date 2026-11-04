@@ -256,9 +256,9 @@ perception::msg::TrackedObjectArray msg;
   `bringup`에 `node('<패키지>', '<실행 파일>')` → `../../../docker/test-bringup.sh`의 `NODES`에 노드 이름 → `bringup` 묶음에 이름.
 - 토픽·메시지·QoS는 설계 문서 표를 따른다. 센서는 `rclcpp::SensorDataQoS()`(best_effort), 명령은 reliable, 가끔만 바뀌는 상태(`/sub_goals`, `/task_status`)는 reliable + transient_local.
 - 학습 노드는 `enabled` 파라미터로 끌 수 있어야 하고, 꺼지거나 모델 파일이 없으면 기본 동작(Δ=0 · 규칙)으로 돌아야 한다.
-- **도커·CI에는 GPU·모델이 없다** — 테스트베드는 진짜 ml 노드 대신 **faker ML 대역**(ml 노드와 1:1 — `fake_grasp_scorer` · `fake_rl_nav_tuner` · `fake_rl_nav_correction`, 컨트롤러 `faker/FakeRlArmCorrection`)을 같은 이름·토픽으로 띄운다 (`ml:=fake` 기본, `bringup use_ml:=false`).
+- **도커·CI에는 GPU·모델이 없다** — 테스트베드는 진짜 ml 노드 대신 **faker ML 대역**(ml 노드와 1:1 — `fake_grasp_scorer` · `fake_rl_nav_correction`, 컨트롤러 `faker/FakeRlArmCorrection`)을 같은 이름·토픽으로 띄운다 (`ml:=fake` 기본, `bringup use_ml:=false`).
   진짜로 돌려 보려면 `test-faker 0 ml:=real`. ml 패키지의 gtest(`colcon test`)는 도커에서 돌므로 **CPU만으로 도는 테스트**로 둔다.
-  ml 노드의 토픽·서비스·파라미터를 바꾸면 같은 이름의 대역 `faker/src/fake_<노드>.cpp`도 같이 맞춘다. 하나만 진짜로: `grasp_scorer:=real` (rl_nav_tuner · rl_nav_correction · rl_arm_correction도 같음)
+  ml 노드의 토픽·서비스·파라미터를 바꾸면 같은 이름의 대역 `faker/src/fake_<노드>.cpp`도 같이 맞춘다. 하나만 진짜로: `grasp_scorer:=real` (rl_nav_correction · rl_arm_correction도 같음)
 - **상태는 `/diagnostics`로** — 노드 클래스에 `diagnostic_updater::Updater diag_{this};` 를 두고 `diag_.add("상태", …)`에서
   `s.summary(OK|WARN|ERROR, "한 줄")` + `s.add("키", 값)`. 1초마다 발행되고 bringup의 `diagnostic_aggregator`가 묶는다
   (`bringup` — 새 노드는 이름을 해당 묶음 `startswith`에 추가). `test-bringup`이 노드마다 상태가 오는지 확인한다.
@@ -274,7 +274,7 @@ perception::msg::TrackedObjectArray msg;
 | `perception/config/perception.yaml` | perception · body_filter |
 | `control/config/control.yaml` | arm_safety_monitor · manual_control |
 | `manager/config/manager.yaml` | state_manager (지도 모드 시작 값 — faker가 `map:=`에 맞춰 덮어씀) |
-| `ml/config/ml.yaml` | grasp_scorer · rl_nav_tuner · rl_nav_correction |
+| `ml/config/ml.yaml` | grasp_scorer · rl_nav_correction |
 | `plan/config/plan.yaml` | user_input · vlm_task_planner · coordinator · explorer(자동 탐사) |
 | `faker/config/faker.yaml` | pole_front_cam · gripper_cam · move_group · fake_opencr · monitor_manager · input_manager (더미) |
 | `ros_system/config/moveit/*.yaml` + `beebot.srdf` | 진짜 move_group 설정 (arm 그룹 · IK pick_ik · OMPL · arm_controller) — 팔이 5축이라 KDL은 '위치 + 위→아래' 목표를 못 풀어 pick_ik (소스 빌드, §3) — `use_moveit:=true` |

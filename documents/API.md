@@ -301,7 +301,7 @@ string message
 | `/robot/say` | std_msgs/String | coordinator → user_input | 알릴 때 · reliable |
 | `/task/sub_goals` | plan/SubGoalArray | vlm_task_planner → coordinator | 계획마다 · reliable + transient_local. target = 물체 id · `"x,y"`(navigate) · **`"tray"`(pick·place — 로봇 뒤 적재함 12칸: place tray = `load next`, pick tray = `unload last`)** · 칸 번호·`next`·`last`(load·unload) · 자세 이름(pose) · 퍽 id(inspect) · 말할 내용(say) |
 | `/task/status` | plan/TaskStatus | coordinator → vlm_task_planner, user_input | 단계 완료·실패 시 · reliable + transient_local |
-| `/speed_limit` | nav2_msgs/SpeedLimit | rl_nav_tuner → controller_server, rl_nav_correction | 프리셋 변경 시 · reliable |
+| `/speed_limit` | nav2_msgs/SpeedLimit | (현재 발행자 없음 — rl_nav_tuner 제거됨) → controller_server, rl_nav_correction | 값이 오면 상한 반영 · reliable |
 | `/arm_safety_event` | control/ArmSafetyEvent | arm_safety_monitor → coordinator | 접촉 시 |
 | `/motor_status` | control/MotorStatus | BeebotSystemHardware → state_manager | 모터별 Hardware Error (0 정상 · −1 응답 없음 · 비트 1 입력전압 4 과열 8 엔코더 16 전기충격 32 과부하) + 사람이 읽는 이름 + 온도 °C — 바뀔 때만 · reliable + transient_local (펌웨어 `E` 줄 · `S` 끝 온도) |
 
@@ -313,12 +313,12 @@ string message
 | `/nvblox_node/static_occupancy_grid` | nav_msgs/OccupancyGrid (map) | nvblox_node → nvblox_map | nvblox 2D 점유 격자 · 보통 토픽(latched 아님) — 주기는 실기에서 확인 |
 | `/cuvslam/odom` | nav_msgs/Odometry | cuvslam_slam → ekf (`odom1`, vx·vy만) | 카메라 프레임마다 — 시각 오도메트리(속도) |
 | `/cuvslam/path` | nav_msgs/Path | cuvslam_slam → RViz | cuVSLAM 궤적 (표시용) |
-| `/plan` | nav_msgs/Path | planner_server → rl_nav_correction, rl_nav_tuner, RViz | 계획마다 |
+| `/plan` | nav_msgs/Path | planner_server → rl_nav_correction, RViz | 계획마다 |
 | `/cmd_vel_nav` | geometry_msgs/TwistStamped | controller_server, behavior_server → rl_nav_correction | 20Hz |
-| `/local_costmap/costmap` | nav_msgs/OccupancyGrid | controller_server → rl_nav_tuner, RViz | 통로 폭·최근접 장애물 계산용 |
+| `/local_costmap/costmap` | nav_msgs/OccupancyGrid | controller_server → (내부 컨트롤러 플러그인) · RViz | 통로 폭·최근접 장애물 계산용 |
 | `/local_costmap/costmap_raw` | nav2_msgs/Costmap | controller_server → behavior_server | 충돌 검사 |
 | `/global_costmap/costmap` | nav_msgs/OccupancyGrid | planner_server → RViz | 표시용 |
-| `/odometry/filtered` | nav_msgs/Odometry | ekf → bt_navigator, controller_server, rl_nav_tuner | 50Hz |
+| `/odometry/filtered` | nav_msgs/Odometry | ekf → bt_navigator, controller_server | 50Hz |
 | `/tf` (map→odom) | tf2_msgs/TFMessage | cuvslam_slam → 전체 | 위치 찾을 때만 (없으면 coordinator가 대기) |
 | `/tf` (odom→base_footprint) | tf2_msgs/TFMessage | ekf → 전체 | 연속 |
 | `/collision_monitor_state` | nav2_msgs/CollisionMonitorState | collision_monitor → RViz | 걸린 다각형 표시 |
@@ -341,7 +341,7 @@ string message
 | `/cmd_vel` | geometry_msgs/TwistStamped | collision_monitor → diff_drive_controller | 20Hz |
 | `/odom` | nav_msgs/Odometry | diff_drive_controller → ekf, rl_nav_correction | 50Hz |
 | `/imu` | sensor_msgs/Imu | imu_sensor_broadcaster → ekf, rl_nav_correction | 100Hz · best_effort |
-| `/odometry/filtered` | nav_msgs/Odometry | ekf → bt_navigator, controller_server, rl_nav_tuner | 50Hz |
+| `/odometry/filtered` | nav_msgs/Odometry | ekf → bt_navigator, controller_server | 50Hz |
 
 - diff_drive_controller 토픽은 기본 `/diff_drive_controller/cmd_vel`·`/odom` — launch에서 `/cmd_vel`·`/odom`으로 리매핑.
 - odom TF는 ekf만 (`diff_drive_controller enable_odom_tf: false`, ekf `publish_tf: true`).
@@ -429,7 +429,7 @@ string message
 | `/plan_kinematic_path` | moveit_msgs/srv/GetMotionPlan | coordinator → move_group | pick·place·inspect 단계마다 팔 궤적 계획 → `/execute_trajectory` |
 | `/apply_planning_scene` | moveit_msgs/srv/ApplyPlanningScene | coordinator → move_group | pick 전 퍽·장애물 등록 |
 | `/clear_octomap` | std_srvs/srv/Empty | coordinator → move_group | pick 직전 octomap 초기화 |
-| `/controller_server/set_parameters` | rcl_interfaces/srv/SetParameters | rl_nav_tuner → controller_server | FollowPath.max_vel_theta 등 (실행 중 반영되는 것만) |
+| `/controller_server/set_parameters` | rcl_interfaces/srv/SetParameters | (현재 호출자 없음 — rl_nav_tuner 제거됨) → controller_server | 실행 중 반영되는 것만 |
 | `/nvblox_node/load_map` | nvblox_msgs/srv/FilePath | nvblox_map → nvblox_node | 위치추정(`map:=saved`)일 때 시작하며 한 번 — 저장 지도 `<map_dir>/<이름>/nvblox.nvblx` 불러오기 |
 | `/nvblox_node/save_map` | nvblox_msgs/srv/FilePath | (부르는 노드 없음) → nvblox_node | 저장은 매핑(`map:=slam`)일 때 nvblox가 끌 때 자동(`after_shutdown_map_save_path`) — 수동 저장용으로만 있음 |
 | `/arm_controller/follow_joint_trajectory/_action/cancel_goal` | action_msgs/srv/CancelGoal | arm_safety_monitor → arm_controller | 빈 goal_id = 전체 취소 → JTC 현재 자세 유지 |

@@ -39,7 +39,7 @@ include_directories(include)
 
 # --- 노드: 클래스 구현(src/<노드>.cpp)은 라이브러리 하나로 묶고, 실행 파일(src/<노드>_main.cpp)과 테스트가 함께 링크
 #     선언·설명은 include/ml/<노드>.hpp
-add_library(${PROJECT_NAME}_nodes STATIC src/grasp_scorer.cpp src/rl_nav_tuner.cpp src/rl_nav_correction.cpp)
+add_library(${PROJECT_NAME}_nodes STATIC src/grasp_scorer.cpp src/rl_nav_correction.cpp)
 target_include_directories(${PROJECT_NAME}_nodes PUBLIC include)
 target_compile_features(${PROJECT_NAME}_nodes PUBLIC cxx_std_17)
 target_link_libraries(${PROJECT_NAME}_nodes PUBLIC rclcpp::rclcpp ${geometry_msgs_TARGETS} ${sensor_msgs_TARGETS}
@@ -58,11 +58,11 @@ else()
   message(WARNING "ml: onnxruntime_vendor 없음 — ONNX 없이 빌드 (Δ=0 통과 · 정책 바이패스). "
                   "설치: sudo apt install ros-lyrical-onnxruntime-vendor")
 endif()
-foreach(node grasp_scorer rl_nav_tuner rl_nav_correction)
+foreach(node grasp_scorer rl_nav_correction)
   add_executable(${node} src/${node}_main.cpp)
   target_link_libraries(${node} ${PROJECT_NAME}_nodes)
 endforeach()
-install(TARGETS grasp_scorer rl_nav_tuner rl_nav_correction DESTINATION lib/${PROJECT_NAME})
+install(TARGETS grasp_scorer rl_nav_correction DESTINATION lib/${PROJECT_NAME})
 
 # --- rl_nav_controller: Nav2 controller 플러그인 (controller_server가 불러 씀 · ONNX 정책 + inner 바이패스)
 add_library(rl_nav_controller SHARED src/rl_nav_controller.cpp)

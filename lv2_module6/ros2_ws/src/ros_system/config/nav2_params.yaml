@@ -39,7 +39,7 @@ bt_navigator:
 # ─────────────────────────────────────────────────────────────────────────────
 # controller_server — /plan(전역 경로)을 따라가는 속도 명령을 만든다.
 #   출력 /cmd_vel_nav → rl_nav_correction (출력 토픽 이름은 yaml이 아니라 launch 리매핑이 정함)
-#   노드 이름 /controller_server 는 rl_nav_tuner.cpp:27 이 파라미터를 바꾸려고 부르는 이름
+#   노드 이름 /controller_server — Nav2 표준 이름 (예전엔 rl_nav_tuner가 이 파라미터를 바꿨음, 제거됨)
 # ─────────────────────────────────────────────────────────────────────────────
 controller_server:
   ros__parameters:
@@ -47,7 +47,7 @@ controller_server:
     controller_frequency: 20.0
     # 현재 속도를 읽는 토픽 (EKF 결과). 가속 제한 계산에 쓴다.
     odom_topic: /odometry/filtered
-    # 속도 상한 토픽. rl_nav_tuner(rl_nav_tuner.cpp:26)가 프리셋마다 백분율(%)로 보낸다.
+    # 속도 상한 토픽. 현재 발행자 없음 (rl_nav_tuner 제거됨) — 값이 오면 controller_server가 컨트롤러에 전달.
     #   100% 기준 = FollowPath.max_vel_x(0.26). 0이면 제한 없음.
     speed_limit_topic: /speed_limit
     # true면 속도 명령을 TwistStamped로 낸다.
@@ -64,7 +64,7 @@ controller_server:
     # 아래 세 목록의 이름은 우리가 짓는 라벨 — 같은 이름의 블록을 찾아 읽는다.
     progress_checker_plugins: ["progress_checker"]
     goal_checker_plugins: ["goal_checker"]
-    # FollowPath는 이름 고정: rl_nav_tuner.cpp:64~66 이 FollowPath.* 를 바꾼다.
+    # FollowPath는 이름 고정 (예전엔 rl_nav_tuner가 FollowPath.* 를 실행 중 바꿨음, 제거됨).
     controller_plugins: ["FollowPath"]
 
     # 진행 감시 — 로봇이 "막혔는지" 판단한다 (도착 판단은 goal_checker).
@@ -119,7 +119,7 @@ controller_server:
         # 차동 구동 — 옆으로 못 가므로 y는 0.
         min_vel_y: 0.0
         max_vel_y: 0.0
-        # 최대 회전 속도. 프리셋 A 값 — rl_nav_tuner가 실행 중 1.82/1.0/0.8로 바꾼다.
+        # 최대 회전 속도. 예전 프리셋 A 값 (rl_nav_tuner 제거됨 — 고정값).
         max_vel_theta: 1.82
         # 병진 속도 크기(√(vx²+vy²))의 최소·최대. 차동 구동이라 사실상 vx와 같다.
         min_speed_xy: 0.0
@@ -127,9 +127,8 @@ controller_server:
         # 회전 속도 크기의 최소. 0 = 하한 없음.
         min_speed_theta: 0.0
 
-        # ── 가속 한계 [m/s² · rad/s²] — 프리셋 A와 같은 값 (rl_nav_tuner.cpp:10)
-        #   tuner를 꺼도(enabled:=false → 프리셋 A) 원래 시스템과 같아야 하므로 일치시킨다.
-        # 전진 가속·감속. rl_nav_tuner가 실행 중 바꾼다.
+        # ── 가속 한계 [m/s² · rad/s²] — 예전 프리셋 A와 같은 값 (rl_nav_tuner 제거됨 — 고정값).
+        # 전진 가속·감속.
         acc_lim_x: 2.5
         decel_lim_x: -2.5
         # 옆 방향 — 차동 구동이라 0.

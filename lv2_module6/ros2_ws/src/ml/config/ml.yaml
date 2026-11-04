@@ -3,10 +3,6 @@
 grasp_scorer:
   ros__parameters:
     enabled: true            # false → 규칙 기반 점수
-rl_nav_tuner:
-  ros__parameters:
-    enabled: true            # false → 프리셋 A 고정
-    controller_param_prefix: "FollowPath.inner"   # 바이패스 DWB 파라미터 이름 (RlNavController가 inner로 품음)
 rl_nav_correction:
   ros__parameters:
     enabled: true            # false → Δ=0 (통과만). 서비스 ~/toggle (std_srvs/SetBool)로도 켜고 끔

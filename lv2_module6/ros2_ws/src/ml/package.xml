@@ -3,7 +3,7 @@
 <package format="3">
   <name>ml</name>
   <version>0.1.0</version>
-  <description>학습 — 앞단 판단 보조(grasp_scorer, rl_nav_tuner) + 뒷단 실행 보정(rl_nav_correction, rl_arm_correction 컨트롤러). ScoreGrasps 서비스 정의 포함</description>
+  <description>학습 — 앞단 판단 보조(grasp_scorer) + 뒷단 실행 보정(rl_nav_correction, rl_arm_correction 컨트롤러). ScoreGrasps 서비스 정의 포함</description>
   <maintainer email="todo@example.com">송정혁</maintainer>
   <license>Apache-2.0</license>
 
