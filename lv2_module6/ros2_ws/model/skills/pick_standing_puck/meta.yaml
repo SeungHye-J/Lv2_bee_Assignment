@@ -5,7 +5,7 @@ kind: arm            # arm (rl_arm_correction이 계산) | base (skill_approach�
 layout: pick          # 정책 입력 모양 (ml/arm_obs.hpp place 39 · pick 41)
 use: true
 node: skill_pick
-sim_baseline: ?      # [%] 학습 없이 기준 동작만 (1024판)
-sim_policy: ?        # [%] 학습 뒤
+sim_baseline: 99.1      # [%] 학습 없이 기준 동작만 (1024판)
+sim_policy: 100.0        # [%] 학습 뒤
 source: 팀원 pick_residual_sag (pick_env, feature/isaac-lab)
-note: 시뮬 평가 중 (11-04)
+note: 평가 pa27 1024판 (11-04)
