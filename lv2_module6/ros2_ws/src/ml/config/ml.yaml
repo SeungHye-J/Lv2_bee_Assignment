@@ -3,6 +3,13 @@
 grasp_scorer:
   ros__parameters:
     enabled: true            # false → 규칙 기반 점수
+rl_policy:                   # 팔 잔차 정책 추론 (scripts/rl_policy_node.py) — coordinator rl_policy: true일 때 pick·place 구간에서만 Δ를 냄
+  ros__parameters:
+    enabled: true            # false → Δ 안 냄 (rl_arm_correction이 0으로)
+    rate_hz: 50.0            # 학습 정책 주기
+    pick_policy: "pick_residual_sag.pt"    # share/ml/policies (관측 41 = 36 + 처짐 적분 5)
+    place_policy: "place_residual_sag.pt"  #   (관측 39 = 34 + 5)
+    device: "cpu"            # 작은 MLP라 CPU로 충분 (cuda도 됨)
 rl_nav_tuner:
   ros__parameters:
     enabled: true            # false → 프리셋 A 고정

@@ -56,10 +56,12 @@ Coordinator::Coordinator()
   last_q_ = top_down_q(0.0);
   stand_.puck_l = declare_parameter<double>("stand_puck_length_m", stand_.puck_l);
   stand_.puck_w = declare_parameter<double>("stand_puck_width_m", stand_.puck_w);
-  stand_.contact_h_box = declare_parameter<double>("stand_contact_h_box_m", stand_.contact_h_box);
-  stand_.contact_h_cyl = declare_parameter<double>("stand_contact_h_cyl_m", stand_.contact_h_cyl);
-  stand_.pinch_from_end = declare_parameter<double>("stand_pinch_from_end_m", stand_.pinch_from_end);
-  stand_.ee_up = declare_parameter<double>("stand_ee_above_contact_m", stand_.ee_up);
+  // 깊이는 두 값으로만: 손가락 끝이 퍽 윗면 아래로 들어가는 깊이 · 하중 처짐 보정.
+  // 잡는 점은 퍽 윗면 높이(두 모양 공통), 손끝(end_effector_link)은 손가락 끝보다 20.65 mm 위 → ee_up = 20.65 mm + 처짐 − 깊이
+  const double grip_depth = declare_parameter<double>("stand_grip_depth_m", 0.010);
+  const double sag_comp = declare_parameter<double>("stand_sag_comp_m", 0.027);
+  stand_.contact_h_box = stand_.contact_h_cyl = stand_.puck_w;
+  stand_.ee_up = 0.02065 + sag_comp - grip_depth;
   stand_.above_m = declare_parameter<double>("stand_above_m", stand_.above_m);
   stand_.lift_away_m = declare_parameter<double>("stand_lift_away_m", stand_.lift_away_m);
   stand_.tilt_over_m = declare_parameter<double>("stand_tilt_over_m", stand_.tilt_over_m);

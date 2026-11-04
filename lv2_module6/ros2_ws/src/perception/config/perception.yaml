@@ -2,14 +2,17 @@
 perception:
   ros__parameters:
     rate_hz: 10.0            # /tracked_objects 발행 주기 (설계: 10Hz · reliable)
-    model_path: "bee_yolo11n_v3.pt"  # 비면 share/perception/model/model.pt(팀 모델) 자동 탐색, 없으면 빈 목록 · 파일 이름만 쓰면 그 폴더에서 찾음
+    model_path: "bee_yolo26n_obb_v8.pt"  # 비면 share/perception/model/model.pt(팀 모델) 자동 탐색, 없으면 빈 목록 · 파일 이름만 쓰면 그 폴더에서 찾음
                             #   bee_yolo11n_v3.pt (11/02): 빨강·초록 퍽 × 사각·원기둥 4종 + 신호등 상태 4 + person · obstacle = 10클래스
                             #     — 주사위 미션 경기장 합성 + 실물 신호등 + 실물 퍽 + 튜터 합성 퍽 3000장
                             #     실물 시험(imgsz 416 · conf 0.4): 퍽 168/184 찾음 · 헛검출 19 · 신호등 상태 572/588 (v2: 145 · 33 · 563)
-                            #   되돌리기: "bee_yolo11n_v2.pt" (10/27, 노랑·파랑 퍽 포함 14클래스) · "bee_yolo11n_v1.pt" (10/22) · "" (팀 기본 model.pt)
+                            #   bee_yolo26n_obb_v8.pt (feature/isaac-synthetic 92e9d5e): Isaac Sim 합성 · OBB(회전 박스) · 13클래스 =
+                            #     빨강·초록 퍽 × 사각·원기둥 × 서있음·누움 8 + box + 신호등 4 (person · obstacle 없음) · 학습 imgsz 640
+                            #     누운 퍽 축 = 회전 박스 장축 (lying_yaw) · 자세 = 모델 이름 (trust_model_posture)
+                            #   되돌리기: "bee_yolo11n_v3.pt" (imgsz 416 · trust_model_posture false) · "bee_yolo11n_v2.pt" (10/27, 노랑·파랑 퍽 포함 14클래스) · "bee_yolo11n_v1.pt" (10/22) · "" (팀 기본 model.pt)
     confidence: 0.4         # 검출 신뢰도 하한
-    imgsz: 416              # YOLO 입력 한 변 (도커 CPU용)
-    device: "cpu"           # 실기 GPU 있으면 cuda
+    imgsz: 640              # YOLO 입력 한 변 — v8은 640으로 학습 (v1~v3 · 도커 CPU는 416)
+    device: "cuda"           # 실기 GPU 있으면 cuda
     cpu_threads: 2          # device=cpu일 때 torch 스레드 수 — 기본(코어 전부)이면 제어·Nav2가 밀림 (도커 7코어 중 5코어를 먹었음)
     track_frame: "odom"      # 추적·융합 좌표계 (끊김 없음) — /tracked_objects는 발행 순간의 map ← odom으로 바꿔 map 기준
     # 컬러·depth 동기화 · 두 카메라 융합 (scripts/perception_node.py 맨 위 설명)
@@ -46,6 +49,11 @@ perception:
     stand_ratio: 0.8        # 높이÷폭 이 이상이면 서있음(puck), 미만이면 누움(puck_lying)
     edge_px: 5              # 박스가 화면 가장자리 이 안에 닿으면 잘린 퍽 — 크기 하한·자세 안 봄 [px]
     near_px: 70             # 깊이 없는데 박스 짧은 변이 이 이상이면 너무 가까운 퍽 — 위치 갱신 없이 마지막 위치 유지 [px]
+    agnostic_nms: true      # 클래스가 달라도 겹친 박스는 신뢰도 높은 하나만 — v8은 한 퍽에 puck_red_box · puck_red_box_lying을 같이 내서
+                            #   퍽이 두 트랙(서있음·누움)으로 갈라졌음 (실측 11/03). v1~v3는 false여도 됨
+    trust_model_posture: true   # 퍽 자세를 모델 이름으로 (v8: puck_red_box_lying) — 가로÷세로 크기 판정은 OBB 누운 퍽에서 틀림 · v1~v3는 false
+    yaw_min_aspect: 1.3     # 누운 퍽 OBB 장축÷단축이 이보다 작으면(끝면이 보임) 축 yaw 안 냄
+    fine_min_px: 30         # 퍽 박스 긴 변이 이보다 작으면(멂) 모양·모델 자세는 안 냄 — 가까이 와서 다시 봄 [px]
     depth_min_valid: 0.5    # 박스 가운데 깊이 화소가 이 비율보다 적으면 깊이 없음 (배경 몇 화소로 엉뚱한 거리 안 냄)
 signal_decoder:              # 신호등 12회 점멸 (발제 v5 §02) — /tracked_objects 신호등 상태 → 사이클(12번)마다 → /mission/signal (→ 통합)
   ros__parameters:           #   한 번 = 1초 켜짐 + 1초 꺼짐 · 12번 뒤 3초 꺼짐 후 반복 (사용자 10/28)

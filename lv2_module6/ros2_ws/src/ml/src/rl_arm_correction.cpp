@@ -15,6 +15,7 @@ CallbackReturn RlArmCorrection::on_init() {
   auto_declare<double>("sag_gain", 4.2);     // [1/s] 학습: 85 ms마다 오차 30 % 제거 = -ln(0.7)/0.085
   auto_declare<double>("sag_max", 0.2);      // [rad]
   auto_declare<double>("still_rate", 0.005); // [rad/s] reference가 이보다 느리면 '멈춤'
+  auto_declare<double>("delta_timeout", 0.2); // [s] 정책 Δ가 이보다 오래 안 오면 0
   return CallbackReturn::SUCCESS;
 }
 
@@ -29,6 +30,18 @@ CallbackReturn RlArmCorrection::on_configure(const rclcpp_lifecycle::State &) {
       reset_sag_ = true;
       res->success = true;
     });
+  // 정책 Δ (rl_policy_node, 50 Hz) — 비실시간 스레드에서 받아 실시간 버퍼로
+  delta_sub_ = get_node()->create_subscription<std_msgs::msg::Float64MultiArray>(
+    "~/delta", rclcpp::QoS(1).best_effort(), [this](std_msgs::msg::Float64MultiArray::ConstSharedPtr m) {
+      DeltaIn in;
+      in.d = m->data;
+      in.stamp_ns = std::chrono::duration_cast<std::chrono::nanoseconds>(
+        std::chrono::steady_clock::now().time_since_epoch()).count();
+      delta_in_.writeFromNonRT(in);
+    });
+  state_raw_ = get_node()->create_publisher<std_msgs::msg::Float64MultiArray>("~/state", rclcpp::QoS(1).best_effort());
+  state_pub_ = std::make_unique<realtime_tools::RealtimePublisher<std_msgs::msg::Float64MultiArray>>(state_raw_);
+  last_delta_.assign(joints_.size(), 0.0);
   return CallbackReturn::SUCCESS;
 }
 
@@ -84,6 +97,10 @@ return_type RlArmCorrection::update_and_write_commands(const rclcpp::Time &, con
   const double sag_gain = node->get_parameter("sag_gain").as_double();
   const double sag_max = node->get_parameter("sag_max").as_double();
   const double still_rate = node->get_parameter("still_rate").as_double();
+  const double delta_timeout = node->get_parameter("delta_timeout").as_double();
+  const DeltaIn * in = delta_in_.readFromRT();
+  const double age = in ? 1e-9 * static_cast<double>(std::chrono::duration_cast<std::chrono::nanoseconds>(
+    std::chrono::steady_clock::now().time_since_epoch()).count() - in->stamp_ns) : -1.0;
   const double dt = period.seconds();
   if (reset_sag_.exchange(false) || !sag_enabled) std::fill(corr_.begin(), corr_.end(), 0.0);
 
@@ -104,13 +121,23 @@ return_type RlArmCorrection::update_and_write_commands(const rclcpp::Time &, con
   for (size_t i = 0; i < joints_.size(); ++i) {
     const auto ref = refs_[i]->get_optional<double>();
     if (!ref || std::isnan(*ref)) continue;
-    double delta = 0.0;  // TODO: 정책 추론 (50 Hz로 학습: 2주기에 1번 추론, 사이엔 유지)
-    if (!enabled) delta = 0.0;
-    delta = std::clamp(delta, -max_delta, max_delta);
+    // 정책 Δ (50 Hz로 받아 사이 주기엔 유지) — 꺼졌거나 낡았거나 길이가 안 맞으면 0
+    double delta = (enabled && in && in->d.size() == joints_.size()) ? fresh_delta(in->d[i], age, delta_timeout, max_delta) : 0.0;
+    last_delta_[i] = delta;
     const auto q = state_interfaces_[2 * i].get_optional<double>();
     if (sag_enabled && still && q) corr_[i] = sag_step(corr_[i], *ref, delta, *q, dt, sag_gain, sag_max);
     (void)command_interfaces_[i].set_value(*ref + corr_[i] + delta);
   }
+  // 관측용 상태 [reference, corr, Δ] — 잠금을 못 잡으면 이번 주기는 건너뜀 (실시간 루프를 막지 않음)
+  std_msgs::msg::Float64MultiArray st;
+  st.data.reserve(3 * joints_.size());
+  for (size_t i = 0; i < joints_.size(); ++i) {
+    const auto ref = refs_[i]->get_optional<double>();
+    st.data.push_back(ref ? *ref : std::numeric_limits<double>::quiet_NaN());
+  }
+  st.data.insert(st.data.end(), corr_.begin(), corr_.end());
+  st.data.insert(st.data.end(), last_delta_.begin(), last_delta_.end());
+  if (state_pub_) state_pub_->try_publish(st);
   return return_type::OK;
 }
 

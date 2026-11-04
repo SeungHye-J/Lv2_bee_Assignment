@@ -22,3 +22,13 @@ TEST(SagStep, KeepsResidual) {
 TEST(SagStep, Clamps) {
   EXPECT_DOUBLE_EQ(ml::sag_step(0.19, 0.0, 0.0, -10.0, 0.01, 4.2, 0.2), 0.2);
 }
+
+// 정책 Δ: 받은 지 timeout 안이면 ±max로 잘라 쓰고, 낡았거나 받은 적 없으면 0
+TEST(FreshDelta, UsesRecentClampsAndDropsStale) {
+  EXPECT_DOUBLE_EQ(ml::fresh_delta(0.03, 0.01, 0.2, 0.1), 0.03);
+  EXPECT_DOUBLE_EQ(ml::fresh_delta(0.5, 0.01, 0.2, 0.1), 0.1);
+  EXPECT_DOUBLE_EQ(ml::fresh_delta(-0.5, 0.01, 0.2, 0.1), -0.1);
+  EXPECT_DOUBLE_EQ(ml::fresh_delta(0.03, 0.25, 0.2, 0.1), 0.0);   // 정책 노드가 멈춤
+  EXPECT_DOUBLE_EQ(ml::fresh_delta(0.03, -1.0, 0.2, 0.1), 0.0);   // 받은 적 없음
+  EXPECT_DOUBLE_EQ(ml::fresh_delta(NAN, 0.01, 0.2, 0.1), 0.0);
+}
