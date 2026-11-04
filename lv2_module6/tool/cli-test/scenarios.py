@@ -28,10 +28,13 @@ def plain(data: bytes) -> str:
 
 
 class Session:
-    def __init__(self, name: str):
+    def __init__(self, name: str, seed: dict | None = None):
         self.name = name
         self.out = bytearray()
         STATE.unlink(missing_ok=True)
+        if seed:  # 가짜 상태 시작 값 (cli_test._seed 뒤에 덮어씀)
+            import json
+            STATE.write_text(json.dumps({'values': seed}, ensure_ascii=False))
         self.pid, self.fd = os.forkpty() if hasattr(os, 'forkpty') else (None, None)
         if self.pid == 0:
             os.chdir(HERE.parent.parent)
@@ -88,7 +91,9 @@ class Session:
         if marker is not None:
             self.expect(marker)
         else:
-            time.sleep(wait)
+            end = time.monotonic() + wait  # 기다리는 동안도 읽음 — 안 읽으면 pty가 차서 CLI가 출력에서 멈추고,
+            while time.monotonic() < end:  #   뒤에 보낸 키가 ESC와 붙어 한 시퀀스로 먹힘 (상태바 1초 갱신 뒤 manual-cancel 실패)
+                self._read(0.05)
             while self._read(0.05):
                 pass
 
@@ -123,10 +128,10 @@ class Session:
 SCENARIOS = []
 
 
-def scenario(name: str):
+def scenario(name: str, seed: dict | None = None):
     def deco(fn):
         def wrapped():
-            s = Session(name)
+            s = Session(name, seed)
             try:
                 fn(s)
                 s.assert_clean()
@@ -195,8 +200,42 @@ def _(s):
     s.step(ENTER, 'MAPPING 모드로 전환할까요?')
     s.step(b'y', '재시작할까요?')
     s.expect('COURSE(정지 지도)')  # 이유가 확인창 안에 보여야 함
+    s.expect('GPU')               # 테스트베드에선 SLAM이 못 뜬다는 경고
     s.step(b'y', '/cmd/restart')
+    s.expect('재시작 all map:=slam')  # /state/restart 응답을 보여 줌
     s.step(ESC, '지도 저장')
+    s.finish()
+
+
+@scenario('map-mode-slam-restart-reply', seed={'map_mode': 'MAPPING', 'map_name': '20261017_223015'})
+def _(s):
+    # SLAM 중 모드 전환 = launch 재시작 — 몇 초 안에 map_mode가 안 바뀌어도 실패가 아님. 재시작 응답을 보여 줌
+    s.step(b'7', wait=0.4)
+    s.step(ENTER, '지도')
+    for _ in range(3):
+        s.step(DOWN, wait=0.4)
+    s.step(ENTER, 'LOCALIZATION 모드로 전환할까요?')
+    s.step(b'y', '재시작 중')
+    s.absent('요청 실패')
+    s.step(ESC, '지도 저장')
+    s.finish()
+
+
+@scenario('map-switch-missing-map', seed={'map_mode': 'LOCALIZATION', 'map_name': 'default'})
+def _(s):
+    # 없는 지도 이름 — state_manager는 진단에만 남기므로 CLI가 먼저 거절하고 있는 지도를 보여 줌
+    s.step(b'7', wait=0.4)
+    s.step(ENTER, '지도')
+    s.step(b'5', wait=0.4)
+    s.step(ENTER, '이름 직접 입력')
+    s.step(b'n', wait=0.4)
+    s.step(ENTER, '전환할 지도 폴더 이름')
+    s.step(b'nope', 'nope')
+    s.step(ENTER, '"nope"(으)로 전환할까요?')
+    s.step(b'y', '지도 없음 "nope"')
+    s.expect('있는 지도: default, 20261017_223015')
+    s.step(ESC, '이름 직접 입력')  # 결과창 닫힘 → 지도 전환 메뉴
+    s.step(ESC, '지도 상태')
     s.finish()
 
 

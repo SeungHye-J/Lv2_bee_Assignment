@@ -22,9 +22,16 @@
     사람·장애물·신호등은 TRACK_TIMEOUT_S 안 보이면 지움. 지금 보이는지는 받는 쪽이 last_seen으로 구분.
   모델 파일이 없으면 빈 목록을 내보낸다 (진단 WARN) — test-bringup 기동 검사용.
   표식 (documents/mission/README.md · 발제 「AprilTag와 바코드 실제 배포 표식」): AprilTag tag36h11
-    퍽 윗면 16mm — R1~R4 = 0~3 · G1~G4 = 4~7 · B1~B4 = 8~11 → 그 퍽 트랙의 details tag (한 번 읽으면 기억, 색도 태그 기준)
+    퍽 16mm — 번호 0~11 → 그 퍽 트랙의 details tag (한 번 읽으면 기억)
+      어느 퍽에 어느 번호가 붙을지는 무작위 (10/27 사용자 확인) → 번호와 색은 따로 — 색은 영상(HSV)으로만
       (16mm는 pole_front_cam으로는 안 읽힘 — gripper_cam이 위에서 내려다봐야 함: coordinator inspect)
-    장소 48mm — L1~L3 = 12~14 → class location 물체 (details tag, 안 보여도 기억)
+    장소 48mm — L1~L3 = 12~14 → class location_box 물체 (details tag, 안 보여도 기억)
+      방향: 박스 옆면 태그의 법선(tag_yaw) → pose.orientation yaw (태그 앞쪽 = 로봇이 다가오는 쪽) · details yaw_period 360
+  상자 (사용자 11/02 — 로봇팔이 놓고 집으려면 상자 크기·가운데·방향이 필요): depth로 바닥 위 상자 윗면(70mm)을 찾음 (find_box_tops)
+    위치 = 윗면 가운데 · size = 잰 가로·세로·높이 · 방향 = 윗면 사각형 변 방향(주기 90°)
+    윗면 옆에 장소 태그(12~14)가 있으면 location_box (방향은 태그 법선, 주기 360°) · 없으면 start_box
+    상자를 여러 개 붙이면(L2 등) 윗면이 한 판으로 이어져 큰 상자 하나로 잡힘 — 크기는 정해 두지 않고 잼
+    태그만 보이고 윗면을 못 찾으면 location_box = 태그에서 상자 안쪽으로 반 변(location_box_size) 옮긴 곳
     바코드(줄무늬, P2-01 등) = 장소에 붙은 작업 지시 문자열 → class barcode 물체 (details content, 위치 = 붙은 곳) + /mission/qr
   신호등 상태: red · yellow · green · off · all(두 색 이상 동시에 켜짐 — 신호등 미션 단계 구분 신호)
 """
@@ -48,8 +55,9 @@ from tf2_ros import Buffer, TransformListener
 QR_GAP_S = 10.0  # 이만큼 QR이 안 보였다가 다시 읽히면 새 미션 지역으로 보고 재발행 [s]
 # 모델 없을 때의 기본 클래스 — 모델이 있으면 모델에 저장된 이름(model.names)을 쓴다 (학습 클래스가 바뀌어도 코드 수정 없음)
 CLASSES = ["puck", "puck_lying", "goal_zone", "station_zone", "qr_board", "obstacle", "person", "traffic_light"]
-# YOLO가 아니라 표식 디코드로 만드는 물체 — AprilTag 장소 태그 · 바코드
-MARKER_CLASSES = ("location", "barcode")
+# YOLO가 아니라 표식 디코드 · depth로 만드는 물체 — 장소 상자(AprilTag 12~14) · 바코드 · 시작 상자(depth 윗면)
+#   상자 이름 (사용자 11/02): 태그가 붙은 상자 = location_box (놓는 곳 L1~L3) · 태그 없는 상자 = start_box (퍽이 처음 있던 곳)
+MARKER_CLASSES = ("location_box", "start_box", "barcode")
 # 크기 추정 실패 시 클래스 기본값 (sx, sy, sz) [m]
 SIZE_FALLBACK = {
     "puck": (0.03, 0.03, 0.06),        # 발제: 30×30×60mm 사각기둥 · Ø30×60mm 원기둥
@@ -60,7 +68,8 @@ SIZE_FALLBACK = {
     "obstacle": (0.20, 0.20, 0.30),
     "person": (0.40, 0.40, 1.70),
     "traffic_light": (0.14, 0.14, 0.45),
-    "location": (0.06, 0.06, 0.01),    # 장소 태그 48mm (흰 여백 포함 60mm)
+    "location_box": (0.205, 0.205, 0.07),  # 장소 상자 — 발제 205×205×70 상자 (윗면을 depth로 재면 잰 크기로 바꿈)
+    "start_box": (0.205, 0.205, 0.07),     # 시작 상자 — 같은 205×205×70 상자
     "barcode": (0.10, 0.01, 0.05),
 }
 DYNAMIC_CLASSES = ("person",)  # 스스로 움직이는 물체 — 예측 단계 공정 잡음을 process_noise_dynamic으로 크게
@@ -68,8 +77,9 @@ TRACK_TIMEOUT_S = 2.0          # 기억하지 않는 물체(사람·장애물·�
 # 안 보여도 기억하는 물체 (팀 확인 10/22) — 스스로 움직이지 않고 나중에 다시 찾아가야 하는 것. 클래스 이름이 이 접두어로 시작하면 기억
 #   지우는 때 = 그 자리가 가려지지 않고 잘 보였어야 하는데(expected_visible) miss_count번 연속 못 찾음 (옮겨짐 · 집어 감)
 #   화면 밖 · 너무 멂 · 화면 가장자리 · 깊이 없음 · 앞에 다른 물체 → 못 봤다고 세지 않음
-REMEMBER_PREFIXES = ("puck", "goal_zone", "station_zone", "qr_board", "location", "barcode")
-ROT_VAR_UNKNOWN = 1e3          # 방향은 추정하지 않음 → pose.covariance 회전 대각 (사실상 모름)
+REMEMBER_PREFIXES = ("puck", "goal_zone", "station_zone", "qr_board", "location_box", "start_box", "barcode")
+ROT_VAR_UNKNOWN = 1e3          # 방향을 모름 → pose.covariance 회전 대각 (사실상 모름)
+YAW_VAR_KNOWN = np.radians(10.0) ** 2  # 퍽 yaw를 구했을 때 yaw 분산 [rad²] (σ 10° — 실측 전 가정값)
 
 
 PUCK_CLASSES = ("puck", "puck_lying")
@@ -285,6 +295,26 @@ def split_class(name):
     return name, ""
 
 
+def puck_shape(name):
+    """YOLO 퍽 클래스 이름 → 모양 'box'(사각기둥) · 'cyl'(원기둥) · ''(모양 없는 이름 — 팀 모델 puck)
+    모양 모델(shape_v2: puck_red_box · puck_green_cyl …) — 방향(yaw) 대칭 주기가 모양마다 달라서 필요"""
+    if not name.startswith("puck"):
+        return ""
+    return next((t for t in name.split("_")[1:] if t in ("box", "cyl")), "")
+
+
+def tag_shape(face, posture):
+    """태그가 붙은 면(tag_yaw의 side/top)과 자세 → 'box'(몸통 면 태그 = 확실히 사각기둥) · ''(이것만으로는 모름)
+    규칙(사용자 10/27): 원기둥은 위·아래 면에만 태그, 몸통(옆) 면에 태그가 있으면 무조건 사각기둥
+      서있는 퍽 + 법선 수평(side) = 몸통 면 → box
+      누운 퍽 + 법선 수직(top) = 위를 보는 몸통 면 → box (누운 원기둥의 위·아래 면 태그는 법선이 수평)
+    반대(서있는데 top · 누웠는데 side)는 위·아래 면 태그라 두 모양 모두 가능 → '' (지금 사각기둥은 2면에만 태그가 있어
+    '몸통 태그가 안 보임'으로 원기둥이라 할 수 없음) · 자세 모름도 ''"""
+    if (posture == "standing" and face == "side") or (posture == "lying" and face == "top"):
+        return "box"
+    return ""
+
+
 def box_depth_m(depth_m, box, min_valid):
     """퍽 박스 가운데 1/3 영역의 깊이 중앙값 [m] — 가장자리 배경이 섞이지 않게. 0(측정 실패) 제외
     측정된 화소가 영역의 min_valid(비율)보다 적으면 0.0 (= 깊이 없음):
@@ -379,7 +409,8 @@ def barcode_detector():
 
 
 def detect_tags(detector, bgr):
-    """영상 → [(태그 번호, 중심 (u, v), 박스 (x0, y0, x1, y1))]"""
+    """영상 → [(태그 번호, 중심 (u, v), 박스 (x0, y0, x1, y1), 꼭짓점 4×2)]
+    꼭짓점 순서는 aruco 그대로 (태그 기준 왼쪽 위 → 오른쪽 위 → 오른쪽 아래 → 왼쪽 아래) — 퍽 방향(tag_yaw)에 씀"""
     if detector is None:
         return []
     corners, ids, _ = detector(cv2.cvtColor(bgr, cv2.COLOR_BGR2GRAY))
@@ -389,27 +420,130 @@ def detect_tags(detector, bgr):
     for c, i in zip(corners, ids.ravel()):
         pts = c.reshape(-1, 2)
         (x0, y0), (x1, y1) = pts.min(0), pts.max(0)
-        out.append((int(i), (float(pts[:, 0].mean()), float(pts[:, 1].mean())), (int(x0), int(y0), int(x1) + 1, int(y1) + 1)))
+        out.append((int(i), (float(pts[:, 0].mean()), float(pts[:, 1].mean())), (int(x0), int(y0), int(x1) + 1, int(y1) + 1),
+                    pts.astype(np.float64)))
     return out
 
 
 def tag_in_box(tags, box, ids):
-    """퍽 박스 안(여유 10%)에 중심이 있는 퍽 태그 번호 — 없으면 None"""
+    """퍽 박스 안(여유 10%)에 중심이 있는 퍽 태그 → (번호, 꼭짓점 4×2) · 없으면 (None, None)"""
     x0, y0, x1, y1 = box
     mx, my = (x1 - x0) * 0.1, (y1 - y0) * 0.1
-    for tid, (u, v), _ in tags:
+    for tid, (u, v), _, corners in tags:
         if tid in ids and x0 - mx <= u <= x1 + mx and y0 - my <= v <= y1 + my:
-            return tid
-    return None
+            return tid, corners
+    return None, None
 
 
-def tag_color(tid, tag_colors):
-    """퍽 태그 번호 → 색 (tag_colors = {색: [번호…]}) · 모르면 ''"""
-    return next((c for c, ids in tag_colors.items() if tid in ids), "")
+# ---------- 퍽 방향 (그리퍼로 집을 때 손을 돌릴 각도) — 추적 좌표(odom) 바닥 위 yaw [rad]
+#   모양이 대칭이라 각도는 주기(period) 안에서만 뜻이 있음: 사각기둥 90° · 누운 퍽(긴 축) 180° · 서있는 원기둥은 방향 없음
+def wrap_yaw(yaw, period):
+    """yaw를 [−period/2, period/2)로 — 대칭 모양은 period만큼 돌려도 같은 자세"""
+    return float((yaw + period / 2.0) % period - period / 2.0)
+
+
+def tag_yaw(corners, size_m, fx, fy, cx, cy, rot):
+    """퍽에 붙은 태그 꼭짓점 → (yaw, 붙은 면) · 못 구하면 (None, '')
+    solvePnP(IPPE_SQUARE — 정사각형 표식 전용)로 카메라 기준 태그 자세 → rot(카메라 → 추적 좌표)로 돌림.
+      태그 법선(z축 — 태그 앞쪽)이 거의 수평 → 옆면 태그: yaw = 법선 방향 (사각기둥 옆면 · 누운 원기둥 바닥면 = 긴 축)
+      거의 수직 → 윗면 태그: yaw = 태그 x축 방향 (사각기둥 윗면 — 태그를 면 모서리에 맞춰 붙였다고 봄)
+    영상 왜곡은 0으로 봄 (RealSense 컬러는 왜곡이 작음)"""
+    h = size_m / 2.0
+    obj = np.array([[-h, h, 0], [h, h, 0], [h, -h, 0], [-h, -h, 0]], np.float64)  # aruco 꼭짓점 순서와 같은 태그 좌표
+    k = np.array([[fx, 0, cx], [0, fy, cy], [0, 0, 1]], np.float64)
+    try:
+        ok, rvec, _ = cv2.solvePnP(obj, np.asarray(corners, np.float64).reshape(4, 1, 2), k, None,
+                                   flags=cv2.SOLVEPNP_IPPE_SQUARE)
+    except cv2.error:
+        return None, ""
+    if not ok:
+        return None, ""
+    r_tag = rot @ cv2.Rodrigues(rvec)[0]  # 태그 축 → 추적 좌표
+    n, xa = r_tag[:, 2], r_tag[:, 0]
+    if abs(n[2]) < 0.5:   # 법선이 수평에서 30° 안 → 옆면
+        return float(np.arctan2(n[1], n[0])), "side"
+    if abs(n[2]) > 0.87:  # 법선이 수직에서 30° 안 → 윗면
+        return float(np.arctan2(xa[1], xa[0])), "top"
+    return None, ""       # 비스듬한 면 — 잘못 구한 자세일 수 있어 안 씀
+
+
+def axis_yaw(points_xy, min_points, min_elong):
+    """퍽 화소의 바닥 위 점들(추적 좌표 x·y) → 긴 축 yaw (주성분) · 점이 적거나 길쭉하지 않으면 None
+    누운 퍽처럼 한 방향으로 길 때만 (긴 축 표준편차 ÷ 짧은 축 ≥ min_elong) — 정사각형에 가까우면 방향을 못 정함"""
+    p = np.asarray(points_xy, float)
+    if len(p) < min_points:
+        return None
+    w, v = np.linalg.eigh(np.cov((p - p.mean(0)).T))  # 고윳값 오름차순
+    if w[0] <= 0 or np.sqrt(w[1] / w[0]) < min_elong:
+        return None
+    return float(np.arctan2(v[1, 1], v[0, 1]))
+
+
+def find_box_tops(depth_m, rot, trans, fx, fy, cx, cy, floor_z, h_range, min_side, max_side, cell, step=4,
+                  max_range=3.0, avoid=None):
+    """depth 한 장 → 바닥 위 상자 윗면들 [(가운데 xy[2], 크기(긴 변, 짧은 변), yaw [rad, 주기 90°], 윗면 높이 z)] (추적 좌표)
+    상자 = 205×205×70 골판지 상자 (붙여 놓으면 더 큰 판). 방법:
+      ① depth를 step 화소마다 골라 추적 좌표 점으로 (max_range 안) · avoid(xy, 반경)이면 그 원 안(로봇 차체)은 뺌
+      ② 바닥(floor_z)에서 h_range 높이(윗면 근처)인 점 → 바닥 격자(cell m)에 찍음 → 닫힘 연산으로 퍽 그림자 구멍을 메움
+      ③ 덩어리마다 가장 작은 기울어진 사각형(cv2.minAreaRect) → 짧은 변 ≥ min_side, 긴 변 ≤ max_side만 상자
+      ④ 사각형 안에 h_range보다 높은 점(0.15~0.6m 높이)이 많으면 버림 — 원통 방해물·다리처럼 위로 이어지는 물체 (상자 위 퍽은 작아서 괜찮음)
+    rot·trans = 카메라 → 추적 좌표 (lookup_tf) · depth_m [m]"""
+    h, w = depth_m.shape[:2]
+    vv, uu = np.mgrid[0:h:step, 0:w:step]
+    z = depth_m[vv, uu]
+    ok = (z > 0.15) & (z < max_range)
+    if not ok.any():
+        return []
+    z, uu, vv = z[ok], uu[ok], vv[ok]
+    pts = np.stack([(uu - cx) * z / fx, (vv - cy) * z / fy, z], -1) @ rot.T + trans
+    if avoid is not None:
+        pts = pts[np.hypot(pts[:, 0] - avoid[0][0], pts[:, 1] - avoid[0][1]) > avoid[1]]
+    hz = pts[:, 2] - floor_z
+    top = pts[(hz > h_range[0]) & (hz < h_range[1])]
+    tall = pts[(hz > 0.15) & (hz < 0.6)]
+    if len(top) < 10:
+        return []
+    org = top[:, :2].min(0) - cell * 2
+    ij = ((top[:, :2] - org) / cell).astype(int)
+    grid = np.zeros((ij[:, 1].max() + 3, ij[:, 0].max() + 3), np.uint8)
+    grid[ij[:, 1], ij[:, 0]] = 255
+    grid = cv2.morphologyEx(grid, cv2.MORPH_CLOSE, np.ones((3, 3), np.uint8))
+    n, lab = cv2.connectedComponents(grid)
+    out = []
+    for k in range(1, n):
+        ys, xs = np.nonzero(lab == k)
+        if len(xs) < 4:
+            continue
+        cells = np.stack([xs, ys], -1).astype(np.float32) * cell + org.astype(np.float32)
+        (mx, my), (a, b), ang = cv2.minAreaRect(cells)
+        a, b = a + cell, b + cell  # 격자 칸 가운데끼리 잰 길이 → 칸 하나만큼 넓힘
+        if min(a, b) < min_side or max(a, b) > max_side:
+            continue
+        yaw = wrap_yaw(np.radians(ang), np.pi / 2)
+        if len(tall):  # 사각형 안 높은 점 — 사각형 축으로 돌려서 안쪽인지 봄
+            c, sn = np.cos(-yaw), np.sin(-yaw)
+            d = tall[:, :2] - (mx, my)
+            loc = np.stack([d[:, 0] * c - d[:, 1] * sn, d[:, 0] * sn + d[:, 1] * c], -1)
+            inside = (abs(loc[:, 0]) < a / 2) & (abs(loc[:, 1]) < b / 2)
+            if inside.sum() > 0.3 * len(xs):  # 윗면 칸 수에 비해 높은 점이 많음 → 상자 아님
+                continue
+        top_z = float(np.median(top[(abs(top[:, 0] - mx) < a / 2) & (abs(top[:, 1] - my) < b / 2), 2]))
+        out.append((np.array([mx, my]), (max(a, b), min(a, b)), yaw, top_z))
+    return out
+
+
+def tag_on_box(tag_xy, box, margin):
+    """장소 태그 위치(xy)가 상자 윗면 사각형(가운데·크기·yaw)의 옆면 근처(사각형을 margin만큼 넓힌 안)에 있는가"""
+    c, (a, b), yaw, _ = box
+    d = np.asarray(tag_xy, float) - c
+    co, sn = np.cos(-yaw), np.sin(-yaw)
+    lx, ly = d[0] * co - d[1] * sn, d[0] * sn + d[1] * co
+    return abs(lx) < a / 2 + margin and abs(ly) < a / 2 + margin  # 긴 변 기준 (축 구분 없이 넉넉하게)
 
 
 def to_msg(tid, tr):
-    """트랙(또는 한 검출) dict → TrackedObject — 위치 공분산 3×3을 pose.covariance에, 방향은 모름"""
+    """트랙(또는 한 검출) dict → TrackedObject — 위치 공분산 3×3을 pose.covariance에.
+    방향: 퍽·장소 yaw를 알면 pose.orientation(바닥 위 회전만) + 공분산 yaw 대각 YAW_VAR_KNOWN, 모르면 단위 쿼터니언 + ROT_VAR_UNKNOWN"""
     o = TrackedObject()
     o.id = tid
     o.class_name = tr["class_name"]
@@ -417,10 +551,14 @@ def to_msg(tid, tr):
         o.class_name = "puck_lying"
     o.confidence = float(tr.get("conf", 0.5))
     o.pose.pose.position.x, o.pose.pose.position.y, o.pose.pose.position.z = (float(v) for v in tr["p"])
+    yaw = tr.get("yaw")
     o.pose.pose.orientation.w = 1.0
+    if yaw is not None:  # z축 회전만 — (0, 0, sin(yaw/2), cos(yaw/2))
+        o.pose.pose.orientation.z, o.pose.pose.orientation.w = float(np.sin(yaw / 2)), float(np.cos(yaw / 2))
     cov = np.zeros((6, 6))
     cov[:3, :3] = tr["P"]
-    cov[3, 3] = cov[4, 4] = cov[5, 5] = ROT_VAR_UNKNOWN
+    cov[3, 3] = cov[4, 4] = ROT_VAR_UNKNOWN  # 기울기(roll·pitch)는 추정 안 함
+    cov[5, 5] = YAW_VAR_KNOWN if yaw is not None else ROT_VAR_UNKNOWN
     o.pose.covariance = [float(v) for v in cov.ravel()]
     o.size.x, o.size.y, o.size.z = (float(v) for v in tr["size"])
     o.last_seen = tr["last_seen"]
@@ -434,7 +572,13 @@ def to_msg(tid, tr):
         details.append(KeyValue(key="posture", value=tr["posture"]))
     elif o.class_name == "traffic_light" and o.color:  # 신호등 상태 (color에도 같이 있음)
         details.append(KeyValue(key="state", value=o.color))
-    if tr.get("tag") is not None:  # AprilTag 번호 — 퍽 0~11 · 장소 12~14
+    if tr.get("shape"):  # 퍽 모양 box(사각기둥) · cyl(원기둥)
+        details.append(KeyValue(key="shape", value=tr["shape"]))
+    if yaw is not None:  # 방향 대칭 주기 [deg] — 이만큼 돌려도 같은 자세 (90 = 사각기둥 · 180 = 누운 퍽 긴 축)
+        details.append(KeyValue(key="yaw_period", value=str(int(round(np.degrees(tr["yaw_period"]))))))
+    if tr.get("distance") is not None:  # 로봇(base_footprint) 중심 ~ 물체 중심 바닥 위 거리 [m] — 발행 순간
+        details.append(KeyValue(key="distance", value=f'{tr["distance"]:.3f}'))
+    if tr.get("tag") is not None:  # AprilTag 번호 — 퍽 0~11 · 장소 상자 12~14
         details.append(KeyValue(key="tag", value=str(tr["tag"])))
     if tr.get("content"):  # 바코드 문자열 (장소 작업 지시)
         details.append(KeyValue(key="content", value=tr["content"]))
@@ -482,7 +626,7 @@ class PerceptionNode(Node):
         self.miss_occlusion_m = float(self.get_parameter("miss_occlusion_m").value)
         # 퍽 판단 (judge_puck) — 기준값은 test/puck_tag_check.py 실물 측정 (~/yolo_puck test_results_20261021.md · 10/22 bee_v3ft)
         #   퍽 색·크기는 발제문이 나오면 yaml에서 바꿀 것 (모양 원기둥·사각기둥은 구분 안 함 — 팀 결정)
-        self.declare_parameter("puck_colors", ["red", "yellow", "green", "blue"])  # 퍽으로 볼 색 (파랑 = 지금 실물 테스트용)
+        self.declare_parameter("puck_colors", ["red", "green"])  # 퍽으로 볼 색 (발제 v5: 빨강·초록뿐)
         self.declare_parameter("hue_tol", 10)               # 기준 H에서 이만큼 안이어야 그 색 (빨간 퍽 H1~10 · 주황 컵홀더 H12~13 실측)
         self.declare_parameter("check_model_color", True)   # YOLO 이름의 색(puck_red)과 HSV 색이 다르면 퍽 아님
         self.declare_parameter("size_long_min_cm", 2.5)     # 박스 긴 변 하한 [cm] (끝면·윗면 3×3만 보이면 2.5~3.9)
@@ -494,14 +638,36 @@ class PerceptionNode(Node):
         self.declare_parameter("edge_px", 5)                # 박스가 화면 가장자리 이 안에 닿으면 잘린 퍽 — 크기 하한·자세 안 봄
         self.declare_parameter("near_px", 70)               # 깊이 없는데 박스 짧은 변이 이 이상이면 너무 가까운 퍽 (3cm 퍽 70px ≈ 25cm)
         self.declare_parameter("depth_min_valid", 0.5)      # 박스 가운데 깊이 화소가 이 비율보다 적으면 깊이 없음
-        # 표식 (발제 배포 표식) — 퍽 윗면 AprilTag 번호 → 색, 장소 태그 번호
-        self.declare_parameter("puck_tags_red", [0, 1, 2, 3])
-        self.declare_parameter("puck_tags_green", [4, 5, 6, 7])
-        self.declare_parameter("puck_tags_blue", [8, 9, 10, 11])
+        # 표식 (발제 배포 표식) — 퍽 태그 번호 · 장소 태그 번호
+        #   퍽 번호는 어느 퍽에 붙을지 무작위 → 색을 정하지 않고 이름표로만 (색은 puck_color — 영상)
+        self.declare_parameter("puck_tags", list(range(12)))
         self.declare_parameter("location_tags", [12, 13, 14])
-        self.tag_colors = {c: [int(v) for v in self.get_parameter(f"puck_tags_{c}").value] for c in ("red", "green", "blue")}
-        self.puck_tag_ids = {t for ids in self.tag_colors.values() for t in ids}
+        self.puck_tag_ids = {int(v) for v in self.get_parameter("puck_tags").value}
+        # 퍽 방향 (그리퍼 손 각도) — 태그 자세(tag_yaw) 우선, 없으면 누운 퍽은 퍽 화소 점들의 긴 축(axis_yaw)
+        self.declare_parameter("puck_tag_size_m", 0.016)  # 퍽 태그 검은 사각형 한 변 [m] (발제 16mm)
+        self.declare_parameter("yaw_min_points", 30)      # 긴 축을 구할 최소 점 수 (깊이 있는 퍽 색 화소)
+        self.declare_parameter("yaw_min_elong", 1.8)      # 긴 축 ÷ 짧은 축 (표준편차) 이 이상이어야 긴 축 방향을 믿음 (누운 퍽 60×30mm = 2)
+        self.puck_tag_size = float(self.get_parameter("puck_tag_size_m").value)
+        self.yaw_min_points = int(self.get_parameter("yaw_min_points").value)
+        self.yaw_min_elong = float(self.get_parameter("yaw_min_elong").value)
         self.location_tags = {int(v) for v in self.get_parameter("location_tags").value}
+        self.declare_parameter("location_tag_size_m", 0.048)  # 장소 태그 검은 사각형 한 변 [m] (발제 60mm는 흰 여백 포함 → 검은 부분 48mm)
+        self.location_tag_size = float(self.get_parameter("location_tag_size_m").value)
+        # 상자 (find_box_tops) — 발제 205×205×70 골판지 상자 · 붙이면 더 큰 판 (사용자 11/02)
+        self.declare_parameter("box_detect", True)                  # depth로 상자 윗면 찾기 (False면 장소 태그 위치만)
+        self.declare_parameter("box_top_height_m", [0.05, 0.09])    # 윗면으로 볼 바닥 위 높이 범위 [m] (상자 70mm)
+        self.declare_parameter("box_min_side_m", 0.17)              # 짧은 변이 이보다 작으면 상자 아님 [m] (205mm − 여유 · 일부만 보인 윗면도 버림)
+        self.declare_parameter("box_max_side_m", 1.0)               # 긴 변이 이보다 크면 상자 아님 [m] (4개 붙인 820mm까지)
+        self.declare_parameter("box_cell_m", 0.02)                  # 바닥 격자 한 칸 [m]
+        self.declare_parameter("box_tag_margin_m", 0.08)            # 장소 태그가 윗면 사각형에서 이만큼 안이면 그 상자의 태그 [m]
+        self.declare_parameter("location_box_size", [0.205, 0.205, 0.07])  # 윗면을 못 찾았을 때 장소 상자 크기 [m] — 태그에서 반 변만큼 안쪽이 가운데
+        self.box_detect = bool(self.get_parameter("box_detect").value)
+        self.box_h = [float(v) for v in self.get_parameter("box_top_height_m").value]
+        self.box_min_side = float(self.get_parameter("box_min_side_m").value)
+        self.box_max_side = float(self.get_parameter("box_max_side_m").value)
+        self.box_cell = float(self.get_parameter("box_cell_m").value)
+        self.box_tag_margin = float(self.get_parameter("box_tag_margin_m").value)
+        self.location_box_size = np.array([float(v) for v in self.get_parameter("location_box_size").value])
         self.tag_det = tag_detector()
         self.barcode = barcode_detector()
         self.puck_colors = [str(v) for v in self.get_parameter("puck_colors").value]
@@ -630,11 +796,14 @@ class PerceptionNode(Node):
     def on_infer(self):
         if self.model is None:
             return
+        # 간격 검사는 '추론 시작 시각' 기준 · 0.2초 (타이머 0.25초가 상한) — 끝난 시각 기준 0.25초였을 때 다음 타이머가 아슬아슬하게
+        # 0.25초를 못 넘겨 한 번씩 건너뛰어 실제로는 2Hz였음 (10/29 전체 재생 측정: 추론 간격 중앙값 0.5초 → 1초 점멸에 사진 2장)
         with self.lock:
             cams = [(c, dict(s)) for c, s in self.frames.items()
                     if s.get("bgr") is not None and s.get("depth_mm") is not None
-                    and s.get("fx") and time.time() - s.get("infer_t", 0.0) > 0.25]
+                    and s.get("fx") and time.time() - s.get("infer_t", 0.0) > 0.2]
         for cam, s in cams:
+            t_start = time.time()
             try:
                 res = self.model.predict(s["bgr"], imgsz=self.imgsz, conf=self.conf_th,
                                          device=self.device, verbose=False)[0]
@@ -642,7 +811,7 @@ class PerceptionNode(Node):
                 self.get_logger().warning(f"추론 실패: {e}", throttle_duration_sec=5.0)
                 continue
             with self.lock:
-                self.frames[cam]["infer_t"] = time.time()
+                self.frames[cam]["infer_t"] = t_start
             self.update_tracks(cam, s, res)
 
     def update_tracks(self, cam, s, res):
@@ -667,6 +836,7 @@ class PerceptionNode(Node):
         qr_boxes = []
         for b in res.boxes:
             tag = None
+            shape, yaw, yaw_period = "", None, 0.0  # 퍽만 채움
             name = self.names.get(int(b.cls[0]))
             if name is None:
                 continue
@@ -693,9 +863,11 @@ class PerceptionNode(Node):
                     continue
                 if posture == "lying":
                     cls = "puck_lying"  # 발행 이름은 설계대로 puck / puck_lying
-                tag = tag_in_box(tags, (x0, y0, x1, y1), self.puck_tag_ids)
-                if tag is not None:
-                    color = tag_color(tag, self.tag_colors) or color  # 윗면 태그가 색보다 확실 (R·G·B 번호대)
+                tag, corners = tag_in_box(tags, (x0, y0, x1, y1), self.puck_tag_ids)  # 번호만 붙임 — 색은 위에서 영상으로 정한 그대로
+                tag_y, face = (tag_yaw(corners, self.puck_tag_size, s["fx"], s["fy"], s["cx"], s["cy"], rot)
+                               if corners is not None else (None, ""))
+                shape = tag_shape(face, posture) or puck_shape(name)  # 몸통 면 태그가 보이면 YOLO 모양보다 우선
+                yaw, yaw_period = self.puck_yaw(s, depth_m, (x0, y0, x1, y1), color, shape, posture, tag_y, face, rot, trans)
             else:
                 region = depth_m[y0:y1, x0:x1]
                 valid = region[(region > 0.05) & (region < 6.0)]
@@ -726,15 +898,52 @@ class PerceptionNode(Node):
                 "conf": float(b.conf[0]), "px": (int(u), int(v)),
                 "color": color,
                 "posture": posture,  # 퍽: standing / lying / ''(모름 — 합칠 때 아는 자세를 덮지 않음) · 그 외 ''
-                "tag": tag,          # 퍽 윗면 AprilTag 번호 (못 읽으면 None — 합칠 때 아는 번호를 덮지 않음)
+                "tag": tag,          # 퍽 AprilTag 번호 (못 읽으면 None — 합칠 때 아는 번호를 덮지 않음)
+                "shape": shape,      # 퍽 모양 box · cyl · ''(모름 — 합칠 때 아는 모양을 덮지 않음)
+                "yaw": yaw, "yaw_period": yaw_period,  # 퍽 방향 (추적 좌표) · 못 구하면 None — 합칠 때 아는 방향을 덮지 않음
             })
-        for tid_tag, (u, v), box in tags:  # 장소 태그 (L1~L3) — YOLO가 아니라 태그 자체가 물체
+        # 상자 윗면 (depth) — 로봇 차체 둘레는 뺌 · 바닥 높이 = 로봇 base_footprint 높이 (TF 없으면 추적 좌표 0)
+        base_now = self.lookup_tf(self.base_frame, now_stamp, quiet=True)
+        floor_z = float(base_now[1][2]) if base_now is not None else 0.0
+        avoid = (base_now[1][:2], self.body_radius) if base_now is not None else None
+        boxes = (find_box_tops(depth_m, rot, trans, s["fx"], s["fy"], s["cx"], s["cy"], floor_z, self.box_h,
+                               self.box_min_side, self.box_max_side, self.box_cell, avoid=avoid)
+                 if self.box_detect else [])
+        box_tag = {}  # 상자 번호(boxes 안 순서) → (태그 번호, 태그 yaw 또는 None)
+        for tid_tag, (u, v), box, corners in tags:  # 장소 태그 (L1~L3) — 붙은 상자를 location_box로
             if tid_tag not in self.location_tags:
                 continue
-            d = self.marker_det(s, box, (u, v), rot, trans, "location")
-            if d is not None:
-                d["tag"] = tid_tag
-                dets.append(d)
+            d = self.marker_det(s, box, (u, v), rot, trans, "location_box")
+            if d is None:
+                continue
+            # 방향: 상자 옆면(접근 방향 쪽, 발제 v5 §07)에 붙은 태그의 바라보는 방향(법선) — 퍽 옆면과 같은 계산(tag_yaw)
+            #   yaw = 태그 앞쪽(상자 밖, 로봇이 다가오는 쪽)을 가리킴 · 놓을 때 상자 방향 보정용 (사용자 10/28)
+            #   비스듬히 봐서 옆면으로 안 나오면 안 씀 (모름 — 합칠 때 아는 방향을 덮지 않음)
+            l_yaw, face = tag_yaw(corners, self.location_tag_size, s["fx"], s["fy"], s["cx"], s["cy"], rot)
+            l_yaw = l_yaw if face == "side" else None
+            on = [i for i, bx in enumerate(boxes) if tag_on_box(d["z"][:2], bx, self.box_tag_margin)]
+            if on:  # 윗면을 찾은 상자에 붙은 태그 → 그 상자에 번호·방향 (아래 상자 검출에서 같이 만듦)
+                box_tag[on[0]] = (tid_tag, l_yaw)
+                continue
+            # 윗면을 못 찾음 (멀거나 일부만 보임) → 태그에서 상자 안쪽(법선 반대)으로 반 변 옮긴 곳 · 방향 모르면 태그 위치 그대로
+            d["tag"] = tid_tag
+            d["size"] = self.location_box_size.copy()
+            if l_yaw is not None:
+                d["z"] = d["z"] - self.location_box_size[0] / 2.0 * np.array([np.cos(l_yaw), np.sin(l_yaw), 0.0])
+                d["yaw"], d["yaw_period"] = l_yaw, 2 * np.pi  # 대칭 없음 (360°)
+            dets.append(d)
+        for i, (c, (a, b), byaw, top_z) in enumerate(boxes):
+            p_img = rot.T @ (np.array([c[0], c[1], top_z]) - trans)  # 윗면 가운데의 카메라 좌표 — 측정 분산 · 화면 위치용
+            r_cam = meas_cov_cam(float(p_img[2]), s["fx"], s["fy"], self.pixel_sigma, self.depth_sigma0, self.depth_sigma_k)
+            d = {"class_name": "start_box", "z": np.array([c[0], c[1], top_z]), "R": rot @ r_cam @ rot.T,
+                 "size": np.array([a, b, max(top_z - floor_z, 0.01)]), "conf": 1.0,
+                 "px": (int(s["fx"] * p_img[0] / p_img[2] + s["cx"]), int(s["fy"] * p_img[1] / p_img[2] + s["cy"])),
+                 "color": "", "posture": "", "yaw": byaw, "yaw_period": np.pi / 2}  # 윗면 사각형 변 방향 — 정사각형이라 90°마다 같음
+            if i in box_tag:  # 장소 태그가 붙은 상자 → location_box (방향은 태그 법선을 우선 — 360° 구분됨)
+                d["class_name"], d["tag"] = "location_box", box_tag[i][0]
+                if box_tag[i][1] is not None:
+                    d["yaw"], d["yaw_period"] = box_tag[i][1], 2 * np.pi
+            dets.append(d)
         now_s = stamp_s(now_stamp)
         view = (rot, trans, s["fx"], s["fy"], s["cx"], s["cy"], depth_m)  # 이 카메라 이 프레임 — 기억한 물체 지우기 판정용
         with self.lock:
@@ -766,6 +975,40 @@ class PerceptionNode(Node):
                 "size": np.array([max((x1 - x0) * zm / s["fx"], 0.01), max((y1 - y0) * zm / s["fy"], 0.01),
                                   SIZE_FALLBACK[cls][2]]),
                 "conf": 1.0, "px": (int(u), int(v)), "color": "", "posture": ""}
+
+    def puck_yaw(self, s, depth_m, box, color, shape, posture, tag_y, face, rot, trans):
+        """퍽 한 개의 방향 → (yaw [rad, 추적 좌표], 대칭 주기 [rad]) · 못 구하면 (None, 0.0)
+        tag_y, face = tag_yaw 결과 (태그 못 읽으면 None, '') — 모양 판단(tag_shape)에도 쓰여 호출하는 쪽에서 한 번만 구함
+          누운 퍽: 퍽 색 화소의 바닥 위 점들의 긴 축 (주기 180°) — 안 되면 원기둥 바닥면 태그 법선(= 긴 축)
+          서있는 원기둥: 어느 쪽에서 봐도 같음 → 방향 없음
+          그 밖(서있는 사각기둥 · 모양·자세 모름): 태그 자세 (주기 90° — 옆면이면 법선, 윗면이면 태그 x축)"""
+        if posture == "lying":
+            yaw = axis_yaw(self.puck_points_xy(s, depth_m, box, color, rot, trans), self.yaw_min_points, self.yaw_min_elong)
+            if yaw is None and shape == "cyl" and face == "side":
+                yaw = tag_y
+            return (wrap_yaw(yaw, np.pi), np.pi) if yaw is not None else (None, 0.0)
+        if shape == "cyl" and posture == "standing":
+            return None, 0.0
+        if tag_y is None or (shape == "cyl" and face == "top"):  # 원기둥 윗면 태그는 방향이 없음
+            return None, 0.0
+        return wrap_yaw(tag_y, np.pi / 2), np.pi / 2
+
+    def puck_points_xy(self, s, depth_m, box, color, rot, trans):
+        """퍽 박스 안에서 퍽 색(color ± hue_tol)이고 깊이가 있는 화소 → 추적 좌표 바닥 위 점 (N×2). 최대 400점"""
+        x0, y0, x1, y1 = box
+        if color not in HUES:
+            return np.zeros((0, 2))
+        hsv = cv2.cvtColor(s["bgr"][y0:y1, x0:x1], cv2.COLOR_BGR2HSV)
+        h = hsv[..., 0].astype(int)
+        dh = np.min([np.minimum(abs(h - c), 180 - abs(h - c)) for c in HUES[color]], axis=0)
+        z = depth_m[y0:y1, x0:x1]
+        vv, uu = np.nonzero((dh <= self.hue_tol) & (hsv[..., 1] > 80) & (hsv[..., 2] > 50) & (z > 0.05) & (z < 3.0))
+        if len(vv) > 400:
+            k = np.linspace(0, len(vv) - 1, 400).astype(int)
+            vv, uu = vv[k], uu[k]
+        zz = z[vv, uu]
+        cam = np.stack([(uu + x0 - s["cx"]) * zz / s["fx"], (vv + y0 - s["cy"]) * zz / s["fy"], zz], -1)
+        return (cam @ rot.T + trans)[:, :2]
 
     def judge_puck(self, wcm, hcm, color, clipped=False, model_color="", near=False):
         """퍽 후보 박스의 실제 크기(폭·높이 cm, 깊이 없으면 ≤0)·색·잘림·YOLO 이름의 색·가까움 → (퍽인가, 아니면 이유, 자세)
@@ -838,6 +1081,16 @@ class PerceptionNode(Node):
                 tr["tag"] = d["tag"]
             if d.get("content"):
                 tr["content"] = d["content"]
+            if d.get("shape"):  # 모양은 아는 관측만
+                tr["shape"] = d["shape"]
+            if d.get("yaw") is not None and tr.get("yaw") is not None and d["yaw_period"] < tr.get("yaw_period", 0.0):
+                pass  # 장소 상자: 태그로 구한 방향(360°)을 윗면 사각형 방향(90°)으로 덮지 않음
+            elif d.get("yaw") is not None:  # 방향은 구한 관측의 최신값 (평균 내지 않음 — 집기 직전 그리퍼캠이 가장 정확)
+                tr["yaw"], tr["yaw_period"] = d["yaw"], d["yaw_period"]
+            elif d.get("posture") and d["posture"] != tr.get("yaw_posture"):
+                tr["yaw"] = None  # 자세가 바뀜(세움 ↔ 누움) → 옛 방향은 뜻이 없음
+            if d.get("posture"):
+                tr["yaw_posture"] = d["posture"]
         for i, d in enumerate(dets):
             if i in used_d:
                 continue
@@ -845,7 +1098,9 @@ class PerceptionNode(Node):
                 "class_name": kind(d["class_name"]), "posture": d.get("posture", ""),
                 "p": d["z"], "P": d["R"], "t": t, "size": d["size"],
                 "conf": d["conf"], "last_seen": stamp, "seen": {cam: t}, "miss": 0, "hits": 1,
-                "camera": cam, "px": d["px"], "color": d["color"], "tag": d.get("tag"), "content": d.get("content", "")}
+                "camera": cam, "px": d["px"], "color": d["color"], "tag": d.get("tag"), "content": d.get("content", ""),
+                "shape": d.get("shape", ""), "yaw": d.get("yaw"), "yaw_period": d.get("yaw_period", 0.0),
+                "yaw_posture": d.get("posture", "")}
             used_d[i] = self.next_id
             self.next_id += 1
         return [used_d[i] for i in range(len(dets))]
@@ -857,7 +1112,12 @@ class PerceptionNode(Node):
           기억하는 물체(REMEMBER_PREFIXES): 시간으로는 안 지움. 이번에 안 잡혔는데 그 자리가 잘 보였어야 하면 miss +1 → miss_count면 삭제
             단 remember_min_hits번 넘게 잡히기 전(확인 전)에는 기억 안 하는 물체처럼 2초 규칙 — 카메라 자세(TF)가 영상과
             잠깐 어긋나 한두 번 엉뚱한 자리로 찍힌 '유령 퍽'이 남지 않게 (10/22 시뮬레이터: 같은 퍽이 9곳에 남았음)"""
+        loc = [tr["p"][:2] for tr in self.tracks.values() if tr["class_name"] == "location_box"]
         for tid, tr in list(self.tracks.items()):
+            # 같은 상자를 태그 없이(뒤·옆에서) 봐서 생긴 start_box → 그 자리에 장소 상자가 있으면 지움
+            if tr["class_name"] == "start_box" and any(np.linalg.norm(tr["p"][:2] - q) < self.box_min_side for q in loc):
+                del self.tracks[tid]
+                continue
             if not remembered(tr["class_name"]) or tr.get("hits", 1) < self.remember_min_hits:
                 if now_s - tr["t"] > TRACK_TIMEOUT_S:
                     del self.tracks[tid]
@@ -888,7 +1148,10 @@ class PerceptionNode(Node):
                 self.get_logger().warning(f"map ← {self.track_frame} TF 없음 — 그대로 발행: {e}", throttle_duration_sec=5.0)
                 return tr
         rot, trans = self._out_tf
-        return {**tr, "p": rot @ np.asarray(tr["p"]) + trans, "P": rot @ np.asarray(tr["P"]) @ rot.T}
+        out = {**tr, "p": rot @ np.asarray(tr["p"]) + trans, "P": rot @ np.asarray(tr["P"]) @ rot.T}
+        if tr.get("yaw") is not None:  # 퍽 방향도 map ← odom 회전(yaw)만큼 돌림 — 대칭 주기 안으로 다시 맞춤
+            out["yaw"] = wrap_yaw(tr["yaw"] + float(np.arctan2(rot[1, 0], rot[0, 0])), tr["yaw_period"])
+        return out
 
     def lookup_tf(self, frame_id, stamp, quiet=False):
         """track_frame(odom) ← 카메라 TF를 영상 시각으로 (팔이 움직이는 중에도 찍힌 순간의 자세). 그 시각이 버퍼에 없으면 최신으로 대신.
@@ -915,6 +1178,11 @@ class PerceptionNode(Node):
         out.header.frame_id = "map"
         with self.lock:
             items = [(tid, dict(tr)) for tid, tr in sorted(self.tracks.items())]
+        # 로봇 ~ 물체 거리: 지금 로봇(base_footprint) 위치와 트랙 위치를 같은 추적 좌표(odom)에서 바닥 위 거리로 — 로봇 TF가 없으면 생략
+        base = self.lookup_tf(self.base_frame, rclpy.time.Time().to_msg(), quiet=True)
+        if base is not None:
+            for _, tr in items:
+                tr["distance"] = float(np.hypot(tr["p"][0] - base[1][0], tr["p"][1] - base[1][1]))
         out.objects = [to_msg(tid, self.to_map(tr)) for tid, tr in items]  # 추적은 odom — 발행 순간의 map ← odom으로
         self.pub.publish(out)
         with self.lock:

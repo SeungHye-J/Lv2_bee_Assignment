@@ -7,8 +7,8 @@
                 double radius = 5
             }
             dictionary Perspective = {
-                double3 position = (-1.927557899132891, -5.371251068510431, 1.924579561280773)
-                double3 target = (-1.2465659090195007, -2.2489650553024028, 0.1855335702755454)
+                double3 position = (-0.3321603676609302, -3.8599483016406757, 0.9119804949270236)
+                double3 target = (-0.7224208174515804, -2.2306889574595674, -0.003749752974889442)
             }
             dictionary Right = {
                 double3 position = (0, -5, 0)
@@ -46,7 +46,7 @@ def Xform "World"
     {
         quatf xformOp:orient = (0.08636859, 0, 0, 0.99626327)
         float3 xformOp:scale = (1, 1, 1)
-        double3 xformOp:translate = (-2.09083761855069, -2.453823306013679, 0.000001370847388493246)
+        double3 xformOp:translate = (-0.6808730737752141, -2.597499998994426, 0.0000013708473702855883)
         uniform token[] xformOpOrder = ["xformOp:translate", "xformOp:orient", "xformOp:scale"]
 
         over "Geometry"
@@ -180,20 +180,6 @@ def Xform "World"
                     over "sphere_3"
                     {
                         rel physics:simulationOwner
-                    }
-
-                    over "battery_link"
-                    {
-                    }
-
-                    over "imu_link"
-                    {
-                        over "Imu_Sensor"
-                        {
-                            quatd xformOp:orient = (1, 0, 0, -0)
-                            double3 xformOp:translate = (5.960464477539063e-8, -2.384185791015625e-7, 0)
-                            uniform token[] xformOpOrder = ["xformOp:translate", "xformOp:orient", "xformOp:scale"]
-                        }
                     }
                 }
             }
@@ -360,23 +346,6 @@ def Xform "World"
                 token[] isaac:physics:DofOffsetOpOrder (
                     displayName = "Dof Offset Op Order"
                 )
-            }
-        }
-
-        over "ActionGraph"
-        {
-            over "isaac_read_simulation_time"
-            {
-                custom uint64 inputs:referenceTimeDenominator
-                custom int64 inputs:referenceTimeNumerator
-            }
-
-            over "ros2_publish_clock"
-            {
-                custom uint64 inputs:context
-                custom string inputs:nodeNamespace
-                custom string inputs:qosProfile
-                custom uint64 inputs:queueSize
             }
         }
     }
@@ -954,7 +923,6 @@ def "Render" (
                 token omni:rtx:background:source:texture:textureMode = "repeatMirrored"
                 token omni:rtx:background:source:type = "domeLight"
                 bool omni:rtx:debug:view:pixelDebug:enableFixedTextPos = 1
-                string omni:rtx:debug:view:target = ""
                 token omni:rtx:directLighting:sampledLighting:denoisingTechnique = "None"
                 bool omni:rtx:dlss:frameGeneration
                 bool omni:rtx:indirectDiffuse:denoiser:enabled = 0
@@ -969,21 +937,18 @@ def "Render" (
                 bool omni:rtx:reflections:denoiser:enabled = 0
                 token omni:rtx:rendermode = "RealTimePathTracing"
                 color3f omni:rtx:rt:ambientLight:color = (0.1, 0.1, 0.1)
-                float omni:rtx:rt:ambientLight:intensity
                 bool omni:rtx:rt:demoire = 0
                 bool omni:rtx:rt:ecoMode:enabled
                 bool omni:rtx:rt:lightcache:spatialCache:dontResolveConflicts = 1
                 int omni:rtx:rt:sss:samples = 1
-                uint omni:rtx:rtpt:maxBounces
                 uint omni:rtx:rtpt:maxVolumeBounces = 15
                 float omni:rtx:rtpt:modulatingRoughnessThreshold = 0.08
                 bool omni:rtx:scene:hydra:materialSyncLoads = 1
                 bool omni:rtx:scene:hydra:mdlMaterialWarmup = 1
                 bool omni:rtx:scene:useViewLightingMode
-                token omni:rtx:wireframe:mode = "instance"
                 rel orderedVars = </Render/Vars/LdrColor>
                 custom bool overrideClipRange = 0
-                uniform int2 resolution = (1285, 654)
+                uniform int2 resolution = (1280, 720)
             }
 
             def RenderProduct "Replicator" (
@@ -1008,36 +973,9 @@ def "Render" (
             )
             {
                 rel camera = </World/beebot/Geometry/base_footprint/base_link/pole_front_cam_link/pole_front_cam_color_optical_frame/pole_front_cam_rgb>
-                bool omni:rtx:dlss:frameGeneration
                 bool omni:rtx:material:db:syncLoads = 1
-                token omni:rtx:post:dlss:execMode = "performance"
-                token omni:rtx:rendermode = "RealTimePathTracing"
-                float omni:rtx:rt:ambientLight:intensity
                 bool omni:rtx:rt:ecoMode:enabled
-                uint omni:rtx:rtpt:maxBounces
                 bool omni:rtx:scene:hydra:materialSyncLoads = 1
-                bool omni:rtx:scene:useViewLightingMode
-                rel orderedVars = </Render/Vars/LdrColor>
-                custom bool overrideClipRange = 0
-                uniform int2 resolution = (640, 480)
-            }
-
-            def RenderProduct "Replicator_02" (
-                prepend apiSchemas = ["OmniRtxSettingsCommonAdvancedAPI_1", "OmniRtxSettingsRtAdvancedAPI_1", "OmniRtxSettingsPtAdvancedAPI_1", "OmniRtxSettingsParticleFieldAPI_1", "OmniRtxPostColorGradingAPI_1", "OmniRtxPostChromaticAberrationAPI_1", "OmniRtxPostBloomPhysicalAPI_1", "OmniRtxPostMatteObjectAPI_1", "OmniRtxPostCompositingAPI_1", "OmniRtxPostDofAPI_1", "OmniRtxPostMotionBlurAPI_1", "OmniRtxPostTvNoiseAPI_1", "OmniRtxPostTonemapIrayReinhardAPI_1", "OmniRtxPostDebugSettingsAPI_1", "OmniRtxDebugSettingsAPI_1"]
-                hide_in_stage_window = true
-                no_delete = true
-            )
-            {
-                rel camera = </World/beebot/Geometry/base_footprint/base_link/arm_base_link/shoulder_link/upper_arm_link/forearm_link/wrist_link/gripper_link/gripper_cam_link/gripper_cam_color_optical_frame/gripper_cam_rgb>
-                bool omni:rtx:dlss:frameGeneration
-                bool omni:rtx:material:db:syncLoads = 1
-                token omni:rtx:post:dlss:execMode = "performance"
-                token omni:rtx:rendermode = "RealTimePathTracing"
-                float omni:rtx:rt:ambientLight:intensity
-                bool omni:rtx:rt:ecoMode:enabled
-                uint omni:rtx:rtpt:maxBounces
-                bool omni:rtx:scene:hydra:materialSyncLoads = 1
-                bool omni:rtx:scene:useViewLightingMode
                 rel orderedVars = </Render/Vars/LdrColor>
                 custom bool overrideClipRange = 0
                 uniform int2 resolution = (640, 480)
@@ -1054,7 +992,6 @@ def "Render" (
             </Render/OmniverseKit/HydraTextures/omni_kit_widget_viewport_ViewportTexture_0>,
             </Render/OmniverseKit/HydraTextures/Replicator>,
             </Render/OmniverseKit/HydraTextures/Replicator_01>,
-            </Render/OmniverseKit/HydraTextures/Replicator_02>,
         ]
     }
 
@@ -1099,10 +1036,10 @@ over "OmniverseKit_Persp" (
     float exposure:time = 0.02
     float focalLength = 18.147562
     float focusDistance = 400
-    custom uniform vector3d omni:kit:centerOfInterest = (0, 0, -3.638227727576221)
-    float3 xformOp:rotateXYZ = (61.44562, -9.907428e-13, -12.303916)
+    custom uniform vector3d omni:kit:centerOfInterest = (0, 0, -1.9092802613012985)
+    float3 xformOp:rotateXYZ = (61.33937, -1.0098261e-12, 13.4704)
     float3 xformOp:scale = (1, 1, 1)
-    double3 xformOp:translate = (-1.927557899132891, -5.371251068510431, 1.924579561280773)
+    double3 xformOp:translate = (-0.3321603676609302, -3.8599483016406757, 0.9119804949270236)
     uniform token[] xformOpOrder = ["xformOp:translate", "xformOp:rotateXYZ", "xformOp:scale"]
 }
 

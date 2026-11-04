@@ -10,7 +10,7 @@
 //   컨테이너는 network_mode: host라 127.0.0.1이 호스트다. endpoint가 비면(기본·CI) 템플릿만.
 // 재계획은 명령 하나당 max_replans(기본 1)회 — coordinator의 "같은 단계 2회 연속 실패면 정지"와 짝.
 // 신호등 암호 미션 (documents/mission/README.md)은 VLM 없이 규칙으로 — /mission/signal {색, 개수, 번호 합, 목적지 태그}가 오면
-//   번호(퍽 윗면 태그)를 아는 그 색 퍽 중 합이 맞는 조합(로봇에서 가까운 것 우선)을 골라 적재함에 싣고 목적지 장소(location, tag)로 →
+//   번호(퍽 윗면 태그)를 아는 그 색 퍽 중 합이 맞는 조합(로봇에서 가까운 것 우선)을 골라 적재함에 싣고 목적지 장소 상자(location_box, tag)로 →
 //   조합이 없으면 번호를 모르는 그 색(또는 색 모름) 퍽을 inspect하는 계획 → 끝나면 다시 판단. 목적지 태그를 아직 못 봤으면 기다림.
 // 수납 확인: 옮기기가 끝나면 바로, 그 뒤로는 verify_period_s마다 (AUTO · 하던 계획이 끝났을 때만) 목적지로 가서 본다 (look) →
 //   옮긴 태그 번호가 목적지 근처(verify_radius_m)에 다 있으면 끝 · 다른 곳에서 보이면 다시 옮김(recarry) · 안 보이면 알림(say).
@@ -75,7 +75,7 @@ struct SignalPlan {
 SignalPlan signal_plan(const TrackedObjectArray & objs, const perception::msg::MissionSignal & sig, double rx, double ry,
   const std::set<uint32_t> & inspected, int capacity);
 
-// 수납 확인 한 번 판단 — 목적지 장소(location, dest_tag) 근처 radius 안에 tags(옮긴 퍽 번호)가 다 있는지
+// 수납 확인 한 번 판단 — 목적지 장소 상자(location_box, dest_tag) 윗면 가운데 근처 radius 안에 tags(옮긴 퍽 번호)가 다 있는지
 //   looked=false: wait(목적지 태그 못 봄) · look(목적지로 가서 근처의 번호 모르는 퍽 inspect)
 //   looked=true (look 끝난 뒤): ok(다 있음) · recarry(빠진 번호를 다른 곳에서 찾음 → 다시 옮김) · missing(못 찾음)
 struct VerifyPlan {

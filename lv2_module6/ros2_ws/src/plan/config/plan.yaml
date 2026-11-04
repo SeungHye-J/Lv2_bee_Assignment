@@ -11,7 +11,7 @@ vlm_task_planner:
     # 수납 확인 — 신호등 미션 옮기기가 끝나면 바로, 그 뒤 이 주기마다 목적지로 가서 옮긴 번호가 그대로 있는지 봄
     #   (AUTO · 하던 계획이 끝났을 때만). 다른 곳에 있으면 다시 옮기고, 안 보이면 say. 새 명령·신호가 오면 그만
     verify_period_s: 60.0    # [s] 0이면 주기 확인 끔 (옮긴 직후 한 번은 함)
-    verify_radius_m: 0.20    # [m] 목적지 장소 태그에서 이 안이면 "거기 있음" (place_spacing 0.08 × 퍼짐 + 여유)
+    verify_radius_m: 0.20    # [m] 목적지 장소 상자(location_box) 윗면 가운데에서 이 안이면 "거기 있음" (place_spacing 0.08 × 퍼짐 + 여유)
 coordinator:
   ros__parameters:
     # 시작 자세 — bringup 직후 한 번 팔을 이 자세로 (MoveIt 없이 JTC 토픽, 3초 궤적).
@@ -20,6 +20,9 @@ coordinator:
     #   MAPPING/EXPLORE면 스캔 자세가 우선이라 건너뛴다. false면 자동 이동 안 함.
     #   실행 중 끄기: ros2 param set /coordinator initial_pose_enabled false (가는 중이면 그 자리에서 멈춤)
     initial_pose_enabled: true
+    initial_pose_joints: [joint1, joint2, joint3, joint4, joint5]
+    # = MoveIt SRDF 'stow' = Isaac beebot.usda 접은 자세. joint2는 URDF 하한(-1.919862) 안쪽으로 -1.91
+    #   (예전 TEACH 값 [-0.0215, -2.0019, 1.1152, 0.8682, 0.0936]은 joint2가 하한 밖이라 controller_manager가 잘라 도달 판정 실패)
     initial_pose: [0.0, -1.91, 1.3701, 0.5952, 0.0]
     initial_pose_tolerance: 0.05   # [rad] 이 안이면 이미 그 자세 (이동 생략)
     initial_pose_move_s: 3.0       # [s] 궤적 시간 — 너무 짧으면 급정지·흔들림

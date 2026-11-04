@@ -26,7 +26,7 @@ python3 -m venv .venv && .venv/bin/pip install -r requirements.txt   # 최초 1�
 기본값은 `config.json`(opencode 내용). 대안은 `config/`에 백엔드별로 (`template`·`claude`·`ollama`·`opencode`) — `--config`로 고르면 된다.
 
 * `POST /plan` → `{"ok": true, "goals": [...]}` 또는 `{"ok": false, "error"}` (후자면 컨테이너는 템플릿 폴백)
-* 요청: `command`·`objects[{id, class_name, position(map), size, confidence, color, camera, px{카메라: [u, v]}, tag?, content?, posture?}]`(tag = 퍽 윗면 번호 0~11 · 장소 location 12~14, content = 장소 바코드 작업 지시)(컨테이너 vlm_task_planner가 `/tracked_objects`에서 — px는 그 카메라 영상 속 박스 중심, 이미지 마킹에 씀)·`robot{x, y, yaw}`(map, 로봇 위치 — 프롬프트에 물체마다 거리 dist를 붙여 팔이 안 닿으면 navigate를 먼저 넣게)·`images[{data_b64}]`(320px JPEG, 장당 500KB 제한)·`replan{plan_id, failed_step, reason}`·`history[{role, text}]`(선택, 최근 20개·개당 500자까지 프롬프트에 포함 — 서버는 저장 안 함)
+* 요청: `command`·`objects[{id, class_name, position(map), size, confidence, color, camera, px{카메라: [u, v]}, tag?, content?, posture?}]`(tag = 퍽 윗면 번호 0~11(색과 무관) · 장소 상자 location_box 12~14, content = 장소 바코드 작업 지시)(컨테이너 vlm_task_planner가 `/tracked_objects`에서 — px는 그 카메라 영상 속 박스 중심, 이미지 마킹에 씀)·`robot{x, y, yaw}`(map, 로봇 위치 — 프롬프트에 물체마다 거리 dist를 붙여 팔이 안 닿으면 navigate를 먼저 넣게)·`images[{data_b64}]`(320px JPEG, 장당 500KB 제한)·`replan{plan_id, failed_step, reason}`·`history[{role, text}]`(선택, 최근 20개·개당 500자까지 프롬프트에 포함 — 서버는 저장 안 함)
 * 출력 검증은 coordinator와 동일(허용 동작·대상 id·step 순서) — 실패면 `ok:false`
 * 백엔드는 `backends/`: `template`(기본·오프라인) · `claude_cli` · `opencode_cli`(`opencode run --format json`, `--model`·`--file` 첨부) · `ollama`(로컬, 키 불필요) · `openai_compat`(외부사, `OPENAI_API_KEY`는 환경변수, localhost는 키 불필요) · `human`(사람이 웹 페이지에서 — 아래) — `config.json`의 `backend`로 전환, 계약은 유지.
 

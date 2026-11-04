@@ -163,14 +163,14 @@ TEST(Signal, MissionPlan) {
   sig.dest_tag = 13;
   TrackedObjectArray objs;
   objs.objects = {obj(1, "puck", "red", 2, 0.5), obj(2, "puck", "red", -1, 0.6), obj(3, "puck", "green", -1, 0.4),
-                  obj(4, "puck", "", -1, 0.9), obj(9, "location", "", 13, 2.0)};
+                  obj(4, "puck", "", -1, 0.9), obj(9, "location_box", "", 13, 2.0)};
   std::set<uint32_t> inspected;
   // 번호 아는 빨간 퍽이 1개뿐 → 번호 모르는 빨간·색 모름 퍽을 가까운 순으로 inspect (초록은 안 봄)
   auto r = signal_plan(objs, sig, 0.0, 0.0, inspected, 4);
   ASSERT_EQ(r.kind, "inspect");
   EXPECT_EQ(r.inspect_ids, (std::vector<uint32_t>{2, 4}));
   EXPECT_EQ(r.goals[0].skill, "inspect");
-  // 봤더니 2번 퍽 = 태그 3 → 2+3 = 5 → 옮기기 (목적지 = 장소 태그 13인 물체 9)
+  // 봤더니 2번 퍽 = 태그 3 → 2+3 = 5 → 옮기기 (목적지 = 장소 상자(태그 13) 물체 9)
   objs.objects[1] = obj(2, "puck", "red", 3, 0.6);
   inspected = {2, 4};
   r = signal_plan(objs, sig, 0.0, 0.0, inspected, 4);
@@ -188,9 +188,9 @@ TEST(Signal, MissionPlan) {
 }
 
 TEST(Signal, VerifyPlan) {
-  // 목적지 = 장소 태그 13인 물체 9 (x 2.0) · 옮긴 번호 2·3 · 반경 0.2
+  // 목적지 = 장소 상자(태그 13) 물체 9 (x 2.0) · 옮긴 번호 2·3 · 반경 0.2
   TrackedObjectArray objs;
-  objs.objects = {obj(9, "location", "", 13, 2.0), obj(1, "puck", "red", 2, 2.05), obj(2, "puck", "red", -1, 1.9),
+  objs.objects = {obj(9, "location_box", "", 13, 2.0), obj(1, "puck", "red", 2, 2.05), obj(2, "puck", "red", -1, 1.9),
                   obj(5, "puck", "red", -1, 0.5)};
   // 보러 가기 — 목적지로 navigate · 근처의 번호 모르는 퍽(2)만 inspect (멀리 있는 5는 안 봄)
   auto r = verify_plan(objs, 13, {2, 3}, 0.2, false);
