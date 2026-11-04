@@ -115,7 +115,8 @@ controller_server:
         # ── 속도 한계 [m/s · rad/s] — ml.yaml rl_nav_correction(max_vel_x · max_vel_theta)과 같은 값
         # 전진 최소 속도. 0이면 경로 추종 중 후진하지 않는다 (pole_front_cam이 뒤를 못 봄).
         min_vel_x: 0.0
-        # 전진 최대 속도. Waffle Pi 최대 0.26. /speed_limit 백분율의 기준.
+        # 전진 최대 속도. Waffle Pi 문서 최대 0.26m/s (바퀴 반경 0.033m · XM430-W350 무부하 약 4.8rad/s).
+        #   0.26m/s = 바퀴 약 7.88rad/s ≈ 75rpm. 펌웨어가 rad/s→rpm 변환해 Goal Velocity로 내림. /speed_limit 백분율의 기준.
         max_vel_x: 0.26
         # 차동 구동 — 옆으로 못 가므로 y는 0.
         min_vel_y: 0.0

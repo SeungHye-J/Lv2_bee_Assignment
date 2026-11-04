@@ -14,7 +14,7 @@ rl_nav_correction:
     max_delta_lin: 0.05      # [m/s] Δ 절대 상한 (한 번 더 자름)
     max_delta_ang: 0.10      # [rad/s]
     t_change_max: 2.0        # [s] 관측 t_change 상한 (학습 env와 같게)
-    max_vel_x: 0.26          # [m/s] Waffle Pi 최대 선속도 (/speed_limit 백분율의 기준)
+    max_vel_x: 0.26          # [m/s] Waffle Pi 문서 최대 (바퀴 0.033m · XM430-W350 무부하 약 4.8rad/s). /speed_limit 백분율의 기준
     max_vel_theta: 1.82      # [rad/s]
     timeout_s: 0.2           # [s] /odom이 이보다 오래 끊기면 Δ=0
 rl_nav_controller:
