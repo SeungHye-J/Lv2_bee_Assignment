@@ -1,10 +1,10 @@
-# 4 팔·MoveIt — coordinator skill 정의
+# 4 팔·MoveIt — skill 정의 (skill 노드)
 
-coordinator가 실행하는 skill(`SubGoal.skill` 한 단계)의 정의입니다. 구현은 [coordinator.cpp](../../../lv2_module6/ros2_ws/src/plan/src/coordinator.cpp)(세우기 경유점은 [stand_plan.cpp](../../../lv2_module6/ros2_ws/src/plan/src/stand_plan.cpp))이고, 아직 없는 것은 **(예정)**으로 표시했습니다.
+coordinator가 계획 단계(`SubGoal.skill`)를 skill 노드에 맡기고, skill 노드가 실행합니다 (2026-11-04 skill마다 노드 하나로 나눔). 구현은 [skills 패키지](../../../lv2_module6/ros2_ws/src/skills/) — 액션 `/skills/<skill>` · 노드 skill_<skill> · 팔 공통 [arm_io.cpp](../../../lv2_module6/ros2_ws/src/skills/src/arm_io.cpp) · 세우기 경유점 [stand_plan.cpp](../../../lv2_module6/ros2_ws/src/skills/src/stand_plan.cpp). 순서·적재함 장부는 [coordinator.cpp](../../../lv2_module6/ros2_ws/src/plan/src/coordinator.cpp). 학습 정책은 skill마다 `model/skills/<skill>/` ([API.md 3장](../../API.md#3-액션-목록)).
 
 근거:
 - 팀원 팔 스펙 (2026-11-02): 자세 stow·carry, skill 6개, reset_sag, 성공 판정
-- 적재함 자세표: [plan/config/basket.yaml](../../../lv2_module6/ros2_ws/src/plan/config/basket.yaml). feature/isaac-lab의 `isaac/lab/slot_table.yaml` 값을 옮긴 것으로, 원본은 `slot_table.py`가 URDF로 오프라인 계산합니다.
+- 적재함 자세표: [skills/params/basket.yaml](../../../lv2_module6/ros2_ws/src/skills/params/basket.yaml). feature/isaac-lab의 `isaac/lab/slot_table.yaml` 값을 옮긴 것으로, 원본은 `slot_table.py`가 URDF로 오프라인 계산합니다.
 - 인지 출력: [API.md TrackedObject](../../API.md#api-msg-trackedobject) (PR #45 — 퍽 `shape`·`yaw`, `location_box`·`start_box`)
 
 ## 한눈에 보기
@@ -301,10 +301,10 @@ flowchart TB
    - 값: 관절 경유점 W×5 (위 → 시작 → 호 … → 내려놓기 → 위로 → 다시 잡기 2개) + 경유점마다 손끝 위치 오차 → 관절 보정 행렬 P(5×3)
    - 전제: 로봇이 시작 박스 앞 정해진 자리에 섬 (`right_env` dock: 박스 중심이 로봇 앞 0.08m + 박스 반 변)
 2. **coordinator에서 쓰는 법**: 인지한 퍽 축 방향에 가장 가까운 방향 칸 → 옆 위치로 보간 → 남은 위치 오차는 `q = q_nom + P·Δp`로 보정 → 구간을 [호 올라가기 · 멈춤 · 되돌려 놓기]로 묶어 사다리꼴 속도(호 속도 배율 0.5)로 시간을 매김 → ExecuteTrajectory.
-3. **파일**: `plan/config/stand_table.yaml` (bringup이 coordinator에 넘김, 1.25MB). `plan/scripts/stand_table_export.py`가 팀원 `right_env.plan_waypoints`·`ArmIK`를 **소스에서 그대로 불러** 같은 표를 만듭니다(Isaac Lab 없이 numpy + pinocchio). 지금 파일은 feature/isaac-lab `7f8ae2c`로 만들었고, `right_env` 값이 바뀌면 다시 만듭니다.
+3. **파일**: `skills/params/stand_table.yaml` (skills.launch.py가 skill_stand에 넘김, 1.25MB). `skills/scripts/stand_table_export.py`가 팀원 `right_env.plan_waypoints`·`ArmIK`를 **소스에서 그대로 불러** 같은 표를 만듭니다(Isaac Lab 없이 numpy + pinocchio). 지금 파일은 feature/isaac-lab `7f8ae2c`로 만들었고, `right_env` 값이 바뀌면 다시 만듭니다.
 
    ```bash
-   python3 plan/scripts/stand_table_export.py <feature/isaac-lab의 lv2_module6/isaac/lab> --source "feature/isaac-lab <커밋>" --out plan/config/stand_table.yaml
+   python3 skills/scripts/stand_table_export.py <feature/isaac-lab의 lv2_module6/isaac/lab> --source "feature/isaac-lab <커밋>" --out skills/params/stand_table.yaml
    ```
 4. **팀원에게 확인할 것**: 세우기 성공률(보정 켬/끔), dock 자세 오차 허용 범위.
 
@@ -312,7 +312,7 @@ flowchart TB
 
 | | 내용 |
 |---|---|
-| 경유점 | [stand_plan.hpp](../../../lv2_module6/ros2_ws/src/plan/include/plan/stand_plan.hpp) — `right_env` tilt 계획을 C++로 옮김 (위 · 시작 · 호 17 · 멈춤 · 되돌림 4 · 놓기 · 위로 · 다시 잡기 2 = 27개) |
+| 경유점 | [stand_plan.hpp](../../../lv2_module6/ros2_ws/src/skills/include/skills/stand_plan.hpp) — `right_env` tilt 계획을 C++로 옮김 (위 · 시작 · 호 17 · 멈춤 · 되돌림 4 · 놓기 · 위로 · 다시 잡기 2 = 27개) |
 | B (`ik`, 기본) | 손이 바로 아래·닫는 축이 퍽 축과 직각이면 5축 팔은 **해석해**가 있음: joint1 = 손목 방향, joint2·3 = 팔 평면 2링크, joint4 = π/2 − joint2 − joint3, joint5 = 닫는 축 방향. FK는 URDF 그대로 (pinocchio와 5e-10 m 일치) |
 | A (`table`) | 가까운 방향 칸(5°) · 가까운 옆 칸 → `q = q_nom + P·(x − box_cx, y − yc, 0)` (`right_env._reset_idx` 그대로) |
 | 대조 (로컬) | B 경유점 = 팀원 `plan_waypoints` (수치 IK) 관절값과 최대 0.0025 rad 차이 (팀원 쪽 수렴 허용치 2e-3 rad). A 표 → 손끝: 격자점 0.2 mm · 격자 사이 평균 2.1 mm · 최대 6.5 mm (방향 5° 칸 포함) — B는 0 |

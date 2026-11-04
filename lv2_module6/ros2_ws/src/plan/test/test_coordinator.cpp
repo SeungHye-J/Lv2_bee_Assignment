@@ -7,6 +7,7 @@
 #include <thread>
 
 #include "plan/coordinator.hpp"
+#include "rclcpp_action/rclcpp_action.hpp"
 #include "plan/vlm_task_planner.hpp"
 
 using namespace plan;  // 노드 클래스·메시지 별칭 (include/plan/*.hpp)
@@ -139,6 +140,52 @@ TEST_F(RosTest, ManualModeStopsRunningPlan) {
     [&]() { for (auto & s : got) if (s.plan_id == 8 && s.reason == "manual_override") return true; return false; }));
 }
 
+// 단계를 skill 노드에 맡김: load next → /skills/load에 빈 칸 0 · 모양을 보내고, 성공이면 장부에 적고 계획 SUCCEEDED
+TEST_F(RosTest, HandsStepToSkillNodeAndKeepsLedger) {
+  auto node = std::make_shared<Coordinator>(rclcpp::NodeOptions().parameter_overrides({{"basket_file", ""}}));
+  auto probe = std::make_shared<rclcpp::Node>("probe_skill_server");
+  const auto latched = rclcpp::QoS(10).reliable().transient_local();
+  auto objects_pub = probe->create_publisher<TrackedObjectArray>("/tracked_objects", rclcpp::QoS(5).reliable());
+  auto goals_pub = probe->create_publisher<SubGoalArray>("/task/sub_goals", latched);
+  std::vector<TaskStatus> got;
+  auto sub = probe->create_subscription<TaskStatus>("/task/status", latched, [&](TaskStatus::SharedPtr m) { got.push_back(*m); });
+  plan::msg::BasketState basket;
+  auto bsub = probe->create_subscription<plan::msg::BasketState>("/coordinator/basket", rclcpp::QoS(1).reliable().transient_local(),
+    [&](plan::msg::BasketState::SharedPtr m) { basket = *m; });
+  int slot = -1;
+  std::string shape;
+  using GH = rclcpp_action::ServerGoalHandle<Skill>;
+  auto server = rclcpp_action::create_server<Skill>(probe, "/skills/load",
+    [&](const rclcpp_action::GoalUUID &, std::shared_ptr<const Skill::Goal> g) {
+      slot = g->slot;
+      shape = g->shape;
+      return rclcpp_action::GoalResponse::ACCEPT_AND_EXECUTE;
+    },
+    [](const std::shared_ptr<GH>) { return rclcpp_action::CancelResponse::ACCEPT; },
+    [](const std::shared_ptr<GH> h) {
+      auto r = std::make_shared<Skill::Result>();
+      r->success = true;
+      h->succeed(r);
+    });
+  rclcpp::executors::SingleThreadedExecutor exec;
+  exec.add_node(node);
+  exec.add_node(probe);
+  SubGoalArray plan;
+  plan.plan_id = 31;
+  SubGoal g;
+  g.step = 1;
+  g.skill = "load";
+  g.target = "next";
+  plan.goals.push_back(g);
+  goals_pub->publish(plan);
+  ASSERT_TRUE(spin_until(exec, [&]() { objects_pub->publish(TrackedObjectArray()); },
+    [&]() { for (auto & s : got) if (s.plan_id == 31 && s.state == TaskStatus::SUCCEEDED) return true; return false; }, 15.0));
+  EXPECT_EQ(slot, 0);
+  EXPECT_EQ(shape, "box");  // 손 모양 모름 → 사각 표
+  ASSERT_TRUE(spin_until(exec, [] {}, [&]() { return basket.slots.size() == 12 && basket.slots[0].filled; }));
+  EXPECT_EQ(basket.order.size(), 1u);
+}
+
 // 적재함 (MISSION ③): 칸 파라미터 해석 · 같은 곳 여러 개 비켜 놓기 · MOVE_TO_B 템플릿 = 싣고(place tray) → 이동 → 꺼내서(pick tray) 내려놓기
 TEST(Tray, BasketSlot) {
   // 적재함 12칸 고르기 (load next · unload last · 칸 번호, 옛 "tray" = 같은 뜻)
@@ -172,15 +219,6 @@ TEST(Tray, BasketSlot) {
   std::fill(filled.begin(), filled.end(), "box");
   EXPECT_EQ(basket_slot("next", filled, order, true, why), -1);
   EXPECT_EQ(why, "slot_full");
-}
-
-TEST(Tray, GraspHeld) {
-  // 퍽이 끼어 덜 닫힘(위치) + 전류. 전류를 모르면(NaN) 위치만
-  EXPECT_TRUE(grasp_held(0.005, 0.35, 0.003, 0.25));
-  EXPECT_TRUE(grasp_held(0.005, -0.35, 0.003, 0.25));   // 방향 부호 무관
-  EXPECT_FALSE(grasp_held(0.0005, 0.35, 0.003, 0.25));  // 끝까지 닫힘 — 빈손
-  EXPECT_FALSE(grasp_held(0.005, 0.05, 0.003, 0.25));   // 힘이 안 걸림
-  EXPECT_TRUE(grasp_held(0.005, std::nan(""), 0.003, 0.25));
 }
 
 TEST(Tray, BoxSpread) {

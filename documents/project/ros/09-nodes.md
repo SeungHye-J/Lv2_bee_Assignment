@@ -15,11 +15,12 @@
 | mission_manager | 직접 | plan · ROS 2 노드 | 주사위 미션 순서 ([03-plan.md](03-plan.md)) — /cmd/mission start → 바코드 · 12회 점멸(/mission/signal·signal_status) → 시작 박스 조사·적재함 → 할당(mission_solver) → 주사위 칸 놓기 · 재검증 → 복귀 · /mission/state · 기록 |
 | signal_decoder | 직접 | perception · ROS 2 노드 (C++) | 신호등 12회 점멸 — /tracked_objects의 신호등 상태를 시간축으로 세어 사이클(12번)마다 /mission/signal_status, 두 사이클 같은 답이면 /mission/signal (sequence · R·Y·G 횟수 — 해석은 받는 쪽) |
 | explorer | 직접 | plan · ROS 2 노드 (C++) | 자동 탐사 — 조작 모드 EXPLORE일 때 /map 프론티어(빈 곳·모르는 곳 경계)를 골라 Nav2 /navigate_to_pose로 차례로 보냄, 끝나면 /explore/result |
-| coordinator | 직접 | plan · ROS 2 노드 | skill 실행 ([05-arm.md](05-arm.md)) — 계획 검증(navigate·approach·pick·place·inspect·say·pose·load·unload), 액션 호출, 실행 규칙, 재시도, 적재함 12칸 싣기·꺼내기, 좌표 대상(주사위 칸), `inspect`(퍽 윗면 위로 손끝 → 번호 읽기), 시작 자세, AUTO가 아니면 멈춤 → /task/status |
+| coordinator | 직접 | plan · ROS 2 노드 | 계획 단계를 skill 노드에 맡기는 순서 — 계획 검증(navigate·approach·pick·place·inspect·say·pose·load·unload·stand·stand_pick), 물체 → 좌표, 다가가기, 재시도, 적재함 장부, AUTO가 아니면 취소 → /task/status |
+| skill_* (9개) | 직접 | skills · 컴포넌트 (arm_skills · base_skills 컨테이너) | skill마다 액션 서버 `/skills/<skill>` 하나 — navigate · approach · pose · inspect · pick · place · load · unload · stand(+stand_pick). 자기 학습 정책 폴더 `model/skills/<skill>/` ([API.md](../../API.md) 3장) · skill_pose는 시작·스캔 자세도 |
 | grasp_scorer | 직접 | ml · ROS 2 서비스 노드 | 모델 로드, IK 가능 후보만 채점, /score_grasps 응답 |
 | rl_nav_tuner | 직접 | ml · ROS 2 노드 | 상황 요약 → 프리셋 선택 → /speed_limit + set_parameters |
-| rl_nav_correction | 직접 | ml · ROS 2 노드 | 관측 구성, 정책 추론, Δ 제한, 상한 클리핑, 끊김 시 Δ=0 |
-| rl_arm_correction | 직접 | ml · ros2_control chainable controller | reference에 Δ 더하기, enabled 파라미터 |
+| rl_nav_correction | 직접 | ml · ROS 2 노드 | /cmd_vel_nav → 속도 상한 재클리핑 → /cmd_vel_corrected (Nav2용 보정 정책은 아직 없음 — 정밀 주행 정책은 skill_approach) |
+| rl_arm_correction | 직접 | ml · ros2_control chainable controller | reference에 처짐 적분 + Δ 더하기 — 정책은 팔 skill 노드가 /skill_context로 알려 준 파일 |
 | arm_safety_monitor | 직접 | control · ROS 2 노드 | 전류로 접촉 감지, 궤적 취소, coordinator 보고 |
 | manual_control | 직접 | control · ROS 2 노드 | 수동 모드(/state/operation_mode), 원격 조종 → twist_mux, 팔·그리퍼 직접 명령, `/cmd/manual/reboot_motors` → 📞 /beebotsystem/reboot_motors |
 | BeebotSystemHardware | 직접 | control · ros2_control SystemInterface 플러그인 | OpenCR와 USB 시리얼(`C` 명령 · `R` 재부팅 / `S` 상태 · `E` 모터 에러), 관절 영점 offset(URDF `<param name="offset">`), 첫 `S` 전엔 활성화 안 함, /motor_status(바뀔 때만), 📞 ~/reboot_motors, mock 모드 |
@@ -61,7 +62,8 @@ lv2_module6/
 ├── simulator/                    # SIL 시뮬레이터 (더 쓰지 않음)
 └── ros2_ws/src/
     ├── perception/   # perception · body_filter · signal_decoder + msg
-    ├── plan/         # user_input · vlm_task_planner · explorer · coordinator + msg
+    ├── plan/         # user_input · vlm_task_planner · explorer · coordinator · mission_manager + msg · action/Skill
+    ├── skills/       # skill 노드 9개 (컴포넌트) · 팔 공통 arm_io · 세우기 경유점 stand_plan · params/ (자세·적재함·세우기 표)
     ├── ml/           # grasp_scorer · rl_nav_tuner · rl_nav_correction · rl_arm_correction(플러그인) + srv
     ├── control/      # arm_safety_monitor · manual_control · BeebotSystemHardware(플러그인) + msg
     ├── manager/      # state_manager (상태 /state/*)

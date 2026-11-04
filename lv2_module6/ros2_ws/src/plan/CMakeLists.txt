@@ -35,13 +35,14 @@ rosidl_generate_interfaces(${PROJECT_NAME}
   msg/MissionState.msg
   msg/BasketSlot.msg
   msg/BasketState.msg
-  DEPENDENCIES std_msgs)
+  action/Skill.action
+  DEPENDENCIES std_msgs geometry_msgs)
 rosidl_get_typesupport_target(msgs_cpp ${PROJECT_NAME} rosidl_typesupport_cpp)
 include_directories(include)
 
 # --- 노드: 클래스 구현(src/<노드>.cpp)은 라이브러리 하나로 묶고, 실행 파일(src/<노드>_main.cpp)과 테스트가 함께 링크
 #     선언·설명은 include/plan/<노드>.hpp
-add_library(${PROJECT_NAME}_nodes STATIC src/user_input.cpp src/vlm_task_planner.cpp src/coordinator.cpp src/stand_plan.cpp src/explorer.cpp
+add_library(${PROJECT_NAME}_nodes STATIC src/user_input.cpp src/vlm_task_planner.cpp src/coordinator.cpp src/explorer.cpp
   src/mission_solver.cpp src/mission_manager.cpp)
 target_include_directories(${PROJECT_NAME}_nodes PUBLIC include ${ml_INCLUDE_DIRS})
 target_compile_features(${PROJECT_NAME}_nodes PUBLIC cxx_std_17)
@@ -67,8 +68,6 @@ if(BUILD_TESTING)
   find_package(ament_cmake_gtest REQUIRED)
   ament_add_gtest(test_coordinator test/test_coordinator.cpp TIMEOUT 60 ENV ROS_DOMAIN_ID=104)
   target_link_libraries(test_coordinator ${PROJECT_NAME}_nodes)
-  ament_add_gtest(test_stand_plan test/test_stand_plan.cpp TIMEOUT 60)
-  target_link_libraries(test_stand_plan ${PROJECT_NAME}_nodes)
   ament_add_gtest(test_explorer test/test_explorer.cpp TIMEOUT 60 ENV ROS_DOMAIN_ID=110)
   target_link_libraries(test_explorer ${PROJECT_NAME}_nodes)
   ament_add_gtest(test_mission_solver test/test_mission_solver.cpp TIMEOUT 60)

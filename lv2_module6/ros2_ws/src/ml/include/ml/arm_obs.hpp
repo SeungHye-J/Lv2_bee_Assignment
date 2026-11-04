@@ -33,6 +33,7 @@ struct ArmObsIn {
 };
 
 inline size_t arm_obs_size(ArmLayout l) { return l == ArmLayout::Place ? 39 : 41; }
+constexpr size_t ARM_OBS_MAX = 41;  // 가장 큰 모양 (버퍼 크기)
 
 // out[arm_obs_size(l)]에 채움
 inline size_t arm_obs(ArmLayout l, const ArmObsIn & in, double * out) {
@@ -53,12 +54,6 @@ inline size_t arm_obs(ArmLayout l, const ArmObsIn & in, double * out) {
   }
   for (int i = 0; i < 5; ++i) out[k++] = 10.0 * in.corr[i];
   return k;
-}
-
-// 처짐 적분 한 번 (시뮬 place_env._sag_step · demo_cycle Bot.step): 붙들고 있을 때 corr_dt마다
-//   corr ← clamp(corr + gain·(q_ref + delta − q), ±max) — 처짐만 빼고 보정(delta)은 남김
-inline void sag_step(J5 & corr, const J5 & q_ref, const J5 & delta, const J5 & q, double gain, double max_abs) {
-  for (int i = 0; i < 5; ++i) corr[i] = std::clamp(corr[i] + gain * (q_ref[i] + delta[i] - q[i]), -max_abs, max_abs);
 }
 
 }  // namespace ml
