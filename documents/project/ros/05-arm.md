@@ -38,7 +38,7 @@ flowchart LR
     end
   end
   subgraph EXE["③ 실행"]
-    NAV2["Nav2<br/>NavFn(Dijkstra) · DWB"]
+    NAV2["Nav2<br/>NavFn(A*) · DWB"]
     MG["MoveIt move_group"]
     JTC["arm_controller (JTC)"]
     RL["rl_arm_correction"]
