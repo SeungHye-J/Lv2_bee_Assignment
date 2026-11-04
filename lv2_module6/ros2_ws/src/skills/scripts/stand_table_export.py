@@ -1,13 +1,13 @@
 #!/usr/bin/env python3
-"""세우기(stand) 경유점 표(방법 A) 내보내기 — 팀원 isaac/lab/right_env.py 표와 같은 것을 coordinator 파라미터 yaml로.
+"""세우기(stand) 경유점 표(방법 A) 내보내기 — 팀원 isaac/lab/right_env.py 표와 같은 것을 skills 표 yaml로 (skill_stand가 launch에서 받음).
 
 right_env.RightEnv가 학습 때 푸는 표(모양 × 퍽 축 방향 YAW_BINS × 옆 위치 YCS, 다시 잡기 2개 포함)를 그대로 만든다.
 right_env.plan_waypoints · contact_h와 상수를 소스에서 그대로 꺼내 쓰므로 Isaac Lab 없이 numpy + pinocchio만 있으면 된다.
 
     python3 stand_table_export.py <feature/isaac-lab의 lv2_module6/isaac/lab> [--out stand_table.yaml]
-    → plan/config/stand_table.yaml 로 두면 bringup이 coordinator에 넘김 · 쓰려면 plan.yaml stand_waypoints: table
+    → skills/params/stand_table.yaml 로 두면 skills.launch.py가 skill_stand에 넘김 · 쓰려면 skills.yaml stand_waypoints: table
 
-값의 배열 순서 (coordinator stand_plan.hpp Table): q[ycs][yaw_bins][W][5], P[ycs][yaw_bins][W][5][3] (평탄화)
+값의 배열 순서 (skills/stand_plan.hpp Table): q[ycs][yaw_bins][W][5], P[ycs][yaw_bins][W][5][3] (평탄화)
 """
 import argparse
 import ast
@@ -39,7 +39,7 @@ def load_right_env(lab):
     return bc, ns
 
 
-class Cfg:  # right_env.RightEnvCfg (tilt) — 값이 바뀌면 여기와 coordinator stand_* 파라미터를 같이
+class Cfg:  # right_env.RightEnvCfg (tilt) — 값이 바뀌면 여기와 skill_stand stand_* 파라미터를 같이
     mode = "tilt"
     above_m, lift_away_m = 0.04, 0.08
     pinch_from_end_m, press_m = 0.0, 0.0
@@ -69,16 +69,15 @@ def main():
     W = tabs["box"][0].shape[1]
     fl = lambda v: "[" + ", ".join(f"{x:.6f}" for x in np.asarray(v).ravel()) + "]"
     with open(a.out, "w") as f:
-        f.write("# 세우기 경유점 표 (방법 A) — plan/scripts/stand_table_export.py 로 만듦, 손으로 고치지 않음\n")
+        f.write("# 세우기 경유점 표 (방법 A) — skills/scripts/stand_table_export.py 로 만듦, 손으로 고치지 않음\n")
         f.write("# 출처: feature/isaac-lab isaac/lab/right_env.py plan_waypoints (tilt) · 순서 q[ycs][yaw][W][5] · P[ycs][yaw][W][5][3]\n")
         if a.source:
             f.write(f"# 출처 커밋: {a.source}\n")
-        f.write("coordinator:\n  ros__parameters:\n")
-        f.write(f"    stand_table_yaw_deg: {fl(np.degrees(ns['YAW_BINS']))}\n")
-        f.write(f"    stand_table_ycs: {fl(ns['YCS'])}\n")
-        f.write(f"    stand_table_box_cx: {ns['BOX_CX']:.6f}\n    stand_table_box_h: {bc.BOX_H:.6f}\n    stand_table_w: {W}\n")
+        f.write(f"stand_table_yaw_deg: {fl(np.degrees(ns['YAW_BINS']))}\n")
+        f.write(f"stand_table_ycs: {fl(ns['YCS'])}\n")
+        f.write(f"stand_table_box_cx: {ns['BOX_CX']:.6f}\nstand_table_box_h: {bc.BOX_H:.6f}\nstand_table_w: {W}\n")
         for shape in ("cyl", "box"):
-            f.write(f"    stand_table_{shape}_q: {fl(tabs[shape][0])}\n    stand_table_{shape}_p: {fl(tabs[shape][1])}\n")
+            f.write(f"stand_table_{shape}_q: {fl(tabs[shape][0])}\nstand_table_{shape}_p: {fl(tabs[shape][1])}\n")
     print(f"{a.out}: {len(ns['YCS'])} ycs x {len(ns['YAW_BINS'])} yaw x W {W}")
 
 

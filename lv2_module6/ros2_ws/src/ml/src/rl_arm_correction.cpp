@@ -2,9 +2,7 @@
 #include "ml/rl_arm_correction.hpp"
 
 #include <cmath>
-#include <filesystem>
 
-#include "ament_index_cpp/get_package_share_directory.hpp"
 #include "pluginlib/class_list_macros.hpp"
 
 namespace ml {
@@ -25,9 +23,6 @@ CallbackReturn RlArmCorrection::on_init() {
   auto_declare<double>("windup_s", 2.0);            // [s] 0 = 막힘 감지 끔
   auto_declare<double>("policy_hz", 50.0);          // 시뮬 정책 주기
   auto_declare<double>("max_cam_age_s", 1.0);       // 손 카메라 값이 이보다 오래되면 Δ 그대로
-  auto_declare<std::string>("model_dir", "");       // 비면 share/ml/model/arm_correction
-  auto_declare<std::vector<std::string>>("skills", {"place_cell", "load_slot", "pick_standing_puck", "unload_slot"});
-  auto_declare<std::vector<std::string>>("layouts", {"place", "place", "pick", "pick"});  // skills와 같은 순서
   return CallbackReturn::SUCCESS;
 }
 
@@ -63,35 +58,10 @@ CallbackReturn RlArmCorrection::on_configure(const rclcpp_lifecycle::State &) {
   }
   policy_dt_ = 1.0 / node->get_parameter("policy_hz").as_double();
   max_cam_age_s_ = node->get_parameter("max_cam_age_s").as_double();
-  std::string dir = node->get_parameter("model_dir").as_string();
-  if (dir.empty()) dir = ament_index_cpp::get_package_share_directory("ml") + "/model/arm_correction";
-  const auto names = node->get_parameter("skills").as_string_array();
-  const auto layouts = node->get_parameter("layouts").as_string_array();
-  skills_.clear();
-  for (size_t i = 0; i < names.size() && i < layouts.size(); ++i) {
-    Skill s;
-    std::string why;
-    const std::string path = dir + "/" + names[i] + ".policy";
-    if (!arm_layout_from(layouts[i], s.layout)) {
-      RCLCPP_WARN(node->get_logger(), "%s: 입력 모양 '%s' 모름 — 이 skill은 보정 없음", names[i].c_str(), layouts[i].c_str());
-      continue;
-    }
-    if (!std::filesystem::exists(path)) {
-      RCLCPP_INFO(node->get_logger(), "%s: 정책 파일 없음 (%s) — 이 skill은 보정 없음", names[i].c_str(), path.c_str());
-      continue;
-    }
-    if (!s.policy.load(path, why) || s.policy.obs_dim() != arm_obs_size(s.layout) || s.policy.act_dim() != 5) {
-      RCLCPP_ERROR(node->get_logger(), "%s: 정책을 못 씀 — %s (입력 %zu, 필요 %zu)", names[i].c_str(), why.c_str(),
-                   s.policy.obs_dim(), arm_obs_size(s.layout));
-      continue;
-    }
-    RCLCPP_INFO(node->get_logger(), "%s: 정책 %s (%s 모양)", names[i].c_str(), path.c_str(), layouts[i].c_str());
-    skills_[names[i]] = std::move(s);
-  }
-  obs_.assign(41, 0.0);
+  obs_.assign(ARM_OBS_MAX, 0.0);
   act_.assign(5, 0.0);
   ctx_sub_ = node->create_subscription<ml::msg::SkillContext>(
-    "/skill_context", rclcpp::QoS(10).reliable(), [this](ml::msg::SkillContext::ConstSharedPtr m) { ctx_box_.set(*m); });
+    "/skill_context", rclcpp::QoS(10).reliable(), [this](ml::msg::SkillContext::ConstSharedPtr m) { ctx_box_.set(Ctx{*m, policy_for(*m)}); });
   hand_sub_ = node->create_subscription<perception::msg::HandRelative>(
     "/hand_relative", 10, [this](perception::msg::HandRelative::ConstSharedPtr m) { hand_box_.set(*m); });
   return CallbackReturn::SUCCESS;
@@ -143,6 +113,26 @@ return_type RlArmCorrection::update_reference_from_subscribers(const rclcpp::Tim
   return return_type::OK;
 }
 
+std::shared_ptr<const RlArmCorrection::Skill> RlArmCorrection::policy_for(const ml::msg::SkillContext & m) {
+  if (m.policy.empty()) return nullptr;
+  if (const auto it = cache_.find(m.policy); it != cache_.end()) return it->second;
+  auto s = std::make_shared<Skill>();
+  std::string why;
+  const auto log = get_node()->get_logger();
+  if (!arm_layout_from(m.layout, s->layout)) {
+    RCLCPP_WARN(log, "%s: 입력 모양 '%s' 모름 — 보정 없음", m.skill.c_str(), m.layout.c_str());
+    s = nullptr;
+  } else if (!s->policy.load(m.policy, why) || s->policy.obs_dim() != arm_obs_size(s->layout) || s->policy.act_dim() != 5) {
+    RCLCPP_ERROR(log, "%s: 정책을 못 씀 %s — %s (입력 %zu, 필요 %zu)", m.skill.c_str(), m.policy.c_str(), why.c_str(),
+                 s->policy.obs_dim(), arm_obs_size(s->layout));
+    s = nullptr;
+  } else {
+    RCLCPP_INFO(log, "%s: 정책 %s (%s 모양)", m.skill.c_str(), m.policy.c_str(), m.layout.c_str());
+  }
+  cache_[m.policy] = s;  // 못 쓰는 파일도 기억 (매번 다시 읽지 않게)
+  return s;
+}
+
 void RlArmCorrection::reset_run() {  // 보정 Δ만 (처짐 적분은 ~/reset_sag · 닿는 구간 시작에서)
   delta_.fill(0.0);
   prev_act_.fill(0.0);
@@ -152,13 +142,14 @@ void RlArmCorrection::reset_run() {  // 보정 Δ만 (처짐 적분은 ~/reset_s
 return_type RlArmCorrection::update_and_write_commands(const rclcpp::Time & time, const rclcpp::Duration & period) {
   if (reset_sag_.exchange(false) || !sag_enabled_) sag_.fill(SagJoint{});
   if (auto c = ctx_box_.try_get()) {  // 못 잡으면 (콜백이 쓰는 중) 지난 값으로
-    if (c->run_id != ctx_.run_id || c->skill != ctx_.skill) {
+    if (c->msg.run_id != ctx_.run_id || c->msg.skill != ctx_.skill) {
       // 새 닿는 구간: 시뮬 에피소드처럼 보정·처짐 적분 0부터 (skill이 꺼질 때는 처짐 적분 유지)
-      if (!c->skill.empty()) sag_.fill(SagJoint{});
-      run_id_ = c->run_id;
+      if (!c->msg.skill.empty()) sag_.fill(SagJoint{});
+      run_id_ = c->msg.run_id;
       reset_run();
     }
-    ctx_ = *c;
+    ctx_ = c->msg;
+    skill_ = c->skill;
   }
   if (auto h = hand_box_.try_get()) hand_ = *h;
 
@@ -186,14 +177,14 @@ return_type RlArmCorrection::update_and_write_commands(const rclcpp::Time & time
   for (int i = 0; rest && i < 5; ++i) rest = std::abs(ref[i] - rest_pose_[i]) <= rest_tol_;
   for (int i = 0; i < 5; ++i) corr_[i] = sag_[i].corr;  // 정책 관측용
 
-  const auto it = enabled_ && ok ? skills_.find(ctx_.skill) : skills_.end();
+  const Skill * it = enabled_ && ok ? skill_.get() : nullptr;
   bool cam_ok = false;
   double cam_age = -1.0;
-  if (it == skills_.end()) {  // 보정 꺼짐: 닿는 구간이 아니거나 이 skill 정책이 없음 → Δ = 0 (처짐 적분은 계속)
+  if (!it) {  // 보정 꺼짐: 닿는 구간이 아니거나 이 skill 정책이 없음 → Δ = 0 (처짐 적분은 계속)
     if (delta_ != J5{}) reset_run();
   } else {
     since_policy_ += dt;
-    const bool cam_kind = it->second.layout == ArmLayout::Pick ? hand_.kind == "puck" : (hand_.kind == "cell" || hand_.kind == "slot");
+    const bool cam_kind = it->layout == ArmLayout::Pick ? hand_.kind == "puck" : (hand_.kind == "cell" || hand_.kind == "slot");
     cam_age = (time - rclcpp::Time(hand_.header.stamp, time.get_clock_type())).seconds();
     cam_ok = hand_.valid && cam_kind && cam_age >= -0.1 && cam_age <= max_cam_age_s_;
     if (since_policy_ >= policy_dt_ - 1e-6 && ctx_.q_above.size() == 5 && ctx_.q_down.size() == 5 && cam_ok) {
@@ -208,8 +199,8 @@ return_type RlArmCorrection::update_and_write_commands(const rclcpp::Time & time
       in.cam_y = hand_.rel.y;
       in.face_yaw = hand_.face_yaw;
       in.is_box = hand_.is_box;
-      arm_obs(it->second.layout, in, obs_.data());
-      it->second.policy.act_into(obs_.data(), act_.data());
+      arm_obs(it->layout, in, obs_.data());
+      it->policy.act_into(obs_.data(), act_.data());
       for (int i = 0; i < 5; ++i) {
         const double a = std::clamp(act_[i], -1.0, 1.0);
         if (ctx_.residual_live) delta_[i] = std::clamp(residual_rad_ * a, -max_delta_, max_delta_);
@@ -240,7 +231,7 @@ return_type RlArmCorrection::update_and_write_commands(const rclcpp::Time & time
     }
     debug_.still = still;
     debug_.rest = rest;
-    debug_.policy_on = it != skills_.end();
+    debug_.policy_on = it != nullptr;
     debug_.cam_ok = cam_ok;
     debug_.cam_age = cam_age;
     (void)debug_rt_->try_publish(debug_);

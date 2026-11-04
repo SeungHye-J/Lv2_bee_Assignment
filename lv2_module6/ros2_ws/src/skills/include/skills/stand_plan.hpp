@@ -12,7 +12,7 @@
 #include <utility>
 #include <vector>
 
-namespace plan::stand {
+namespace skills::stand {
 
 using Q5 = std::array<double, 5>;
 using V3 = std::array<double, 3>;
@@ -74,4 +74,4 @@ std::vector<Q5> sample_move(const Q5 & from, const Q5 & to, double vel_scale, do
 // 호: 경유점 wp[1] → … → wp[W−2]를 묶음마다 smooth step으로, 묶음 안은 관절 길이 비례 직선 보간
 std::vector<Q5> sample_arc(const std::vector<Q5> & wp, const Params & p, double vel_scale, double hang_s, double dt);
 
-}  // namespace plan::stand
+}  // namespace skills::stand

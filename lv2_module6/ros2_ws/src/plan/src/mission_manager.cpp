@@ -621,8 +621,10 @@ void MissionManager::go_home(bool corrected) {
   note(corrected ? "출발 구역 안으로 보정" : "출발 구역으로");
   const double zx = (start_zone_[0] + start_zone_[2]) / 2, zy = (start_zone_[1] + start_zone_[3]) / 2;
   const auto p = to_map(zx, zy, M_PI);
-  // 처음엔 Nav2로 · 보정은 approach로 (구역 가운데로 저속 직선 — Nav2 허용 오차 0.10보다 정확)
-  run({stow(), SubGoal().set__skill(corrected ? "approach" : "navigate").set__target(fmt("%.4f,%.4f,%.4f", p.x, p.y, p.yaw))},
+  // 처음엔 Nav2로 · 보정은 approach로 (구역 가운데로 저속 직선 — Nav2 허용 오차 0.10보다 정확). 보정은 park_home 정책
+  //   (skill_approach — 시뮬 drive_env park: 5 cm · 10° 안에 3 s 정지, 81.1 → 96.5 %)
+  run({stow(), SubGoal().set__skill(corrected ? "approach" : "navigate").set__target(fmt("%.4f,%.4f,%.4f", p.x, p.y, p.yaw))
+                 .set__relation(corrected ? "park_home" : "")},
     [this, corrected](bool ok, const std::string & why) {
       if (!ok && !corrected) { finish(false, "return_nav:" + why); return; }
       Pose2 r;
@@ -739,7 +741,7 @@ void MissionManager::go_near(const Box & box, double px, double py, Done done, s
   const double push = standoff_ - approach_gap_;  // 실패하면 Nav2가 어디서 멈췄는지 모름 — back_ 없음 (다음 navigate가 알아서)
   const auto f = to_map(poses[k].x + push * std::cos(poses[k].yaw), poses[k].y + push * std::sin(poses[k].yaw), poses[k].yaw);
   run({stow(), SubGoal().set__skill("navigate").set__target(fmt("%.3f,%.3f,%.3f", m.x, m.y, m.yaw)),
-       SubGoal().set__skill("approach").set__target(fmt("%.4f,%.4f,%.4f", f.x, f.y, f.yaw))},
+       SubGoal().set__skill("approach").set__target(fmt("%.4f,%.4f,%.4f", f.x, f.y, f.yaw)).set__relation("dock_box")},
     [this, box, px, py, done, k, poses, m](bool ok, const std::string & why) {
       if (ok) { back_ = fmt("%.4f,%.4f,%.4f", m.x, m.y, m.yaw); done(true, ""); return; }
       RCLCPP_WARN(get_logger(), "접근 자리 %zu 실패 (%s) — 다음 변", k + 1, why.c_str());

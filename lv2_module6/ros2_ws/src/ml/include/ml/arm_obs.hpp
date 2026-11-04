@@ -33,6 +33,7 @@ struct ArmObsIn {
 };
 
 inline size_t arm_obs_size(ArmLayout l) { return l == ArmLayout::Place ? 39 : 41; }
+constexpr size_t ARM_OBS_MAX = 41;  // 가장 큰 모양 (버퍼 크기)
 
 // out[arm_obs_size(l)]에 채움
 inline size_t arm_obs(ArmLayout l, const ArmObsIn & in, double * out) {

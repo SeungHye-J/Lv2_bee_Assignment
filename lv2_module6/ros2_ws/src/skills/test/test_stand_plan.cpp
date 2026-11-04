@@ -3,9 +3,9 @@
 
 #include <cmath>
 
-#include "plan/stand_plan.hpp"
+#include "skills/stand_plan.hpp"
 
-using namespace plan::stand;
+using namespace skills::stand;
 
 namespace {
 double dist(const V3 & a, const V3 & b) { return std::sqrt(std::pow(a[0] - b[0], 2) + std::pow(a[1] - b[1], 2) + std::pow(a[2] - b[2], 2)); }

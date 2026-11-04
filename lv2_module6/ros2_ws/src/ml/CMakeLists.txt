@@ -56,14 +56,13 @@ target_link_libraries(rl_arm_correction controller_interface::controller_interfa
 pluginlib_export_plugin_description_file(controller_interface rl_arm_correction.xml)
 install(TARGETS rl_arm_correction LIBRARY DESTINATION lib)
 
-# 학습 정책 파일 — 워크스페이스 공용 lv2_module6/ros2_ws/model/{arm_correction,nav_correction,plan}/*.policy 를 share/ml/model에
-#   (scripts/export_policy.py가 시뮬 학습 결과 .pt에서 만듦 · 파일이 없으면 그 skill은 보정 없음)
+# 플래너 정책 — lv2_module6/ros2_ws/model/plan/*.policy 를 share/ml/model/plan에 (mission_manager planner: plan_next)
+#   skill 정책은 skill 노드가 갖고 관리 — model/skills/<skill>/ → share/skills/model (skills 패키지)
+#   (.policy는 scripts/export_policy.py가 시뮬 학습 결과 .pt에서 만듦)
 set(ML_MODEL_DIR "${CMAKE_CURRENT_SOURCE_DIR}/../../model" CACHE PATH "ros2_ws/model")
-foreach(d arm_correction nav_correction plan)
-  if(EXISTS "${ML_MODEL_DIR}/${d}")
-    install(DIRECTORY "${ML_MODEL_DIR}/${d}" DESTINATION share/${PROJECT_NAME}/model FILES_MATCHING PATTERN "*.policy")
-  endif()
-endforeach()
+if(EXISTS "${ML_MODEL_DIR}/plan")
+  install(DIRECTORY "${ML_MODEL_DIR}/plan" DESTINATION share/${PROJECT_NAME}/model FILES_MATCHING PATTERN "*.policy")
+endif()
 install(PROGRAMS scripts/export_policy.py DESTINATION lib/${PROJECT_NAME})
 
 # 파라미터 (bringup이 share/ml/config/ml.yaml을 노드에 넘긴다)

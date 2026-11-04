@@ -5,13 +5,14 @@
 //   reference interface: rl_arm_correction/<joint>/position  ← JTC가 command_joints로 여기에 쓴다 (기준 궤적 q_ref)
 //   command interface:   <joint>/position                     → hardware interface
 //   state interface:     <joint>/position, velocity           (관측)
-//   구독: /skill_context (ml/SkillContext, coordinator) · /hand_relative (perception/HandRelative)
+//   구독: /skill_context (ml/SkillContext, 팔 skill 노드 — skills 패키지) · /hand_relative (perception/HandRelative)
 // update (update_rate, 100Hz): command = q_ref + 처짐 적분 corr + 학습 보정 Δ
 //   - corr = 처짐 보정 적분 (송정혁, isaac/lab place_env._sag_step과 같은 법칙, 시간 기준): reference가 멈춰 있을 때만
 //     (모든 관절 |d ref/dt| < still_rate) corr += sag_gain·dt·(reference + Δ − 현재각), ±sag_max. 움직이는 동안은 유지.
 //     학습은 85 ms마다 오차 30 % 제거 → sag_gain = −ln(0.7)/0.085 ≈ 4.2 /s. 스킬 시작마다 ~/reset_sag 로 0.
 //     skill과 상관없이 늘 돈다 (sag_enabled). 발열 방지: stow(rest_pose)에선 0으로 풂 · 상한에 windup_s 붙으면 풀고 쉼
-//   - Δ: skill_context의 skill에 정책 파일이 있을 때만 (닿는 구간). 아니면 Δ = 0
+//   - Δ: skill_context에 정책 파일(policy · layout)이 있을 때만 (닿는 구간). 아니면 Δ = 0
+//     정책은 skill 노드가 갖고 관리 (model/skills/<skill>/) — 처음 받은 경로는 구독 콜백(실시간 루프 밖)에서 읽고 검산해 둠 (경로별 한 번)
 //   - 정책: policy_hz(50)로 arm_obs(…) → MlpPolicy → a ∈ [−1, 1] → residual_live면 Δ = residual_rad·a (아니면 마지막 Δ 유지)
 //   - run_id가 바뀌면 corr·Δ·이전 행동을 0부터 (시뮬 에피소드 시작)
 //   - 손 카메라 값(/hand_relative)이 max_cam_age_s보다 오래되거나 valid가 아니면 Δ를 바꾸지 않음
@@ -87,13 +88,21 @@ private:
     ArmLayout layout = ArmLayout::Place;
     MlpPolicy policy;
   };
+  struct Ctx {  // 받은 skill_context + 그 정책 (없으면 null) — 구독 콜백이 만들고 실시간 루프가 가져감
+    Ctx() = default;
+    Ctx(const ml::msg::SkillContext & m, std::shared_ptr<const Skill> s) : msg(m), skill(std::move(s)) {}
+    ml::msg::SkillContext msg;
+    std::shared_ptr<const Skill> skill;
+  };
+  std::shared_ptr<const Skill> policy_for(const ml::msg::SkillContext & m);  // 실시간 루프 밖 (구독 콜백)
   void reset_run();
 
   std::vector<std::string> joints_;
   std::vector<hardware_interface::CommandInterface::SharedPtr> refs_;
-  std::map<std::string, Skill> skills_;  // skill 이름 → 정책 (파일이 있는 것만)
+  std::map<std::string, std::shared_ptr<const Skill>> cache_;  // 정책 파일 경로 → 읽은 정책 (지우지 않음 — 실시간 루프가 메모리를 풀지 않게)
+  std::shared_ptr<const Skill> skill_;                        // 지금 정책 (실시간 쪽)
 
-  realtime_tools::RealtimeThreadSafeBox<ml::msg::SkillContext> ctx_box_;
+  realtime_tools::RealtimeThreadSafeBox<Ctx> ctx_box_;
   realtime_tools::RealtimeThreadSafeBox<perception::msg::HandRelative> hand_box_;
   rclcpp::Subscription<ml::msg::SkillContext>::SharedPtr ctx_sub_;
   rclcpp::Subscription<perception::msg::HandRelative>::SharedPtr hand_sub_;

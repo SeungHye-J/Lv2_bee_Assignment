@@ -1,9 +1,9 @@
-#include "plan/stand_plan.hpp"
+#include "skills/stand_plan.hpp"
 
 #include <algorithm>
 #include <cmath>
 
-namespace plan::stand {
+namespace skills::stand {
 
 namespace {
 // urdf/beebot_mesh/beebot.urdf — base_footprint → base_link(z 0.01) → arm_base_link → joint1(z) … joint5(x) → end_effector_link
@@ -233,4 +233,4 @@ std::vector<Q5> sample_arc(const std::vector<Q5> & wp, const Params & p, double 
   return out;
 }
 
-}  // namespace plan::stand
+}  // namespace skills::stand
