@@ -329,7 +329,9 @@ string message
 
 | 이름 | 타입 | 보내는 쪽 → 받는 쪽 | 주기 · QoS |
 | --- | --- | --- | --- |
-| `/cmd_vel_corrected` | geometry_msgs/TwistStamped | rl_nav_correction → twist_mux (자동, priority 10) | 20Hz |
+| `/cmd_vel_corrected` | geometry_msgs/TwistStamped | rl_nav_correction → twist_mux (자동, priority 10) | 20Hz — ONNX Δ(±max_delta) 더한 값 |
+| `/rl_nav_correction/debug` | std_msgs/Float32MultiArray | rl_nav_correction → 디버그 | 20Hz — [v_cmd,w_cmd,v_odom,w_odom,w_gyro,t_change_max,Δv,Δw,v_out,w_out,on] |
+| `/rl_nav_correction/toggle` | std_srvs/SetBool (서비스) | 운영자 → rl_nav_correction | ONNX 보정 켜기/끄기 (`enabled` 파라미터와 같은 값) |
 | `/cmd_vel_manual` | geometry_msgs/TwistStamped | manual_control → twist_mux (수동, priority 100) | 수동 조작 시 |
 | `/cmd/e_stop` | std_msgs/Bool | 운영자 → state_manager → `/state/emergency` → twist_mux (잠금 priority 255) | true면 전부 차단 |
 | `/cmd_vel_mux` | geometry_msgs/TwistStamped | twist_mux → velocity_smoother | 20Hz |
