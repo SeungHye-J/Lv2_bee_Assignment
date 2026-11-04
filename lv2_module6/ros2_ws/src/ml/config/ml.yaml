@@ -21,3 +21,8 @@ rl_nav_correction:
     max_vel_x: 0.26          # [m/s] Waffle Pi 최대 선속도 (/speed_limit 백분율의 기준)
     max_vel_theta: 1.82      # [rad/s]
     timeout_s: 0.2           # [s] /odom이 이보다 오래 끊기면 Δ=0
+rl_nav_controller:
+  ros__parameters:
+    # Nav2 FollowPath 플러그인용 ONNX — 같은 네임스페이스 규칙 (share/ml/model/<노드>/<이름>).
+    #   실제 값은 ros_system/config/nav2_params.yaml FollowPath.model_path에서 읽는다. 여기는 규격 기록용.
+    model_path: "nav_controller/policy.onnx"   # share/ml/model/nav_controller/policy.onnx
