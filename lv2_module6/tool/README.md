@@ -13,6 +13,9 @@ tool/
 │   ├── stop.sh
 │   ├── restart.sh
 │   └── operator.rviz
+├── node/                # 노드별 관리 도구 (기록·분석) — node/README.md
+│   ├── common/bagio.py
+│   └── rl_nav_correction/{run,record.sh,report.py}
 └── cli/
     ├── start.sh
     ├── DEVELOP.md         # 개발자용 — TUI를 어떻게 만들었나 · 화면 흐름 규약 · 메뉴 추가 · 시험
