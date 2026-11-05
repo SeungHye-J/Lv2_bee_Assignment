@@ -26,6 +26,7 @@ class Ui:
         self._sel_idx = 0
         self._frame_size = None
         self._busy = None   # 지금 떠 있는 처리 중 창 (메뉴 항목 실행 동안)
+        self._reconnect_check = None  # OperatorTool.check_cli_reconnect — 다이얼로그 안에서도 재연결 판단
         self._title = None  # 마지막으로 그린 화면 제목 (창이 떠 있는 동안 상단 상태바만 다시 그리기용)
         self._top_at = 0.0
         # 화면 아래에서 깜빡이는 실제 커서를 숨긴다 (입력은 다이얼로그의 '▏'로 표시).
@@ -188,6 +189,8 @@ class Ui:
     def tick(self, seconds: float) -> None:
         """창(결과·확인·입력)이 떠 있는 동안: ROS 폴링 + 상단 상태바 1초마다 갱신 (창 밑 화면이 멈춰 보이지 않게)."""
         self._poll(seconds)
+        if self._reconnect_check is not None:
+            self._reconnect_check()
         self.refresh_top()
 
     def refresh_top(self) -> None:

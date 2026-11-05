@@ -26,6 +26,7 @@ bringup이 떠 있는 상태에서 상태 확인, 자동/수동 전환, 비상�
 from __future__ import annotations
 
 import argparse
+import os
 import sys
 import time
 from pathlib import Path
@@ -81,6 +82,9 @@ class OperatorTool(Node):
         self.ui = Ui(self.term, self.state, self.poll)
         self.bus = Bus(self, self.state, self.ui, self.term)
         self._device_subs: dict[str, object] = {}
+        self._restart_note = ''
+        self._restart_armed_at = 0.0
+        self.ui._reconnect_check = self.check_cli_reconnect
         self._wire()
 
     # ------------------------------------------------------------- ROS 배선
@@ -89,6 +93,33 @@ class OperatorTool(Node):
         end = time.monotonic() + max(0.0, seconds)
         while time.monotonic() < end and rclpy.ok():
             rclpy.spin_once(self, timeout_sec=min(0.05, max(0.01, end - time.monotonic())))
+
+    def check_cli_reconnect(self):
+        """launch 재시작 뒤 /state/*가 끊긴 채면 CLI를 새 프로세스로 다시 띄운다.
+
+        state_manager가 launch 전체를 재시작하면 기존 rclpy 참여자가 FastDDS
+        재탐색을 못 해 화면이 계속 '끊김'으로 남는 경우가 있다. 새 프로세스는
+        새 DDS 참여자로 붙으므로, 메뉴가 한가할 때(명령 실행·다이얼로그 밖)
+        스스로 exec한다. bringup은 건드리지 않는다.
+        """
+        note = (self.state.values.get('restart') or '').strip()
+        now = time.monotonic()
+        if note and note != self._restart_note:
+            self._restart_note = note
+            self._restart_armed_at = now
+        if not self._restart_armed_at:
+            return
+        # state_manager가 다시 살아 /state/*를 보내면 재연결 불필요
+        if self.state.state_last_update > self._restart_armed_at + 0.5:
+            self._restart_note = ''
+            self._restart_armed_at = 0.0
+            return
+        if now - self._restart_armed_at < 12.0:
+            return
+        self.ui.console.write('\nbringup 재시작 뒤 상태가 끊겨 CLI를 다시 연결합니다…\n')
+        self.ui.console.flush()
+        self.ui.close()
+        os.execv(sys.executable, [sys.executable, '-u', str(Path(__file__).resolve()), 'menu'])
 
     def _wire(self):
         for key, topic in STATE_TOPICS.items():

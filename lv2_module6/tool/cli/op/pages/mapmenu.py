@@ -57,10 +57,13 @@ class MapMenu(Menu):
     def center(self):
         st = self.state
         maps = self.bus.map_names()
-        return (['[지도]',
+        lines = ['[지도]',
                  f' 모드: {st.map_mode or "-"}',
                  f' 이름: {st.values.get("map_name") or "-"}',
-                 f' 목록: {len(maps)}개'] + [f'  - {n}' for n in maps[:8]])
+                 f' 목록: {len(maps)}개']
+        if st.map_mode == 'MAPPING' and st.values.get('map_name'):
+            lines.append(' 작성 중 — nvblox.nvblx는 LOCALIZATION 전환/종료 때 저장')
+        return lines + [f'  - {n}' for n in maps[:8]]
 
 
 class MapSwitchItem(MenuItem):

@@ -115,6 +115,7 @@ class Menu(Page):
         self.ui._center_provider = self.center  # 다이어로그 중 중앙 실시간 갱신용
         while rclpy.ok():
             self.app.poll(0.2)
+            self.app.check_cli_reconnect()
             visible = [i for i in self.items() if i.visible()]
             if not visible:
                 return STAY

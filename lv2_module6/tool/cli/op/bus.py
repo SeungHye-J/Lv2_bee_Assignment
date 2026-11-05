@@ -808,6 +808,8 @@ class Bus:
             if not maps:
                 maps = self.local_maps(map_dir)
             print('지도 목록: ' + (', '.join(maps) if maps else '-'))
+            if self.state.map_mode == 'MAPPING' and self.state.values.get('map_name'):
+                print('작성 중   : nvblox.nvblx는 LOCALIZATION 전환/종료 때 저장 — 그 전에는 목록에 없음')
             return 0
 
         if args.action == 'list':
@@ -913,6 +915,15 @@ class Bus:
             print('거부: nav2_msgs가 없어 map save를 사용할 수 없습니다', file=sys.stderr)
             return 2
         name = self.state.values.get('map_name') or ''
+        # `run-cli map save`는 새 프로세스라 /state/map_name이 아직 안 왔을 수 있다.
+        # map status처럼 잠깐 기다린다 — 안 기다리면 MAPPING 중인데도 "지도 이름 없음"으로 거부된다.
+        if not (args.file or name):
+            end = time.monotonic() + 5.0
+            while time.monotonic() < end and rclpy.ok():
+                self._poll(0.1)
+                name = self.state.values.get('map_name') or ''
+                if name:
+                    break
         # 경로는 map_saver가 쓰는 쪽 기준 — CLI가 원격 PC·컨테이너 밖이면 이 컴퓨터 경로가 로봇에 없다.
         #   --file·--map-dir를 주지 않으면 state_manager의 map_dir을 쓴다 (못 읽을 때만 이 컴퓨터의 ros2_ws/map)
         robot_dir = '' if (args.file or args.map_dir) else self._robot_map_dir()

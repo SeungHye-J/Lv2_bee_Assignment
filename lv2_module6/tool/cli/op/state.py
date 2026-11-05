@@ -41,6 +41,7 @@ class StateStore:
         self.battery_v = float('nan')             # /motor_status OpenCR 전원 입력(배터리) V — NaN 모름
         self.last_joint_time = 0.0
         self.last_update = 0.0  # 마지막 토픽 수신 시각 (monotonic) — 헤더 갱신시각 표시용
+        self.state_last_update = 0.0  # 마지막 /state/* 수신 — launch 재시작 뒤 CLI 재연결 판단용
         self.param_clients: dict = {}
         # 상시 상태바용 (없으면 0/빈 값으로 표시, 보드 미동작 아님)
         self.tracked_count = 0
@@ -67,14 +68,17 @@ class StateStore:
     def on_state_value(self, key: str, data: str):
         self.values[key] = data
         self._touch()
+        self.state_last_update = time.monotonic()
 
     def on_emergency(self, data: bool):
         self._touch()
+        self.state_last_update = time.monotonic()
         self.emergency = bool(data)
 
     def on_devices(self, names: list[str]) -> list[str]:
         """장치 목록 갱신 → 새로 나타난 장치 이름 반환 (상세 구독용)."""
         self._touch()
+        self.state_last_update = time.monotonic()
         fresh = [n for n in names if n not in self.devices]
         self.devices = list(names)
         return fresh
@@ -82,6 +86,7 @@ class StateStore:
     def on_device_detail(self, name: str, text: str):
         self.device_details[name] = text
         self._touch()
+        self.state_last_update = time.monotonic()
 
     def on_joints(self, names, positions, velocities=None, efforts=None):
         self._touch()
