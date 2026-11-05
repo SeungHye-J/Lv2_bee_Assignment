@@ -413,6 +413,11 @@ class Ui:
         mode_c = {'MAPPING': YELLOW, 'LOCALIZATION': GREEN}.get(mode, '')
         op_txt = self.term.paint(op, op_c + BOLD)
         mode_txt = self.term.paint(mode, mode_c) if mode_c else self.term.paint(mode, DIM)
+        map_name = (self.state.values.get('map_name') or '').strip()
+        if map_name:
+            if len(map_name) > 20:
+                map_name = map_name[:19] + '…'
+            mode_txt += ' ' + self.term.paint(map_name, DIM)
         if self.state.emergency:
             estop = self.term.paint('ON', RED + BOLD)
         else:
