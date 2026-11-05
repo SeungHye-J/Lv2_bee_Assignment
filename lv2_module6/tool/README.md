@@ -273,8 +273,13 @@ cd tool
 
 ### A/B 테스트 (주행 컨트롤러)
 
-정책(ONNX) vs inner DWB 비교는 `tool/node/rl_nav_controller/`를 쓴다
-(수동 주행 기록 → 리포트). CLI 자동 A/B는 제거됨.
+메뉴 **14) A/B 테스트 (노드별)** → **rl_nav_controller** 순으로 들어간다.
+정책(ONNX) vs inner DWB를 같은 주행·같은 goal로 비교한다. 기록은 bee 안에 쌓인다.
+
+- 자동: `./run-cli ab rl_nav_controller guide --label test1`
+  (`tool/cli/ab/rl_nav_controller/command.json`의 start·route대로 A(정책) → 복귀 → B(DWB) 주행)
+- 수동: `status` · `record --label` · `stop` · `report --last` (위 ab/README 참고)
+- 리포트는 `tool/node/rl_nav_controller/report.py`가 만든다
 
 ## RViz
 

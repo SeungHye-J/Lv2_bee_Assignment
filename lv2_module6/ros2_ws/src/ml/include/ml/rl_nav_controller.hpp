@@ -88,7 +88,8 @@ private:
   double lidar_max_ = 3.5;
   double max_lin_ = 0.26, max_ang_ = 1.82, v_min_ratio_ = -0.2;
   double speed_ratio_ = 1.0;
-  double extra_lin_vel_ = 0.0;  // [m/s] 정책 출력에 더하는 추가 속도 (0~0.10, max_lin 상한 유지)
+  double extra_lin_vel_ = 0.0;  // [m/s] 정책 출력에 더하는 추가 선속도 (0~0.10, max_lin 상한 유지)
+  double extra_ang_vel_ = 0.0;  // [rad/s] 정책 출력에 더하는 추가 각속도 (0~0.50, max_ang 상한 유지)
   int points_stride_ = 4;
   double z_min_ = 0.03, z_max_ = 1.2;
   double cloud_timeout_ = 0.5;
