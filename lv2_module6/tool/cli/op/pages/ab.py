@@ -1,7 +1,9 @@
-"""A/B 테스트 — rl_nav_correction ONNX 보정 ON/OFF를 같은 주행으로 비교.
+"""A/B 테스트 — 노드별 ONNX 보정 ON/OFF를 같은 주행으로 비교.
 
-사용자 진입점은 메뉴 14 / `run-cli ab` 하나다. 기록은 백그라운드로 돌고,
-메뉴에서 '녹화 종료'를 누르면 rosbag2가 정상 마무리된다.
+메뉴 14 → 노드 목록 → 그 노드의 A/B 화면. 지금은 rl_nav_correction 하나이고,
+새 rl_nav_* 노드는 ab_node_pages()에 한 줄 추가한다.
+
+기록은 백그라운드로 돌고, 메뉴에서 '녹화 종료'를 누르면 rosbag2가 정상 마무리된다.
 """
 from __future__ import annotations
 
@@ -10,7 +12,7 @@ import time
 from pathlib import Path
 
 from ..defs import STAY
-from .base import Menu, MenuItem
+from .base import GoMenu, Menu, MenuItem
 
 
 class AbStatusItem(MenuItem):
@@ -182,7 +184,7 @@ class AbGuideItem(MenuItem):
         return STAY
 
 
-class AbMenu(Menu):
+class RlNavCorrectionAbMenu(Menu):
     title = 'A/B 테스트 · rl_nav_correction'
     REFRESH_S = 1.0
 
@@ -201,3 +203,27 @@ class AbMenu(Menu):
             self._lines = self.bus.ab.status_lines()
             self._at = now
         return self._lines + ['', ' A/B는 같은 출발점·같은 goal로 번갈아 여러 번']
+
+
+def ab_node_pages(app) -> list[tuple[str, str, Menu]]:
+    """A/B 메뉴에 노출할 노드 — (표시 이름, 설명, 화면)을 한 줄씩 추가한다."""
+    return [
+        ('rl_nav_correction', 'ONNX 주행 보정 (Δv·Δω)', RlNavCorrectionAbMenu(app)),
+    ]
+
+
+class AbMenu(Menu):
+    """A/B 테스트 최상위 — 노드 이름으로 하위 메뉴를 고른다."""
+    title = 'A/B 테스트 (노드별)'
+
+    def items(self):
+        return [GoMenu(self.app, str(i + 1), f'{name} — {desc}', page)
+                for i, (name, desc, page) in enumerate(ab_node_pages(self.app))]
+
+    def center(self):
+        nodes = ab_node_pages(self.app)
+        lines = ['[A/B 대상 노드]', f' {len(nodes)}개 — 노드를 고르면 ON/OFF·기록·리포트 화면']
+        lines.append('')
+        lines += [f' {name}: {desc}' for name, desc, _ in nodes]
+        lines += ['', ' 새 rl_nav_* 노드는 ab_node_pages()에 추가']
+        return lines

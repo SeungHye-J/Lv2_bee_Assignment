@@ -81,7 +81,7 @@ cd tool
  11) RViz 열기 (Best Effort QoS)
  12) 파라미터 (노드별)
  13) 칼리브레이션 (바퀴 — 팔은 나중에)
- 14) A/B 테스트 (ONNX 보정)
+ 14) A/B 테스트 (노드별)
   q) 종료
 ```
 
@@ -255,8 +255,9 @@ cd tool
 - 수명주기 노드(velocity_smoother · collision_monitor · Nav2 서버)는 `lifecycle_manager_base`·`_navigation`이 기동 때 켭니다. 기동 중 응답 시간 초과 등으로 멈춰 `[unconfigured]`·`[inactive]`로 남으면 바퀴 명령이 `/cmd_vel`까지 못 가 텔레오퍼가 안 움직입니다 → 그 노드를 **3) 활성화**.
 - 재시작은 state_manager 재시작 목록(이 launch 아래 노드)에 있는 것만 됩니다. 명령줄 재시작은 확인 없이 바로 실행합니다.
 
-### A/B 테스트 (rl_nav_correction ONNX)
+### A/B 테스트 (노드별)
 
+메뉴 **14) A/B 테스트 (노드별)** → **rl_nav_correction** 순으로 들어간다.
 `rl_nav_correction`의 ONNX 보정 ON/OFF를 같은 주행으로 비교한다. 기록은 bee 안에 쌓인다
 (`ROS_DOMAIN_ID=88` + SHM 전용이라 PC 원격 기록 불가).
 
@@ -277,8 +278,9 @@ cd tool
 ```
 
 - 기본 저장: `~/bags/ab/<시각>_<라벨>` (rosbag2 · mcap)
-- TUI 메뉴 **14) A/B 테스트**: 상태 · ON/OFF · 녹화 시작/종료 · 최근 리포트 ·
-  안내형 A/B(A ON → B OFF → 리포트)를 한 화면에서 실행
+- TUI 메뉴 **14) A/B 테스트 (노드별)** → **rl_nav_correction**:
+  상태 · ON/OFF · 녹화 시작/종료 · 최근 리포트 · 안내형 A/B(A ON → B OFF → 리포트)를 한 화면에서 실행.
+  새 `rl_nav_*` 노드는 `cli/op/pages/ab.py`의 `ab_node_pages()`에 한 줄 추가한다.
 - `learning_enabled:=false`는 `rl_nav_tuner`까지 꺼서 속도 프리셋이 달라진다.
   A/B는 반드시 `ab on`/`ab off`로 `rl_nav_correction`만 토글한다.
 - 공정한 비교: 같은 출발 자세·방향, 같은 goal, 같은 배터리·바닥에서 ON/OFF를 번갈아 여러 번.
