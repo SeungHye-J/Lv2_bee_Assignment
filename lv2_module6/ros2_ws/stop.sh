@@ -34,4 +34,10 @@ if command -v ros2 >/dev/null 2>&1; then
 else
   pkill -f "ros2cli.daemon.daemoniz[e]" 2>/dev/null || true
 fi
+# 강제 종료된 참가자의 Fast DDS SHM 통로가 남으면 다음 state_manager가 포트 lock에 걸려
+# publisher가 하나도 안 보일 수 있다 (/state/* publisher count 0). ROS가 모두 꺼진 뒤에만 지운다.
+if [ "$(count)" = 0 ]; then
+  rm -rf /dev/shm/fastdds_* /dev/shm/sem.fastdds_* 2>/dev/null || true
+  echo "Fast DDS SHM 잔재 정리"
+fi
 echo "남은 ROS 프로세스: $(count)개"
