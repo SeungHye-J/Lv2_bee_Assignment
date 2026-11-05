@@ -12,6 +12,7 @@ from __future__ import annotations
 
 import json
 import os
+import re
 import signal
 import subprocess
 import sys
@@ -105,7 +106,12 @@ class AbTest:
 
     def history(self) -> list[dict]:
         data = self._load()
-        return [h for h in data.get('history', []) if h.get('bag') and Path(h['bag']).exists()]
+        raw = data.get('history', [])
+        hist = [h for h in raw if h.get('bag') and Path(h['bag']).exists()]
+        if len(hist) != len(raw):  # 지워진 bag은 상태 파일에서도 정리
+            data['history'] = hist
+            self._save(data)
+        return hist
 
     # ------------------------------------------------------------------ 상태
     def params(self, force: bool = False) -> tuple[bool | None, str | None]:
@@ -218,7 +224,7 @@ class AbTest:
         cur = self.current()
         if cur:
             raise RuntimeError(f'이미 녹화 중: {cur.get("bag")}')
-        label = (label or 'run').strip().replace(' ', '_') or 'run'
+        label = re.sub(r'[^\w.-]+', '_', (label or 'run').strip()) or 'run'
         if out:
             bag = Path(out).expanduser()
         else:
@@ -239,7 +245,23 @@ class AbTest:
             log.flush()
             proc = subprocess.Popen(cmd, stdout=log, stderr=subprocess.STDOUT,
                                     stdin=subprocess.DEVNULL, start_new_session=True)
-        time.sleep(1.2)
+        # bag 폴더가 실제로 생길 때까지 기다린다 — discovery가 느리면 1~2초 걸리고,
+        # 그 전에 stop하면 rosbag2가 폴더를 만들지 못한 채 끝날 수 있다.
+        deadline = time.monotonic() + 8.0
+        while time.monotonic() < deadline:
+            if proc.poll() is not None:
+                raise RuntimeError(
+                    f'ros2 bag record 시작 실패 (exit {proc.returncode})\n{self._log_tail()}')
+            if bag.is_dir():
+                break
+            time.sleep(0.1)
+        else:
+            try:
+                os.killpg(proc.pid, signal.SIGKILL)
+            except Exception:
+                pass
+            raise RuntimeError(f'ros2 bag record가 8초 안에 bag 폴더를 만들지 못함\n{self._log_tail()}')
+        time.sleep(0.2)
         if proc.poll() is not None:
             raise RuntimeError(f'ros2 bag record 시작 실패 (exit {proc.returncode})\n{self._log_tail()}')
         rec = {'pid': proc.pid, 'bag': str(bag), 'label': label,
@@ -348,7 +370,7 @@ class AbTest:
                 return self.guide(getattr(args, 'label', None))
             print(f'FAIL: 모르는 ab 동작: {action}', file=sys.stderr)
             return 2
-        except RuntimeError as exc:
+        except (RuntimeError, OSError) as exc:
             print(f'FAIL: {exc}', file=sys.stderr)
             return 1
 
