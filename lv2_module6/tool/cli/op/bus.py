@@ -948,7 +948,9 @@ class Bus:
 
         req = SaveMapSrv.Request()
         req.map_topic = args.topic
-        req.map_url = path.as_uri()
+        # map_saver는 map_url을 ImageMagick 파일 경로로 그대로 쓴다. file:// URI를 주면
+        # ImageMagick이 'file'을 이미지 포맷으로 해석해 "No encode delegate ... (FILE)"로 실패한다.
+        req.map_url = str(path)
         req.image_format = args.format
         req.map_mode = 'trinary'
         req.free_thresh = 0.25
