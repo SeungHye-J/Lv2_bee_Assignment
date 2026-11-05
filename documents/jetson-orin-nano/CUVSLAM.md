@@ -38,6 +38,7 @@ gripper_cam 정렬 depth ─▶ gripper_depth_gate (스캔 자세일 때만 · 0
 ```
 
 - **자기 몸 빼기**: Nav2 costmap은 몸을 뺀 점구름(body_filter)을 쓰지만, nvblox는 depth 영상을 받는다. 그래서 depth에서 카메라 0.5 m 안 픽셀을 0(측정 없음)으로 바꿔서 넘긴다 (`…/aligned_depth_to_color/image_nvblox`). `scan_cam_gate`의 `depth_min_range` 옵션이 이 일을 한다.
+  - `skill_pose`의 자동 스캔 자세는 **기본 꺼짐**(`scan_pose_enabled=false`) — 팔을 뒤로 돌리면 무게중심이 왼쪽으로 쏠려서, 매핑 중에는 stow를 유지한다. 필요할 때만 `ros2 param set /skill_pose scan_pose_enabled true`.
   - 0.5 m 안의 실제 장애물은 nvblox 지도에 안 들어간다. 대신 Nav2 local costmap(몸 뺀 점구름)이 피한다.
 - **실행 중 지도 모드·지도 전환**(`/cmd/map_mode` · `/cmd/map_name`): cuVSLAM·nvblox는 실행 중 전환이 없어 state_manager가 launch 전체를 인자만 바꿔 다시 띄운다 (`/cmd/restart`의 `all`과 같은 길) — MAPPING → `map:=slam`(새 폴더) · LOCALIZATION / 지도 고르기 → `map:=saved map_name:=<이름>`. 지도 목록 `/state/map_list` = `nvblox.nvblx`가 있는 폴더.
 - **저장 지도로 위치추정(`map:=saved`)**: nvblox 지도를 불러오고, cuVSLAM은 원점부터 새로 시작한다. 그래서 **출발 자리·방향이 저장할 때와 같아야** 맞는다 (운영 규칙과 같음).

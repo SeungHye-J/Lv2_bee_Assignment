@@ -66,13 +66,24 @@ class Bus:
         while time.monotonic() < end and rclpy.ok():
             rclpy.spin_once(self.node, timeout_sec=min(0.05, max(0.01, end - time.monotonic())))
 
-    def _publish(self, publisher, msg):
-        self._poll(0.2)  # DDS discovery
-        count = publisher.get_subscription_count()
+    def _publish(self, publisher, msg, wait_s: float = 3.0):
+        """명령 토픽 publish — discovery가 끝날 때까지 기다린다.
+
+        예전엔 0.2초만 기다리고 구독자가 0이어도 그냥 publish해서, launch 재시작 직후
+        `/cmd/map_mode` 같은 한 번짜리 명령이 state_manager에 닿지 않고 사라졌다.
+        QoS는 reliable이어도 **매칭 전 sample은 reliable로 재전송되지 않는다** — 먼저 매칭을 기다린다.
+        """
+        end = time.monotonic() + max(0.0, wait_s)
+        count = 0
+        while time.monotonic() < end and rclpy.ok():
+            count = publisher.get_subscription_count()
+            if count > 0:
+                break
+            self._poll(0.1)
         if count == 0:
             print(f'WARN: {publisher.topic_name} 구독자 없음 — bringup이 떠 있는지 확인', file=sys.stderr)
         publisher.publish(msg)
-        self._poll(0.15)
+        self._poll(0.2)
 
     def _send_velocity(self, linear: float, angular: float):
         msg = TwistStamped()
