@@ -80,6 +80,7 @@ cd tool
  10) 노드 (상태 · 재시작 · 전체 재시작)
  11) RViz 열기 (Best Effort QoS)
  12) 파라미터 (노드별)
+ 13) 칼리브레이션 (바퀴 — 팔은 나중에)
   q) 종료
 ```
 
@@ -172,19 +173,23 @@ cd tool
 # w/s 전후진 · a/d 좌우회전 · space 정지 · q 종료
 ```
 
-### 칼리브레이션 재생 (바퀴 응답 측정)
+### 칼리브레이션 (바퀴)
 
-PC의 isaac calibration이 만든 계획(JSON)을 수동 경로로 재생하며 응답을 `raw.csv`로 기록합니다 (메뉴: 4) 수동 주행 → 8).
+바퀴 응답(gain · 지연)을 재서 sim에 맞추는 측정입니다. 메뉴: **13) 칼리브레이션 → 1) 바퀴**. 팔(`calibrate arm`)은 나중에 같은 메뉴에 붙입니다.
+계획(JSON)의 `(v, w)`를 수동 경로로 재생하며 응답을 `raw.csv`로 기록합니다. 기본 계획은 `tool/calibration/wheel_square.json`(sim과 같은 네모 54 s).
 
 ```bash
-./run-cli calibrate plan.json --check-only     # 안 움직이고 준비만 확인 (MANUAL · /odom · /imu · /joint_states)
-./run-cli calibrate plan.json                  # 재생 + 기록 → ./calibration_<시각>/raw.csv (--out 경로)
-# plan.json = {"dt": 0.05, "label": "real", "steps": [[v, w, "구간 이름"], ...]}  (v ≤ 0.26 m/s · |w| ≤ 1.82 rad/s · 180 s 이하)
+./run-cli calibrate wheel --check-only          # 안 움직이고 준비만 확인 (MANUAL · /odom · /imu · /joint_states)
+./run-cli calibrate wheel                       # 기본 네모 재생 + 기록 → ./calibration_<시각>/raw.csv (--out 경로)
+./run-cli calibrate wheel plan.json             # 다른 계획: {"dt": 0.05, "label": "real", "steps": [[v, w], ...]}  (v ≤ 0.26 m/s · |w| ≤ 1.82 rad/s · 180 s 이하)
 ```
+
+메뉴 13 → 바퀴: `1) 준비 확인` → (공간 비움 · 팔 시작 자세) → `2) 재생 + 기록` · `3) 계획 파일 바꾸기`.
 
 - 명령은 `/cmd/manual/cmd_vel` → `manual_control` → `/cmd_vel_manual`이라 `rl_nav_correction`을 건너뜁니다 (보정 없는 순수 응답).
 - 기록: `/odom` · `/imu` · `/joint_states`(바퀴) · `/cmd_vel`(smoother · collision_monitor를 거쳐 실제로 나간 명령) — isaac sim의 `raw.csv`와 같은 열.
 - 끝나거나 비상정지 · 모드 이탈 · Ctrl+C면 바로 정지 명령을 내고(저장 안 함), 로봇이 움직이므로 사방 약 1.5 m를 비우고 팔은 시작 자세로 둡니다.
+- 결과를 PC로: `scp bee@bee.local:<폴더>/raw.csv …` 후 isaac의 `calibration/report.py`로 sim과 비교.
 
 ### 팔·그리퍼
 

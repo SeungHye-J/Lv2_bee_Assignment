@@ -183,6 +183,9 @@ class OperatorTool(Node):
         if name == '12':
             from op.pages import ParamMenu
             return ParamMenu(self)
+        if name == '13':
+            from op.pages import CalibrateMenu
+            return CalibrateMenu(self)
         if name == '0':
             from op.pages import BeepMenu
             return BeepMenu(self)
@@ -245,11 +248,14 @@ def build_parser() -> argparse.ArgumentParser:
     drive.add_argument('--duration', type=_positive_float, default=1.0, help='주행 시간 [s] (기본 1.0)')
     drive.add_argument('--force', action='store_true', help='MANUAL 상태 확인을 건너뜀 (위험)')
 
-    calibrate = sub.add_parser('calibrate', help='칼리브레이션 계획(JSON)을 수동 경로로 재생하며 raw.csv 기록 (MANUAL 모드 — 로봇이 움직임)')
-    calibrate.add_argument('plan', help='계획 파일 {"dt": 0.05, "steps": [[v, w, 구간], ...]} — PC isaac calibration이 만든다')
-    calibrate.add_argument('--out', default=None, help='raw.csv 경로 (기본: 실행한 폴더 ./calibration_<시각>/raw.csv)')
-    calibrate.add_argument('--check-only', action='store_true', help='안 움직이고 준비만 확인')
-    calibrate.add_argument('--force', action='store_true', help='MANUAL 상태 확인을 건너뜀 (위험)')
+    calibrate = sub.add_parser('calibrate', help='칼리브레이션 (메뉴: 13) — wheel: 계획을 수동 경로로 재생하며 응답을 raw.csv로 기록 (로봇이 움직임)')
+    cal_sub = calibrate.add_subparsers(dest='part', required=True)
+    cal_wheel = cal_sub.add_parser('wheel', help='바퀴 응답 (MANUAL 모드 — 계획 JSON 재생)')
+    cal_wheel.add_argument('plan', nargs='?', default=str(Path(__file__).resolve().parents[1] / 'calibration' / 'wheel_square.json'),
+                           help='계획 파일 {"dt": 0.05, "steps": [[v, w], ...]} (기본 tool/calibration/wheel_square.json = sim과 같은 네모 54 s)')
+    cal_wheel.add_argument('--out', default=None, help='raw.csv 경로 (기본: 실행한 폴더 ./calibration_<시각>/raw.csv)')
+    cal_wheel.add_argument('--check-only', action='store_true', help='안 움직이고 준비만 확인')
+    cal_wheel.add_argument('--force', action='store_true', help='MANUAL 상태 확인을 건너뜀 (위험)')
 
     teleop = sub.add_parser('teleop', help='터미널 키보드 수동 주행 (MANUAL 모드)')
     teleop.add_argument('--linear', type=_nonnegative_float, default=0.15, help='전후진 속도 [m/s]')

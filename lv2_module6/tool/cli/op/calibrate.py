@@ -1,7 +1,7 @@
 """run-cli calibrate — 칼리브레이션 계획을 /cmd/manual/cmd_vel로 재생하며 응답을 raw.csv로 기록한다.
 
 계획(JSON)은 PC의 isaac calibration이 만든다 (sim과 같은 명령을 그대로 재생해야 비교가 된다):
-  {"dt": 0.05, "label": "real", "steps": [[v, w, "구간 이름"], ...]}   # 스텝마다 (m/s, rad/s) — dt 간격으로 한 줄씩 보냄
+  {"dt": 0.05, "label": "real", "steps": [[v, w], ...]}   # 스텝마다 (m/s, rad/s) — dt 간격으로 한 줄씩 보냄 · label = CSV label 열
 기록 = isaac sim의 raw.csv와 같은 열 (t · lin_raw · ang_raw · lin_out · ang_out · odom_* · v_enc · w_enc · w_gyro · wheel_* · t_*):
   /odom · /imu · /joint_states (wheel_left_joint · wheel_right_joint) · /cmd_vel (smoother · collision_monitor까지 거쳐 실제로 나간 명령)
 명령은 /cmd/manual/cmd_vel → manual_control(MANUAL) → /cmd_vel_manual — rl_nav_correction을 건너뛴다 (= 보정 없는 순수 응답).
@@ -123,7 +123,7 @@ def run(bus, plan: dict, out: Path, check_only: bool = False) -> int:
         print(f'칼리브레이션 재생: {len(steps)}스텝 · {len(steps) * dt:.1f}s · {label} → {out}')
         t0 = time.monotonic()
         try:
-            for k, (v, w, seg) in enumerate(steps):
+            for k, (v, w, *_) in enumerate(steps):
                 if bus.state.emergency:
                     why = '비상정지'
                 elif bus.state.operation != 'MANUAL':
@@ -134,7 +134,7 @@ def run(bus, plan: dict, out: Path, check_only: bool = False) -> int:
                 nxt = t0 + (k + 1) * dt
                 while time.monotonic() < nxt:   # 다음 스텝까지 메시지를 받으며 기다림
                     rclpy.spin_once(bus.node, timeout_sec=min(0.01, max(0.0, nxt - time.monotonic())))
-                rows.append(rec.row(k * dt, v, w, seg))
+                rows.append(rec.row(k * dt, v, w, label))
         except KeyboardInterrupt:
             why = '중단 (Ctrl+C)'
         finally:
@@ -163,9 +163,9 @@ if __name__ == '__main__':   # 자체 확인 (ROS 없이 계획 검사만): pyth
             json.dump(obj, f)
         return load_plan(f.name)
 
-    assert check({'dt': 0.05, 'steps': [[0.1, 0.0, 'a']]})['label'] == 'real'
-    for bad in ({'dt': 0.05, 'steps': [[0.5, 0.0, 'a']]}, {'dt': 0.5, 'steps': [[0.1, 0.0, 'a']]},
-                {'dt': 0.05, 'steps': []}, {'dt': 0.05, 'steps': [[0.1, 9.0, 'a']]}, {'steps': [[0, 0, 'a']]}):
+    assert check({'dt': 0.05, 'steps': [[0.1, 0.0]]})['label'] == 'real'
+    for bad in ({'dt': 0.05, 'steps': [[0.5, 0.0]]}, {'dt': 0.5, 'steps': [[0.1, 0.0]]},
+                {'dt': 0.05, 'steps': []}, {'dt': 0.05, 'steps': [[0.1, 9.0]]}, {'steps': [[0, 0]]}):
         try:
             check(bad)
         except ValueError:

@@ -1,5 +1,6 @@
 """메뉴 화면들."""
 from .base import Menu, Page
+from .calibrate import CalibrateMenu
 from .devices import DeviceDetailMenu, DevicesMenu
 from .mainmenu import MainMenu
 from .manual import ArmMenu, DriveSettingsMenu, GripperMenu, ManualMenu, WheelMenu
@@ -14,4 +15,4 @@ __all__ = ['Menu', 'Page', 'MainMenu', 'StatusMenu',
            'DeviceDetailMenu', 'ModeMenu', 'EstopMenu',
            'NodesMenu', 'NodeActionMenu', 'ManualMenu', 'WheelMenu', 'DriveSettingsMenu', 'ArmMenu',
            'GripperMenu', 'MapMenu', 'MapSwitchMenu', 'MapSavePage',
-           'ParamMenu', 'NodeParamMenu', 'BeepMenu']
+           'ParamMenu', 'NodeParamMenu', 'BeepMenu', 'CalibrateMenu']

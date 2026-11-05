@@ -343,7 +343,10 @@ class Bus:
         return 0
 
     def cmd_calibrate(self, args) -> int:
-        """계획 파일을 /cmd/manual/cmd_vel로 재생하며 응답을 raw.csv로 기록 (op/calibrate.py). --check-only = 안 움직임."""
+        """calibrate <부분> — wheel: 계획 파일을 /cmd/manual/cmd_vel로 재생하며 응답을 raw.csv로 기록 (op/calibrate.py). arm은 나중."""
+        if args.part != 'wheel':
+            print(f'거부: calibrate {args.part} — 아직 없음 (wheel만)', file=sys.stderr)
+            return 2
         from .calibrate import load_plan, run
         try:
             plan = load_plan(args.plan)
