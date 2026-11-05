@@ -294,7 +294,11 @@ class AbTest:
             cmd += ['--labels', *labels]
         cmd += ['--out', out]
         print(f'리포트 생성: {" ".join(cmd)}')
-        res = subprocess.run(cmd)
+        # subprocess 출력은 OS fd로 나가 TUI의 캡처를 피한다 — 직접 받아 print로 넘긴다.
+        res = subprocess.run(cmd, capture_output=True, text=True)
+        text = ((res.stdout or '') + (res.stderr or '')).rstrip()
+        if text:
+            print(text)
         if res.returncode == 0:
             print(f'저장: {out}')
         return int(res.returncode)

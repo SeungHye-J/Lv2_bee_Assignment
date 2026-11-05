@@ -78,8 +78,12 @@ def stats(label: str, bag: str, data: dict) -> dict:
 
 
 def plot(runs, out: Path) -> None:
+    import logging
+
     import matplotlib
     matplotlib.use("Agg")
+    # .ttc에서 첫 face(JP)만 등록돼 KR 이름이 없다는 경고 — 한글 glyph는 JP face에 있어 문제없다.
+    logging.getLogger("matplotlib.font_manager").setLevel(logging.ERROR)
     from matplotlib import font_manager as fm
 
     for f in KOREAN_FONTS:
