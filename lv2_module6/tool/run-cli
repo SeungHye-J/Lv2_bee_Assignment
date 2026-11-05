@@ -5,6 +5,7 @@
 #   ./run-cli stop                # 떠 있는 ROS 전부 끄기 (ros2_ws/stop.sh)
 #   ./run-cli restart [all]       # stop → start (같은 셸 환경으로 새로)
 #   ./run-cli restart <노드>      # 그 노드만 다시 띄움 (state_manager · 수명주기 노드는 active까지)
+#   ./run-cli build [colcon 인자…] # ros2_ws에서 colcon build --symlink-install (예: --packages-select ml)
 #   ./run-cli <명령> …            # 그 밖은 CLI 한 번 명령 (status · mode manual · arm show · node list …)
 set -eo pipefail
 
@@ -40,6 +41,15 @@ case "${1:-menu}" in
     fi
     "$WS/stop.sh"
     start
+    ;;
+  build)
+    shift
+    cd "$WS"
+    if [ -f "/opt/ros/${ROS_DISTRO_NAME:-lyrical}/setup.bash" ]; then
+      # shellcheck disable=SC1091
+      source "/opt/ros/${ROS_DISTRO_NAME:-lyrical}/setup.bash"
+    fi
+    exec colcon build --symlink-install "$@"
     ;;
   *) exec "$HERE/cli/start.sh" "$@" ;;
 esac
