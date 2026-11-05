@@ -18,25 +18,25 @@ tool/node/
 cd tool
 
 # A — 보정 ON (기본)
-./run-cli ab status
-./run-cli ab record --label A
+./run-cli ab rl_nav_correction status
+./run-cli ab rl_nav_correction record --label A
 # 다른 터미널/RViz에서 주행 후
-./run-cli ab stop
+./run-cli ab rl_nav_correction stop
 
 # B — 같은 출발점·같은 goal로 보정 OFF
-./run-cli ab off
-./run-cli ab record --label B
+./run-cli ab rl_nav_correction off
+./run-cli ab rl_nav_correction record --label B
 # 주행 후
-./run-cli ab stop
-./run-cli ab on
+./run-cli ab rl_nav_correction stop
+./run-cli ab rl_nav_correction on
 
 # 비교 리포트 (인자 없으면 최근 2개)
-./run-cli ab report --last
+./run-cli ab rl_nav_correction report --last
 ```
 
 - 기록은 bee의 `~/bags/ab/<시각>_<라벨>`에 쌓인다 (rosbag2 · mcap).
   bee가 `ROS_DOMAIN_ID=88` + `fastdds_local_only.xml`(SHM 전용)이라 PC에서 원격 기록할 수 없다.
-- `run-cli ab report <A> <B>`로 bag 경로를 직접 줄 수도 있다.
+- `run-cli ab rl_nav_correction report <A> <B>`로 bag 경로를 직접 줄 수도 있다.
 - 리포트는 `report.png` 4패널:
 
 | 패널 | 내용 |

@@ -262,20 +262,20 @@ cd tool
 (`ROS_DOMAIN_ID=88` + SHM 전용이라 PC 원격 기록 불가).
 
 ```bash
-./run-cli ab nodes                  # A/B 대상 노드 (지금은 rl_nav_correction)
-./run-cli ab status                 # 보정 ON/OFF · 모델 · 녹화 상태
-./run-cli ab record --label A       # A 녹화 시작 (백그라운드)
+./run-cli ab nodes                                   # A/B 대상 노드 (지금은 rl_nav_correction)
+./run-cli ab rl_nav_correction status                # 보정 ON/OFF · 모델 · 녹화 상태
+./run-cli ab rl_nav_correction record --label A      # A 녹화 시작 (백그라운드)
 # 다른 터미널/RViz에서 주행 후
-./run-cli ab stop
+./run-cli ab rl_nav_correction stop
 
-./run-cli ab off                    # B는 보정 끄기 (Δ=0)
-./run-cli ab record --label B
+./run-cli ab rl_nav_correction off                   # B는 보정 끄기 (Δ=0)
+./run-cli ab rl_nav_correction record --label B
 # A와 같은 출발점·같은 goal로 주행 후
-./run-cli ab stop
-./run-cli ab on
+./run-cli ab rl_nav_correction stop
+./run-cli ab rl_nav_correction on
 
-./run-cli ab report --last          # 최근 두 녹화 → report.png
-./run-cli ab report ~/bags/ab/A ~/bags/ab/B --labels A B --out ~/ab.png
+./run-cli ab rl_nav_correction report --last         # 최근 두 녹화 → report.png
+./run-cli ab rl_nav_correction report ~/bags/ab/A ~/bags/ab/B --labels A B --out ~/ab.png
 ```
 
 - 기본 저장: `~/bags/ab/<시각>_<라벨>` (rosbag2 · mcap)
@@ -283,7 +283,7 @@ cd tool
   상태 · ON/OFF · 녹화 시작/종료 · 최근 리포트 · 안내형 A/B(A ON → B OFF → 리포트)를 한 화면에서 실행.
   새 `rl_nav_*` 노드는 `cli/op/ab.py`의 `AB_NODES`와 `cli/op/pages/ab.py`의 화면 매핑에 추가한다.
 - `learning_enabled:=false`는 `rl_nav_tuner`까지 꺼서 속도 프리셋이 달라진다.
-  A/B는 반드시 `ab on`/`ab off`로 `rl_nav_correction`만 토글한다.
+  A/B는 반드시 `ab rl_nav_correction on`/`off`로 `rl_nav_correction`만 토글한다.
 - 공정한 비교: 같은 출발 자세·방향, 같은 goal, 같은 배터리·바닥에서 ON/OFF를 번갈아 여러 번.
   OFF도 `max_vel_x`/`max_vel_theta` 안전 클램프는 남는다 (Nav2 설정과 같은 값).
 

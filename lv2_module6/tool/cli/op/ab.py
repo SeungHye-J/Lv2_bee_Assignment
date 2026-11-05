@@ -1,6 +1,6 @@
 """rl_nav_correction ONNX A/B — 상태·ON/OFF·rosbag 기록·리포트.
 
-사용자 진입점은 `run-cli ab` / 메뉴 14 하나다. 이 파일은 UI 없이 동작만 담당한다.
+사용자 진입점은 `run-cli ab <노드> <동작>` / 메뉴 14 하나다. 이 파일은 UI 없이 동작만 담당한다.
   - ON/OFF: /rl_nav_correction/toggle (std_srvs/SetBool), 안 되면 파라미터 enabled로 대체
   - 기록: ros2 bag record를 백그라운드로 띄우고 ~/.cache/beebot/ab.json에 pid·bag 경로를 남긴다
   - 리포트: tool/node/rl_nav_correction/report.py (rosbag2 → report.png)
@@ -334,15 +334,30 @@ class AbTest:
         return self.history()[-n:]
 
     # ------------------------------------------------------------------ 명령
+    LEGACY_ACTIONS = ('status', 'on', 'off', 'record', 'stop', 'report', 'guide')
+
     def cmd(self, args) -> int:
-        action = getattr(args, 'action', None) or 'status'
+        target = getattr(args, 'node', None) or 'nodes'
+        action = getattr(args, 'action', None)
+        # 예전 `ab status`도 한동안 받아 준다 — 새 문법은 `ab rl_nav_correction status`.
+        if target in self.LEGACY_ACTIONS and action is None:
+            print(f'WARN: `ab {target}`는 예전 문법 — `ab {NODE} {target}`로 바뀌었습니다',
+                  file=sys.stderr)
+            action = target
+            target = NODE
         try:
-            if action == 'nodes':
+            if target == 'nodes':
                 for name, desc in AB_NODES:
                     print(f'  {name:<24} {desc}')
-                print('\n지금은 rl_nav_correction 하나 — ab status|on|off|record|stop|report|guide')
+                print('\n사용: ab <노드> <동작> — 예: ab rl_nav_correction status')
                 return 0
+            if target != NODE:
+                print(f'FAIL: A/B 미구현 노드: {target} (가능: {", ".join(n for n, _ in AB_NODES)})',
+                      file=sys.stderr)
+                return 2
+            action = action or 'status'
             if action == 'status':
+                self.bus._poll(0.8)   # /diagnostics_agg가 올 시간을 준다
                 print('\n'.join(self.status_lines()))
                 return 0
             if action in ('on', 'off'):
@@ -353,7 +368,7 @@ class AbTest:
                 rec = self.start(getattr(args, 'label', None), getattr(args, 'out', None))
                 print(f'녹화 시작: {rec["bag"]} (pid {rec["pid"]})')
                 print(f'  로그: {rec["log"]}')
-                print('  주행 후: ./run-cli ab stop')
+                print('  주행 후: ./run-cli ab rl_nav_correction stop')
                 return 0
             if action == 'stop':
                 rec = self.stop()
