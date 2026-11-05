@@ -186,6 +186,9 @@ class OperatorTool(Node):
         if name == '13':
             from op.pages import CalibrateMenu
             return CalibrateMenu(self)
+        if name == '14':
+            from op.pages import AbMenu
+            return AbMenu(self)
         if name == '0':
             from op.pages import BeepMenu
             return BeepMenu(self)
@@ -225,6 +228,10 @@ def build_parser() -> argparse.ArgumentParser:
   ./tool/run-cli gripper open
   ./tool/run-cli map status
   ./tool/run-cli map save
+  ./tool/run-cli ab status
+  ./tool/run-cli ab record --label A
+  ./tool/run-cli ab stop
+  ./tool/run-cli ab report --last
 ''')
     sub = parser.add_subparsers(dest='command', required=True)
 
@@ -296,6 +303,23 @@ def build_parser() -> argparse.ArgumentParser:
                       help='list = 전체 · status <이름> · restart <이름> (수명주기 노드는 active까지) · '
                            'activate <이름> = 수명주기 노드 unconfigured·inactive → active')
     node.add_argument('name', nargs='?', help='노드 이름 (예: velocity_smoother)')
+
+    ab = sub.add_parser('ab', help='rl_nav_correction ONNX A/B — 상태·ON/OFF·rosbag 기록·리포트 (메뉴: 14)')
+    ab_sub = ab.add_subparsers(dest='action')
+    ab_sub.add_parser('status', help='보정 상태·모델·녹화 상태')
+    ab_sub.add_parser('on', help='ONNX 보정 켜기')
+    ab_sub.add_parser('off', help='ONNX 보정 끄기 (Δ=0)')
+    ab_rec = ab_sub.add_parser('record', help='rosbag 기록 시작 (백그라운드)')
+    ab_rec.add_argument('--label', '-l', default=None, help='bag 이름에 붙일 라벨 (예: A, B, on1)')
+    ab_rec.add_argument('--out', default=None, help='저장 폴더 (기본: ~/bags/ab/<시각>_<라벨>)')
+    ab_sub.add_parser('stop', help='기록 종료 (rosbag2 마무리)')
+    ab_rep = ab_sub.add_parser('report', help='report.png 생성 (인자 없으면 최근 2개)')
+    ab_rep.add_argument('bags', nargs='*', help='bag 폴더 2개 (A B)')
+    ab_rep.add_argument('--last', action='store_true', help='최근 녹화 2개 사용')
+    ab_rep.add_argument('--labels', nargs='*', default=None, help='범례 이름 (예: A B)')
+    ab_rep.add_argument('--out', default=None, help='출력 PNG')
+    ab_guide = ab_sub.add_parser('guide', help='터미널에서 A(ON) → B(OFF) → 리포트까지 안내')
+    ab_guide.add_argument('--label', default=None, help='실행 라벨')
 
     restart = sub.add_parser('restart', help='state_manager에 재시작 요청 (위험) — all = bringup 전체')
     restart.add_argument('target', help='all 또는 노드 이름')

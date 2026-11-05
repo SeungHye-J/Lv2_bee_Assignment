@@ -13,9 +13,9 @@ tool/
 │   ├── stop.sh
 │   ├── restart.sh
 │   └── operator.rviz
-├── node/                # 노드별 관리 도구 (기록·분석) — node/README.md
+├── node/                # 노드별 분석 도구 (run-cli ab가 호출) — node/README.md
 │   ├── common/bagio.py
-│   └── rl_nav_correction/{run,record.sh,report.py}
+│   └── rl_nav_correction/report.py
 └── cli/
     ├── start.sh
     ├── DEVELOP.md         # 개발자용 — TUI를 어떻게 만들었나 · 화면 흐름 규약 · 메뉴 추가 · 시험
@@ -81,6 +81,7 @@ cd tool
  11) RViz 열기 (Best Effort QoS)
  12) 파라미터 (노드별)
  13) 칼리브레이션 (바퀴 — 팔은 나중에)
+ 14) A/B 테스트 (ONNX 보정)
   q) 종료
 ```
 
@@ -253,6 +254,35 @@ cd tool
 - **4) 파라미터 · 진단 live** 화면은 파라미터 현재값과 그 노드의 `/diagnostics` 항목을 1초마다 다시 읽습니다. 값 변경은 `ros2 param set` 또는 메인 **12) 파라미터**에서.
 - 수명주기 노드(velocity_smoother · collision_monitor · Nav2 서버)는 `lifecycle_manager_base`·`_navigation`이 기동 때 켭니다. 기동 중 응답 시간 초과 등으로 멈춰 `[unconfigured]`·`[inactive]`로 남으면 바퀴 명령이 `/cmd_vel`까지 못 가 텔레오퍼가 안 움직입니다 → 그 노드를 **3) 활성화**.
 - 재시작은 state_manager 재시작 목록(이 launch 아래 노드)에 있는 것만 됩니다. 명령줄 재시작은 확인 없이 바로 실행합니다.
+
+### A/B 테스트 (rl_nav_correction ONNX)
+
+`rl_nav_correction`의 ONNX 보정 ON/OFF를 같은 주행으로 비교한다. 기록은 bee 안에 쌓인다
+(`ROS_DOMAIN_ID=88` + SHM 전용이라 PC 원격 기록 불가).
+
+```bash
+./run-cli ab status                 # 보정 ON/OFF · 모델 · 녹화 상태
+./run-cli ab record --label A       # A 녹화 시작 (백그라운드)
+# 다른 터미널/RViz에서 주행 후
+./run-cli ab stop
+
+./run-cli ab off                    # B는 보정 끄기 (Δ=0)
+./run-cli ab record --label B
+# A와 같은 출발점·같은 goal로 주행 후
+./run-cli ab stop
+./run-cli ab on
+
+./run-cli ab report --last          # 최근 두 녹화 → report.png
+./run-cli ab report ~/bags/ab/A ~/bags/ab/B --labels A B --out ~/ab.png
+```
+
+- 기본 저장: `~/bags/ab/<시각>_<라벨>` (rosbag2 · mcap)
+- TUI 메뉴 **14) A/B 테스트**: 상태 · ON/OFF · 녹화 시작/종료 · 최근 리포트 ·
+  안내형 A/B(A ON → B OFF → 리포트)를 한 화면에서 실행
+- `learning_enabled:=false`는 `rl_nav_tuner`까지 꺼서 속도 프리셋이 달라진다.
+  A/B는 반드시 `ab on`/`ab off`로 `rl_nav_correction`만 토글한다.
+- 공정한 비교: 같은 출발 자세·방향, 같은 goal, 같은 배터리·바닥에서 ON/OFF를 번갈아 여러 번.
+  OFF도 `max_vel_x`/`max_vel_theta` 안전 클램프는 남는다 (Nav2 설정과 같은 값).
 
 ## RViz
 

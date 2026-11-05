@@ -1,0 +1,203 @@
+"""A/B 테스트 — rl_nav_correction ONNX 보정 ON/OFF를 같은 주행으로 비교.
+
+사용자 진입점은 메뉴 14 / `run-cli ab` 하나다. 기록은 백그라운드로 돌고,
+메뉴에서 '녹화 종료'를 누르면 rosbag2가 정상 마무리된다.
+"""
+from __future__ import annotations
+
+import sys
+import time
+from pathlib import Path
+
+from ..defs import STAY
+from .base import Menu, MenuItem
+
+
+class AbStatusItem(MenuItem):
+    key = '1'
+
+    def label(self):
+        return '상태 (보정 ON/OFF · 모델 · 녹화)'
+
+    def run(self):
+        print('\n'.join(self.bus.ab.status_lines()))
+        return STAY
+
+
+class AbToggleItem(MenuItem):
+    key = '2'
+
+    def label(self):
+        st = self.bus.ab.status()
+        if st['enabled'] is None:
+            return '보정 ON/OFF — 노드 응답 없음'
+        return f'보정 {"끄기" if st["enabled"] else "켜기"} (현재 {"ON" if st["enabled"] else "OFF"})'
+
+    def run(self):
+        st = self.bus.ab.status()
+        if st['enabled'] is None:
+            print('FAIL: rl_nav_correction 응답 없음 — bringup 확인', file=sys.stderr)
+            return STAY
+        on = not st['enabled']
+        if not self.ui.confirm(
+                f'ONNX 보정을 {"ON" if on else "OFF"}로 바꿀까요?', default=True,
+                body=['OFF = Δ=0 통과 (비교 기준)', 'A/B는 주행과 주행 사이에 바꾸세요.']):
+            return STAY
+        ok, msg = self.bus.ab.toggle(on)
+        print(('ok: ' if ok else 'FAIL: ') + msg)
+        return STAY
+
+
+class AbRecordItem(MenuItem):
+    key = '3'
+
+    def label(self):
+        return '녹화 시작 (rosbag2 · 백그라운드)'
+
+    def run(self):
+        if self.bus.ab.current():
+            print('FAIL: 이미 녹화 중 — 4) 녹화 종료를 먼저 누르세요', file=sys.stderr)
+            return STAY
+        label = self.ui.modal_input(
+            'A/B 녹화', ['라벨 (예: A, B, on1, off1)', '저장: ~/bags/ab/<시각>_<라벨>'], '라벨>', default='A')
+        if label is None:
+            return STAY
+        try:
+            rec = self.bus.ab.start(label)
+        except RuntimeError as exc:
+            print(f'FAIL: {exc}', file=sys.stderr)
+            return STAY
+        print(f'녹화 시작: {rec["bag"]}')
+        print('주행을 마친 뒤 4) 녹화 종료를 누르세요.')
+        return STAY
+
+
+class AbStopItem(MenuItem):
+    key = '4'
+
+    def label(self):
+        return '녹화 종료 (rosbag2 마무리)'
+
+    def run(self):
+        rec = self.bus.ab.stop()
+        if rec is None:
+            print('녹화 중 아님')
+            return STAY
+        dur = max(0.0, float(rec.get('stopped', time.time())) - float(rec.get('started', time.time())))
+        print(f'녹화 종료: {rec["bag"]} ({dur:.1f}s)')
+        return STAY
+
+
+class AbReportItem(MenuItem):
+    key = '5'
+
+    def label(self):
+        return f'최근 A/B 리포트 (녹화 {len(self.bus.ab.history())}개)'
+
+    def run(self):
+        hist = self.bus.ab.history()
+        if len(hist) < 2:
+            print('FAIL: 녹화가 2개 미만 — A/B를 먼저 기록하세요', file=sys.stderr)
+            return STAY
+        pair = hist[-2:]
+        body = [f'{h.get("label", "?")}: {h["bag"]}' for h in pair]
+        if not self.ui.confirm('최근 두 녹화로 리포트를 만들까요?', default=True, body=body):
+            return STAY
+        out = str(Path(pair[0]['bag']).parent / f'report_{time.strftime("%Y%m%d_%H%M%S")}.png')
+        labels = [h.get('label', f'RUN{i + 1}') for i, h in enumerate(pair)]
+        rc = self.bus.ab.report([h['bag'] for h in pair], labels, out)
+        if rc == 0:
+            print(f'저장: {out}')
+        return STAY
+
+
+class AbGuideItem(MenuItem):
+    key = '6'
+    shows_busy = False  # 자체 확인창으로 진행한다
+
+    def label(self):
+        return '안내형 A/B (A ON → B OFF → 리포트)'
+
+    def _wait(self, title: str, body: list[str]) -> bool:
+        return self.ui.modal_key(title, body + ['', 'Enter 계속 · Esc 취소']) == 'enter'
+
+    def run(self):
+        st = self.bus.ab.status()
+        if not st['alive']:
+            print('FAIL: rl_nav_correction 응답 없음 — bringup 확인', file=sys.stderr)
+            return STAY
+        label = self.ui.modal_input(
+            '안내형 A/B',
+            ['A(ON) → B(OFF) 순서로 녹화합니다.',
+             'A/B는 같은 출발 자세·방향, 같은 goal로 주행하세요.',
+             '라벨을 입력하세요'], '라벨>', default=time.strftime('%Y%m%d_%H%M%S'))
+        if label is None:
+            return STAY
+
+        bags: list[str] = []
+        changed = False
+        try:
+            if not st['enabled']:
+                ok, msg = self.bus.ab.toggle(True)
+                if not ok:
+                    print(f'FAIL: {msg}', file=sys.stderr)
+                    return STAY
+                changed = True
+            rec = self.bus.ab.start(f'{label}_A')
+            bags.append(rec['bag'])
+            if not self._wait('A 주행 (ON)', [f'녹화: {rec["bag"]}', 'A 주행을 마치면 Enter']):
+                print('취소: A 녹화를 종료합니다', file=sys.stderr)
+                return STAY
+            self.bus.ab.stop()
+
+            if not self.ui.confirm('B를 위해 보정을 끌까요?', default=True,
+                                   body=['B는 OFF(Δ=0)로 같은 주행을 합니다.']):
+                return STAY
+            ok, msg = self.bus.ab.toggle(False)
+            if not ok:
+                print(f'FAIL: {msg}', file=sys.stderr)
+                return STAY
+            changed = True
+            if not self._wait('B 준비', ['로봇을 A와 같은 출발 자세·방향으로 두고 Enter']):
+                return STAY
+
+            rec = self.bus.ab.start(f'{label}_B')
+            bags.append(rec['bag'])
+            if not self._wait('B 주행 (OFF)', [f'녹화: {rec["bag"]}', 'B 주행을 마치면 Enter']):
+                return STAY
+            self.bus.ab.stop()
+        finally:
+            if self.bus.ab.current():
+                self.bus.ab.stop()
+            if changed:
+                st2 = self.bus.ab.status()
+                if st2['enabled'] is not True:
+                    self.bus.ab.toggle(True)
+
+        if len(bags) == 2:
+            out = str(Path(bags[0]).parent / f'report_{time.strftime("%Y%m%d_%H%M%S")}.png')
+            rc = self.bus.ab.report(bags, ['A', 'B'], out)
+            if rc == 0:
+                print(f'저장: {out}')
+        return STAY
+
+
+class AbMenu(Menu):
+    title = 'A/B 테스트 · rl_nav_correction'
+    REFRESH_S = 1.0
+
+    def __init__(self, app):
+        super().__init__(app)
+        self._lines: list[str] = []
+        self._at = 0.0
+
+    def items(self):
+        return [AbStatusItem(self.app), AbToggleItem(self.app), AbRecordItem(self.app),
+                AbStopItem(self.app), AbReportItem(self.app), AbGuideItem(self.app)]
+
+    def center(self):
+        now = time.monotonic()
+        if not self._lines or now - self._at >= self.REFRESH_S:
+            self._lines = self.bus.ab.status_lines()
+            self._at = now
+        return self._lines + ['', ' A/B는 같은 출발점·같은 goal로 번갈아 여러 번']

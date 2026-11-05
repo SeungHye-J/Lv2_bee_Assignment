@@ -1,11 +1,12 @@
 #!/usr/bin/env python3
 """rl_nav_correction — rosbag2 A/B 리포트 (report.png).
 
-  ./run report ~/bags/on ~/bags/off --out ~/report.png
-  ./run record ~/bags/on          # (다른 터미널에서) 주행
+  ./run-cli ab report ~/bags/on ~/bags/off --labels ON OFF --out ~/report.png
+  ./run-cli ab record --label on   # (다른 터미널에서) 주행
 
 읽는 토픽: /cmd_vel_nav · /cmd_vel_corrected · /odometry/filtered(/odom) · /odom · /imu · /plan · /rl_nav_correction/debug
 지표: 횡오차(RMSE·최대) · 헤딩오차(MAE) · 슬립(|ωimu−ωodom|) · 적용 Δ(평균·최대) · 시간·거리·보정 ON 비율
+Δ는 /rl_nav_correction/debug의 Δv·Δω를 직접 읽어 토픽 개수 차이로 생기는 정렬 오차를 피한다.
 """
 from __future__ import annotations
 
@@ -28,16 +29,29 @@ KOREAN_FONTS = [
 
 def stats(label: str, bag: str, data: dict) -> dict:
     res = {"bag": bag}
-    _, v_nav = series(data.get("/cmd_vel_nav", []), lambda m: m.twist.linear.x)
-    _, v_out = series(data.get("/cmd_vel_corrected", []), lambda m: m.twist.linear.x)
-    _, w_nav = series(data.get("/cmd_vel_nav", []), lambda m: m.twist.angular.z)
-    _, w_out = series(data.get("/cmd_vel_corrected", []), lambda m: m.twist.angular.z)
-    if len(v_nav) and len(v_out):
-        n = min(len(v_nav), len(v_out))
-        res["dv_abs"] = float(np.mean(np.abs(v_out[:n] - v_nav[:n])))
-        res["dv_max"] = float(np.max(np.abs(v_out[:n] - v_nav[:n])))
-        res["dw_abs"] = float(np.mean(np.abs(w_out[:n] - w_nav[:n])))
-        res["dw_max"] = float(np.max(np.abs(w_out[:n] - w_nav[:n])))
+    # Δ는 debug 한 메시지 안의 입력·출력·Δ를 같이 읽는다 — 토픽별 메시지 수가
+    # bag 시작/끝에서 한두 개 어긋나도 Δ가 과대평가되지 않는다.
+    dbg = data.get("/rl_nav_correction/debug", [])
+    rows = [m.data for _, m in dbg if len(m.data) >= 11]
+    if rows:
+        dv = np.array([r[6] for r in rows], float)
+        dw = np.array([r[7] for r in rows], float)
+        res["dv_abs"] = float(np.mean(np.abs(dv)))
+        res["dv_max"] = float(np.max(np.abs(dv)))
+        res["dw_abs"] = float(np.mean(np.abs(dw)))
+        res["dw_max"] = float(np.max(np.abs(dw)))
+        res["on"] = float(np.mean([r[10] for r in rows]))
+    else:  # 예전 bag 호환 — debug가 없으면 토픽 차이로 계산
+        _, v_nav = series(data.get("/cmd_vel_nav", []), lambda m: m.twist.linear.x)
+        _, v_out = series(data.get("/cmd_vel_corrected", []), lambda m: m.twist.linear.x)
+        _, w_nav = series(data.get("/cmd_vel_nav", []), lambda m: m.twist.angular.z)
+        _, w_out = series(data.get("/cmd_vel_corrected", []), lambda m: m.twist.angular.z)
+        if len(v_nav) and len(v_out):
+            n = min(len(v_nav), len(v_out))
+            res["dv_abs"] = float(np.mean(np.abs(v_out[:n] - v_nav[:n])))
+            res["dv_max"] = float(np.max(np.abs(v_out[:n] - v_nav[:n])))
+            res["dw_abs"] = float(np.mean(np.abs(w_out[:n] - w_nav[:n])))
+            res["dw_max"] = float(np.max(np.abs(w_out[:n] - w_nav[:n])))
     odom = data.get("/odometry/filtered") or data.get("/odom") or []
     if odom:
         t, _ = series(odom, lambda m: 0.0)
@@ -52,6 +66,7 @@ def stats(label: str, bag: str, data: dict) -> dict:
             res["lat_max"] = float(np.max(d))
             res["head_mae"] = float(np.mean(np.abs(wrap(yaw - head))))
             res["progress"] = float(s[-1]) if len(s) else 0.0
+            res["goal_err"] = float(np.linalg.norm(xy[-1] - poly[-1]))
     od = data.get("/odom", [])
     imu = data.get("/imu", [])
     if od and imu:
@@ -59,9 +74,6 @@ def stats(label: str, bag: str, data: dict) -> dict:
         _, w_im = series(imu, lambda m: m.angular_velocity.z)
         n = min(len(w_od), len(w_im))
         res["slip_mean"] = float(np.mean(np.abs(w_im[:n] - w_od[:n])))
-    dbg = data.get("/rl_nav_correction/debug", [])
-    if dbg and len(dbg[0][1].data) > 10:
-        res["on"] = float(np.mean([m.data[10] for _, m in dbg]))
     return res
 
 
@@ -165,6 +177,8 @@ def plot(runs, out: Path) -> None:
             parts.append(f"슬립 {st['slip_mean']:.3f} rad/s")
         if "dv_abs" in st:
             parts.append(f"Δv {st['dv_abs']:.4f} m/s (최대 {st['dv_max']:.4f})")
+        if "goal_err" in st:
+            parts.append(f"최종 goal 오차 {st['goal_err']:.3f} m")
         if "duration" in st:
             parts.append(f"{st['duration']:.1f}s · {st['length']:.2f} m")
         if "on" in st:
