@@ -21,6 +21,30 @@ else
   echo "WARN: ros2_ws/install/setup.bash 없음 — 먼저 ros2_ws에서 colcon build" >&2
 fi
 
+# 실행 중인 bringup과 같은 ROS 도메인/DDS 프로파일을 쓴다.
+#   ps에는 ROS 프로세스가 보이는데 `run-cli` 노드 그래프가 비어 보이는 대표 원인:
+#   대화형 셸(~/.bashrc)은 ROS_DOMAIN_ID=88 · fastdds_local.xml(SHM만)인데,
+#   bringup을 비대화형 셸에서 start하면 도메인 0 · fastdds.xml(UDP)로 뜬다.
+#   bringup /proc 환경을 그대로 복사해 어느 셸에서 run-cli를 켜도 같은 그래프를 보게 한다.
+_apply_bringup_env() {
+  local pid var val
+  pid="$(pgrep -f 'ros2 launch bringup bringup.launch.py' | head -n 1 || true)"
+  [ -n "$pid" ] && [ -r "/proc/$pid/environ" ] || return 1
+  for var in ROS_DOMAIN_ID ROS_LOCALHOST_ONLY ROS_AUTOMATIC_DISCOVERY_RANGE \
+             ROS_STATIC_PEERS ROS_DISCOVERY_SERVER \
+             FASTDDS_DEFAULT_PROFILES_FILE FASTRTPS_DEFAULT_PROFILES_FILE \
+             RMW_IMPLEMENTATION; do
+    val="$(tr '\0' '\n' < "/proc/$pid/environ" | sed -n "s/^${var}=//p" | head -n 1)"
+    if [ -n "$val" ]; then
+      export "$var=$val"
+    else
+      unset "$var"   # bringup에 없으면 기본값 — 셸의 다른 값이 끼어들지 않게
+    fi
+  done
+  echo "bringup(pid $pid) ROS 환경 적용: domain ${ROS_DOMAIN_ID:-0} · profile ${FASTDDS_DEFAULT_PROFILES_FILE:-기본}"
+}
+_apply_bringup_env || true
+
 if [ -n "${ROS_DOMAIN_ID:-}" ]; then
   echo "ROS_DOMAIN_ID=$ROS_DOMAIN_ID"
 else
