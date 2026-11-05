@@ -1056,6 +1056,8 @@ class Bus:
 
     def cmd_ab(self, args) -> int:
         """rl_nav_correction ONNX A/B — ab.py로 위임 (메뉴 14와 같은 구현)."""
+        if getattr(args, 'action', None) in (None, 'status'):
+            self._poll(0.8)   # 한 번 실행 — /diagnostics_agg가 올 시간을 준다
         from .ab import AbTest
         return AbTest(self).cmd(args)
 
