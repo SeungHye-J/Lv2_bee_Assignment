@@ -1,7 +1,7 @@
 // OnnxPolicy — Isaac Lab/rsl_rl 학습 정책(policy.onnx)을 ONNX Runtime으로 추론.
 //   입력 [1, n_in] float · 출력 [1, n_out] float (스케일·clamp는 쓰는 쪽에서).
 //   onnxruntime_vendor(ros-lyrical-onnxruntime-vendor)가 없으면 ML_HAS_ONNX 미정의 → 이 클래스는 비어 있고
-//   rl_nav_correction은 모델 없이 통과(Δ=0)만 한다.
+//   쓰는 쪽은 바이패스한다.
 #pragma once
 
 #include <cstdint>

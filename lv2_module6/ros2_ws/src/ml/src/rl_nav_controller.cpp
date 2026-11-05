@@ -122,7 +122,7 @@ void RlNavController::load_model(const std::string & path) {
   std::string resolved = path;
   namespace fs = std::filesystem;
   const fs::path p(path);
-  if (!p.is_absolute()) {  // 상대 경로: share/ml/model/<경로> 하나만 본다 (rl_nav_correction과 같은 규칙).
+  if (!p.is_absolute()) {  // 상대 경로: share/ml/model/<경로> 하나만 본다.
     //   "nav_controller/policy.onnx"처럼 노드별 폴더 포함 — 노드마다 onnx를 가져와도 이름이 안 겹친다.
     try {
       const fs::path share = fs::path(ament_index_cpp::get_package_share_directory("ml")) /

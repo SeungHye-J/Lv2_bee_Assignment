@@ -55,7 +55,6 @@ class WheelRunItem(MenuItem):
         body = [f'{len(plan["steps"])}스텝 · {len(plan["steps"]) * plan["dt"]:.1f} s · {Path(WheelState.plan).name}',
                 '로봇이 움직입니다 — 사방 약 1.5 m가 비어 있어야 합니다',
                 '팔이 시작 자세(stow)가 아니면 먼저 자동으로 그 자세로 이동합니다 (충돌 회피 없음 — 팔 주변 확인)',
-                '보정(rl_nav_correction)은 건너뛰는 수동 경로입니다 (순수 응답)',
                 '멈추려면: Ctrl+C · 다른 터미널 ./run-cli estop on']
         if not self.ui.confirm('재생할까요?', default=False, body=body):
             return STAY

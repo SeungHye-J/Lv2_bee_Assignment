@@ -1,7 +1,7 @@
 # Nav2 서버 전체 파라미터 — ros_system.launch.py(use_nav2:=true, 기본)가 서버를 직접 띄우며 넘긴다 (nav2_bringup navigation_launch는 안 씀)
 # 설계: documents/project/ros/04-nav.md (Nav2) · 06-base.md (속도 체인 · collision_monitor) · API.md §2·§3·§5
 # 속도 체인 (API.md:159):
-#   controller_server·behavior_server → /cmd_vel_nav → rl_nav_correction → /cmd_vel_corrected
+#   controller_server·behavior_server → /cmd_vel_nav → twist_mux(자동) → velocity_smoother
 #   → twist_mux → /cmd_vel_mux → velocity_smoother → /cmd_vel_smoothed → collision_monitor → /cmd_vel
 # 프레임: base_footprint (Nav2·EKF·MoveIt 통일), odom은 /odometry/filtered (EKF)
 # 최상위 키 = 노드 이름. 이름 오타는 오류 없이 무시되고 기본값으로 돈다 → 실기에서 ros2 param get 으로 확인
@@ -38,7 +38,7 @@ bt_navigator:
 
 # ─────────────────────────────────────────────────────────────────────────────
 # controller_server — /plan(전역 경로)을 따라가는 속도 명령을 만든다.
-#   출력 /cmd_vel_nav → rl_nav_correction (출력 토픽 이름은 yaml이 아니라 launch 리매핑이 정함)
+#   출력 /cmd_vel_nav → twist_mux(자동) (출력 토픽 이름은 yaml이 아니라 launch 리매핑이 정함)
 #   노드 이름 /controller_server — Nav2 표준 이름 (예전엔 rl_nav_tuner가 이 파라미터를 바꿨음, 제거됨)
 # ─────────────────────────────────────────────────────────────────────────────
 controller_server:
@@ -112,7 +112,7 @@ controller_server:
       inner_plugin: "dwb_core::DWBLocalPlanner"   # 바이패스용 기본 controller
       inner:                   # ← 기존 DWB 설정 (이름 앞에 inner. 붙임)
 
-        # ── 속도 한계 [m/s · rad/s] — ml.yaml rl_nav_correction(max_vel_x · max_vel_theta)과 같은 값
+        # ── 속도 한계 [m/s · rad/s] — ml.yaml max_vel_x · max_vel_theta와 같은 값
         # 전진 최소 속도. 0이면 경로 추종 중 후진하지 않는다 (pole_front_cam이 뒤를 못 봄).
         min_vel_x: 0.0
         # 전진 최대 속도. Waffle Pi 문서 최대 0.26m/s (바퀴 반경 0.033m · XM430-W350 무부하 약 4.8rad/s).
@@ -360,7 +360,7 @@ velocity_smoother:
 
 # ─────────────────────────────────────────────────────────────────────────────
 # collision_monitor — 맨 마지막 안전장치: /cmd_vel_smoothed → /cmd_vel. pole_front_cam 점구름 기준 부딪힐 방향만 멈춤(approach) · 가까우면 감속.
-#   학습 보정(rl_nav_correction)까지 다 거친 최종 명령을 거른다 (00-overview "안전장치는 학습 노드보다 뒤")
+#   twist_mux(자동·수동)까지 다 거친 최종 명령을 거른다 (00-overview "안전장치는 학습 노드보다 뒤")
 #   source_timeout: 점구름이 이만큼 안 오면 정지 — 카메라 끊김 = 멈춤
 # ─────────────────────────────────────────────────────────────────────────────
 collision_monitor:

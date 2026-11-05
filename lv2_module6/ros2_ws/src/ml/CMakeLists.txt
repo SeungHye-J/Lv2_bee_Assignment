@@ -46,7 +46,7 @@ include_directories(include)
 
 # --- 노드: 클래스 구현(src/<노드>.cpp)은 라이브러리 하나로 묶고, 실행 파일(src/<노드>_main.cpp)과 테스트가 함께 링크
 #     선언·설명은 include/ml/<노드>.hpp
-add_library(${PROJECT_NAME}_nodes STATIC src/grasp_scorer.cpp src/rl_nav_correction.cpp)
+add_library(${PROJECT_NAME}_nodes STATIC src/grasp_scorer.cpp)
 target_include_directories(${PROJECT_NAME}_nodes PUBLIC include)
 target_compile_features(${PROJECT_NAME}_nodes PUBLIC cxx_std_17)
 target_link_libraries(${PROJECT_NAME}_nodes PUBLIC rclcpp::rclcpp ${geometry_msgs_TARGETS} ${sensor_msgs_TARGETS}
@@ -65,11 +65,11 @@ else()
   message(WARNING "ml: onnxruntime_vendor 없음 — ONNX 없이 빌드 (Δ=0 통과 · 정책 바이패스). "
                   "설치: sudo apt install ros-lyrical-onnxruntime-vendor")
 endif()
-foreach(node grasp_scorer rl_nav_correction)
+foreach(node grasp_scorer)
   add_executable(${node} src/${node}_main.cpp)
   target_link_libraries(${node} ${PROJECT_NAME}_nodes)
 endforeach()
-install(TARGETS grasp_scorer rl_nav_correction DESTINATION lib/${PROJECT_NAME})
+install(TARGETS grasp_scorer DESTINATION lib/${PROJECT_NAME})
 
 # --- rl_nav_controller: Nav2 controller 플러그인 (controller_server가 불러 씀 · ONNX 정책 + inner 바이패스)
 add_library(rl_nav_controller SHARED src/rl_nav_controller.cpp)
@@ -96,8 +96,8 @@ install(TARGETS rl_arm_correction LIBRARY DESTINATION lib)
 
 # 파라미터 (bringup이 share/ml/config/ml.yaml을 노드에 넘긴다)
 install(DIRECTORY config DESTINATION share/${PROJECT_NAME})
-# 학습 모델 — ros2_ws/model/<노드>/* → share/ml/model/<노드>/ (rl_nav_correction 기본 model_path=rl_nav_correction/policy.onnx)
-#   노드별 폴더로 겹치지 않게 (rl_nav_correction · nav_controller · grasp_scorer · rl_nav_tuner …)
+# 학습 모델 — ros2_ws/model/<노드>/* → share/ml/model/<노드>/ (기본 model_path=nav_controller/policy.onnx)
+#   노드별 폴더로 겹치지 않게 (nav_controller · grasp_scorer …)
 set(MODEL_DIR "${CMAKE_CURRENT_SOURCE_DIR}/../../model")
 if(IS_DIRECTORY "${MODEL_DIR}")
   # yolo는 perception이 share/perception/model에 설치 — ml에서 중복 설치 안 함
@@ -110,7 +110,6 @@ install(DIRECTORY launch DESTINATION share/${PROJECT_NAME})
 # --- 테스트: colcon test --packages-select ml (노드 클래스를 같은 프로세스에 띄워 토픽으로 확인)
 if(BUILD_TESTING)
   find_package(ament_cmake_gtest REQUIRED)
-  ament_add_gtest(test_rl_nav_correction test/test_rl_nav_correction.cpp TIMEOUT 60 ENV ROS_DOMAIN_ID=103)
   ament_add_gtest(test_mlp_policy test/test_mlp_policy.cpp TIMEOUT 60)
   target_include_directories(test_mlp_policy PRIVATE include)
   target_compile_definitions(test_mlp_policy PRIVATE MODEL_DIR="${MODEL_DIR}")
@@ -120,7 +119,6 @@ if(BUILD_TESTING)
   target_link_libraries(test_rl_arm_correction rl_arm_correction)
   ament_add_gtest(test_nav_obs test/test_nav_obs.cpp TIMEOUT 60)
   target_include_directories(test_nav_obs PRIVATE include)
-  target_link_libraries(test_rl_nav_correction ${PROJECT_NAME}_nodes)
   ament_add_test(test_launch GENERATE_RESULT_FOR_RETURN_CODE_ZERO
     COMMAND ros2 launch "${CMAKE_CURRENT_SOURCE_DIR}/launch/ml.launch.py" --show-args
     TIMEOUT 60)

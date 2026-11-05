@@ -4,7 +4,7 @@
   {"dt": 0.05, "label": "real", "steps": [[v, w], ...]}   # 스텝마다 (m/s, rad/s) — dt 간격으로 한 줄씩 보냄 · label = CSV label 열
 기록 = isaac sim의 raw.csv와 같은 열 (t · lin_raw · ang_raw · lin_out · ang_out · odom_* · v_enc · w_enc · w_gyro · wheel_* · t_*):
   /odom · /imu · /joint_states (wheel_left_joint · wheel_right_joint) · /cmd_vel (smoother · collision_monitor까지 거쳐 실제로 나간 명령)
-명령은 /cmd/manual/cmd_vel → manual_control(MANUAL) → /cmd_vel_manual — rl_nav_correction을 건너뛴다 (= 보정 없는 순수 응답).
+명령은 /cmd/manual/cmd_vel → manual_control(MANUAL) → /cmd_vel_manual — twist_mux 수동 경로 (순수 응답).
 """
 from __future__ import annotations
 

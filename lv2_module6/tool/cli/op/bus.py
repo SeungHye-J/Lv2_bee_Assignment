@@ -19,7 +19,6 @@ from geometry_msgs.msg import TwistStamped
 from sensor_msgs.msg import JointState
 from std_msgs.msg import Bool, Empty, Int32MultiArray, String
 
-from .ab import AbTest
 from .consts import (ARM_JOINTS, DIAG_LEVELS, GRIPPER_CLOSE, GRIPPER_JOINT,
                     GRIPPER_OPEN, WHEEL_JOINTS)
 from .terminal import BOLD, DIM, GREEN, RED, YELLOW, Terminal
@@ -58,7 +57,6 @@ class Bus:
         self.pub_restart = node.create_publisher(String, "/cmd/restart", 10)
         self.pub_reboot = node.create_publisher(Empty, "/cmd/manual/reboot_motors", 10)
         self.pub_beep = node.create_publisher(Int32MultiArray, "/cmd/beep", 10)
-        self.ab = AbTest(self)
 
     def _poll(self, seconds: float = 0.2):
         """콜백을 잠깐 돌려 상태를 갱신한다."""
@@ -1165,11 +1163,6 @@ class Bus:
                 return 0 if self.lifecycle_activate(name) else 1
         print(f'FAIL: {name} 20초 안에 다시 안 뜸 — /tmp/restart_{name}.log 확인', file=sys.stderr)
         return 1
-
-    def cmd_ab(self, args) -> int:
-        """A/B 테스트 — ab.py로 위임 (메뉴 14와 같은 구현)."""
-        from .ab import AbTest
-        return AbTest(self).cmd(args)
 
     def cmd_node(self, args) -> int:
         if args.action in ('list', 'status'):
