@@ -584,10 +584,6 @@ class AbTest:
         except RuntimeError as exc:
             print(f'FAIL: {exc}', file=sys.stderr)
             return 2
-        st = self.status()
-        if not st['alive']:
-            print('FAIL: rl_nav_correction 응답 없음 — bringup 확인', file=sys.stderr)
-            return 1
         try:
             self._ensure_auto(plan)
             if plan['start'] is None:
@@ -599,11 +595,11 @@ class AbTest:
             print(f'FAIL: {exc}', file=sys.stderr)
             return 1
 
-        if not st['enabled']:
-            ok, msg = self.toggle(True)
-            if not ok:
-                print(f'FAIL: {msg}', file=sys.stderr)
-                return 1
+        # 파라미터 읽기(status) 대신 토글 서비스로 확실히 ON을 보장한다.
+        ok, msg = self.toggle(True)
+        if not ok:
+            print(f'FAIL: {msg}', file=sys.stderr)
+            return 1
 
         bags: list[str] = []
         labels: list[str] = []
