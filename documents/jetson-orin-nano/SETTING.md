@@ -159,6 +159,7 @@ sudo apt-get install -y --no-install-recommends \
     ros-lyrical-teleop-twist-keyboard \
     ros-lyrical-robot-localization \
     ros-lyrical-rosx-introspection \
+    ros-lyrical-onnxruntime-vendor \
     ros-lyrical-cv-bridge \
     libopencv-dev \
     rapidjson-dev \
