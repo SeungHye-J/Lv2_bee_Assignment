@@ -337,6 +337,10 @@ def build_parser() -> argparse.ArgumentParser:
     map_parser.add_argument('--format', default='pgm', choices=('pgm', 'png', 'bmp'),
                             help='save 이미지 형식 (기본 pgm)')
     map_parser.add_argument('--topic', default='/map', help='save할 지도 토픽 (기본 /map)')
+    map_parser.add_argument('--localize', dest='localize', action='store_true', default=None,
+                            help='save 후 LOCALIZATION으로 자동 전환 (nvblox.nvblx 저장)')
+    map_parser.add_argument('--no-localize', dest='localize', action='store_false',
+                            help='save만 하고 MAPPING 유지')
 
     beep = sub.add_parser('beep', help='OpenCR 부저 — 인자 없으면 기본음, beep <Hz 100~8000> <ms 10~2000> (메뉴: 0 비프음)')
     beep.add_argument('value', nargs='*', help='Hz ms (예: 4000 300)')

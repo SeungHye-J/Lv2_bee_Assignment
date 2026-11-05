@@ -770,10 +770,11 @@ class Bus:
         return maps
 
     @staticmethod
-    def map_args(action: str, name: str | None = None, file: str | None = None):
+    def map_args(action: str, name: str | None = None, file: str | None = None,
+                 localize: bool | None = None):
         return argparse.Namespace(
             action=action, name=name, file=file, map_dir=None,
-            format='pgm', topic='/map')
+            format='pgm', topic='/map', localize=localize)
 
     @staticmethod
     def default_map_dir(explicit: str | None = None) -> Path:
@@ -856,7 +857,25 @@ class Bus:
             return self._map_restart_reply(lambda: self._send_map_name(args.name), f'지도 → {args.name}')
 
         if args.action == 'save':
-            return self._map_save(args, map_dir)
+            rc = self._map_save(args, map_dir)
+            if rc != 0 or self.state.map_mode != 'MAPPING':
+                return rc
+            localize = getattr(args, 'localize', None)
+            if localize is None:
+                if not sys.stdin.isatty():
+                    localize = False
+                else:
+                    try:
+                        ans = input('지도 미리보기 저장 완료 — LOCALIZATION으로 전환할까요? '
+                                    '(nvblox.nvblx 저장 + 다시 뜨기) [Y/n] ')
+                    except EOFError:
+                        ans = 'n'
+                    localize = ans.strip().lower() not in ('n', 'no')
+            if not localize:
+                print('LOCALIZATION 전환 생략 — nvblox.nvblx는 나중에 전환/종료할 때 저장됩니다.')
+                return 0
+            print('LOCALIZATION으로 전환 — nvblox.nvblx 저장 + 다시 뜨기 (수십 초)')
+            return self.cmd_map(self.map_args('mode', name='localization'))
 
         print(f'모르는 map action: {args.action}', file=sys.stderr)
         return 2
