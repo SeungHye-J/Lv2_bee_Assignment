@@ -23,6 +23,11 @@ import rclpy
 
 from .consts import _param_value_to_py
 
+# A/B 메뉴에 노출할 노드 — 새 rl_nav_*가 생기면 여기와 pages/ab.py의 화면 매핑에 추가한다.
+AB_NODES = (
+    ('rl_nav_correction', 'ONNX 주행 보정 (Δv·Δω)'),
+)
+
 NODE = 'rl_nav_correction'
 TOGGLE = '/rl_nav_correction/toggle'
 BAG_DIR = Path.home() / 'bags' / 'ab'
@@ -332,6 +337,11 @@ class AbTest:
     def cmd(self, args) -> int:
         action = getattr(args, 'action', None) or 'status'
         try:
+            if action == 'nodes':
+                for name, desc in AB_NODES:
+                    print(f'  {name:<24} {desc}')
+                print('\n지금은 rl_nav_correction 하나 — ab status|on|off|record|stop|report|guide')
+                return 0
             if action == 'status':
                 print('\n'.join(self.status_lines()))
                 return 0

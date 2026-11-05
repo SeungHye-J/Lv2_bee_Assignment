@@ -306,6 +306,7 @@ def build_parser() -> argparse.ArgumentParser:
 
     ab = sub.add_parser('ab', help='rl_nav_correction ONNX A/B — 상태·ON/OFF·rosbag 기록·리포트 (메뉴: 14)')
     ab_sub = ab.add_subparsers(dest='action')
+    ab_sub.add_parser('nodes', help='A/B 대상 노드 목록')
     ab_sub.add_parser('status', help='보정 상태·모델·녹화 상태')
     ab_sub.add_parser('on', help='ONNX 보정 켜기')
     ab_sub.add_parser('off', help='ONNX 보정 끄기 (Δ=0)')

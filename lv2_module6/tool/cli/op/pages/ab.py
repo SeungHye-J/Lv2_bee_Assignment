@@ -11,6 +11,7 @@ import sys
 import time
 from pathlib import Path
 
+from ..ab import AB_NODES
 from ..defs import STAY
 from .base import GoMenu, Menu, MenuItem
 
@@ -206,10 +207,9 @@ class RlNavCorrectionAbMenu(Menu):
 
 
 def ab_node_pages(app) -> list[tuple[str, str, Menu]]:
-    """A/B 메뉴에 노출할 노드 — (표시 이름, 설명, 화면)을 한 줄씩 추가한다."""
-    return [
-        ('rl_nav_correction', 'ONNX 주행 보정 (Δv·Δω)', RlNavCorrectionAbMenu(app)),
-    ]
+    """AB_NODES의 각 노드 → 그 노드의 A/B 화면. 새 노드는 화면 클래스를 매핑에 추가한다."""
+    pages = {'rl_nav_correction': RlNavCorrectionAbMenu}
+    return [(name, desc, pages[name](app)) for name, desc in AB_NODES]
 
 
 class AbMenu(Menu):

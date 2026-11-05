@@ -262,6 +262,7 @@ cd tool
 (`ROS_DOMAIN_ID=88` + SHM 전용이라 PC 원격 기록 불가).
 
 ```bash
+./run-cli ab nodes                  # A/B 대상 노드 (지금은 rl_nav_correction)
 ./run-cli ab status                 # 보정 ON/OFF · 모델 · 녹화 상태
 ./run-cli ab record --label A       # A 녹화 시작 (백그라운드)
 # 다른 터미널/RViz에서 주행 후
@@ -280,7 +281,7 @@ cd tool
 - 기본 저장: `~/bags/ab/<시각>_<라벨>` (rosbag2 · mcap)
 - TUI 메뉴 **14) A/B 테스트 (노드별)** → **rl_nav_correction**:
   상태 · ON/OFF · 녹화 시작/종료 · 최근 리포트 · 안내형 A/B(A ON → B OFF → 리포트)를 한 화면에서 실행.
-  새 `rl_nav_*` 노드는 `cli/op/pages/ab.py`의 `ab_node_pages()`에 한 줄 추가한다.
+  새 `rl_nav_*` 노드는 `cli/op/ab.py`의 `AB_NODES`와 `cli/op/pages/ab.py`의 화면 매핑에 추가한다.
 - `learning_enabled:=false`는 `rl_nav_tuner`까지 꺼서 속도 프리셋이 달라진다.
   A/B는 반드시 `ab on`/`ab off`로 `rl_nav_correction`만 토글한다.
 - 공정한 비교: 같은 출발 자세·방향, 같은 goal, 같은 배터리·바닥에서 ON/OFF를 번갈아 여러 번.
