@@ -36,7 +36,7 @@ tool/
 ```bash
 cd tool
 ./run-cli                     # 대화형 메뉴 (TUI)
-./run-cli start               # bringup 시작 (백그라운드 · 로그 ~/.ros/bringup.log · 이미 떠 있으면 그대로)
+./run-cli start               # bringup 시작 (백그라운드 · 로그 ./bringup.log(실행한 폴더, BRINGUP_LOG=경로로 바꿈) · 이미 떠 있으면 그대로)
 ./run-cli stop                # 떠 있는 ROS 전부 끄기 (ros2_ws/stop.sh)
 ./run-cli restart             # stop → start (= restart all)
 ./run-cli restart perception  # 그 노드만 (state_manager · 수명주기 노드는 active까지)
