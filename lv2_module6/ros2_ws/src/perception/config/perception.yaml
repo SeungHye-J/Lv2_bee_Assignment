@@ -51,7 +51,7 @@ perception:
     depth_min_valid: 0.5    # 박스 가운데 깊이 화소가 이 비율보다 적으면 깊이 없음 (배경 몇 화소로 엉뚱한 거리 안 냄)
 hand_relative:               # 손 카메라 상대값 → 학습 보정 정책 입력 (scripts/hand_relative.py · 2026-11-03 배포 결정)
   ros__parameters:
-    base_frame: "base_link"  # 시뮬 정책(isaac/lab)이 쓰던 좌표
+    base_frame: "base_link"  # 시뮬 정책(isaac/rl/bee_isaac/tasks)이 쓰던 좌표
     ee_frame: "end_effector_link"
     map_frame: "map"
     rate_hz: 20.0            # slot(적재함, 카메라 없이 TF만) 발행 주기 [Hz]

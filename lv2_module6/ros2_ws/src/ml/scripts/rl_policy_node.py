@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""🛠 rl_policy (잔차 정책 추론, 담당: 송정혁) — 팔 잔차 RL 정책(isaac/lab pick_env · place_env, TorchScript)을 실기에서 돌림.
+"""🛠 rl_policy (잔차 정책 추론, 담당: 송정혁) — 팔 잔차 RL 정책(isaac/rl/bee_isaac/tasks pick_env · place_env, TorchScript)을 실기에서 돌림.
 
   입력: /rl_policy/context (std_msgs/String JSON — coordinator가 RL 구간 시작·끝에 냄, plan/rl_segment.hpp)
         /joint_states (q · q̇) · /rl_arm_correction/state ([reference ×5, corr ×5, Δ ×5] — 컨트롤러가 매 주기)

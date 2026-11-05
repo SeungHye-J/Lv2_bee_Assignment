@@ -1,6 +1,6 @@
 #pragma once
 
-// RL 정책 구간 — 학습(isaac/lab pick_env · place_env)과 데모(demo_cycle.py pick()·place())의 관절 시간표를 그대로.
+// RL 정책 구간 — 학습(isaac/rl/bee_isaac/tasks pick_env · place_env)과 데모(demo_cycle.py pick()·place())의 관절 시간표를 그대로.
 //   잔차 정책은 이 시간표 위에서만 학습됨 (관측 = 계획 관절 q_above · q_down과 지금 기준 q_ref의 차 · 단계 · 단계 진행 시간).
 //   단계: 0 이동+멈춤(hold) · 1 내려감 · 2 멈춤(settle) · 3 닫기(pick) / 놓기(place) · 4 올라감 · 5 기다림 · 6 끝
 //   기준 q_ref(t): 이동 q0 → q_above (t_tr) · 내려감 q_above → q_down · 단계 3부터 q_down → q_above (t_ph[3]부터)

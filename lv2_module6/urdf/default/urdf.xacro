@@ -29,9 +29,10 @@
   </joint>
   <link name="base_link">
     <inertial>
-      <origin rpy="0 0 0" xyz="-0.085426 -0.000171 0.080461"/>
-      <mass value="2.400600"/>
-      <inertia ixx="2.8130e-02" ixy="-2.1613e-05" ixz="6.4439e-03" iyy="3.2644e-02" iyz="-1.4858e-06" izz="2.7766e-02"/>
+      <!-- storage_support ring x 12 merged in (estimate: 26.50 cm3 x PLA 1.24 x 50 % = 16.4 g each, parallel axis). Before: mass 2.4006, com -0.050770 -0.000171 0.080461 -->
+      <origin rpy="0 0 0" xyz="-0.054874 -0.000158 0.082489"/>
+      <mass value="2.597760"/>
+      <inertia ixx="2.9371e-02" ixy="-1.9928e-05" ixz="6.7071e-03" iyy="3.3932e-02" iyz="-2.3183e-06" izz="3.0000e-02"/>
     </inertial>
     <visual>
       <origin rpy="0 0 0" xyz="0 0 0"/>
@@ -858,6 +859,29 @@
     <child link="imu_link"/>
     <origin rpy="0 0 0" xyz="-0.064 0 0.068"/>
   </joint>
+  <!-- rear battery: ROBOTIS LB-012 (88x35x26 mm, 106 g), upright behind the pole, opposite the camera. Same as USD payloads/base.usda, Physics/physics.usda -->
+  <joint name="battery_joint" type="fixed">
+    <parent link="base_link"/>
+    <child link="battery_link"/>
+    <origin rpy="0 0 0" xyz="-0.2324 0 0.1062"/>
+  </joint>
+  <link name="battery_link">
+    <inertial>
+      <origin rpy="0 0 0" xyz="0 0 0"/>
+      <mass value="0.106"/>
+      <inertia ixx="7.9218e-05" ixy="0" ixz="0" iyy="7.4382e-05" iyz="0" izz="1.6793e-05"/>
+    </inertial>
+    <visual>
+      <geometry>
+        <box size="0.026 0.035 0.088"/>
+      </geometry>
+    </visual>
+    <collision>
+      <geometry>
+        <box size="0.026 0.035 0.088"/>
+      </geometry>
+    </collision>
+  </link>
   <!-- basket slots: cell floor center, 3 rows (x, pole -> arm) x 4 cols (y, -y -> +y) -->
   <joint name="basket_slot_0_joint" type="fixed">
     <parent link="base_link"/>
@@ -1069,10 +1093,10 @@
     </plugin>
     <!-- JointPositionController는 플러그인 1개 = 관절 1개만 제어한다.
          한 플러그인에 joint_name을 여러 개 넣으면 첫 개만 잡혀서 나머지 팔이 중력에 접힌다. -->
-    <xacro:macro name="gz_jpc" params="joint effort:=4.1">
+    <xacro:macro name="gz_jpc" params="joint effort:=4.1 initial:=0">
       <plugin filename="libgz-sim-joint-position-controller-system.so" name="gz::sim::systems::JointPositionController">
         <joint_name>${joint}</joint_name>
-        <initial_position>0</initial_position>
+        <initial_position>${initial}</initial_position>
         <p_gain>50</p_gain>
         <i_gain>5</i_gain>
         <d_gain>1</d_gain>

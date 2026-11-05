@@ -1,4 +1,4 @@
-// 세우기 경로 — 설명은 include/plan/stand_geometry.hpp (식은 isaac/lab/right_env.py plan_waypoints mode "tilt")
+// 세우기 경로 — 설명은 include/plan/stand_geometry.hpp (식은 isaac/rl/bee_isaac/tasks/right_env.py plan_waypoints mode "tilt")
 #include "plan/stand_geometry.hpp"
 
 #include <algorithm>

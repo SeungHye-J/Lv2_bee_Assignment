@@ -7,7 +7,7 @@
 //   state interface:     <joint>/position, velocity           (관측)
 //   구독: /skill_context (ml/SkillContext, 팔 skill 노드 — skills 패키지) · /hand_relative (perception/HandRelative)
 // update (update_rate, 100Hz): command = q_ref + 처짐 적분 corr + 학습 보정 Δ
-//   - corr = 처짐 보정 적분 (송정혁, isaac/lab place_env._sag_step과 같은 법칙, 시간 기준): reference가 멈춰 있을 때만
+//   - corr = 처짐 보정 적분 (송정혁, isaac/rl/bee_isaac/tasks place_env._sag_step과 같은 법칙, 시간 기준): reference가 멈춰 있을 때만
 //     (모든 관절 |d ref/dt| < still_rate) corr += sag_gain·dt·(reference + Δ − 현재각), ±sag_max. 움직이는 동안은 유지.
 //     학습은 85 ms마다 오차 30 % 제거 → sag_gain = −ln(0.7)/0.085 ≈ 4.2 /s. 스킬 시작마다 ~/reset_sag 로 0.
 //     skill과 상관없이 늘 돈다 (sag_enabled). 발열 방지: stow(rest_pose)에선 0으로 풂 · 상한에 windup_s 붙으면 풀고 쉼
@@ -16,7 +16,7 @@
 //   - 정책: policy_hz(50)로 arm_obs(…) → MlpPolicy → a ∈ [−1, 1] → residual_live면 Δ = residual_rad·a (아니면 마지막 Δ 유지)
 //   - run_id가 바뀌면 corr·Δ·이전 행동을 0부터 (시뮬 에피소드 시작)
 //   - 손 카메라 값(/hand_relative)이 max_cam_age_s보다 오래되거나 valid가 아니면 Δ를 바꾸지 않음
-// 중력 앞먹임 (gravity_enabled, 기본 꺼짐 · 실행 중 ros2 param set 가능): 서보 엔코더가 못 보는 관절 비틀림 d = c·τ 를 미리 뺀다
+// 중력 앞먹임 (gravity_enabled, 기본 켜짐 · 실행 중 ros2 param set 가능): 서보 엔코더가 못 보는 관절 비틀림 d = c·τ 를 미리 뺀다
 //   command = q_ref + corr + Δ − d. c = 1/강성 (실측 feature/isaac-setup isaac/sim/R2S/sag_fit.py: j2 12.2 · j3 18.8 Nm/rad).
 //   τ는 현재 엔코더 각의 팔 평면 점질량 모델(gravity::torques, URDF 값). 처짐 적분 오차에도 넣어 적분이 지우지 않는다.
 //   gravity_z_offset_m: 자세와 무관한 고정 높이 오차를 올리는 양 [m] — 손가락 끝면 중심을 x·손 피치 그대로 위로 (gravity::lift).
@@ -68,7 +68,7 @@ inline void sag_joint_step(SagJoint & j, bool still, bool rest, double ref, doub
   if (windup_s > 0.0 && j.sat_s >= windup_s) j.blocked = true;
 }
 
-// 팔 평면(joint2~4, 피치 축)의 점질량 모델 — 값은 URDF(beebot.urdf), URDF가 바뀌면 여기를 갱신 (isaac/sim/R2S/arm_model.py가 같은 값)
+// 팔 평면(joint2~4, 피치 축)의 점질량 모델 — 값은 URDF(beebot.urdf), URDF가 바뀌면 여기를 갱신 (isaac/scripts/calib/arm_model.py가 같은 값)
 namespace gravity {
 constexpr double G = 9.81;
 // 질량 [kg]·무게중심 (x, z) [m] — 각 링크 프레임 안. 손 = gripper_link + 손가락 + 카메라를 하나로 (gripper_link 프레임)
@@ -184,7 +184,7 @@ private:
   std::vector<double> rest_pose_;  // 비면 쉬는 자세 판정 안 함
   bool have_prev_ = false;
   std::atomic<bool> reset_sag_{false};
-  std::atomic<bool> gravity_enabled_{false};  // 파라미터 콜백이 씀 — 실행 중 켜고 끔
+  std::atomic<bool> gravity_enabled_{true};  // 파라미터 콜백이 씀 — 실행 중 켜고 끔
   rclcpp::node_interfaces::OnSetParametersCallbackHandle::SharedPtr gravity_cb_;
   double gravity_c2_ = 0.0, gravity_c3_ = 0.0, gravity_c4_ = 0.0, gravity_z_offset_ = 0.0, gravity_ramp_s_ = 2.0, gravity_max_ = 0.2;
   double gravity_scale_ = 0.0;  // 앞먹임 세기 0..1 (켜고 끌 때 서서히)

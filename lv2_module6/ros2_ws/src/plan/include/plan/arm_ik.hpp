@@ -2,7 +2,7 @@
 
 // 팔(joint1~5) 정기구학 · 위→아래 손 자세 IK — arm_base_link 기준 end_effector_link.
 //   MoveIt IK(pick_ik)는 kinematics.yaml rotation_scale 0(5축이라 위치만)이라 손 방향을 보장하지 않는다 → 세우기처럼 손이 내내
-//   아래를 봐야 하는 경로는 여기서 푼다 (학습 isaac/lab bee_common.ArmIK = pinocchio로 위치 + 회전 둘 다 맞춘 것과 같은 목표).
+//   아래를 봐야 하는 경로는 여기서 푼다 (학습 isaac/rl/bee_isaac/tasks bee_common.ArmIK = pinocchio로 위치 + 회전 둘 다 맞춘 것과 같은 목표).
 //   관절 원점·축 = urdf/default/urdf.xacro (joint1~5 · end_effector_joint). 관절 영점 offset은 0 (BeebotSystemHardware offset 기본).
 //   풀이: 감쇠 최소제곱(Levenberg–Marquardt), 앞 점의 해를 씨앗으로 — 이웃 점끼리 해가 이어짐
 #include <array>

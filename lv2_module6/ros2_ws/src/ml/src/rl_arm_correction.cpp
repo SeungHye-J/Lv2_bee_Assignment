@@ -21,10 +21,10 @@ CallbackReturn RlArmCorrection::on_init() {
   auto_declare<double>("rest_tol", 0.03);           // [rad] 모든 관절이 이 안이면 쉬는 자세
   auto_declare<double>("debug_hz", 20.0);          // ~/debug (ml/ArmCorrectionDebug) 주기 — 0 = 안 냄
   auto_declare<double>("windup_s", 2.0);            // [s] 0 = 막힘 감지 끔
-  auto_declare<bool>("gravity_enabled", false);     // 중력 앞먹임 (헤더 설명)
+  auto_declare<bool>("gravity_enabled", true);      // 중력 앞먹임 (헤더 설명)
   auto_declare<double>("gravity_compliance_j2", 0.0817);  // [rad/Nm] = 1/강성 12.2 Nm/rad
   auto_declare<double>("gravity_compliance_j3", 0.0532);  // [rad/Nm] = 1/강성 18.8 Nm/rad
-  auto_declare<double>("gravity_compliance_j4", 0.0);     // [rad/Nm] 높이 측정만으로는 0과 구분 안 됨 (isaac/sim/R2S/sag_fit.py)
+  auto_declare<double>("gravity_compliance_j4", 0.0);     // [rad/Nm] 높이 측정만으로는 0과 구분 안 됨 (isaac/scripts/calib/sag_fit.py)
   auto_declare<double>("gravity_z_offset_m", 0.0);        // [m] 고정 높이 오차를 올리는 양 (실측 처짐이 −5 mm 고정이면 0.005)
   auto_declare<double>("gravity_ramp_s", 2.0);      // [s] 켜고 끌 때 서서히
   auto_declare<double>("gravity_max", 0.2);         // [rad] 한 관절 상한
@@ -199,6 +199,18 @@ return_type RlArmCorrection::update_and_write_commands(const rclcpp::Time & time
   for (int i = 0; rest && i < 5; ++i) rest = std::abs(ref[i] - rest_pose_[i]) <= rest_tol_;
   for (int i = 0; i < 5; ++i) corr_[i] = sag_[i].corr;  // 정책 관측용
 
+  // 중력 앞먹임 (헤더 설명)
+  const double gravity_step = dt / std::max(gravity_ramp_s_, 1e-3);
+  gravity_scale_ = gravity_enabled_ ? std::min(1.0, gravity_scale_ + gravity_step) : std::max(0.0, gravity_scale_ - gravity_step);
+  J5 grav{};
+  if (ok && gravity_scale_ > 0.0) {
+    const auto tau = gravity::torques(q[1], q[2], q[3]);
+    std::array<double, 3> d = {-gravity_c2_ * tau[0], -gravity_c3_ * tau[1], -gravity_c4_ * tau[2]}, up{};
+    if (gravity_z_offset_ != 0.0 && gravity::lift(q[1], q[2], q[3], gravity_z_offset_, up))
+      for (size_t k = 0; k < 3; ++k) d[k] += up[k];
+    for (size_t k = 0; k < 3; ++k) grav[k + 1] = gravity_scale_ * std::clamp(d[k], -gravity_max_, gravity_max_);
+  }
+
   const Skill * it = enabled_ && ok ? skill_.get() : nullptr;
   bool cam_ok = false;
   double cam_age = -1.0;
@@ -212,7 +224,8 @@ return_type RlArmCorrection::update_and_write_commands(const rclcpp::Time & time
     if (since_policy_ >= policy_dt_ - 1e-6 && ctx_.q_above.size() == 5 && ctx_.q_down.size() == 5 && cam_ok) {
       since_policy_ = 0.0;
       ArmObsIn in;
-      in.q = q; in.qd = qd; in.q_ref = ref; in.prev_act = prev_act_; in.corr = corr_;
+      in.qd = qd; in.q_ref = ref; in.prev_act = prev_act_; in.corr = corr_;
+      for (int i = 0; i < 5; ++i) in.q[i] = q[i] - grav[i];  // 앞먹임이 민 만큼 뺌 — 정책은 비틀림 없는 시뮬 각도로 학습됨
       std::copy(ctx_.q_above.begin(), ctx_.q_above.end(), in.q_above.begin());
       std::copy(ctx_.q_down.begin(), ctx_.q_down.end(), in.q_down.begin());
       in.phase = ctx_.phase;
@@ -229,17 +242,6 @@ return_type RlArmCorrection::update_and_write_commands(const rclcpp::Time & time
         prev_act_[i] = a;
       }
     }
-  }
-  // 중력 앞먹임 (헤더 설명)
-  const double gravity_step = dt / std::max(gravity_ramp_s_, 1e-3);
-  gravity_scale_ = gravity_enabled_ ? std::min(1.0, gravity_scale_ + gravity_step) : std::max(0.0, gravity_scale_ - gravity_step);
-  J5 grav{};
-  if (ok && gravity_scale_ > 0.0) {
-    const auto tau = gravity::torques(q[1], q[2], q[3]);
-    std::array<double, 3> d = {-gravity_c2_ * tau[0], -gravity_c3_ * tau[1], -gravity_c4_ * tau[2]}, up{};
-    if (gravity_z_offset_ != 0.0 && gravity::lift(q[1], q[2], q[3], gravity_z_offset_, up))
-      for (size_t k = 0; k < 3; ++k) d[k] += up[k];
-    for (size_t k = 0; k < 3; ++k) grav[k + 1] = gravity_scale_ * std::clamp(d[k], -gravity_max_, gravity_max_);
   }
   for (size_t i = 0; i < joints_.size() && i < 5; ++i) {
     if (!ok) continue;  // reference가 아직 없음 — 아무것도 안 씀 (예전처럼)
