@@ -8,6 +8,7 @@
 """
 from __future__ import annotations
 
+import argparse
 import csv
 import json
 import math
@@ -102,6 +103,41 @@ class Recorder:
     def close(self):
         for s in self.subs:
             self.node.destroy_subscription(s)
+
+
+STOW_TOL = 0.05   # [rad] skill_pose initial_pose_tolerance와 같게 — 이 안이면 이미 시작 자세
+STOW_WAIT_S = 10.0
+
+
+def ensure_stow(bus, move: bool = True) -> bool:
+    """팔이 시작 자세(skill_pose initial_pose = stow)인지 — 아니면 move일 때 `arm initial`로 보내고 도달을 기다림.
+    주행 칼리브레이션은 팔이 접혀 있어야 무게중심이 sim(기본 자세)과 같다. True = 시작 자세. move=False는 보기만."""
+    pose = bus.initial_pose()
+    if pose is None:
+        return False
+    targets = pose[0]
+    bus._wait_joints()
+
+    def err() -> float:
+        return max(abs(bus.state.joints.get(n, math.inf) - v) for n, v in targets.items())
+
+    if err() <= STOW_TOL:
+        print('팔: 시작 자세')
+        return True
+    if not move:
+        print(f'팔: 시작 자세가 아님 (최대 오차 {err():.2f} rad) — 재생할 때 시작 자세로 먼저 이동')
+        return False
+    print(f'팔이 시작 자세가 아님 (최대 오차 {err():.2f} rad) → 시작 자세로 이동 (충돌 회피 없음)')
+    if bus.cmd_arm(argparse.Namespace(action='initial', targets=[], force=False)) != 0:
+        return False
+    end = time.monotonic() + STOW_WAIT_S
+    while time.monotonic() < end and rclpy.ok():
+        bus._poll(0.2)
+        if err() <= STOW_TOL:
+            print('팔: 시작 자세 도달')
+            return True
+    print(f'거부: 팔이 시작 자세에 못 감 (오차 {err():.2f} rad) — 걸렸는지 확인 (arm reboot · TEACH)', file=sys.stderr)
+    return False
 
 
 def run(bus, plan: dict, out: Path, check_only: bool = False) -> int:

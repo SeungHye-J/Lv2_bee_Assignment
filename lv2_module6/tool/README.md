@@ -184,11 +184,11 @@ cd tool
 ./run-cli calibrate wheel plan.json             # 다른 계획: {"dt": 0.05, "label": "real", "steps": [[v, w], ...]}  (v ≤ 0.26 m/s · |w| ≤ 1.82 rad/s · 180 s 이하)
 ```
 
-메뉴 13 → 바퀴: `1) 준비 확인` → (공간 비움 · 팔 시작 자세) → `2) 재생 + 기록` · `3) 계획 파일 바꾸기`.
+메뉴 13 → 바퀴: `1) 준비 확인` → (공간 비움) → `2) 재생 + 기록` · `3) 계획 파일 바꾸기`.
 
 - 명령은 `/cmd/manual/cmd_vel` → `manual_control` → `/cmd_vel_manual`이라 `rl_nav_correction`을 건너뜁니다 (보정 없는 순수 응답).
 - 기록: `/odom` · `/imu` · `/joint_states`(바퀴) · `/cmd_vel`(smoother · collision_monitor를 거쳐 실제로 나간 명령) — isaac sim의 `raw.csv`와 같은 열.
-- 끝나거나 비상정지 · 모드 이탈 · Ctrl+C면 바로 정지 명령을 내고(저장 안 함), 로봇이 움직이므로 사방 약 1.5 m를 비우고 팔은 시작 자세로 둡니다.
+- 끝나거나 비상정지 · 모드 이탈 · Ctrl+C면 바로 정지 명령을 내고(저장 안 함), 로봇이 움직이므로 사방 약 1.5 m를 비웁니다. 팔이 시작 자세(stow)가 아니면 재생 전에 `arm initial`로 먼저 보내고 도달을 기다립니다(10 s 안에 못 가면 거부 · 충돌 회피 없음).
 - 결과를 PC로: `scp bee@bee.local:<폴더>/raw.csv …` 후 isaac의 `calibration/report.py`로 sim과 비교.
 
 ### 팔·그리퍼

@@ -53,7 +53,8 @@ class WheelRunItem(MenuItem):
             print(f'거부: {exc}')
             return STAY
         body = [f'{len(plan["steps"])}스텝 · {len(plan["steps"]) * plan["dt"]:.1f} s · {Path(WheelState.plan).name}',
-                '로봇이 움직입니다 — 사방 약 1.5 m가 비어 있어야 합니다 (팔은 시작 자세)',
+                '로봇이 움직입니다 — 사방 약 1.5 m가 비어 있어야 합니다',
+                '팔이 시작 자세(stow)가 아니면 먼저 자동으로 그 자세로 이동합니다 (충돌 회피 없음 — 팔 주변 확인)',
                 '보정(rl_nav_correction)은 건너뛰는 수동 경로입니다 (순수 응답)',
                 '멈추려면: Ctrl+C · 다른 터미널 ./run-cli estop on']
         if not self.ui.confirm('재생할까요?', default=False, body=body):
@@ -100,7 +101,7 @@ class WheelCalibrateMenu(Menu):
             ' 하는 일: 계획의 (v, w)를 /cmd/manual/cmd_vel로 20 Hz 재생하며',
             '   /odom · /imu · /joint_states · /cmd_vel을 raw.csv로 기록',
             ' 저장: run-cli를 실행한 폴더의 calibration_<시각>/raw.csv',
-            ' 순서: 1) 준비 확인 → 공간 비움 · 팔 시작 자세 → 2) 재생',
+            ' 순서: 1) 준비 확인 → 공간 비움 → 2) 재생 (팔은 시작 자세로 자동 이동)',
             ' PC로: scp bee@bee.local:<폴더>/raw.csv … 후 isaac report.py (sim과 비교)',
         ]
 

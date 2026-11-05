@@ -347,7 +347,7 @@ class Bus:
         if args.part != 'wheel':
             print(f'거부: calibrate {args.part} — 아직 없음 (wheel만)', file=sys.stderr)
             return 2
-        from .calibrate import load_plan, run
+        from .calibrate import ensure_stow, load_plan, run
         try:
             plan = load_plan(args.plan)
         except ValueError as exc:
@@ -355,6 +355,8 @@ class Bus:
             return 2
         if not self.ensure_manual_or_switch(args.force):
             return 1
+        if not ensure_stow(self, move=not args.check_only) and not args.check_only:
+            return 1   # 팔이 시작 자세가 아니면 먼저 보낸다 (check-only는 보기만)
         out = Path(args.out) if args.out else Path.cwd() / f'calibration_{time.strftime("%Y-%m-%d_%H-%M-%S")}' / 'raw.csv'
         return run(self, plan, out, args.check_only)
 
