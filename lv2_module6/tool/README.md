@@ -239,7 +239,7 @@ cd tool
   기본 경로는 `<state_manager의 map_dir>/<현재 지도 이름>/map` — map_saver가 도는 쪽(로봇·컨테이너) 경로라 원격 PC에서 CLI를 써도 맞습니다.
   `map_dir`을 못 읽으면 이 컴퓨터의 `ros2_ws/map`(또는 `BEEBOT_MAP_DIR`). `--file` · `--map-dir`는 그대로 씁니다.
 
-### 노드 (상태 · 재시작)
+### 노드 (상태 · 파라미터 · 진단 · 재시작)
 
 ```bash
 ./run-cli node list                          # 노드 전부 — ● 보임 / ✗ 안 보임 · pid · 수명주기 노드는 [active] 등
@@ -249,7 +249,8 @@ cd tool
 ./run-cli restart                            # 전체 재시작 — stop → start (메뉴 10 a)는 state_manager가 같은 launch 명령으로)
 ```
 
-- 메뉴 **10) 노드**: 맨 위 `a)` 전체 재시작(RESTART 입력), 그 아래 노드 목록. 노드를 고르면 1) 상태 보기 · 2) 재시작 · 3) 활성화(수명주기 노드만).
+- 메뉴 **10) 노드**: 맨 위 `a)` 전체 재시작(RESTART 입력), 그 아래 노드 목록. 노드를 고르면 상태·진단이 **1초마다 갱신**되고, 1) 상태 자세히 · 2) 재시작 · 3) 활성화(수명주기 노드만) · 4) 파라미터·진단 live(파라미터 서비스가 있는 노드만)를 고를 수 있습니다.
+- **4) 파라미터 · 진단 live** 화면은 파라미터 현재값과 그 노드의 `/diagnostics` 항목을 1초마다 다시 읽습니다. 값 변경은 `ros2 param set` 또는 메인 **12) 파라미터**에서.
 - 수명주기 노드(velocity_smoother · collision_monitor · Nav2 서버)는 `lifecycle_manager_base`·`_navigation`이 기동 때 켭니다. 기동 중 응답 시간 초과 등으로 멈춰 `[unconfigured]`·`[inactive]`로 남으면 바퀴 명령이 `/cmd_vel`까지 못 가 텔레오퍼가 안 움직입니다 → 그 노드를 **3) 활성화**.
 - 재시작은 state_manager 재시작 목록(이 launch 아래 노드)에 있는 것만 됩니다. 명령줄 재시작은 확인 없이 바로 실행합니다.
 
