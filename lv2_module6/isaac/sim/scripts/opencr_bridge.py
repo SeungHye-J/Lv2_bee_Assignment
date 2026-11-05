@@ -17,8 +17,8 @@ Usage:
   Remove the ActionGraph IMU publisher (isaac_read_imu_node, ros2_publish_imu): /imu now comes from
   imu_sensor_broadcaster like on the real robot, two publishers would fight.
 
-Joint twist: OPENCR_TWIST_SCALE=1 isaac/sim/isaac_sim.sh makes joint2/3 twist under gravity where the encoders cannot see it,
-as measured on the real arm (off by default). The hand then sits below the TF until rl_arm_correction gravity_enabled cancels it.
+Joint twist: OPENCR_TWIST_SCALE=1 (isaac_sim.sh default) makes joint2/3 twist under gravity where the encoders cannot see it,
+as measured on the real arm (0 = off). The hand then sits below the TF until rl_arm_correction gravity_enabled cancels it.
 
 Not emulated: T (torque on/off) and R (motor reboot) lines are ignored; temperatures are a constant.
 Comments/strings stay English: the Script Editor breaks Korean text.

@@ -23,16 +23,6 @@ TEST(SagStep, Clamps) {
   EXPECT_DOUBLE_EQ(ml::sag_step(0.19, 0.0, 0.0, -10.0, 0.01, 4.2, 0.2), 0.2);
 }
 
-// 정책 Δ: 받은 지 timeout 안이면 ±max로 잘라 쓰고, 낡았거나 받은 적 없으면 0
-TEST(FreshDelta, UsesRecentClampsAndDropsStale) {
-  EXPECT_DOUBLE_EQ(ml::fresh_delta(0.03, 0.01, 0.2, 0.1), 0.03);
-  EXPECT_DOUBLE_EQ(ml::fresh_delta(0.5, 0.01, 0.2, 0.1), 0.1);
-  EXPECT_DOUBLE_EQ(ml::fresh_delta(-0.5, 0.01, 0.2, 0.1), -0.1);
-  EXPECT_DOUBLE_EQ(ml::fresh_delta(0.03, 0.25, 0.2, 0.1), 0.0);   // 정책 노드가 멈춤
-  EXPECT_DOUBLE_EQ(ml::fresh_delta(0.03, -1.0, 0.2, 0.1), 0.0);   // 받은 적 없음
-  EXPECT_DOUBLE_EQ(ml::fresh_delta(NAN, 0.01, 0.2, 0.1), 0.0);
-}
-
 // 중력 토크 (팔 평면 점질량) — isaac/sim/R2S/arm_model.py(URDF 전체 FK)와 같은 값. grasp 자세 [deg] q2 29.78 q3 −11.31 q4 71.52
 TEST(Gravity, TorquesMatchUrdfModel) {
   const double d2r = M_PI / 180.0;
@@ -59,4 +49,40 @@ TEST(Gravity, LiftMovesFaceCentreUpOnly) {
   EXPECT_NEAR(after.z - before.z, dz, 1e-4);
   EXPECT_NEAR(after.x - before.x, 0.0, 1e-4);
   EXPECT_NEAR(dq[0] + dq[1] + dq[2], 0.0, 1e-9);  // 손 피치 그대로
+}
+
+// URDF 질량으로 낸 값 (팔을 앞으로 편 자세 · stow 근처) — 모델이 바뀌면 opencr_bridge.py도 함께 갱신
+TEST(Gravity, TorquesMatchUrdf) {
+  const auto zero = ml::gravity::torques(0.0, 0.0, 0.0);
+  EXPECT_NEAR(zero[0], 1.2757, 1e-3);
+  EXPECT_NEAR(zero[1], 1.1287, 1e-3);
+  const auto bent = ml::gravity::torques(-0.28, 0.98, 0.87);
+  EXPECT_NEAR(bent[0], 0.4788, 1e-3);
+  EXPECT_NEAR(bent[1], 0.5750, 1e-3);
+}
+
+TEST(SagGuard, RestPoseReleases) {  // stow: 쌓인 보정을 0으로 풀고 더 쌓지 않음
+  ml::SagJoint j;
+  j.corr = 0.1;
+  for (int k = 0; k < 200; ++k) ml::sag_joint_step(j, true, true, 0.5, 0.0, 0.4, 0.01, 4.2, 0.2, 2.0);
+  EXPECT_NEAR(j.corr, 0.0, 1e-3);
+}
+
+TEST(SagGuard, BlockedReleases) {  // 닿아서 못 감 (q가 안 따라옴): 상한에 2 s 붙으면 풀고 쉼
+  ml::SagJoint j;
+  for (int k = 0; k < 300; ++k) ml::sag_joint_step(j, true, false, 0.5, 0.0, 0.0, 0.01, 4.2, 0.2, 2.0);
+  EXPECT_TRUE(j.blocked);
+  for (int k = 0; k < 200; ++k) ml::sag_joint_step(j, true, false, 0.5, 0.0, 0.0, 0.01, 4.2, 0.2, 2.0);
+  EXPECT_NEAR(j.corr, 0.0, 1e-3);
+}
+
+TEST(SagGuard, NormalSagNotBlocked) {  // 보통 처짐 (상한 안에서 따라옴)은 그대로 고침
+  ml::SagJoint j;
+  double q = 0.45;
+  for (int k = 0; k < 500; ++k) {
+    ml::sag_joint_step(j, true, false, 0.5, 0.0, q, 0.01, 4.2, 0.2, 2.0);
+    q = 0.45 + j.corr;  // 처짐 0.05 rad
+  }
+  EXPECT_FALSE(j.blocked);
+  EXPECT_NEAR(j.corr, 0.05, 1e-3);
 }

@@ -1,6 +1,7 @@
 // rl_nav_correction 구현 — 노드 설명·입출력·멤버 선언은 include/ml/rl_nav_correction.hpp, main은 rl_nav_correction_main.cpp
 #include "ml/rl_nav_correction.hpp"
 
+
 namespace ml {
 
 RlNavCorrection::RlNavCorrection()
@@ -36,13 +37,7 @@ RlNavCorrection::RlNavCorrection()
 }
 
 void RlNavCorrection::on_cmd(const TwistStamped & in) {
-  double dv = 0.0, dw = 0.0;
-  const bool fresh = (now() - last_sensor_).seconds() <= timeout_s_;
-  if (get_parameter("enabled").as_bool() && fresh) {
-    // TODO: 정책 추론. 지금은 Δ=0
-    dv = std::clamp(dv, -0.05, 0.05);
-    dw = std::clamp(dw, -0.10, 0.10);
-  }
+  const double dv = 0.0, dw = 0.0;  // Nav2용 보정 정책이 생기면 여기 (±0.05 m/s · ±0.10 rad/s, enabled · 센서 신선할 때만)
   TwistStamped out = in;
   out.twist.linear.x = std::clamp(in.twist.linear.x + dv, -limit_v_, limit_v_);
   out.twist.angular.z = std::clamp(in.twist.angular.z + dw, -max_w_, max_w_);

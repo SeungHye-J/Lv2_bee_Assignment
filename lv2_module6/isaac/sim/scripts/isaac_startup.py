@@ -26,7 +26,7 @@ async def _setup():
     await omni.usd.get_context().open_stage_async(os.path.abspath(SCENE))
     # Viewport: no collider debug draw, no guide-purpose prims (the robot's collision meshes are guides).
     # Set after opening the stage so per-user persistent settings don't win.
-    # Render mode stays at the default: /rtx/rendermode is global, so it also drives the ROS camera images.
+    # Render mode stays at the default RTX - Real-Time: /rtx/rendermode is global, so it also drives the ROS camera images.
     settings = carb.settings.get_settings()
     settings.set_int("/persistent/physics/visualizationDisplayColliders", 0)
     settings.set_bool("/persistent/app/hydra/displayPurpose/guide", False)

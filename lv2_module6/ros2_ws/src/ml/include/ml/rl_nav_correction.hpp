@@ -5,9 +5,14 @@
 //   출력: /cmd_vel_corrected (geometry_msgs/TwistStamped) → velocity_smoother
 // 규칙: Δ는 선속도 ±0.05m/s · 각속도 ±0.10rad/s 로 제한, 더한 뒤 min(프리셋 상한, /speed_limit)으로 다시 자른다.
 //       센서 입력이 timeout_s(0.2초) 넘게 끊기거나 enabled:=false 면 Δ=0 (통과만).
-// TODO(송정혁): 관측 벡터 구성(학습 때와 같은 순서·단위·정규화) → ONNX 정책 추론 → action * [0.05, 0.10]
+// 지금 Δ = 0 (Nav2용 보정 정책은 아직 없음) — 속도 상한(/speed_limit) 재클리핑만. 상자 앞 도킹 · 출발 구역 주차 같은
+//   정밀 주행의 학습 보정은 skill_approach 노드가 자기 정책(model/skills/dock_box …)으로 직접 계산해 /cmd_vel_nav로 냄 (2026-11-04)
 #include <algorithm>
 #include <cmath>
+
+#include <map>
+#include <memory>
+#include <string>
 
 #include "diagnostic_updater/diagnostic_updater.hpp"
 #include "geometry_msgs/msg/twist_stamped.hpp"

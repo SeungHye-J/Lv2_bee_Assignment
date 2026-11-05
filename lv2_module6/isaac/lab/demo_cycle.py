@@ -1,4 +1,4 @@
-"""One manipulator cycle in Isaac Sim on the mission scene isaac/sim/usda/scene_lab.usda (launch: isaac/sim/demo.sh).
+"""One manipulator cycle in Isaac Sim on the mission scene isaac/sim/usda/scene_lab.usda.
 
     from the saved start pose drive to the south face of start_1 -> pick one of its two pucks -> load it into a
     basket slot -> drive east along the bottom corridor to shelf_L1 -> take it out of the slot -> place it on the
@@ -12,7 +12,7 @@ it was trained on (error ref + residual - q); older policies keep ref - q.
 Perception is a stand-in: ground-truth poses plus the noise used in training (puck +-5 mm / 10 deg, cell +-5 mm,
 puck in hand +-2 mm, gripper camera bias 2 mm + noise 1 mm). Driving is a plain P controller on the true base pose.
 
-    python demo_cycle.py --viz kit                 (window; demo.sh does this)
+    python demo_cycle.py --viz kit                 (window)
     python demo_cycle.py --runs 20                 (headless check: success rate over 20 cycles, no window)
 """
 

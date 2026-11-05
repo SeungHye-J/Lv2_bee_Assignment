@@ -15,7 +15,8 @@ from isaaclab.app import AppLauncher
 
 parser = argparse.ArgumentParser()
 parser.add_argument("--mode", choices=["zero", "train", "eval"], default="zero")
-parser.add_argument("--task", choices=["place", "pick", "right", "pip"], default="place")
+parser.add_argument("--task", help="pick_standing = 서 있는 퍽 집기 (pick_env.py) · stand_lying = 누운 퍽 세우기 (right_env.py); 예전 이름 pick · stand · right도 됨",
+                    choices=["place", "pick", "right", "pip", "load", "unload", "reach", "drive", "stand", "pick_standing", "stand_lying"], default="place")
 parser.add_argument("--num_envs", type=int, default=4096)  # RTX 5060 Laptop: ~91 % GPU, 4.3 GB (512: 75 %)
 parser.add_argument("--iters", type=int, default=600)
 parser.add_argument("--episodes", type=int, default=1024, help="zero / eval: finished episodes to collect")
@@ -37,6 +38,7 @@ parser.add_argument("--out", default=None, help="train: exported file name in po
 parser.add_argument("--run", default=None, help="log folder name under logs/ (default <task>)")
 AppLauncher.add_app_launcher_args(parser)
 args = parser.parse_args()
+args.task = {"pick_standing": "pick", "stand_lying": "stand"}.get(args.task, args.task)  # clearer names for the teammate envs
 args.out = args.out or f"{args.task}_residual.pt"
 args.run = args.run or args.task
 app = AppLauncher(args).app
@@ -53,6 +55,13 @@ from rsl_rl.runners import OnPolicyRunner  # noqa: E402
 import pick_env  # noqa: E402
 import pip_env  # noqa: E402
 import right_env  # noqa: E402
+import slot_env  # noqa: E402
+import reach_env  # noqa: E402
+import drive_env  # noqa: E402
+
+# 'stand' = 누운 퍽 세우기 — 팀원 환경 이름 'right'(right a puck = 세우다)가 헷갈려서 같은 환경을 이 이름으로도 부름
+gym.register(id="Bee-Stand-Residual", entry_point="right_env:RightEnv", disable_env_checker=True,
+             kwargs={"env_cfg_entry_point": "right_env:RightEnvCfg"})
 import place_env  # noqa: E402
 
 HERE = Path(__file__).resolve().parent
@@ -75,8 +84,12 @@ class PlacePPOCfg(RslRlOnPolicyRunnerCfg):
 
 
 def make_env():
-    cfg = {"pick": pick_env.PickEnvCfg, "right": right_env.RightEnvCfg, "pip": pip_env.PipEnvCfg}.get(args.task, place_env.PlaceEnvCfg)()
+    cfg = {"pick": pick_env.PickEnvCfg, "right": right_env.RightEnvCfg, "pip": pip_env.PipEnvCfg,
+           "load": slot_env.LoadEnvCfg, "unload": slot_env.UnloadEnvCfg,
+           "reach": reach_env.ReachEnvCfg, "drive": drive_env.DriveEnvCfg,
+           "stand": right_env.RightEnvCfg}.get(args.task, place_env.PlaceEnvCfg)()
     cfg.scene.num_envs = args.num_envs
+    cfg.sim.device = args.device  # --device cpu: CPU PhysX (another run holds the 8 GB GPU)
     cfg.seed = args.seed
     if args.vel_scale is not None:
         cfg.vel_scale = args.vel_scale
@@ -141,7 +154,7 @@ def rollout(env, act_fn, label):
         with torch.inference_mode():
             obs, *_ = env.step(act_fn(obs))
         k += 1
-        if k % 50 == 0:
+        if k % 50 == 0 and hasattr(u, "_phase"):  # drive env has no arm phase clock
             ph = u._phase()
             print(f"[{label}] step {k} t {time.time() - t0:.0f} s phases {torch.bincount(ph, minlength=7).tolist()} "
                   f"done {len(u.stats['success'])} in_hand {u.in_hand.sum().item()} t_end {u.t_ph[:, 5].max().item():.2f} t {u.t.max().item():.2f}", flush=True)
@@ -153,7 +166,7 @@ def main():
     env = make_env()
     u = env.unwrapped
     if args.mode == "zero":
-        rollout(env, lambda obs: torch.zeros(u.num_envs, 5, device=u.device), "zero")
+        rollout(env, lambda obs: torch.zeros(u.num_envs, u.cfg.action_space, device=u.device), "zero")
     elif args.mode == "eval":
         policy = torch.jit.load(args.policy, map_location=u.device)
         policy.eval()
@@ -163,6 +176,9 @@ def main():
         agent.max_iterations = args.iters
         agent.seed = args.seed
         agent.experiment_name = f"bee_{args.task}_residual"
+        if args.task in ("load", "unload", "reach", "drive"):  # new skill envs: std in log space (scalar std hit 0.00 on dock)
+            agent.actor.distribution_cfg.std_type = "log"
+            agent.algorithm.entropy_coef = 0.005
         agent = handle_deprecated_rsl_rl_cfg(agent, version("rsl-rl-lib"))
         log_dir = HERE / "logs" / args.run / time.strftime("%Y-%m-%d_%H-%M-%S")
         wenv = RslRlVecEnvWrapper(env, clip_actions=agent.clip_actions)

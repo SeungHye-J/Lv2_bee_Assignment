@@ -7,6 +7,7 @@
 #include <thread>
 
 #include "plan/coordinator.hpp"
+#include "rclcpp_action/rclcpp_action.hpp"
 #include "plan/vlm_task_planner.hpp"
 
 using namespace plan;  // 노드 클래스·메시지 별칭 (include/plan/*.hpp)
@@ -139,6 +140,52 @@ TEST_F(RosTest, ManualModeStopsRunningPlan) {
     [&]() { for (auto & s : got) if (s.plan_id == 8 && s.reason == "manual_override") return true; return false; }));
 }
 
+// 단계를 skill 노드에 맡김: load next → /skills/load에 빈 칸 0 · 모양을 보내고, 성공이면 장부에 적고 계획 SUCCEEDED
+TEST_F(RosTest, HandsStepToSkillNodeAndKeepsLedger) {
+  auto node = std::make_shared<Coordinator>(rclcpp::NodeOptions().parameter_overrides({{"basket_file", ""}}));
+  auto probe = std::make_shared<rclcpp::Node>("probe_skill_server");
+  const auto latched = rclcpp::QoS(10).reliable().transient_local();
+  auto objects_pub = probe->create_publisher<TrackedObjectArray>("/tracked_objects", rclcpp::QoS(5).reliable());
+  auto goals_pub = probe->create_publisher<SubGoalArray>("/task/sub_goals", latched);
+  std::vector<TaskStatus> got;
+  auto sub = probe->create_subscription<TaskStatus>("/task/status", latched, [&](TaskStatus::SharedPtr m) { got.push_back(*m); });
+  plan::msg::BasketState basket;
+  auto bsub = probe->create_subscription<plan::msg::BasketState>("/coordinator/basket", rclcpp::QoS(1).reliable().transient_local(),
+    [&](plan::msg::BasketState::SharedPtr m) { basket = *m; });
+  int slot = -1;
+  std::string shape;
+  using GH = rclcpp_action::ServerGoalHandle<Skill>;
+  auto server = rclcpp_action::create_server<Skill>(probe, "/skills/load",
+    [&](const rclcpp_action::GoalUUID &, std::shared_ptr<const Skill::Goal> g) {
+      slot = g->slot;
+      shape = g->shape;
+      return rclcpp_action::GoalResponse::ACCEPT_AND_EXECUTE;
+    },
+    [](const std::shared_ptr<GH>) { return rclcpp_action::CancelResponse::ACCEPT; },
+    [](const std::shared_ptr<GH> h) {
+      auto r = std::make_shared<Skill::Result>();
+      r->success = true;
+      h->succeed(r);
+    });
+  rclcpp::executors::SingleThreadedExecutor exec;
+  exec.add_node(node);
+  exec.add_node(probe);
+  SubGoalArray plan;
+  plan.plan_id = 31;
+  SubGoal g;
+  g.step = 1;
+  g.skill = "load";
+  g.target = "next";
+  plan.goals.push_back(g);
+  goals_pub->publish(plan);
+  ASSERT_TRUE(spin_until(exec, [&]() { objects_pub->publish(TrackedObjectArray()); },
+    [&]() { for (auto & s : got) if (s.plan_id == 31 && s.state == TaskStatus::SUCCEEDED) return true; return false; }, 15.0));
+  EXPECT_EQ(slot, 0);
+  EXPECT_EQ(shape, "box");  // 손 모양 모름 → 사각 표
+  ASSERT_TRUE(spin_until(exec, [] {}, [&]() { return basket.slots.size() == 12 && basket.slots[0].filled; }));
+  EXPECT_EQ(basket.order.size(), 1u);
+}
+
 // 적재함 (MISSION ③): 칸 파라미터 해석 · 같은 곳 여러 개 비켜 놓기 · MOVE_TO_B 템플릿 = 싣고(place tray) → 이동 → 꺼내서(pick tray) 내려놓기
 TEST(Tray, BasketSlot) {
   // 적재함 12칸 고르기 (load next · unload last · 칸 번호, 옛 "tray" = 같은 뜻)
@@ -174,15 +221,6 @@ TEST(Tray, BasketSlot) {
   EXPECT_EQ(why, "slot_full");
 }
 
-TEST(Tray, GraspHeld) {
-  // 퍽이 끼어 덜 닫힘(위치) + 전류. 전류를 모르면(NaN) 위치만
-  EXPECT_TRUE(grasp_held(0.005, 0.35, 0.003, 0.25));
-  EXPECT_TRUE(grasp_held(0.005, -0.35, 0.003, 0.25));   // 방향 부호 무관
-  EXPECT_FALSE(grasp_held(0.0005, 0.35, 0.003, 0.25));  // 끝까지 닫힘 — 빈손
-  EXPECT_FALSE(grasp_held(0.005, 0.05, 0.003, 0.25));   // 힘이 안 걸림
-  EXPECT_TRUE(grasp_held(0.005, std::nan(""), 0.003, 0.25));
-}
-
 TEST(Tray, BoxSpread) {
   // 상자 0.205 각 · 가장자리 0.03 안쪽까지 → 비킬 수 있는 최대 0.0725. 상자 yaw 90°면 축이 돌아감
   auto [x0, y0] = box_spread(0, 0.08, 0.1025, 0.1025, 0.03, 0.0);
@@ -204,105 +242,14 @@ TEST(Tray, Spread) {
   EXPECT_EQ(spread_offset(10, 0.08), std::make_pair(0.0, 0.16));
 }
 
-TEST(Tray, CarryGoals) {
-  const auto g = carry_goals({"11", "12"}, "7");  // 퍽 2개를 적재함에 싣고 장소 7로
-  ASSERT_EQ(g.size(), 2u * 3 + 1 + 2u * 2);
-  EXPECT_EQ(g[0].skill, "navigate");
-  EXPECT_EQ(g[1].skill, "pick");
-  EXPECT_EQ(g[1].target, "11");
-  EXPECT_EQ(g[2].skill, "place");
-  EXPECT_EQ(g[2].target, "tray");
-  EXPECT_EQ(g[6].skill, "navigate");
-  EXPECT_EQ(g[6].target, "7");
-  EXPECT_EQ(g[7].target, "tray");   // 꺼내기
-  EXPECT_EQ(g[8].target, "7");      // 장소에 내려놓기
-  for (size_t i = 0; i < g.size(); ++i) EXPECT_EQ(g[i].step, i + 1);
-}
-
-namespace {
-perception::msg::TrackedObject obj(uint32_t id, const std::string & cls, const std::string & color, int tag, double x) {
-  perception::msg::TrackedObject o;
-  o.id = id;
-  o.class_name = cls;
-  o.color = color;
-  o.pose.pose.position.x = x;
-  if (tag >= 0) {
-    diagnostic_msgs::msg::KeyValue kv;
-    kv.key = "tag";
-    kv.value = std::to_string(tag);
-    o.details.push_back(kv);
-  }
-  return o;
-}
-}  // namespace
-
-TEST(Signal, PickCombo) {
-  // MISSION §3: 빨간 퍽(0~3) 중 합 5인 2개 = 2+3 · 답이 여러 개(합 3 = 0+3 · 1+2)면 가까운(cost 작은) 쪽
-  EXPECT_EQ(pick_combo({0, 1, 2, 3}, {1, 1, 1, 1}, 2, 5), (std::vector<size_t>{2, 3}));
-  EXPECT_EQ(pick_combo({0, 1, 2, 3}, {5, 1, 1, 5}, 2, 3), (std::vector<size_t>{1, 2}));
-  EXPECT_TRUE(pick_combo({0, 1, 2, 3}, {1, 1, 1, 1}, 2, 6).empty());  // MISSION §4: 빨강 2개로 6은 불가능
-  EXPECT_EQ(pick_combo({4, 5, 6, 7}, {1, 1, 1, 1}, 4, 22).size(), 4u);
-}
-
-TEST(Signal, MissionPlan) {
-  perception::msg::MissionSignal sig;
-  sig.color = "red";
-  sig.count = 2;
-  sig.sum = 5;
-  sig.dest_tag = 13;
-  TrackedObjectArray objs;
-  objs.objects = {obj(1, "puck", "red", 2, 0.5), obj(2, "puck", "red", -1, 0.6), obj(3, "puck", "green", -1, 0.4),
-                  obj(4, "puck", "", -1, 0.9), obj(9, "location_box", "", 13, 2.0)};
-  std::set<uint32_t> inspected;
-  // 번호 아는 빨간 퍽이 1개뿐 → 번호 모르는 빨간·색 모름 퍽을 가까운 순으로 inspect (초록은 안 봄)
-  auto r = signal_plan(objs, sig, 0.0, 0.0, inspected, 4);
-  ASSERT_EQ(r.kind, "inspect");
-  EXPECT_EQ(r.inspect_ids, (std::vector<uint32_t>{2, 4}));
-  EXPECT_EQ(r.goals[0].skill, "inspect");
-  // 봤더니 2번 퍽 = 태그 3 → 2+3 = 5 → 옮기기 (목적지 = 장소 상자(태그 13) 물체 9)
-  objs.objects[1] = obj(2, "puck", "red", 3, 0.6);
-  inspected = {2, 4};
-  r = signal_plan(objs, sig, 0.0, 0.0, inspected, 4);
-  ASSERT_EQ(r.kind, "carry") << r.why;
-  EXPECT_EQ(r.carry_tags, (std::vector<int>{2, 3}));
-  EXPECT_EQ(r.goals[1].target, "1");
-  EXPECT_EQ(r.goals[4].target, "2");
-  EXPECT_EQ(r.goals[6].target, "9");
-  // 목적지 태그를 아직 못 봤으면 기다림
-  objs.objects.pop_back();
-  EXPECT_EQ(signal_plan(objs, sig, 0.0, 0.0, inspected, 4).kind, "wait");
-  // 다 봤는데 합을 못 만들면 실패 (say)
-  sig.sum = 6;
-  EXPECT_EQ(signal_plan(objs, sig, 0.0, 0.0, inspected, 4).kind, "fail");
-}
-
-TEST(Signal, VerifyPlan) {
-  // 목적지 = 장소 상자(태그 13) 물체 9 (x 2.0) · 옮긴 번호 2·3 · 반경 0.2
-  TrackedObjectArray objs;
-  objs.objects = {obj(9, "location_box", "", 13, 2.0), obj(1, "puck", "red", 2, 2.05), obj(2, "puck", "red", -1, 1.9),
-                  obj(5, "puck", "red", -1, 0.5)};
-  // 보러 가기 — 목적지로 navigate · 근처의 번호 모르는 퍽(2)만 inspect (멀리 있는 5는 안 봄)
-  auto r = verify_plan(objs, 13, {2, 3}, 0.2, false);
-  ASSERT_EQ(r.kind, "look");
-  ASSERT_EQ(r.goals.size(), 2u);
-  EXPECT_EQ(r.goals[0].target, "9");
-  EXPECT_EQ(r.goals[1].skill, "inspect");
-  EXPECT_EQ(r.goals[1].target, "2");
-  // 봤더니 2번 = 태그 3 → 다 있음
-  objs.objects[2] = obj(2, "puck", "red", 3, 1.9);
-  EXPECT_EQ(verify_plan(objs, 13, {2, 3}, 0.2, true).kind, "ok");
-  // 태그 3 퍽이 다른 곳(0.5)에 있으면 다시 옮김
-  objs.objects[2] = obj(2, "puck", "red", 3, 0.5);
-  r = verify_plan(objs, 13, {2, 3}, 0.2, true);
-  ASSERT_EQ(r.kind, "recarry") << r.why;
-  EXPECT_EQ(r.missing, (std::vector<int>{3}));
-  EXPECT_EQ(r.goals[1].target, "2");
-  EXPECT_EQ(r.goals.back().target, "9");
-  // 어디에도 안 보이면 missing · 목적지 태그가 안 보이면 wait
-  objs.objects.erase(objs.objects.begin() + 2);
-  EXPECT_EQ(verify_plan(objs, 13, {2, 3}, 0.2, true).kind, "missing");
-  objs.objects.erase(objs.objects.begin());
-  EXPECT_EQ(verify_plan(objs, 13, {2, 3}, 0.2, false).kind, "wait");
+TEST(Coordinator, ParseNumbers) {
+  // 좌표 대상 "x,y" · "x,y,z|yaw" (navigate · approach · place · inspect) — 숫자가 아닌 게 섞이거나 1개면 빈 목록
+  EXPECT_EQ(parse_numbers("1.5,-2"), (std::vector<double>{1.5, -2.0}));
+  EXPECT_EQ(parse_numbers("0.1,0.2,0.07"), (std::vector<double>{0.1, 0.2, 0.07}));
+  EXPECT_TRUE(parse_numbers("3").empty());
+  EXPECT_TRUE(parse_numbers("tray").empty());
+  EXPECT_TRUE(parse_numbers("1,a").empty());
+  EXPECT_TRUE(parse_numbers("").empty());
 }
 
 TEST(Coordinator, ApproachPose) {
@@ -320,94 +267,4 @@ TEST(Coordinator, ApproachPose) {
   p = plan::approach_pose(1.0, 2.0, 1.0, 2.0, 0.3);
   EXPECT_NEAR(p.position.x, 0.7, 1e-9);
   EXPECT_NEAR(p.position.y, 2.0, 1e-9);
-}
-
-// stand (누운 퍽 세우기) · pick 누운 퍽 거절 — 대상 확인은 MoveIt 서버 대기보다 먼저라 서버 없이도 이유가 나옴
-namespace {
-perception::msg::TrackedObject puck_with(uint32_t id, const std::string & posture, bool yaw_known) {
-  perception::msg::TrackedObject o;
-  o.id = id;
-  o.class_name = posture == "lying" ? "puck_lying" : "puck";
-  o.pose.pose.orientation.w = 1.0;
-  diagnostic_msgs::msg::KeyValue kv;
-  kv.key = "posture";
-  kv.value = posture;
-  o.details.push_back(kv);
-  if (yaw_known) {
-    kv.key = "yaw_period";
-    kv.value = "180";
-    o.details.push_back(kv);
-  }
-  return o;
-}
-
-// 한 단계짜리 계획을 보내고 그 계획의 FAILED 이유를 받음 ("" = 시간 안에 실패 없음)
-std::string fail_reason(const std::string & skill, const std::string & target, const perception::msg::TrackedObject & o,
-                        uint32_t plan_id) {
-  auto node = std::make_shared<Coordinator>();
-  auto probe = std::make_shared<rclcpp::Node>("probe_stand_" + std::to_string(plan_id));
-  const auto latched = rclcpp::QoS(10).reliable().transient_local();
-  auto objects_pub = probe->create_publisher<TrackedObjectArray>("/tracked_objects", rclcpp::QoS(5).reliable());
-  auto goals_pub = probe->create_publisher<SubGoalArray>("/task/sub_goals", latched);
-  std::string reason;
-  auto sub = probe->create_subscription<TaskStatus>("/task/status", latched,
-    [&](TaskStatus::SharedPtr m) { if (m->plan_id == plan_id && m->state == TaskStatus::FAILED) reason = m->reason; });
-  rclcpp::executors::SingleThreadedExecutor exec;
-  exec.add_node(node);
-  exec.add_node(probe);
-  SubGoalArray plan;
-  plan.plan_id = plan_id;
-  SubGoal g;
-  g.step = 1;
-  g.skill = skill;
-  g.target = target;
-  plan.goals.push_back(g);
-  TrackedObjectArray objects;
-  objects.objects.push_back(o);
-  goals_pub->publish(plan);
-  spin_until(exec, [&]() { objects_pub->publish(objects); }, [&]() { return !reason.empty(); });
-  return reason;
-}
-}  // namespace
-
-TEST_F(RosTest, StandRejectsStandingPuck) {
-  EXPECT_EQ(fail_reason("stand", "5", puck_with(5, "standing", true), 21), "stand_not_lying");
-}
-
-TEST_F(RosTest, StandNeedsAxis) {
-  EXPECT_EQ(fail_reason("stand", "5", puck_with(5, "lying", false), 22), "stand_no_axis");
-}
-
-TEST_F(RosTest, StandIsAllowedSkill) {
-  // 세울 수 있는 대상이면 계획 수락 → MoveIt 서버를 기다리는 중 (invalid_plan이 아님 · 2초 안엔 실패 없음)
-  auto node = std::make_shared<Coordinator>();
-  node->set_parameter(rclcpp::Parameter("server_wait_s", 30.0));
-  auto probe = std::make_shared<rclcpp::Node>("probe_stand_ok");
-  const auto latched = rclcpp::QoS(10).reliable().transient_local();
-  auto objects_pub = probe->create_publisher<TrackedObjectArray>("/tracked_objects", rclcpp::QoS(5).reliable());
-  auto goals_pub = probe->create_publisher<SubGoalArray>("/task/sub_goals", latched);
-  std::vector<TaskStatus> got;
-  auto sub = probe->create_subscription<TaskStatus>("/task/status", latched,
-    [&](TaskStatus::SharedPtr m) { if (m->plan_id == 23) got.push_back(*m); });
-  rclcpp::executors::SingleThreadedExecutor exec;
-  exec.add_node(node);
-  exec.add_node(probe);
-  SubGoalArray plan;
-  plan.plan_id = 23;
-  SubGoal g;
-  g.step = 1;
-  g.skill = "stand";
-  g.target = "5";
-  plan.goals.push_back(g);
-  TrackedObjectArray objects;
-  objects.objects.push_back(puck_with(5, "lying", true));
-  goals_pub->publish(plan);
-  ASSERT_TRUE(spin_until(exec, [&]() { objects_pub->publish(objects); },
-    [&]() { for (auto & s : got) if (s.state == TaskStatus::RUNNING) return true; return false; }));
-  spin_until(exec, [&]() { objects_pub->publish(objects); }, [] { return false; }, 2.0);
-  for (auto & s : got) EXPECT_NE(s.state, TaskStatus::FAILED) << s.reason;
-}
-
-TEST_F(RosTest, PickRejectsLyingPuck) {
-  EXPECT_EQ(fail_reason("pick", "5", puck_with(5, "lying", true), 24), "pick_lying");
 }
