@@ -32,7 +32,7 @@ public:
     scan_tol_ = declare_parameter<double>("scan_pose_tolerance", 0.05);
     // 매핑 중 자동 스캔 자세는 기본 끔 — 팔을 뒤로 크게 돌리면 무게중심이 왼쪽으로 쏠린다.
     // 필요하면 `ros2 param set /skill_pose scan_pose_enabled true`로 켠다 (pose scan 액션은 항상 사용 가능).
-    scan_pose_enabled_ = declare_parameter<bool>("scan_pose_enabled", false);
+    declare_parameter<bool>("scan_pose_enabled", false);
     poses_["scan"] = scan_pose_;  // pose scan (mission_manager — 바코드·신호 볼 때 팔이 pole_front_cam 시야를 안 가림)
     initial_enabled_ = declare_parameter<bool>("initial_pose_enabled", true);
     initial_joints_ = declare_parameter<std::vector<std::string>>("initial_pose_joints", {"joint1", "joint2", "joint3", "joint4", "joint5"});
@@ -182,7 +182,7 @@ private:
 
   void check_scan_pose() {
     // 지도를 만드는 중이고 작업이 없을 때 — 작업이 끝나면 다음 확인 때 돌아감. 수동 모드여도 (스캔은 보통 수동 주행)
-    if (!scan_pose_enabled_) return;
+    if (!get_parameter("scan_pose_enabled").as_bool()) return;  // 실행 중 param set도 반영
     if (map_mode_ != "MAPPING" && mode_ != "EXPLORE") return;
     if (estop_ || busy_arm() || scan_moving_ || at(scan_joints_, scan_pose_, scan_tol_) || !arm_.moveit_ready()) return;
     double probe;
@@ -202,7 +202,6 @@ private:
   double scan_tol_ = 0.05, initial_tol_ = 0.05, initial_move_s_ = 3.0, initial_gripper_ = 0.0;
   int initial_retries_ = 1, initial_sent_count_ = 0;
   bool initial_enabled_ = true, initial_waiting_ = false, initial_gripper_sent_ = false, scan_moving_ = false;
-  bool scan_pose_enabled_ = false;
   bool estop_ = false, task_running_ = false;
   std::string mode_ = "AUTO", map_mode_;
   std::chrono::steady_clock::time_point initial_sent_{};
