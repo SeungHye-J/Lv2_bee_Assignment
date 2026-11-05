@@ -336,7 +336,10 @@ class AbTest:
                 os.killpg(proc.pid, signal.SIGKILL)
             except Exception:
                 pass
-            raise RuntimeError(f'ros2 bag record가 8초 안에 bag 폴더를 만들지 못함\n{self._log_tail()}')
+            tail = self._log_tail()
+            hint = (' — Fast DDS SHM 잔재 가능: `run-cli stop` → `run-cli start`로 정리하세요'
+                    if 'RTPS_TRANSPORT_SHM' in tail or 'open_and_lock_file' in tail else '')
+            raise RuntimeError(f'ros2 bag record가 8초 안에 bag 폴더를 만들지 못함{hint}\n{tail}')
         time.sleep(0.2)
         if proc.poll() is not None:
             raise RuntimeError(f'ros2 bag record 시작 실패 (exit {proc.returncode})\n{self._log_tail()}')
@@ -584,6 +587,14 @@ class AbTest:
         except RuntimeError as exc:
             print(f'FAIL: {exc}', file=sys.stderr)
             return 2
+        # DDS 참여자가 굳은 상태에서 bag record를 띄우면 Fast DDS SHM 포트 lock으로 실패한다.
+        # 상단 연결이 정상으로 돌아온 뒤에만 시작한다 (자동 재연결은 12초 뒤).
+        age = (time.monotonic() - self.bus.state.state_last_update
+               if self.bus.state.state_last_update > 0 else float('inf'))
+        if age > 5.0:
+            print(f'FAIL: /state 갱신이 {age:.0f}s 끊겼습니다 — 상단 연결이 정상이 된 뒤 다시 실행하세요',
+                  file=sys.stderr)
+            return 1
         try:
             self._ensure_auto(plan)
             if plan['start'] is None:
