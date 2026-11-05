@@ -245,6 +245,12 @@ def build_parser() -> argparse.ArgumentParser:
     drive.add_argument('--duration', type=_positive_float, default=1.0, help='주행 시간 [s] (기본 1.0)')
     drive.add_argument('--force', action='store_true', help='MANUAL 상태 확인을 건너뜀 (위험)')
 
+    calibrate = sub.add_parser('calibrate', help='칼리브레이션 계획(JSON)을 수동 경로로 재생하며 raw.csv 기록 (MANUAL 모드 — 로봇이 움직임)')
+    calibrate.add_argument('plan', help='계획 파일 {"dt": 0.05, "steps": [[v, w, 구간], ...]} — PC isaac calibration이 만든다')
+    calibrate.add_argument('--out', default=None, help='raw.csv 경로 (기본: 실행한 폴더 ./calibration_<시각>/raw.csv)')
+    calibrate.add_argument('--check-only', action='store_true', help='안 움직이고 준비만 확인')
+    calibrate.add_argument('--force', action='store_true', help='MANUAL 상태 확인을 건너뜀 (위험)')
+
     teleop = sub.add_parser('teleop', help='터미널 키보드 수동 주행 (MANUAL 모드)')
     teleop.add_argument('--linear', type=_nonnegative_float, default=0.15, help='전후진 속도 [m/s]')
     teleop.add_argument('--angular', type=_nonnegative_float, default=0.8, help='회전 속도 [rad/s]')

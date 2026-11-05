@@ -52,6 +52,40 @@ class DriveItem(MenuItem):
         return STAY
 
 
+class CalibrateItem(MenuItem):
+    """칼리브레이션 계획 재생 — PC가 만든 계획(JSON)을 수동 경로로 몰며 raw.csv 기록 (op/calibrate.py)."""
+    key = '8'
+    _last = ''
+
+    def label(self):
+        return '칼리브레이션 재생 (계획 파일 → raw.csv · 로봇이 움직임)'
+
+    def run(self):
+        from pathlib import Path
+
+        from ..calibrate import load_plan
+        raw = self.ui.modal_input(
+            '칼리브레이션 재생', ['PC isaac calibration이 만든 계획(JSON)을 /cmd/manual/cmd_vel로 재생하며 응답을 기록합니다'],
+            '계획 파일 경로', default=CalibrateItem._last,
+            validate=lambda r: None if Path(r).expanduser().is_file() else f'파일 없음: {r}')
+        if raw is None:
+            return STAY
+        path = str(Path(raw).expanduser())
+        try:
+            plan = load_plan(path)
+        except ValueError as exc:
+            print(f'거부: {exc}')
+            return STAY
+        CalibrateItem._last = path
+        body = [f'{len(plan["steps"])}스텝 · {len(plan["steps"]) * plan["dt"]:.1f} s · {plan["label"]}',
+                '로봇이 움직입니다 — 사방 약 1.5 m가 비어 있어야 합니다 (팔은 시작 자세)',
+                '멈추려면: Ctrl+C · 다른 터미널 ./run-cli estop on']
+        if not self.ui.confirm('재생할까요?', default=False, body=body):
+            return STAY
+        self.bus.cmd_calibrate(argparse.Namespace(plan=path, out=None, check_only=False, force=False))
+        return STAY
+
+
 CURRENT_FULL_A = 1.5  # 전류 막대 끝 (XM430 정지 전류 대략) — 눈금일 뿐 한계 아님
 # 좁은 표(6칸)에 맞춘 이름 — wheel_/joint1 구분이 잘리지 않게
 MOTOR_SHORT = {'wheel_left_joint': 'wheelL', 'wheel_right_joint': 'wheelR',
@@ -113,6 +147,7 @@ class ManualMenu(Menu):
                 DriveItem(self.app, '5', 'right', '우회전'),
                 DriveItem(self.app, '6', 'stop', '정지'),
                 GoMenu(self.app, '7', '속도/시간 설정', DriveSettingsMenu(self.app)),
+                CalibrateItem(self.app),
                 RecoverItem(self.app)]
 
     def center(self):

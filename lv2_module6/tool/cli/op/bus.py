@@ -342,6 +342,19 @@ class Bus:
             self._poll(0.15)
         return 0
 
+    def cmd_calibrate(self, args) -> int:
+        """계획 파일을 /cmd/manual/cmd_vel로 재생하며 응답을 raw.csv로 기록 (op/calibrate.py). --check-only = 안 움직임."""
+        from .calibrate import load_plan, run
+        try:
+            plan = load_plan(args.plan)
+        except ValueError as exc:
+            print(f'거부: {exc}', file=sys.stderr)
+            return 2
+        if not self.ensure_manual_or_switch(args.force):
+            return 1
+        out = Path(args.out) if args.out else Path.cwd() / f'calibration_{time.strftime("%Y-%m-%d_%H-%M-%S")}' / 'raw.csv'
+        return run(self, plan, out, args.check_only)
+
     # ------------------------------------------------------------------ teleop
 
     def cmd_teleop(self, args) -> int:
