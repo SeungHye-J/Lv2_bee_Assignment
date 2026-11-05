@@ -84,11 +84,33 @@ class WheelPlanItem(MenuItem):
         return STAY
 
 
+class WheelReportItem(MenuItem):
+    key = '4'
+
+    def label(self):
+        n = len(self.bus.latest_calibration_csvs(2))
+        return f'리포트/비교 (최근 raw.csv {n}개)'
+
+    def run(self):
+        csvs = self.bus.latest_calibration_csvs(2)
+        if not csvs:
+            print('FAIL: raw.csv 없음 — 먼저 2) 재생 + 기록', file=sys.stderr)
+            return STAY
+        if len(csvs) == 2 and not self.ui.confirm(
+                '최근 두 측정을 비교할까요?', default=True,
+                body=[str(p) for p in csvs]):
+            return STAY
+        self.bus.cmd_calibrate(argparse.Namespace(
+            part='report', csv=[str(p) for p in csvs], labels=None, out=None))
+        return STAY
+
+
 class WheelCalibrateMenu(Menu):
     title = '칼리브레이션 — 바퀴'
 
     def items(self):
-        return [WheelCheckItem(self.app), WheelRunItem(self.app), WheelPlanItem(self.app)]
+        return [WheelCheckItem(self.app), WheelRunItem(self.app), WheelPlanItem(self.app),
+                WheelReportItem(self.app)]
 
     def center(self):
         st = self.state
@@ -102,6 +124,7 @@ class WheelCalibrateMenu(Menu):
             '   /odom · /imu · /joint_states · /cmd_vel을 raw.csv로 기록',
             ' 저장: tool/log/calibration/<시각>_wheel/raw.csv',
             ' 순서: 1) 준비 확인 → 공간 비움 → 2) 재생 (팔은 시작 자세로 자동 이동)',
+            ' 4) 리포트/비교 — 최근 raw.csv 1~2개 → report.png',
             ' PC로: scp bee@bee.local:<폴더>/raw.csv … 후 isaac report.py (sim과 비교)',
         ]
 

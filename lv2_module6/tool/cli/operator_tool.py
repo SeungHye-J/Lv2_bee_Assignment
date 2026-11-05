@@ -265,6 +265,11 @@ def build_parser() -> argparse.ArgumentParser:
     cal_wheel.add_argument('--check-only', action='store_true', help='안 움직이고 준비만 확인')
     cal_wheel.add_argument('--force', action='store_true', help='MANUAL 상태 확인을 건너뜀 (위험)')
 
+    cal_report = cal_sub.add_parser('report', help='wheel raw.csv 리포트/비교 (생략 시 최근 1~2개)')
+    cal_report.add_argument('csv', nargs='*', help='raw.csv 경로 1개(요약) 또는 2개(비교)')
+    cal_report.add_argument('--labels', nargs='*', default=None, help='범례 이름 (예: SIM REAL)')
+    cal_report.add_argument('--out', default=None, help='출력 PNG (기본: 첫 CSV 옆 report_*.png)')
+
     teleop = sub.add_parser('teleop', help='터미널 키보드 수동 주행 (MANUAL 모드)')
     teleop.add_argument('--linear', type=_nonnegative_float, default=0.15, help='전후진 속도 [m/s]')
     teleop.add_argument('--angular', type=_nonnegative_float, default=0.8, help='회전 속도 [rad/s]')

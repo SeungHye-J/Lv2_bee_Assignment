@@ -21,7 +21,7 @@ tool/
     ├── ab/                # A/B 자동 주행·분석 — ab/README.md
     │   ├── common/bagio.py
     │   └── rl_nav_correction/{command.json,report.py}
-    ├── calibration/       # 설정 — wheel/command.json (sim과 같은 네모)
+    ├── calibration/       # wheel/{command.json,report.py} (sim과 같은 네모 · 비교 리포트)
     └── op/                # 실제 구현
         ├── terminal.py    # 터미널 원자 연산 (크기·색·표시너비)
         ├── defs.py        # 메뉴 내비게이션 상수
@@ -187,13 +187,18 @@ cd tool
 ./run-cli calibrate wheel --check-only          # 안 움직이고 준비만 확인 (MANUAL · /odom · /imu · /joint_states)
 ./run-cli calibrate wheel                       # 기본 네모 재생 + 기록 → tool/log/calibration/<시각>_wheel/raw.csv
 ./run-cli calibrate wheel plan.json             # 다른 계획: {"dt": 0.05, "label": "real", "steps": [[v, w], ...]}  (v ≤ 0.26 m/s · |w| ≤ 1.82 rad/s · 180 s 이하)
+
+./run-cli calibrate report                      # 최근 raw.csv 1~2개 → report.png (2개면 비교)
+./run-cli calibrate report sim.csv real.csv --labels SIM REAL --out compare.png
 ```
 
-메뉴 13 → 바퀴: `1) 준비 확인` → (공간 비움) → `2) 재생 + 기록` · `3) 계획 파일 바꾸기`.
+메뉴 13 → 바퀴: `1) 준비 확인` → (공간 비움) → `2) 재생 + 기록` · `3) 계획 파일 바꾸기` · `4) 리포트/비교`.
 
 - 명령은 `/cmd/manual/cmd_vel` → `manual_control` → `/cmd_vel_manual`이라 `rl_nav_correction`을 건너뜁니다 (보정 없는 순수 응답).
 - 기록: `/odom` · `/imu` · `/joint_states`(바퀴) · `/cmd_vel`(smoother · collision_monitor를 거쳐 실제로 나간 명령) — isaac sim의 `raw.csv`와 같은 열.
 - 끝나거나 비상정지 · 모드 이탈 · Ctrl+C면 바로 정지 명령을 내고(저장 안 함), 로봇이 움직이므로 사방 약 1.5 m를 비웁니다. 팔이 시작 자세(stow)가 아니면 재생 전에 `arm initial`로 먼저 보내고 도달을 기다립니다(10 s 안에 못 가면 거부 · 충돌 회피 없음).
+- `report.py`는 궤적 · 명령 vs 엔코더/자이로 · 추종 오차 · 바퀴 속도 · 메시지 지연을 그리고,
+  두 CSV를 주면 두 궤적의 평균 거리까지 비교한다. 결과는 `tool/log/calibration/<시각>_wheel/report.png`.
 - 결과를 PC로: `scp bee@bee.local:<폴더>/raw.csv …` 후 isaac의 `calibration/report.py`로 sim과 비교.
 
 ### 팔·그리퍼

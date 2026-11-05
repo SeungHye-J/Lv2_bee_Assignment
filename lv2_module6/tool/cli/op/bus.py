@@ -7,6 +7,7 @@ from __future__ import annotations
 import argparse
 import math
 import os
+import subprocess
 import sys
 import time
 from pathlib import Path
@@ -344,8 +345,40 @@ class Bus:
             self._poll(0.15)
         return 0
 
+    def latest_calibration_csvs(self, n: int = 2) -> list[Path]:
+        root = Path(__file__).resolve().parents[2] / 'log' / 'calibration'
+        files = sorted(root.glob('*/raw.csv'), key=lambda p: p.stat().st_mtime, reverse=True)
+        return files[:n]
+
+    def calibration_report(self, args) -> int:
+        script = Path(__file__).resolve().parents[1] / 'calibration' / 'wheel' / 'report.py'
+        if not script.is_file():
+            print(f'FAIL: 리포트 스크립트 없음: {script}', file=sys.stderr)
+            return 2
+        csvs = [Path(p).expanduser() for p in (getattr(args, 'csv', None) or [])]
+        if not csvs:
+            csvs = self.latest_calibration_csvs(2)
+        if not csvs:
+            print('FAIL: raw.csv 없음 — 먼저 `run-cli calibrate wheel`', file=sys.stderr)
+            return 2
+        if len(csvs) > 2:
+            print('FAIL: CSV는 1개 또는 2개만', file=sys.stderr)
+            return 2
+        cmd = [sys.executable, str(script), *map(str, csvs)]
+        if getattr(args, 'labels', None):
+            cmd += ['--labels', *args.labels]
+        if getattr(args, 'out', None):
+            cmd += ['--out', str(Path(args.out).expanduser())]
+        res = subprocess.run(cmd, capture_output=True, text=True)
+        text = ((res.stdout or '') + (res.stderr or '')).rstrip()
+        if text:
+            print(text)
+        return int(res.returncode)
+
     def cmd_calibrate(self, args) -> int:
         """calibrate <부분> — wheel: 계획 파일을 /cmd/manual/cmd_vel로 재생하며 응답을 raw.csv로 기록 (op/calibrate.py). arm은 나중."""
+        if args.part == 'report':
+            return self.calibration_report(args)
         if args.part != 'wheel':
             print(f'거부: calibrate {args.part} — 아직 없음 (wheel만)', file=sys.stderr)
             return 2
