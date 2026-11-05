@@ -926,6 +926,39 @@ class Bus:
         vals = self.param_get_vals(cli, ['map_dir'])
         return str(getattr(vals[0], 'string_value', '') or '') if vals else ''
 
+    def _save_nvblox_map(self, path: Path) -> int:
+        """nvblox 정본(.nvblx) 저장 — map_saver의 pgm/yaml과 별개다.
+
+        nvblox_node의 after_shutdown_map_save_path는 종료 때 png/yaml만 쓰고 .nvblx는
+        쓰지 않는다. 그래서 서비스 ~/save_map을 명시적으로 불러야 위치추정용 지도가 남는다.
+        """
+        try:
+            from nvblox_msgs.srv import FilePath
+        except ImportError:
+            print('거부: nvblox_msgs 없음 — ~/isaac_ros_ws/install/setup.bash를 source해야 합니다',
+                  file=sys.stderr)
+            return 1
+        cli = self.node.create_client(FilePath, '/nvblox_node/save_map')
+        if not cli.wait_for_service(timeout_sec=5.0):
+            print('거부: /nvblox_node/save_map 없음 — nvblox가 MAPPING 중인지 확인', file=sys.stderr)
+            self.node.destroy_client(cli)
+            return 1
+        req = FilePath.Request()
+        req.file_path = str(path)
+        future = cli.call_async(req)
+        self.prompt.progress('nvblox 지도 저장 중 (최대 30초)')
+        rclpy.spin_until_future_complete(self.node, future, timeout_sec=30.0)
+        self.node.destroy_client(cli)
+        if not future.done():
+            print('요청 실패: nvblox save_map 응답 없음', file=sys.stderr)
+            return 1
+        res = future.result()
+        if not res or not getattr(res, 'success', False):
+            print('요청 실패: nvblox가 지도를 저장하지 못했습니다', file=sys.stderr)
+            return 1
+        print(f'nvblox 지도 저장 → {path}')
+        return 0
+
     def _map_save(self, args, map_dir: Path) -> int:
         if SaveMapSrv is None:
             print('거부: nav2_msgs가 없어 map save를 사용할 수 없습니다', file=sys.stderr)
@@ -984,6 +1017,12 @@ class Bus:
             print('요청 실패: map_saver가 저장하지 못했습니다', file=sys.stderr)
             return 1
         print(f'지도 저장 → {path}.pgm · {path}.yaml')
+        if self.state.map_mode == 'MAPPING':
+            # 위치추정 정본은 nvblox.nvblx — map_saver의 pgm/yaml과 별개로 반드시 저장한다.
+            rc = self._save_nvblox_map(path.parent / 'nvblox.nvblx')
+            if rc != 0:
+                print('WARN: nvblox.nvblx 없이 LOCALIZATION으로 가면 지도가 비어 보입니다', file=sys.stderr)
+                return rc
         return 0
 
     # ----------------------------------------------------------------- restart

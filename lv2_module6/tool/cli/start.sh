@@ -21,6 +21,13 @@ else
   echo "WARN: ros2_ws/install/setup.bash 없음 — 먼저 ros2_ws에서 colcon build" >&2
 fi
 
+# nvblox/cuVSLAM overlay — 지도 저장 서비스(nvblox_msgs/srv/FilePath)를 CLI에서 쓰려면 필요
+SLAM_WS="${SLAM_WS:-$HOME/isaac_ros_ws}"
+if [ -f "$SLAM_WS/install/setup.bash" ]; then
+  # shellcheck disable=SC1091
+  source "$SLAM_WS/install/setup.bash"
+fi
+
 # bringup이 없을 때의 기본값 — Jetson 실기 로컬 전용 (SHM만, 네트워크 in/out 없음)
 export ROS_DOMAIN_ID="${ROS_DOMAIN_ID:-88}"
 export ROS_AUTOMATIC_DISCOVERY_RANGE="${ROS_AUTOMATIC_DISCOVERY_RANGE:-SUBNET}"

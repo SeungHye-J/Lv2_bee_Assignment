@@ -252,7 +252,9 @@ cd tool
 - 없는 지도 이름 · 지도 폴더 없이 `localization`은 CLI가 먼저 거절합니다 (state_manager는 거절 이유를 `/diagnostics`에만 남김).
 - COURSE(테스트베드 정지 지도)에서는 확인 뒤 `/cmd/restart`로 갈아탑니다. SLAM은 GPU가 있어야 해서 **GPU 없는 테스트베드에선 시작하다 멈춥니다**.
 - `map save`는 `/map_saver/save_map`(map:=slam·saved일 때만 뜸)을 불러 `.pgm`·`.yaml`을 저장합니다.
-  저장이 끝나면 **LOCALIZATION으로 전환할지 물어보고**, 전환하면 nvblox가 `nvblox.nvblx`를 저장한 뒤 위치추정으로 다시 뜹니다.
+  저장할 때 `/nvblox_node/save_map`으로 `nvblox.nvblx`도 명시적으로 저장한 뒤,
+  **LOCALIZATION으로 전환할지 물어보고** 위치추정으로 다시 뜹니다.
+  (`after_shutdown_map_save_path`는 png/yaml만 쓰므로 nvblx 저장은 이 서비스가 담당)
   TUI **7) 지도 → 6) 지도 저장**도 같은 확인창을 띄웁니다.
   기본 경로는 `<state_manager의 map_dir>/<현재 지도 이름>/map` — map_saver가 도는 쪽(로봇·컨테이너) 경로라 원격 PC에서 CLI를 써도 맞습니다.
   `map_dir`을 못 읽으면 이 컴퓨터의 `ros2_ws/map`(또는 `BEEBOT_MAP_DIR`). `--file` · `--map-dir`는 그대로 씁니다.
