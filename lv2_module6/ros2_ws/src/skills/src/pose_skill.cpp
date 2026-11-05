@@ -25,6 +25,8 @@ public:
   : SkillNode("skill_pose", options), arm_(*this) {
     for (const char * n : {"stow", "carry_left", "carry_right"})
       poses_[n] = declare_parameter<std::vector<double>>(std::string("pose_") + n, std::vector<double>{});
+    // 값의 정본은 ros_system/config/scan_pose.yaml — skills.launch가 그 파일을 넘긴다.
+    // 아래 기본값은 ros_system 없이 skill만 띄울 때의 fallback이다.
     scan_joints_ = declare_parameter<std::vector<std::string>>("scan_pose_joints", {"joint1", "joint2", "joint3", "joint4", "joint5"});
     scan_pose_ = declare_parameter<std::vector<double>>("scan_pose", {2.618, 0.681, -1.414, 1.082, 0.0});
     scan_tol_ = declare_parameter<double>("scan_pose_tolerance", 0.05);
