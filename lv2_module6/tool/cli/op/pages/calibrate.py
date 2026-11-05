@@ -100,7 +100,7 @@ class WheelCalibrateMenu(Menu):
             '',
             ' 하는 일: 계획의 (v, w)를 /cmd/manual/cmd_vel로 20 Hz 재생하며',
             '   /odom · /imu · /joint_states · /cmd_vel을 raw.csv로 기록',
-            ' 저장: run-cli를 실행한 폴더의 calibration_<시각>/raw.csv',
+            ' 저장: tool/calibration/<시각>/raw.csv',
             ' 순서: 1) 준비 확인 → 공간 비움 → 2) 재생 (팔은 시작 자세로 자동 이동)',
             ' PC로: scp bee@bee.local:<폴더>/raw.csv … 후 isaac report.py (sim과 비교)',
         ]

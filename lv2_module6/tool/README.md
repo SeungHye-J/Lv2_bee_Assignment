@@ -180,7 +180,7 @@ cd tool
 
 ```bash
 ./run-cli calibrate wheel --check-only          # 안 움직이고 준비만 확인 (MANUAL · /odom · /imu · /joint_states)
-./run-cli calibrate wheel                       # 기본 네모 재생 + 기록 → ./calibration_<시각>/raw.csv (--out 경로)
+./run-cli calibrate wheel                       # 기본 네모 재생 + 기록 → tool/calibration/<시각>/raw.csv (--out 경로)
 ./run-cli calibrate wheel plan.json             # 다른 계획: {"dt": 0.05, "label": "real", "steps": [[v, w], ...]}  (v ≤ 0.26 m/s · |w| ≤ 1.82 rad/s · 180 s 이하)
 ```
 

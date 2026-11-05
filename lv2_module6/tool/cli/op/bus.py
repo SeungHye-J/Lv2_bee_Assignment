@@ -357,7 +357,7 @@ class Bus:
             return 1
         if not ensure_stow(self, move=not args.check_only) and not args.check_only:
             return 1   # 팔이 시작 자세가 아니면 먼저 보낸다 (check-only는 보기만)
-        out = Path(args.out) if args.out else Path.cwd() / f'calibration_{time.strftime("%Y-%m-%d_%H-%M-%S")}' / 'raw.csv'
+        out = Path(args.out) if args.out else Path(__file__).resolve().parents[2] / 'calibration' / time.strftime('%Y-%m-%d_%H-%M-%S') / 'raw.csv'  # tool/calibration/<시각>/raw.csv
         return run(self, plan, out, args.check_only)
 
     # ------------------------------------------------------------------ teleop
