@@ -13,13 +13,15 @@ tool/
 │   ├── stop.sh
 │   ├── restart.sh
 │   └── operator.rviz
-├── node/                # 노드별 관리 도구 (기록·분석) — node/README.md
-│   ├── common/bagio.py
-│   └── rl_nav_correction/{run,record.sh,report.py}
+├── log/                 # 실행 결과 (raw.csv 등 · gitignore)
 └── cli/
     ├── start.sh
     ├── DEVELOP.md         # 개발자용 — TUI를 어떻게 만들었나 · 화면 흐름 규약 · 메뉴 추가 · 시험
     ├── operator_tool.py   # 얇은 App: 배선 + argparse + main
+    ├── ab/                # A/B 자동 주행·분석 — ab/README.md
+    │   ├── common/bagio.py
+    │   └── rl_nav_correction/{command.json,report.py}
+    ├── calibration/       # wheel/{command.json,report.py} (sim과 같은 네모 · 비교 리포트)
     └── op/                # 실제 구현
         ├── terminal.py    # 터미널 원자 연산 (크기·색·표시너비)
         ├── defs.py        # 메뉴 내비게이션 상수
@@ -36,7 +38,7 @@ tool/
 ```bash
 cd tool
 ./run-cli                     # 대화형 메뉴 (TUI)
-./run-cli start               # bringup 시작 (백그라운드 · 로그 ~/.ros/bringup.log · 이미 떠 있으면 그대로)
+./run-cli start               # bringup 시작 (백그라운드 · 로그 ./bringup.log(실행한 폴더, BRINGUP_LOG=경로로 바꿈) · 이미 떠 있으면 그대로)
 ./run-cli stop                # 떠 있는 ROS 전부 끄기 (ros2_ws/stop.sh)
 ./run-cli restart             # stop → start (= restart all)
 ./run-cli restart perception  # 그 노드만 (state_manager · 수명주기 노드는 active까지)
@@ -44,7 +46,7 @@ cd tool
 ./run-cli beep                # OpenCR 부저 기본음 · ./run-cli beep 4000 300 = 높이·길이 (메뉴 0)
 ```
 
-`start`는 이 셸의 환경(`FASTDDS_DEFAULT_PROFILES_FILE` · `ROS_DOMAIN_ID`)을 그대로 넘긴다 — `~/.bashrc`를 고쳤으면 새 터미널에서.
+`start`는 기본값으로 **`ROS_DOMAIN_ID=88` + `ros2_ws/fastdds_local_only.xml`(SHM 전용)** 을 쓴다 — DDS가 기기 밖으로 나가지도 들어오지도 않는다. 셸의 `FASTDDS_DEFAULT_PROFILES_FILE` · `ROS_DOMAIN_ID`를 지정하면 그 값이 우선한다 (PC에서 볼 때는 `fastdds.xml`).
 
 ```bash
 cd tool
@@ -80,6 +82,8 @@ cd tool
  10) 노드 (상태 · 재시작 · 전체 재시작)
  11) RViz 열기 (Best Effort QoS)
  12) 파라미터 (노드별)
+ 13) 칼리브레이션 (바퀴 — 팔은 나중에)
+ 14) A/B 테스트 (노드별)
   q) 종료
 ```
 
@@ -172,6 +176,31 @@ cd tool
 # w/s 전후진 · a/d 좌우회전 · space 정지 · q 종료
 ```
 
+### 칼리브레이션 (바퀴)
+
+바퀴 응답(gain · 지연)을 재서 sim에 맞추는 측정입니다. 메뉴: **13) 칼리브레이션 → 1) 바퀴**. 팔(`calibrate arm`)은 나중에 같은 메뉴에 붙입니다.
+계획(JSON)의 `(v, w)`를 수동 경로로 재생하며 응답을 `raw.csv`로 기록합니다.
+계획 파일은 **설정**이라 `tool/cli/calibration/wheel/command.json`(sim과 같은 네모 54 s)에 두고,
+결과는 **실행 로그**라 `tool/log/calibration/<시각>_wheel/raw.csv`에 남깁니다.
+
+```bash
+./run-cli calibrate wheel --check-only          # 안 움직이고 준비만 확인 (MANUAL · /odom · /imu · /joint_states)
+./run-cli calibrate wheel                       # 기본 네모 재생 + 기록 → tool/log/calibration/<시각>_wheel/raw.csv
+./run-cli calibrate wheel plan.json             # 다른 계획: {"dt": 0.05, "label": "real", "steps": [[v, w], ...]}  (v ≤ 0.26 m/s · |w| ≤ 1.82 rad/s · 180 s 이하)
+
+./run-cli calibrate report                      # 최근 raw.csv 1~2개 → report.png (2개면 비교)
+./run-cli calibrate report sim.csv real.csv --labels SIM REAL --out compare.png
+```
+
+메뉴 13 → 바퀴: `1) 준비 확인` → (공간 비움) → `2) 재생 + 기록` · `3) 계획 파일 바꾸기` · `4) 리포트/비교`.
+
+- 명령은 `/cmd/manual/cmd_vel` → `manual_control` → `/cmd_vel_manual`이라 `rl_nav_correction`을 건너뜁니다 (보정 없는 순수 응답).
+- 기록: `/odom` · `/imu` · `/joint_states`(바퀴) · `/cmd_vel`(smoother · collision_monitor를 거쳐 실제로 나간 명령) — isaac sim의 `raw.csv`와 같은 열.
+- 끝나거나 비상정지 · 모드 이탈 · Ctrl+C면 바로 정지 명령을 내고(저장 안 함), 로봇이 움직이므로 사방 약 1.5 m를 비웁니다. 팔이 시작 자세(stow)가 아니면 재생 전에 `arm initial`로 먼저 보내고 도달을 기다립니다(10 s 안에 못 가면 거부 · 충돌 회피 없음).
+- `report.py`는 궤적 · 명령 vs 엔코더/자이로 · 추종 오차 · 바퀴 속도 · 메시지 지연을 그리고,
+  두 CSV를 주면 두 궤적의 평균 거리까지 비교한다. 결과는 `tool/log/calibration/<시각>_wheel/report.png`.
+- 결과를 PC로: `scp bee@bee.local:<폴더>/raw.csv …` 후 isaac의 `calibration/report.py`로 sim과 비교.
+
 ### 팔·그리퍼
 
 ```bash
@@ -179,10 +208,10 @@ cd tool
 ./run-cli arm set joint1=0.0 joint2=0.4 joint3=-0.2
 ./run-cli arm delta joint2=+0.05
 ./run-cli arm home
-./run-cli arm initial       # 시작 자세로 — 떠 있는 coordinator의 initial_pose·initial_gripper (없으면 plan.yaml) (메뉴: 팔 → 7)
+./run-cli arm initial       # 시작 자세로 — 떠 있는 skill_pose의 initial_pose·initial_gripper (없으면 skills.yaml) (메뉴: 팔 → 7)
 ./run-cli arm reboot          # 과부하 등 Hardware Error 난 모터만 재부팅 (메뉴: 팔 → 5)
 ./run-cli mode teach          # TEACH: 팔(joint1~5)·그리퍼 토크 끔 — 손으로 자세 잡기 (팔이 처지니 잡고 있을 것)
-./run-cli arm capture         # 지금 팔·그리퍼 자세를 plan.yaml initial_pose·initial_gripper 줄로 출력 (파일은 안 고침)
+./run-cli arm capture         # 지금 팔·그리퍼 자세를 skills.yaml(skill_pose) initial_pose·initial_gripper 줄로 출력 (파일은 안 고침)
 ./run-cli mode manual         # TEACH를 나가면 그 자리에서 토크 켬 (튀지 않게 목표를 지금 각으로 먼저 맞춤)
 
 ./run-cli gripper show
@@ -194,7 +223,7 @@ cd tool
 - `arm set`은 지정한 관절만 보내고, 나머지는 `manual_control`이 현재 각으로 채웁니다.
 - `MAPPING` 중에는 팔 명령이 스캔 자세 고정 때문에 거절됩니다. 그리퍼는 가능합니다.
 - 관절 한계는 `controller_manager`의 joint limiter가 최종 적용합니다.
-- 시작 자세 다시 잡기: 메뉴 **팔 → 6** — TEACH로 바꿈(팔·그리퍼 토크 끔) → 손으로 자세 → 확인 → `initial_pose`·`initial_gripper` 줄 출력 → 바로 MANUAL로(그 자리에서 토크 켬). 출력된 줄을 `ros2_ws/src/plan/config/plan.yaml`(coordinator)에 직접 붙여 넣고 bringup을 재시작하면 시작 자세가 됩니다. MANUAL은 토크가 늘 켜져 있고, 토크를 푸는 건 운영 모드 **TEACH**뿐입니다(메뉴 조작 모드 → 4). TEACH 동안 수동 바퀴·팔·그리퍼 명령과 자동 작업·시작 자세 이동은 멈추고, 바퀴 토크는 그대로입니다. 지도 MAPPING 중에는 TEACH가 거절됩니다.
+- 시작 자세 다시 잡기: 메뉴 **팔 → 6** — TEACH로 바꿈(팔·그리퍼 토크 끔) → 손으로 자세 → 확인 → `initial_pose`·`initial_gripper` 줄 출력 → 바로 MANUAL로(그 자리에서 토크 켬). 출력된 줄을 `ros2_ws/src/skills/config/skills.yaml`(`skill_pose`)에 직접 붙여 넣고 bringup을 재시작하면 시작 자세가 됩니다. MANUAL은 토크가 늘 켜져 있고, 토크를 푸는 건 운영 모드 **TEACH**뿐입니다(메뉴 조작 모드 → 4). TEACH 동안 수동 바퀴·팔·그리퍼 명령과 자동 작업·시작 자세 이동은 멈추고, 바퀴 토크는 그대로입니다. 지도 MAPPING 중에는 TEACH가 거절됩니다.
 - `arm reboot`은 `/state/devices/<wheels·arm·gripper>`에서 모터 에러(`joint2:과부하`)를 보고, 있으면 `/cmd/manual/reboot_motors`를 보낸 뒤 풀릴 때까지(최대 8초) 기다립니다. 에러가 없으면 보내지 않습니다. MANUAL 모드에서만 동작하며, 팔 메뉴에도 에러가 빨간색으로 표시됩니다.
 
 ### 지도
@@ -220,7 +249,7 @@ cd tool
   기본 경로는 `<state_manager의 map_dir>/<현재 지도 이름>/map` — map_saver가 도는 쪽(로봇·컨테이너) 경로라 원격 PC에서 CLI를 써도 맞습니다.
   `map_dir`을 못 읽으면 이 컴퓨터의 `ros2_ws/map`(또는 `BEEBOT_MAP_DIR`). `--file` · `--map-dir`는 그대로 씁니다.
 
-### 노드 (상태 · 재시작)
+### 노드 (상태 · 파라미터 · 진단 · 재시작)
 
 ```bash
 ./run-cli node list                          # 노드 전부 — ● 보임 / ✗ 안 보임 · pid · 수명주기 노드는 [active] 등
@@ -230,9 +259,71 @@ cd tool
 ./run-cli restart                            # 전체 재시작 — stop → start (메뉴 10 a)는 state_manager가 같은 launch 명령으로)
 ```
 
-- 메뉴 **10) 노드**: 맨 위 `a)` 전체 재시작(RESTART 입력), 그 아래 노드 목록. 노드를 고르면 1) 상태 보기 · 2) 재시작 · 3) 활성화(수명주기 노드만).
+- 메뉴 **10) 노드**: 맨 위 `a)` 전체 재시작(RESTART 입력), 그 아래 노드 목록. 노드를 고르면 상태·진단이 **1초마다 갱신**되고, 1) 상태 자세히 · 2) 재시작 · 3) 활성화(수명주기 노드만) · 4) 파라미터·진단 live(파라미터 서비스가 있는 노드만)를 고를 수 있습니다.
+- **4) 파라미터 · 진단 live** 화면은 파라미터 현재값과 그 노드의 `/diagnostics` 항목을 1초마다 다시 읽습니다. 값 변경은 `ros2 param set` 또는 메인 **12) 파라미터**에서.
 - 수명주기 노드(velocity_smoother · collision_monitor · Nav2 서버)는 `lifecycle_manager_base`·`_navigation`이 기동 때 켭니다. 기동 중 응답 시간 초과 등으로 멈춰 `[unconfigured]`·`[inactive]`로 남으면 바퀴 명령이 `/cmd_vel`까지 못 가 텔레오퍼가 안 움직입니다 → 그 노드를 **3) 활성화**.
 - 재시작은 state_manager 재시작 목록(이 launch 아래 노드)에 있는 것만 됩니다. 명령줄 재시작은 확인 없이 바로 실행합니다.
+
+### A/B 테스트 (노드별)
+
+메뉴 **14) A/B 테스트 (노드별)** → **rl_nav_correction** 순으로 들어간다.
+`rl_nav_correction`의 ONNX 보정 ON/OFF를 같은 주행으로 비교한다. 기록은 bee 안에 쌓인다
+(`ROS_DOMAIN_ID=88` + SHM 전용이라 PC 원격 기록 불가).
+
+#### 자동 A/B — `command.json`
+
+`tool/cli/ab/rl_nav_correction/command.json`에 시작 자세와 `route` goal들을 정해 두면,
+CLI가 rosbag 기록과 Nav2 `/navigate_to_pose` 주행을 직접 수행한다. 사용자가 주행할 필요는 없다.
+
+```bash
+./run-cli ab rl_nav_correction status
+./run-cli ab rl_nav_correction guide --label test1
+```
+
+`guide` 순서:
+
+1. E-STOP OFF · AUTO 확인 (필요하면 AUTO로 전환)
+2. `start`로 이동 (설정한 경우)
+3. A 녹화 시작 (보정 ON) → `route` 주행 → 녹화 종료
+4. 시작 자세로 복귀 → 보정 OFF
+5. B 녹화 시작 → 같은 `route` 주행 → 녹화 종료
+6. 보정 ON 복원 → 최근 A/B 리포트 생성
+
+`command.json` 키: `frame_id` · `start` · `route` · `repeats` · `goal_timeout_s` · `settle_s` ·
+`auto_mode` · `move_to_start` · `return_to_start`. 자세한 설명은 [cli/ab/README.md](cli/ab/README.md).
+
+> 지도·로컬라이제이션이 없으면 `map→base_footprint` TF와 `/navigate_to_pose`가 없어 자동 주행이
+> 실패한다. 먼저 지도를 로드하고 LOCALIZATION이 active인지 확인한다.
+
+#### 수동 A/B — 녹화만
+
+자동 주행 대신 RViz/Nav2로 직접 같은 goal을 보내며 기록만 할 수도 있다.
+
+```bash
+./run-cli ab nodes                                   # A/B 대상 노드 (지금은 rl_nav_correction)
+./run-cli ab rl_nav_correction status                # 보정 ON/OFF · 모델 · 계획 · 녹화 상태
+./run-cli ab rl_nav_correction record --label A      # A 녹화 시작 (백그라운드)
+# RViz 2D Goal Pose 또는 ros2 action send_goal /navigate_to_pose 로 주행 후
+./run-cli ab rl_nav_correction stop
+
+./run-cli ab rl_nav_correction off                   # B는 보정 끄기 (Δ=0)
+./run-cli ab rl_nav_correction record --label B
+# A와 같은 출발점·같은 goal로 주행 후
+./run-cli ab rl_nav_correction stop
+./run-cli ab rl_nav_correction on
+
+./run-cli ab rl_nav_correction report --last         # 최근 두 녹화 → report.png
+./run-cli ab rl_nav_correction report ~/bags/ab/A ~/bags/ab/B --labels A B --out ~/ab.png
+```
+
+- 기본 저장: `~/bags/ab/<시각>_<라벨>` (rosbag2 · mcap)
+- TUI 메뉴 **14) A/B 테스트 (노드별)** → **rl_nav_correction**:
+  상태 · ON/OFF · 녹화 시작/종료 · 최근 리포트 · **자동 A/B(command.json)** 를 한 화면에서 실행.
+  새 `rl_nav_*` 노드는 `cli/op/ab.py`의 `AB_NODES`와 `cli/op/pages/ab.py`의 화면 매핑에 추가한다.
+- `learning_enabled:=false`는 `rl_nav_tuner`까지 꺼서 속도 프리셋이 달라진다.
+  A/B는 반드시 `ab rl_nav_correction on`/`off`로 `rl_nav_correction`만 토글한다.
+- 공정한 비교: 같은 출발 자세·방향, 같은 goal, 같은 배터리·바닥에서 ON/OFF를 번갈아 여러 번.
+  OFF도 `max_vel_x`/`max_vel_theta` 안전 클램프는 남는다 (Nav2 설정과 같은 값).
 
 ## RViz
 
@@ -258,12 +349,12 @@ cd tool
 점구름과 gripper 영상은 네트워크를 많이 쓰므로 기본으로 꺼 두었습니다.
 필요할 때 RViz Displays에서 켜세요.
 
-Jetson에서 로컬로 실행하면 네트워크를 타지 않습니다. PC에서 원격으로 볼 때는
-PC도 Jetson과 같은 `ROS_DOMAIN_ID`(Jetson은 0)로 맞추고, `ROS_LOCALHOST_ONLY`는 끄세요.
+Jetson 기본은 `ROS_DOMAIN_ID=88` + `fastdds_local_only.xml`(SHM만)이라 네트워크를 타지 않습니다. PC에서 원격으로 보려면 양쪽을 `fastdds.xml`(UDP 포함)로 바꾸고, PC도 같은 `ROS_DOMAIN_ID=88`로 맞추고 `ROS_LOCALHOST_ONLY`는 끄세요.
 
 ```bash
 # PC — Jetson과 같은 값
-export ROS_DOMAIN_ID=0
+export ROS_DOMAIN_ID=88
+export FASTDDS_DEFAULT_PROFILES_FILE=/path/to/ros2_ws/fastdds.xml
 ```
 
 느리면 RViz Image Display의 **Transport Hint**를 `compressed`로 바꾸거나

@@ -1,4 +1,4 @@
-// ml 기본 테스트: rl_nav_correction은 보정 뒤 /speed_limit 상한으로 다시 자른다 (40% × 0.26 = 0.104m/s)
+// ml 기본 테스트: rl_nav_correction은 보정 뒤 max_vel_x · max_vel_theta로 다시 자른다
 #include <gtest/gtest.h>
 
 #include <chrono>
@@ -29,10 +29,9 @@ protected:
   static void TearDownTestSuite() { rclcpp::shutdown(); }
 };
 
-TEST_F(RosTest, ClipsToSpeedLimit) {
+TEST_F(RosTest, ClipsToMaxVelocity) {
   auto node = std::make_shared<RlNavCorrection>();
   auto probe = std::make_shared<rclcpp::Node>("probe");
-  auto limit_pub = probe->create_publisher<nav2_msgs::msg::SpeedLimit>("/speed_limit", rclcpp::QoS(1).reliable());
   auto odom_pub = probe->create_publisher<nav_msgs::msg::Odometry>("/odom", 10);
   auto cmd_pub = probe->create_publisher<TwistStamped>("/cmd_vel_nav", 10);
   TwistStamped::SharedPtr got;
@@ -44,18 +43,14 @@ TEST_F(RosTest, ClipsToSpeedLimit) {
 
   ASSERT_TRUE(spin_until(exec,
     [&]() {
-      nav2_msgs::msg::SpeedLimit limit;
-      limit.percentage = true;
-      limit.speed_limit = 40.0;
-      limit_pub->publish(limit);
       odom_pub->publish(nav_msgs::msg::Odometry());
       TwistStamped cmd;
-      cmd.twist.linear.x = 0.20;
-      cmd.twist.angular.z = 0.30;
+      cmd.twist.linear.x = 0.50;   // max_vel_x(0.26) 초과 → 잘림
+      cmd.twist.angular.z = 2.50;  // max_vel_theta(1.82) 초과 → 잘림
       cmd_pub->publish(cmd);
     },
-    [&]() { return got && std::abs(got->twist.linear.x - 0.104) < 1e-9; }));
-  EXPECT_DOUBLE_EQ(got->twist.angular.z, 0.30);  // 각속도는 max_vel_theta(1.82) 안이라 그대로
+    [&]() { return got && std::abs(got->twist.linear.x - 0.26) < 1e-9; }));
+  EXPECT_DOUBLE_EQ(got->twist.angular.z, 1.82);
 }
 
 // 정책 출력 스케일·클램프 (학습 env와 같은 약속)

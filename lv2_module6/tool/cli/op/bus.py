@@ -7,6 +7,7 @@ from __future__ import annotations
 import argparse
 import math
 import os
+import subprocess
 import sys
 import time
 from pathlib import Path
@@ -18,6 +19,7 @@ from geometry_msgs.msg import TwistStamped
 from sensor_msgs.msg import JointState
 from std_msgs.msg import Bool, Empty, Int32MultiArray, String
 
+from .ab import AbTest
 from .consts import (ARM_JOINTS, DIAG_LEVELS, GRIPPER_CLOSE, GRIPPER_JOINT,
                     GRIPPER_OPEN, WHEEL_JOINTS)
 from .terminal import BOLD, DIM, GREEN, RED, YELLOW, Terminal
@@ -56,6 +58,7 @@ class Bus:
         self.pub_restart = node.create_publisher(String, "/cmd/restart", 10)
         self.pub_reboot = node.create_publisher(Empty, "/cmd/manual/reboot_motors", 10)
         self.pub_beep = node.create_publisher(Int32MultiArray, "/cmd/beep", 10)
+        self.ab = AbTest(self)
 
     def _poll(self, seconds: float = 0.2):
         """콜백을 잠깐 돌려 상태를 갱신한다."""
@@ -342,6 +345,56 @@ class Bus:
             self._poll(0.15)
         return 0
 
+    def latest_calibration_csvs(self, n: int = 2) -> list[Path]:
+        root = Path(__file__).resolve().parents[2] / 'log' / 'calibration'
+        files = sorted(root.glob('*/raw.csv'), key=lambda p: p.stat().st_mtime, reverse=True)
+        return files[:n]
+
+    def calibration_report(self, args) -> int:
+        script = Path(__file__).resolve().parents[1] / 'calibration' / 'wheel' / 'report.py'
+        if not script.is_file():
+            print(f'FAIL: 리포트 스크립트 없음: {script}', file=sys.stderr)
+            return 2
+        csvs = [Path(p).expanduser() for p in (getattr(args, 'csv', None) or [])]
+        if not csvs:
+            csvs = self.latest_calibration_csvs(2)
+        if not csvs:
+            print('FAIL: raw.csv 없음 — 먼저 `run-cli calibrate wheel`', file=sys.stderr)
+            return 2
+        if len(csvs) > 2:
+            print('FAIL: CSV는 1개 또는 2개만', file=sys.stderr)
+            return 2
+        cmd = [sys.executable, str(script), *map(str, csvs)]
+        if getattr(args, 'labels', None):
+            cmd += ['--labels', *args.labels]
+        if getattr(args, 'out', None):
+            cmd += ['--out', str(Path(args.out).expanduser())]
+        res = subprocess.run(cmd, capture_output=True, text=True)
+        text = ((res.stdout or '') + (res.stderr or '')).rstrip()
+        if text:
+            print(text)
+        return int(res.returncode)
+
+    def cmd_calibrate(self, args) -> int:
+        """calibrate <부분> — wheel: 계획 파일을 /cmd/manual/cmd_vel로 재생하며 응답을 raw.csv로 기록 (op/calibrate.py). arm은 나중."""
+        if args.part == 'report':
+            return self.calibration_report(args)
+        if args.part != 'wheel':
+            print(f'거부: calibrate {args.part} — 아직 없음 (wheel만)', file=sys.stderr)
+            return 2
+        from .calibrate import ensure_stow, load_plan, run
+        try:
+            plan = load_plan(args.plan)
+        except ValueError as exc:
+            print(f'거부: {exc}', file=sys.stderr)
+            return 2
+        if not self.ensure_manual_or_switch(args.force):
+            return 1
+        if not ensure_stow(self, move=not args.check_only) and not args.check_only:
+            return 1   # 팔이 시작 자세가 아니면 먼저 보낸다 (check-only는 보기만)
+        out = Path(args.out) if args.out else Path(__file__).resolve().parents[2] / 'log' / 'calibration' / time.strftime('%Y-%m-%d_%H-%M-%S_wheel') / 'raw.csv'  # tool/log/calibration/<시각>_wheel/raw.csv
+        return run(self, plan, out, args.check_only)
+
     # ------------------------------------------------------------------ teleop
 
     def cmd_teleop(self, args) -> int:
@@ -474,10 +527,10 @@ class Bus:
               ' — manual_control 진단 "마지막 모터 재부팅"·기구 걸림 확인', file=sys.stderr)
         return 1
 
-    PLAN_YAML = Path(__file__).resolve().parents[3] / 'ros2_ws' / 'src' / 'plan' / 'config' / 'plan.yaml'
+    PLAN_YAML = Path(__file__).resolve().parents[3] / 'ros2_ws' / 'src' / 'skills' / 'config' / 'skills.yaml'  # skill_pose가 시작 자세를 가진다
 
     def cmd_capture(self) -> int:
-        """지금 팔·그리퍼 자세를 plan.yaml(coordinator) 형식으로 보여 준다 — 파일은 안 고침, 사람이 붙여 넣는다."""
+        """지금 팔·그리퍼 자세를 skills.yaml(skill_pose) 형식으로 보여 준다 — 파일은 안 고침, 사람이 붙여 넣는다."""
         if not self._wait_joints():
             print('/joint_states 없음 — bringup/OpenCR 확인', file=sys.stderr)
             return 1
@@ -489,7 +542,7 @@ class Bus:
         values = [self.state.joints[j] for j in ARM_JOINTS]
         print('  '.join(f'{j}={self._rad_deg(v)}' for j, v in zip(ARM_JOINTS, values)))
         gripper = self.state.joints.get(GRIPPER_JOINT)
-        print(f'\n{self.PLAN_YAML} 의 coordinator: ros__parameters: 아래에 붙여 넣으세요 (bringup 재시작 후 적용)\n')
+        print(f'\n{self.PLAN_YAML} 의 skill_pose: ros__parameters: 아래에 붙여 넣으세요 (bringup 재시작 후 적용)\n')
         print('    initial_pose: [' + ', '.join(f'{v:.4f}' for v in values) + ']')
         if gripper is None:
             print('    # initial_gripper: (/joint_states에 gripper_left_joint 없음)')
@@ -498,23 +551,23 @@ class Bus:
         return 0
 
     def initial_pose(self) -> tuple[dict[str, float], float | None, str] | None:
-        """시작 자세 — 떠 있는 coordinator 파라미터(지금 적용 중인 값)를 먼저, 없으면 plan.yaml.
+        """시작 자세 — 떠 있는 skill_pose 파라미터(지금 적용 중인 값)를 먼저, 없으면 skills.yaml.
         반환: ({관절: rad}, 그리퍼 m 또는 None(음수 = 안 건드림), 출처)"""
-        cli = self.param_client('coordinator', '/')
+        cli = self.param_client('skill_pose', '/')
         if cli is not None and cli.wait_for_services(timeout_sec=2.0):
             vals = self.param_get_vals(cli, ['initial_pose_joints', 'initial_pose', 'initial_gripper'])
             if vals and len(vals) == 3 and list(vals[0].string_array_value) and list(vals[1].double_array_value):
                 g = vals[2].double_value
                 return (dict(zip(vals[0].string_array_value, vals[1].double_array_value)),
-                        g if g >= 0.0 else None, 'coordinator 파라미터')
+                        g if g >= 0.0 else None, 'skill_pose 파라미터')
         try:
             import yaml
-            p = yaml.safe_load(self.PLAN_YAML.read_text())['coordinator']['ros__parameters']
+            p = yaml.safe_load(self.PLAN_YAML.read_text())['skill_pose']['ros__parameters']
             g = float(p.get('initial_gripper', -1.0))
             return (dict(zip(p['initial_pose_joints'], map(float, p['initial_pose']))),
                     g if g >= 0.0 else None, str(self.PLAN_YAML))
         except Exception as exc:
-            print(f'시작 자세를 못 읽음 (coordinator 없음 · {self.PLAN_YAML}: {exc})', file=sys.stderr)
+            print(f'시작 자세를 못 읽음 (skill_pose 없음 · {self.PLAN_YAML}: {exc})', file=sys.stderr)
             return None
 
     def cmd_arm(self, args) -> int:
@@ -919,7 +972,7 @@ class Bus:
     def node_rows(self) -> list[dict]:
         """노드 목록 — 그래프(실행 중 ROS 노드) + state_manager 재시작 목록(pid) 합침.
         lifecycle = <노드>/get_state 서비스가 있으면 True (Nav2 수명주기 노드)."""
-        self._poll(0.3)
+        self._poll(0.1)   # 메뉴 루프가 이미 poll(0.2)를 돌린다 — 여기서 길게 막지 않는다
         pids: dict[str, str] = {}
         for line in (self.state.values.get('restartable') or '').splitlines():
             parts = line.split()
@@ -1034,7 +1087,14 @@ class Bus:
         print(f'FAIL: {name} 20초 안에 다시 안 뜸 — /tmp/restart_{name}.log 확인', file=sys.stderr)
         return 1
 
+    def cmd_ab(self, args) -> int:
+        """A/B 테스트 — ab.py로 위임 (메뉴 14와 같은 구현)."""
+        from .ab import AbTest
+        return AbTest(self).cmd(args)
+
     def cmd_node(self, args) -> int:
+        if args.action in ('list', 'status'):
+            self._poll(0.5)   # 한 번 실행 명령 — 디스커버리 시간을 준다
         if args.action == 'list':
             for r in self.node_rows():
                 life = f' [{self.lifecycle_state(r["name"], 1.0) or "?"}]' if r['lifecycle'] else ''

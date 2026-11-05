@@ -183,6 +183,12 @@ class OperatorTool(Node):
         if name == '12':
             from op.pages import ParamMenu
             return ParamMenu(self)
+        if name == '13':
+            from op.pages import CalibrateMenu
+            return CalibrateMenu(self)
+        if name == '14':
+            from op.pages import AbMenu
+            return AbMenu(self)
         if name == '0':
             from op.pages import BeepMenu
             return BeepMenu(self)
@@ -222,6 +228,11 @@ def build_parser() -> argparse.ArgumentParser:
   ./tool/run-cli gripper open
   ./tool/run-cli map status
   ./tool/run-cli map save
+  ./tool/run-cli ab nodes
+  ./tool/run-cli ab rl_nav_correction status
+  ./tool/run-cli ab rl_nav_correction record --label A
+  ./tool/run-cli ab rl_nav_correction stop
+  ./tool/run-cli ab rl_nav_correction report --last
 ''')
     sub = parser.add_subparsers(dest='command', required=True)
 
@@ -245,6 +256,20 @@ def build_parser() -> argparse.ArgumentParser:
     drive.add_argument('--duration', type=_positive_float, default=1.0, help='주행 시간 [s] (기본 1.0)')
     drive.add_argument('--force', action='store_true', help='MANUAL 상태 확인을 건너뜀 (위험)')
 
+    calibrate = sub.add_parser('calibrate', help='칼리브레이션 (메뉴: 13) — wheel: 계획을 수동 경로로 재생하며 응답을 raw.csv로 기록 (로봇이 움직임)')
+    cal_sub = calibrate.add_subparsers(dest='part', required=True)
+    cal_wheel = cal_sub.add_parser('wheel', help='바퀴 응답 (MANUAL 모드 — 계획 JSON 재생)')
+    cal_wheel.add_argument('plan', nargs='?', default=str(Path(__file__).resolve().parent / 'calibration' / 'wheel' / 'command.json'),
+                           help='계획 파일 {"dt": 0.05, "steps": [[v, w], ...]} (기본 tool/cli/calibration/wheel/command.json = sim과 같은 네모 54 s)')
+    cal_wheel.add_argument('--out', default=None, help='raw.csv 경로 (기본: tool/log/calibration/<시각>_wheel/raw.csv)')
+    cal_wheel.add_argument('--check-only', action='store_true', help='안 움직이고 준비만 확인')
+    cal_wheel.add_argument('--force', action='store_true', help='MANUAL 상태 확인을 건너뜀 (위험)')
+
+    cal_report = cal_sub.add_parser('report', help='wheel raw.csv 리포트/비교 (생략 시 최근 1~2개)')
+    cal_report.add_argument('csv', nargs='*', help='raw.csv 경로 1개(요약) 또는 2개(비교)')
+    cal_report.add_argument('--labels', nargs='*', default=None, help='범례 이름 (예: SIM REAL)')
+    cal_report.add_argument('--out', default=None, help='출력 PNG (기본: 첫 CSV 옆 report_*.png)')
+
     teleop = sub.add_parser('teleop', help='터미널 키보드 수동 주행 (MANUAL 모드)')
     teleop.add_argument('--linear', type=_nonnegative_float, default=0.15, help='전후진 속도 [m/s]')
     teleop.add_argument('--angular', type=_nonnegative_float, default=0.8, help='회전 속도 [rad/s]')
@@ -252,9 +277,9 @@ def build_parser() -> argparse.ArgumentParser:
 
     arm = sub.add_parser('arm', help='팔 관절 수동 명령 (MANUAL 모드)')
     arm.add_argument('action', type=str.lower, choices=('show', 'set', 'delta', 'home', 'initial', 'reboot', 'capture'),
-                     help='initial = plan.yaml 시작 자세(initial_pose·initial_gripper)로 · '
+                     help='initial = skills.yaml(skill_pose) 시작 자세(initial_pose·initial_gripper)로 · '
                           'reboot = Hardware Error(과부하 등) 난 모터만 재부팅 (/cmd/manual/reboot_motors) · '
-                          'capture = 지금 팔·그리퍼 자세를 plan.yaml initial_pose·initial_gripper 형식으로 출력 (보통 mode teach로 손으로 잡은 뒤)')
+                          'capture = 지금 팔·그리퍼 자세를 skills.yaml(skill_pose) initial_pose·initial_gripper 형식으로 출력 (보통 mode teach로 손으로 잡은 뒤)')
     arm.add_argument('targets', nargs='*', help='관절 목표: joint1=0.0 joint2=0.4 (all=0.0 가능)')
     arm.add_argument('--force', action='store_true', help='MANUAL/MAPPING 확인을 건너뜀 (위험)')
 
@@ -284,6 +309,19 @@ def build_parser() -> argparse.ArgumentParser:
                       help='list = 전체 · status <이름> · restart <이름> (수명주기 노드는 active까지) · '
                            'activate <이름> = 수명주기 노드 unconfigured·inactive → active')
     node.add_argument('name', nargs='?', help='노드 이름 (예: velocity_smoother)')
+
+    ab = sub.add_parser('ab', help='A/B 테스트 — ab nodes | ab <노드> <동작> (메뉴: 14)')
+    ab.add_argument('node', nargs='?', default='nodes',
+                    help='노드 이름 (예: rl_nav_correction) 또는 nodes')
+    ab.add_argument('action', nargs='?', default=None,
+                    choices=('status', 'on', 'off', 'record', 'stop', 'report', 'guide'),
+                    help='status · on · off · record · stop · report · guide (생략 시 status)')
+    ab.add_argument('bags', nargs='*', help='report: bag 폴더 2개 (A B)')
+    ab.add_argument('--label', '-l', default=None, help='record/guide: bag 이름에 붙일 라벨 (예: A, B, on1)')
+    ab.add_argument('--out', default=None, help='record: 저장 폴더 · report: 출력 PNG')
+    ab.add_argument('--last', action='store_true', help='report: 최근 녹화 2개 사용')
+    ab.add_argument('--labels', nargs='*', default=None, help='report: 범례 이름 (예: A B)')
+    ab.add_argument('--config', default=None, help='guide: command.json 경로 (기본 tool/cli/ab/<노드>/command.json)')
 
     restart = sub.add_parser('restart', help='state_manager에 재시작 요청 (위험) — all = bringup 전체')
     restart.add_argument('target', help='all 또는 노드 이름')

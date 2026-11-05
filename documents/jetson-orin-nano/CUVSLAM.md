@@ -109,7 +109,7 @@ python3 -c "import cuvslam; print(cuvslam.get_version())"
 ```bash
 cd ~/Lv2_bee_Assignment/lv2_module6/ros2_ws
 export ROS_DOMAIN_ID=42
-export FASTDDS_DEFAULT_PROFILES_FILE=$PWD/fastdds.xml        # PC에서 보려면 (fastdds_local.xml은 Jetson 밖으로 안 나감)
+export FASTDDS_DEFAULT_PROFILES_FILE=$PWD/fastdds.xml        # PC에서 보려면 (fastdds_local_only.xml은 Jetson 밖으로 안 나감)
 export POLE_FRONT_CAM_SERIAL=261822074109 GRIPPER_CAM_SERIAL=261622075828
 ./start.sh map:=slam map_name:=<이름> use_moveit:=false
 ```

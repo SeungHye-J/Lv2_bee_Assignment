@@ -56,23 +56,3 @@ ros2 service call /rl_nav_correction/toggle std_srvs/srv/SetBool "{data: false}"
 3. `report.py` — 지표 정의(예: arm은 관절 추종오차·전류, controller는 정책 행동·횡오차)
 4. `run` — `record|report` 서브커맨드
 5. 이 README 표에 한 줄
-
-
-## rl_nav_controller
-
-정책(ONNX) vs inner DWB를 같은 주행으로 비교한다.
-비교 전에 correction을 끈다 (안 그러면 궤적 지표에 Δ가 섞인다). 끝나면 다시 켠다.
-
-```bash
-cd tool/node/rl_nav_controller
-ros2 service call /rl_nav_correction/toggle std_srvs/srv/SetBool "{data: false}"  # correction OFF
-./run record ~/bags/policy          # enable=true (toggle true)
-./run record ~/bags/dwb             # toggle false
-ros2 service call /rl_nav_correction/toggle std_srvs/srv/SetBool "{data: true}"   # correction 원복
-./run report ~/bags/policy ~/bags/dwb --labels 정책 DWB --out ~/report.png
-```
-
-토글:
-```bash
-ros2 service call /controller_server/FollowPath/toggle std_srvs/srv/SetBool "{data: true}"
-```

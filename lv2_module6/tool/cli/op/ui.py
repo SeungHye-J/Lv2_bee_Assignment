@@ -4,12 +4,15 @@ term=Terminal, state=StateStore(상태바용), poll=ROS 콜백 돌리기.
 """
 from __future__ import annotations
 
+import atexit
 import math
+import os
+import signal
 import sys
 import time
 
 from .consts import ARM_JOINTS, DIAG_LEVELS, GRIPPER_JOINT, WHEEL_JOINTS
-from .dialogs import Dialog, run_select
+from .dialogs import Dialog, run_select, set_cbreak
 from .terminal import BOLD, CYAN, DIM, GREEN, RED, RESET, YELLOW, Terminal
 
 
@@ -25,6 +28,64 @@ class Ui:
         self._busy = None   # 지금 떠 있는 처리 중 창 (메뉴 항목 실행 동안)
         self._title = None  # 마지막으로 그린 화면 제목 (창이 떠 있는 동안 상단 상태바만 다시 그리기용)
         self._top_at = 0.0
+        # 화면 아래에서 깜빡이는 실제 커서를 숨긴다 (입력은 다이얼로그의 '▏'로 표시).
+        self._cursor_hidden = False
+        self._term_fd = None
+        self._term_attrs = None
+        if self.console.isatty() and sys.stdin.isatty():
+            self._enter_key_mode()
+            self.term.hide_cursor()
+            self._cursor_hidden = True
+            atexit.register(self.close)
+            self._install_cursor_signals()
+
+    def _enter_key_mode(self) -> None:
+        """TUI가 떠 있는 동안 cbreak·에코 없음을 유지한다.
+
+        KeyReader는 다이얼로그/메뉴 선택 동안만 모드를 잡는다. 그 사이(메뉴 재그리기·
+        ROS 폴링)에 눌린 키가 조리된 모드로 돌아가 에코되면 화면 맨 아래에 '[A'처럼
+        찍히며 커서가 움직인다 — 세션 전체를 no-echo로 고정해 막는다.
+        """
+        import termios
+        try:
+            fd = sys.stdin.fileno()
+            old = termios.tcgetattr(fd)
+            set_cbreak(fd)
+        except Exception:
+            return
+        self._term_fd, self._term_attrs = fd, old
+
+    def _install_cursor_signals(self) -> None:
+        """SIGTERM/SIGHUP(CLI stop 등)에서도 커서를 되살린다 — atexit은 실행되지 않는다."""
+        def _restore(signum, _frame):
+            self.close()
+            try:
+                signal.signal(signum, signal.SIG_DFL)
+                os.kill(os.getpid(), signum)
+            except Exception:
+                raise SystemExit(128 + signum)
+        for name in ('SIGTERM', 'SIGHUP'):
+            sig = getattr(signal, name, None)
+            if sig is None:
+                continue
+            try:
+                signal.signal(sig, _restore)
+            except (ValueError, OSError):
+                pass
+
+    def close(self) -> None:
+        """종료·예외 시 실제 커서·터미널 모드 복구 (여러 번 불러도 안전)."""
+        if self._term_attrs is not None:
+            try:
+                import termios
+                termios.tcsetattr(self._term_fd, termios.TCSADRAIN, self._term_attrs)
+            except Exception:
+                pass
+            self._term_fd = None
+            self._term_attrs = None
+        if self._cursor_hidden:
+            self.term.show_cursor()
+            self._cursor_hidden = False
 
     @property
     def operation(self) -> str:

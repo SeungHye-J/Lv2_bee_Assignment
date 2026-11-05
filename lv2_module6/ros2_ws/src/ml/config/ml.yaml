@@ -8,7 +8,7 @@ rl_nav_correction:
     enabled: true            # false → Δ=0 (통과만). 서비스 ~/toggle (std_srvs/SetBool)로도 켜고 끔
     # ONNX 정책 — Isaac Lab/rsl_rl 학습. share/ml/model/<노드>/<이름> 하나만 본다 (노드별 폴더로 이름 충돌 방지).
     #   관측 6 = [v_cmd, w_cmd, v_odom, w_odom, w_gyro, t_change] · 출력 2 = [Δv, Δω] (-1..1)
-    model_path: "nav_correction/policy.onnx"   # share/ml/model/nav_correction/policy.onnx · "" = 모델 없이 통과
+    model_path: "rl_nav_correction/policy.onnx"   # share/ml/model/rl_nav_correction/policy.onnx · "" = 모델 없이 통과
     action_scale_lin: 0.05   # [m/s] 정책 출력 ±1 → Δ 선속도
     action_scale_ang: 0.10   # [rad/s] 정책 출력 ±1 → Δ 각속도
     max_delta_lin: 0.05      # [m/s] Δ 절대 상한 (한 번 더 자름)

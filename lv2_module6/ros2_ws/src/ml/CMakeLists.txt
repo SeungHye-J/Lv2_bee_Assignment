@@ -30,10 +30,17 @@ find_package(controller_interface REQUIRED)
 find_package(hardware_interface REQUIRED)
 find_package(pluginlib REQUIRED)
 find_package(rclcpp_lifecycle REQUIRED)
+find_package(realtime_tools REQUIRED)
+find_package(ament_index_cpp REQUIRED)
+find_package(tf2_ros REQUIRED)
+find_package(std_srvs REQUIRED)
 
+find_package(std_msgs REQUIRED)
 rosidl_generate_interfaces(${PROJECT_NAME}
   srv/ScoreGrasps.srv
-  DEPENDENCIES geometry_msgs)
+  msg/SkillContext.msg
+  msg/ArmCorrectionDebug.msg
+  DEPENDENCIES geometry_msgs std_msgs)
 rosidl_get_typesupport_target(msgs_cpp ${PROJECT_NAME} rosidl_typesupport_cpp)
 include_directories(include)
 
@@ -80,15 +87,17 @@ install(TARGETS rl_nav_controller LIBRARY DESTINATION lib)
 # --- rl_arm_correction: ROS 노드가 아니라 controller_manager가 불러 쓰는 chainable controller 플러그인
 add_library(rl_arm_correction SHARED src/rl_arm_correction.cpp)
 target_compile_features(rl_arm_correction PUBLIC cxx_std_17)
+target_include_directories(rl_arm_correction PUBLIC include)
 target_link_libraries(rl_arm_correction controller_interface::controller_interface
-  hardware_interface::hardware_interface pluginlib::pluginlib rclcpp::rclcpp rclcpp_lifecycle::rclcpp_lifecycle)
+  hardware_interface::hardware_interface pluginlib::pluginlib rclcpp::rclcpp rclcpp_lifecycle::rclcpp_lifecycle
+  realtime_tools::realtime_tools ament_index_cpp::ament_index_cpp ${perception_TARGETS} ${msgs_cpp} ${std_srvs_TARGETS})
 pluginlib_export_plugin_description_file(controller_interface rl_arm_correction.xml)
 install(TARGETS rl_arm_correction LIBRARY DESTINATION lib)
 
 # 파라미터 (bringup이 share/ml/config/ml.yaml을 노드에 넘긴다)
 install(DIRECTORY config DESTINATION share/${PROJECT_NAME})
-# 학습 모델 — ros2_ws/model/<노드>/* → share/ml/model/<노드>/ (기본 model_path=nav_correction/policy.onnx)
-#   노드별 폴더로 겹치지 않게 (nav_correction · nav_controller · grasp_scorer …)
+# 학습 모델 — ros2_ws/model/<노드>/* → share/ml/model/<노드>/ (rl_nav_correction 기본 model_path=rl_nav_correction/policy.onnx)
+#   노드별 폴더로 겹치지 않게 (rl_nav_correction · nav_controller · grasp_scorer · rl_nav_tuner …)
 set(MODEL_DIR "${CMAKE_CURRENT_SOURCE_DIR}/../../model")
 if(IS_DIRECTORY "${MODEL_DIR}")
   # yolo는 perception이 share/perception/model에 설치 — ml에서 중복 설치 안 함
@@ -102,11 +111,23 @@ install(DIRECTORY launch DESTINATION share/${PROJECT_NAME})
 if(BUILD_TESTING)
   find_package(ament_cmake_gtest REQUIRED)
   ament_add_gtest(test_rl_nav_correction test/test_rl_nav_correction.cpp TIMEOUT 60 ENV ROS_DOMAIN_ID=103)
+  ament_add_gtest(test_mlp_policy test/test_mlp_policy.cpp TIMEOUT 60)
+  target_include_directories(test_mlp_policy PRIVATE include)
+  target_compile_definitions(test_mlp_policy PRIVATE MODEL_DIR="${MODEL_DIR}")
+  ament_add_gtest(test_arm_obs test/test_arm_obs.cpp TIMEOUT 60)
+  target_include_directories(test_arm_obs PRIVATE include)
+  ament_add_gtest(test_rl_arm_correction test/test_rl_arm_correction.cpp)
+  target_link_libraries(test_rl_arm_correction rl_arm_correction)
+  ament_add_gtest(test_nav_obs test/test_nav_obs.cpp TIMEOUT 60)
+  target_include_directories(test_nav_obs PRIVATE include)
   target_link_libraries(test_rl_nav_correction ${PROJECT_NAME}_nodes)
   ament_add_test(test_launch GENERATE_RESULT_FOR_RETURN_CODE_ZERO
     COMMAND ros2 launch "${CMAKE_CURRENT_SOURCE_DIR}/launch/ml.launch.py" --show-args
     TIMEOUT 60)
 endif()
 
+# 헤더 (mlp_policy.hpp — plan의 plan_next도 씀)
+install(DIRECTORY include/ DESTINATION include/${PROJECT_NAME})
+ament_export_include_directories(include/${PROJECT_NAME})
 ament_export_dependencies(rosidl_default_runtime)
 ament_package()
