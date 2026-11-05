@@ -41,6 +41,9 @@ lv2_module6/firmware/build/
 /lv2_module6/ros2_ws/model/grasp_scorer/*.pt
 /lv2_module6/ros2_ws/model/skills/*/*.pt
 /lv2_module6/ros2_ws/model/nav_tuner/*.pt
+/lv2_module6/ros2_ws/model/*/*.pt
+/lv2_module6/ros2_ws/model/*/*.onnx
+/lv2_module6/ros2_ws/model/*/*.onnx.data
 /lv2_module6/simulator/yolo_job.log
 /log/
 /.playwright-mcp/
