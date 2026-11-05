@@ -27,7 +27,7 @@ void OnnxPolicy::load(const std::string & path) {
   try {
     Ort::SessionOptions opt;
     opt.SetIntraOpNumThreads(1);  // 20Hz 작은 MLP — 다른 노드와 CPU를 덜 다툰다
-    auto s = std::make_unique<Ort::Session>(env(), path.c_str(), opt);
+    auto s = std::make_shared<Ort::Session>(env(), path.c_str(), opt);
     if (s->GetInputCount() != 1 || s->GetOutputCount() != 1) {
       throw std::runtime_error("입력·출력이 하나씩이 아님");
     }
@@ -79,7 +79,7 @@ OnnxPolicy & OnnxPolicy::operator=(OnnxPolicy &&) noexcept = default;
 void OnnxPolicy::load(const std::string &) {
   throw std::runtime_error("onnxruntime_vendor 없이 빌드됨 — ros-lyrical-onnxruntime-vendor 설치 후 다시 빌드");
 }
-void OnnxPolicy::unload() { path_.clear(); n_in_ = n_out_ = 0; }
+void OnnxPolicy::unload() { path_.clear(); n_in_ = n_out_ = 0; }  // session_은 항상 null (stub)
 std::vector<float> OnnxPolicy::run(const std::vector<float> &) const {
   throw std::runtime_error("ONNX 지원 없이 빌드됨");
 }

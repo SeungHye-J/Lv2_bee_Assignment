@@ -32,7 +32,7 @@ public:
   std::vector<float> run(const std::vector<float> & obs) const;  // obs.size() == inputs()
 
 private:
-  std::unique_ptr<Ort::Session> session_;
+  std::shared_ptr<Ort::Session> session_;  // 불완전 타입 OK (소멸자 타입소거)
   std::string path_, in_name_, out_name_;
   int64_t n_in_ = 0, n_out_ = 0;
 };

@@ -39,7 +39,6 @@ flowchart TB
     end
     subgraph S3["③ 앞단 판단 보조"]
         GS["🛠️ grasp_scorer"]
-        NT["🛠️ rl_nav_tuner"]
     end
     subgraph S4["④ 확정 실행"]
         MG["📦 move_group<br/>plan + execute<br/>(use_moveit — bringup 기본 켬)"]
@@ -252,7 +251,8 @@ flowchart TB
 - **모든 🛠 노드는 /diagnostics로 자기 상태를 낸다.** diagnostic_updater(OK·WARN·ERROR + 값)를 bringup의 diagnostic_aggregator가 계층별로 묶어 /diagnostics_agg로 — 운영자 CLI·시뮬레이터 상태 패널이 본다 (사람용, 노드는 의존하지 않음).
 - **도식에 bringup이 띄우는 노드가 전부 있다.** ros_system 묶음(robot_state_publisher · controller_manager + spawner 1회 · move_group · twist_mux · RealSense ×2 · ekf_filter_node · SLAM 묶음 cuvslam_slam · pole/gripper_depth_gate · nvblox_node · nvblox_map · Nav2 서버 6개 + lifecycle 관리자 둘)과 bringup 직접(🛠 노드들 · map_saver + lifecycle_manager_map_saver · diagnostic_aggregator). lifecycle 관리자를 둘로 나눈 이유: 바퀴 명령 체인(base)은 odom만 있으면 뜨게 — 하나로 묶으면 지도가 없을 때 global_costmap 실패로 수동 조작까지 막혔음.
 - **물리 하드웨어는 노란 영역, 토픽은 내지 않는다.** 장치(육각형)는 신호가 오가는 곳 가까이에 두고 같은 노란 "물리 하드웨어" 영역으로 표시했다 — 센서 쪽(카메라)과 구동 쪽(OpenCR·모터·IMU). RealSense 카메라 2대는 🔌 USB 3로 realsense2_camera 드라이버 노드에 붙고, 토픽은 드라이버 노드가 발행한다. 모터·IMU는 OpenCR → hardware interface(controller_manager) 경로로 같은 원칙을 따른다.
-- **학습 노드도 입력을 보고 판단한다.** rl_nav_tuner는 local costmap(통로 폭·최근접 장애물), `/odometry/filtered`(현재 속도), `/plan`(남은 거리)을 보고 1~2초마다 프리셋 A/B/C를 고른다. rl_nav_correction은 `/cmd_vel_nav`가 올 때마다 `/plan`(경로 오차), `/odom`·`/imu`(실제 움직임), `/speed_limit`(재클리핑 상한)으로 Δ를 계산한다. grasp_scorer는 `/tracked_objects`로 대상 퍽을 찾고 gripper_cam 점구름으로 후보를 매긴다.
+- **주행 컨트롤러도 학습 정책이다.** Nav2 `FollowPath`는 `ml::RlNavController` — 관측 51(경로 웨이포인트 5 + 가상 스캔 36 + v/w/gyro + 이전 행동 2)을 ONNX에 넣어 v·ω를 직접 낸다. LiDAR가 없어 `/pole_front_cam/depth/color/points_filtered`를 base_footprint로 옮겨 36방향 최소거리(가상 스캔)를 만든다. `enable=false`(기본)이거나 모델·점구름이 없으면 inner DWB가 그대로 주행한다 (`~/FollowPath/toggle`).
+- **학습 노드도 입력을 보고 판단한다.** rl_nav_correction은 `/cmd_vel_nav`가 올 때마다 `/odom`·`/imu`(실제 움직임), `/speed_limit`(재클리핑 상한)으로 Δ를 계산한다. grasp_scorer는 `/tracked_objects`로 대상 퍽을 찾고 gripper_cam 점구름으로 후보를 매긴다.
 - **rl_arm_correction은 ROS 노드가 아니다.** controller_manager 안에서 JTC 바로 뒤에 체인으로 붙는 컨트롤러 플러그인이다 (컨트롤러 탭 참고).
 - **controller_manager 한 주기(100Hz)는 read → update → write.** move_group의 팔 궤적과 collision_monitor의 `/cmd_vel`은 언제든 도착해 다음 update에서 쓰인다. update에서 `/joint_states`(→ arm_safety_monitor)와 `/odom`·`/imu`(→ EKF, rl_nav_correction)를 발행하고, JTC 목표에 rl_arm_correction의 Δ를 더해 write로 보낸다. arm_safety_monitor의 궤적 취소만 주기와 무관한 비동기 호출이다. 단계별로는 **흐름 따라가기 → "팔 한 주기"**에서 볼 수 있다.
 - **controller_manager는 하나.** 베이스·팔·그리퍼·IMU가 같은 OpenCR에 붙어 있으므로 hardware component 하나에 컨트롤러들을 함께 올린다.
@@ -284,37 +284,33 @@ flowchart TB
    <sub>화살표: realsense2_camera → cuvslam_slam · controller_manager → robot_localization · cuvslam_slam → robot_localization · cuvslam_slam → planner_server · nvblox_map → planner_server · robot_localization → controller_server</sub>
 8. **장애물 지도** — body_filter가 팔·차체 점을 뺀 pole_front_cam 점구름이 costmap(local voxel · global obstacle)에 쌓여 장애물를 피하는 경로를 만듭니다.
    <sub>화살표: realsense2_camera → body_filter · body_filter → costmap_2d · costmap_2d → planner_server</sub>
-9. **앞단 판단 보조 — 무엇을 보고 판단하나** — rl_nav_tuner 입력: local costmap(통로 폭 0.73m, 장애물까지 거리), /odometry/filtered(현재 속도), /plan(남은 거리).
-   <sub>화살표: costmap_2d → rl_nav_tuner · robot_localization → rl_nav_tuner · planner_server → rl_nav_tuner</sub>
-10. **앞단 판단 보조 — 결정** — 좁은 통로·장애물 근처 → 프리셋 B. /speed_limit 60%(≈0.15m/s)를 Nav2와 rl_nav_correction에, max_vel_theta 1.0을 set_parameters로.
-   <sub>화살표: rl_nav_tuner → controller_server · rl_nav_tuner → rl_nav_correction</sub>
-11. **Nav2 속도 명령** — ✉️ /cmd_vel_nav = (0.12 m/s, 0.30 rad/s), 20Hz. 같은 선으로 /plan도 받습니다(경로 오차 계산용).
+9. **Nav2 속도 명령** — ✉️ /cmd_vel_nav = (0.12 m/s, 0.30 rad/s), 20Hz. 같은 선으로 /plan도 받습니다(경로 오차 계산용).
    <sub>화살표: controller_server → rl_nav_correction</sub>
-12. **뒷단 RL 보정** — /odom·/imu로 실제 움직임을 보니 미끄러운 바닥에서 경로를 4cm 벗어남 → Δ(+0.02, +0.05) → (0.14, 0.35). /speed_limit 상한 0.15 안이라 통과.
+10. **뒷단 RL 보정** — /odom·/imu로 실제 움직임을 보니 미끄러운 바닥에서 경로를 4cm 벗어남 → Δ(+0.02, +0.05) → (0.14, 0.35).
    <sub>화살표: controller_manager → rl_nav_correction · rl_nav_correction → velocity_smoother</sub>
-13. **안전 — 가속 제한 → 충돌 감시** — velocity_smoother가 가속을 자르고, collision_monitor가 점구름으로 장애물까지 거리를 봅니다(0.5m, 통과).
+11. **안전 — 가속 제한 → 충돌 감시** — velocity_smoother가 가속을 자르고, collision_monitor가 점구름으로 장애물까지 거리를 봅니다(0.5m, 통과).
    <sub>화살표: velocity_smoother → collision_monitor · realsense2_camera → collision_monitor</sub>
-14. **최종 /cmd_vel** — diff_drive_controller가 바퀴 속도로 바꿉니다 (좌 2.72, 우 5.76 rad/s).
+12. **최종 /cmd_vel** — diff_drive_controller가 바퀴 속도로 바꿉니다 (좌 2.72, 우 5.76 rad/s).
    <sub>화살표: collision_monitor → controller_manager</sub>
-15. **모터로** — 100Hz로 OpenCR에 `C` 줄 → 펌웨어가 한 패킷 BulkWrite, SyncRead 결과를 `S` 줄(10ms)로. 퍽 앞에 도착하면 Nav2 액션 결과가 "성공".
+13. **모터로** — 100Hz로 OpenCR에 `C` 줄 → 펌웨어가 한 패킷 BulkWrite, SyncRead 결과를 `S` 줄(10ms)로. 퍽 앞에 도착하면 Nav2 액션 결과가 "성공".
    <sub>화살표: controller_manager → OpenCR → 다이나믹셀 · OpenCR → 다이나믹셀 → controller_manager</sub>
-16. **어떻게 잡을까** — /tracked_objects로 대상 퍽을 찾고 gripper_cam 근접 점구름으로 후보를 매김. 📞 /score_grasps → [B 0.87, C 0.62, A 0.41].
+14. **어떻게 잡을까** — /tracked_objects로 대상 퍽을 찾고 gripper_cam 근접 점구름으로 후보를 매김. 📞 /score_grasps → [B 0.87, C 0.62, A 0.41].
    <sub>화살표: gripper_cam → realsense2_camera · realsense2_camera → grasp_scorer · perception → grasp_scorer · coordinator → grasp_scorer</sub>
-17. **집기 실행** — 📞 /plan_kinematic_path 후보 B → 🎬 /execute_trajectory — 접근·들어올리기 궤적을 move_group이 계획·실행 (그리퍼는 coordinator가 🎬 gripper_cmd로 직접).
+15. **집기 실행** — 📞 /plan_kinematic_path 후보 B → 🎬 /execute_trajectory — 접근·들어올리기 궤적을 move_group이 계획·실행 (그리퍼는 coordinator가 🎬 gripper_cmd로 직접).
    <sub>화살표: coordinator → move_group</sub>
-18. **팔 궤적** — 🎬 /arm_controller/follow_joint_trajectory로 관절 궤적이 controller_manager에 들어갑니다.
+16. **팔 궤적** — 🎬 /arm_controller/follow_joint_trajectory로 관절 궤적이 controller_manager에 들어갑니다.
    <sub>화살표: move_group → controller_manager</sub>
-19. **팔 처짐 보정** — JTC 목표 [0.00, 0.62, −0.31, 1.10] + Δ[0, +0.03, −0.01, 0] → joint2 중력 처짐 보상.
+17. **팔 처짐 보정** — JTC 목표 [0.00, 0.62, −0.31, 1.10] + Δ[0, +0.03, −0.01, 0] → joint2 중력 처짐 보상.
    <sub>화살표: controller_manager → rl_arm_correction · rl_arm_correction → controller_manager</sub>
-20. **팔 모터로** — 같은 OpenCR 버스로 팔 관절 목표를 쓰고 현재값을 읽습니다.
+18. **팔 모터로** — 같은 OpenCR 버스로 팔 관절 목표를 쓰고 현재값을 읽습니다.
    <sub>화살표: controller_manager → OpenCR → 다이나믹셀 · OpenCR → 다이나믹셀 → controller_manager</sub>
-21. **안전 감시는 항상** — /joint_states를 arm_safety_monitor가 계속 봅니다. 이상이 없으면 조용합니다.
+19. **안전 감시는 항상** — /joint_states를 arm_safety_monitor가 계속 봅니다. 이상이 없으면 조용합니다.
    <sub>화살표: controller_manager → arm_safety_monitor · arm_safety_monitor → coordinator</sub>
-22. **목표 구역에 가서 내려놓기** — 퍽을 든 채 footprint를 키우고 이동 → place → detach. 경로는 위 이동 단계와 같습니다.
+20. **목표 구역에 가서 내려놓기** — 퍽을 든 채 footprint를 키우고 이동 → place → detach. 경로는 위 이동 단계와 같습니다.
    <sub>화살표: coordinator → bt_navigator · coordinator → move_group</sub>
-23. **완료 보고** — ✉️ /task/status 완료 — VLM은 다음 명령을 기다립니다.
+21. **완료 보고** — ✉️ /task/status 완료 — VLM은 다음 명령을 기다립니다.
    <sub>화살표: coordinator → vlm_task_planner</sub>
-24. **운영자에게 알림** — ✉️ /robot/say → 💬 "퍽을 옮겼어요". 끝.
+22. **운영자에게 알림** — ✉️ /robot/say → 💬 "퍽을 옮겼어요". 끝.
    <sub>화살표: coordinator → user_input · user_input → 사람</sub>
 
 ### 신호등 암호 미션 — 신호부터 수납 확인까지
@@ -341,7 +337,7 @@ flowchart TB
 1. **controller_server** — 경로를 따라가는 속도 /cmd_vel_nav를 냅니다.
    <sub>화살표: controller_server → rl_nav_correction</sub>
 2. **RL 보정** — /odom·/imu(실제 움직임)를 보고 Δ를 더한 뒤(±0.05m/s, ±0.10rad/s) /speed_limit 상한으로 다시 자릅니다.
-   <sub>화살표: controller_manager → rl_nav_correction · rl_nav_tuner → rl_nav_correction · rl_nav_correction → velocity_smoother</sub>
+   <sub>화살표: controller_manager → rl_nav_correction · rl_nav_correction → velocity_smoother</sub>
 3. **가속 제한 → 충돌 감시** — 갑작스러운 가속을 막고, 점구름 다각형 안에 장애물이 있으면 감속·정지.
    <sub>화살표: velocity_smoother → collision_monitor · realsense2_camera → collision_monitor</sub>
 4. **diff_drive_controller** — /cmd_vel을 바퀴 각속도로 바꿉니다.
