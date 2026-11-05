@@ -21,7 +21,7 @@ coordinator:
     #   실행 중 끄기: ros2 param set /coordinator initial_pose_enabled false (가는 중이면 그 자리에서 멈춤)
     initial_pose_enabled: true
     initial_pose_joints: [joint1, joint2, joint3, joint4, joint5]
-    # = MoveIt SRDF 'stow' = Isaac beebot.usda 접은 자세. joint2는 URDF 하한(-1.919862) 안쪽으로 -1.91
+    # = MoveIt SRDF 'stow' = Isaac beebot.usda 접은 자세. joint2는 URDF 하한(-1.919862) 안쪽으로 -1.9024
     #   (예전 TEACH 값 [-0.0215, -2.0019, 1.1152, 0.8682, 0.0936]은 joint2가 하한 밖이라 controller_manager가 잘라 도달 판정 실패)
     # 11/03 사용자 Isaac 관절 패널 stow: joint1 0 · joint2 −109.0° · joint3 97.6° · joint4 51.7° · joint5 0 · 그리퍼 0.011
     #   joint3 97.6°는 한계(URDF·USD 둘 다 80° = 1.396263) 밖 — Isaac도 80°에서 멈춘 자세. 77°(1.344) — 79°로 보냈더니 처짐 보정·중력으로 실제 1.408까지 들어가 한계(1.396) 밖 → MoveIt이 stow에서 출발하는 계획을 전부 거부했음 (실기 11/03)

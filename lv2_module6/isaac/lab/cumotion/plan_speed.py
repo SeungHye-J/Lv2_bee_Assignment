@@ -14,7 +14,7 @@ box.set_attribute(cm.Obstacle.Attribute.SIDE_LENGTHS, cm.Obstacle.AttributeValue
 world.add_obstacle(box, cm.Pose3.from_translation((np.array([0.1825, 0.0, 0.035]) - base).reshape(3, 1)))
 opt = cm.create_trajectory_optimizer(cm.create_default_trajectory_optimizer_config(rd, "end_effector_link", world.add_world_view()))
 T = cm.TrajectoryOptimizer
-stow = np.array([0.0, math.radians(-109.435), math.radians(78.5), math.radians(34.1), 0.0])
+stow = np.array([0.0, -1.9024, 1.344, 0.9023, 0.0])
 for k, dy in enumerate(np.radians([0, 10, 20, 30, 40])):
     pb = np.array([0.1825, -0.04, bc.BOX_H]) - base
     hd = math.atan2(pb[1], pb[0]); want = hd + math.remainder(math.pi / 2 - hd, math.pi) + dy

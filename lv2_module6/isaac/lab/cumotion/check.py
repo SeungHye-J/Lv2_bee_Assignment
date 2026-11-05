@@ -30,7 +30,7 @@ world.add_obstacle(box, cm.Pose3.from_translation((np.array([0.1825, 0.0, 0.035]
 view = world.add_world_view()
 cfg = cm.create_default_trajectory_optimizer_config(rd, "end_effector_link", view)
 opt = cm.create_trajectory_optimizer(cfg)
-stow = np.array([0.0, math.radians(-109.435), math.radians(78.5), math.radians(34.1), 0.0])
+stow = np.array([0.0, -1.9024, 1.344, 0.9023, 0.0])
 pb = np.array([0.1825, -0.04, bc.BOX_H]) - base
 hd = math.atan2(pb[1], pb[0]); want = hd + math.remainder(math.pi / 2 - hd, math.pi)
 rot = pin.utils.rotate("z", want) @ bc.DOWN

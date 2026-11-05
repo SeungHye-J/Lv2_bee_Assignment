@@ -2,7 +2,7 @@ description: 'BEE basket slot table from isaac/lab/slot_table.py. Joint values j
   carry -> q_over -> q_grasp -> close -> q_over -> carry. Box pucks use ''box'', cylinders ''cyl''. Load poses assume the puck bottom at d_nom in the end effector
   frame; for a measured offset e: q = q_nom + P @ (-rot @ e).'
 d_nom_m: [0.0, 0.0, 0.060599999999999994]
-stow: [0.0, -1.9100010669199945, 1.3700834628155487, 0.5951572749300664, 0.0]
+stow: [0.0, -1.9024, 1.344, 0.9023, 0.0]
 carry:
   left: [1.5707963267948966, -0.465027, 0.102271, 1.933412, 1.5707963267948966]
   right: [-1.5707963267948966, -0.465027, 0.102271, 1.933412, -1.5707963267948966]

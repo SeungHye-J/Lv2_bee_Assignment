@@ -4,9 +4,9 @@ modifiers:
 - set_base_frame: base_link
 default_joint_positions:
   joint1: 0.0
-  joint2: -1.91
-  joint3: 1.3701
-  joint4: 0.5952
+  joint2: -1.9024
+  joint3: 1.344
+  joint4: 0.9023
   joint5: 0.0
 cspace:
   joint_names:

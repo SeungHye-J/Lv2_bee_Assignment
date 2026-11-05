@@ -29,7 +29,7 @@ BOX_CX = 0.08 + bc.BOX_HALF
 START_GAP = 0.080
 YAW_BINS = np.radians(np.arange(-45, 46, 1))
 CELLS = [(BOX_CX + bc.CELL_PITCH * (r - 1), bc.CELL_PITCH * (c - 1)) for r in (0, 1) for c in range(3)]
-STOW = np.array([0.0, math.radians(-109.435), math.radians(78.5), math.radians(34.1), 0.0])
+STOW = np.array([0.0, -1.9024, 1.344, 0.9023, 0.0])
 T = cm.TrajectoryOptimizer
 
 

@@ -110,7 +110,7 @@ Coordinator::Coordinator()
       RCLCPP_WARN(get_logger(), "stand_waypoints table인데 표가 없음 (config/stand_table.yaml) — stand는 stand_table_missing으로 실패");
   }
   // 자세 · 적재함 표 (config/basket.yaml — isaac-lab slot_table). 표가 없으면 load·unload는 basket_table_missing으로 실패
-  poses_["stow"] = declare_parameter<std::vector<double>>("pose_stow", {0.0, -1.91, 1.3701, 0.5952, 0.0});
+  poses_["stow"] = declare_parameter<std::vector<double>>("pose_stow", {0.0, -1.9024, 1.344, 0.9023, 0.0});
   poses_["carry_left"] = declare_parameter<std::vector<double>>("pose_carry_left", {1.5708, -0.465027, 0.102271, 1.933412, 1.5708});
   poses_["carry_right"] = declare_parameter<std::vector<double>>("pose_carry_right", {-1.5708, -0.465027, 0.102271, 1.933412, -1.5708});
   basket_carry_ = declare_parameter<std::vector<std::string>>("basket_carry", std::vector<std::string>{});

@@ -6,7 +6,7 @@
 #   표를 다시 만들면(slot_table.py) 이 파일을 같이 바꿀 것. 손 안 퍽 위치 보정(P_*)은 아직 안 씀
 coordinator:
   ros__parameters:
-    pose_stow: [0.000000, -1.910001, 1.370083, 0.595157, 0.000000]
+    pose_stow: [0.000000, -1.902400, 1.344000, 0.902300, 0.000000]
     pose_carry_left: [1.570796, -0.465027, 0.102271, 1.933412, 1.570796]
     pose_carry_right: [-1.570796, -0.465027, 0.102271, 1.933412, -1.570796]
     basket_carry: ["right", "right", "left", "left", "right", "right", "left", "left", "right", "right", "left", "left"]

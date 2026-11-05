@@ -80,7 +80,7 @@ def main():
         "format": "xrdf",
         "format_version": 1.0,
         "modifiers": [{"set_base_frame": "base_link"}],
-        "default_joint_positions": dict(zip(ARM, [0.0, -1.91, 1.3701, 0.5952, 0.0])),  # SRDF stow
+        "default_joint_positions": dict(zip(ARM, [0.0, -1.9024, 1.344, 0.9023, 0.0])),  # SRDF stow
         "cspace": {"joint_names": ARM, "acceleration_limits": [bc.AMAX] * 5, "jerk_limits": [100.0] * 5},
         "tool_frames": ["end_effector_link"],
         "collision": {"geometry": "beebot_spheres", "buffer_distance": {k: 0.005 for k in N_SPHERES if k != "base_link"}},

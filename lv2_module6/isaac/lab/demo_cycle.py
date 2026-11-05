@@ -138,7 +138,7 @@ POS_NOISE, YAW_NOISE = 0.005, math.radians(10.0)
 SLOTS = [(x, y, 0.09125) for x in (-0.16984, -0.10484, -0.03984) for y in (-0.0975, -0.0325, 0.0325, 0.0975)]
 ST = dict(np.load(Path(__file__).resolve().parent / "slot_table.npz"))  # load / unload poses per slot (slot_table.py)
 LIFT_CLEARS = (0.10, 0.09, 0.08)  # held puck bottom above the start box top before the sweep to carry (pucks: 60 mm)
-STOW = (0.0, math.radians(-109.435), math.radians(78.5), math.radians(34.1), 0.0)  # beebot.usda default pose
+STOW = (0.0, -1.9024, 1.344, 0.9023, 0.0)  # beebot.usda default pose
 # carry pose (cycle_sm.py route "carry", report 20261027_sim_tests 11-13), one per basket side, joint1..5 [rad]:
 # fingertip 0.08 m beside joint1 at +-90 deg from the front, 0.21 m up, tool down, wrist turned 90 deg
 # (+y side mirrored). Was an IK solve at start-up with fixed seeds, which always gave these values.

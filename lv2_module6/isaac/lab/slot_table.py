@@ -33,7 +33,7 @@ OVER = {0: (0.05, -20.0), 1: (0.045, 0.0), 2: (0.06, 0.0)}  # per row: over-slot
 SET_TILTS = (0.0, -5.0, -10.0, -15.0)
 LIFT_UPS = (0.06, 0.05, 0.045, 0.04, 0.035)
 WRIST = math.pi / 2
-STOW = np.array([0.0, math.radians(-109.435), math.radians(78.5), math.radians(34.1), 0.0])
+STOW = np.array([0.0, -1.9024, 1.344, 0.9023, 0.0])
 CARRY = {1: np.array([math.pi / 2, -0.465027, 0.102271, 1.933412, math.pi / 2]),
          -1: np.array([-math.pi / 2, -0.465027, 0.102271, 1.933412, -math.pi / 2])}
 D_NOM = np.array([0.0, 0.0, bc.GRASP_Z])  # puck bottom in the end effector frame, nominal grasp

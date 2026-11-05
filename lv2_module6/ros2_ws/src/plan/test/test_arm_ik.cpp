@@ -17,7 +17,7 @@ TEST(ArmIk, FkMatchesRobotTf) {
 }
 
 TEST(ArmIk, SolvesTopDownWithYaw) {
-  const std::vector<double> stow{0.0, -1.91, 1.3701, 0.5952, 0.0};
+  const std::vector<double> stow{0.0, -1.9024, 1.344, 0.9023, 0.0};
   for (const auto & [x, y, z, psi] : std::vector<std::array<double, 4>>{
          {0.20, 0.00, 0.05, 0.5}, {0.18, 0.06, 0.06, 1.2}, {0.15, -0.05, 0.08, -0.7}, {0.22, 0.02, 0.03, 0.0}}) {
     std::vector<double> q;
@@ -34,7 +34,7 @@ TEST(ArmIk, SolvesTopDownWithYaw) {
 TEST(ArmIk, RejectsUnreachableDown) {
   // 25 cm 앞 · 10 cm 위는 손을 아래로 향한 채로는 못 감 (joint4 한계 — 손끝 최대 높이가 거리에 따라 급히 낮아짐)
   std::vector<double> q;
-  EXPECT_FALSE(arm_ik_down({0.25, 0.05, 0.10}, 1.2, {0.0, -1.91, 1.3701, 0.5952, 0.0}, q));
+  EXPECT_FALSE(arm_ik_down({0.25, 0.05, 0.10}, 1.2, {0.0, -1.9024, 1.344, 0.9023, 0.0}, q));
 }
 
 TEST(ArmIk, JointPathPassesWaypoints) {
