@@ -937,7 +937,7 @@ class Bus:
     def node_rows(self) -> list[dict]:
         """노드 목록 — 그래프(실행 중 ROS 노드) + state_manager 재시작 목록(pid) 합침.
         lifecycle = <노드>/get_state 서비스가 있으면 True (Nav2 수명주기 노드)."""
-        self._poll(0.3)
+        self._poll(0.1)   # 메뉴 루프가 이미 poll(0.2)를 돌린다 — 여기서 길게 막지 않는다
         pids: dict[str, str] = {}
         for line in (self.state.values.get('restartable') or '').splitlines():
             parts = line.split()
@@ -1053,6 +1053,8 @@ class Bus:
         return 1
 
     def cmd_node(self, args) -> int:
+        if args.action in ('list', 'status'):
+            self._poll(0.5)   # 한 번 실행 명령 — 디스커버리 시간을 준다
         if args.action == 'list':
             for r in self.node_rows():
                 life = f' [{self.lifecycle_state(r["name"], 1.0) or "?"}]' if r['lifecycle'] else ''
