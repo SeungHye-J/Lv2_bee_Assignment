@@ -43,6 +43,76 @@ Python 3.12.3
 glibc 2.39
 ```
 
+## Swap 8GB (SLAM/mapping 대비)
+
+Jetson Orin Nano는 RAM 7.4Gi, 기본 swap 0B다. bringup만으로 5Gi 안팎을 쓰고,
+`map:=slam`(cuVSLAM + nvblox)에 VNC·RViz까지 올리면 여유가 2Gi 아래로 떨어진다.
+NVMe(116G)에 여유가 있어 **8GB swapfile**을 영구 설정했다 (2026-11-05).
+
+- swap은 **OOM 방지용 안전장치**다. cuVSLAM/nvblox의 GPU 멈춤·크래시를 고치지는 않는다.
+- mapping 중 swap 사용량이 2~3GB를 넘으면 성능이 급격히 떨어진다. RViz는 Jetson VNC에서
+  같이 띄우지 말고, 지도가 끝난 뒤(LOCALIZATION) 켠다.
+- 4GB도 최소지만, SLAM + VNC를 고려해 8GB로 잡았다.
+
+```bash
+# 기존 /swapfile이 있으면 먼저 해제
+sudo swapoff /swapfile 2>/dev/null || true
+sudo rm -f /swapfile
+
+sudo fallocate -l 8G /swapfile
+sudo chmod 600 /swapfile
+sudo mkswap /swapfile
+sudo swapon /swapfile
+
+# 재부팅 후에도 유지
+grep -q '^/swapfile ' /etc/fstab || \
+  echo '/swapfile none swap sw 0 0' | sudo tee -a /etc/fstab
+
+# 평소에는 swap을 적게 쓰고, 메모리 압박 때만 사용
+printf 'vm.swappiness=20\n' | sudo tee /etc/sysctl.d/99-swap.conf
+sudo sysctl --system
+```
+
+확인:
+
+```bash
+free -h
+swapon --show
+cat /proc/sys/vm/swappiness
+grep '/swapfile' /etc/fstab
+```
+
+정상 예:
+
+```text
+               total        used        free      shared  buff/cache   available
+Mem:           7.4Gi       5.2Gi       603Mi       1.2Gi       3.0Gi       2.2Gi
+Swap:          8.0Gi          0B       8.0Gi
+
+NAME      TYPE SIZE USED PRIO
+/swapfile file   8G   0B   -2
+
+20
+/swapfile none swap sw 0 0
+```
+
+크기 변경/제거:
+
+```bash
+# 크기 변경: swapoff → 파일 삭제 → 원하는 크기로 다시 생성
+sudo swapoff /swapfile
+sudo rm -f /swapfile
+# 위 생성 명령을 원하는 크기(-l 4G/12G)로 다시 실행
+
+# 제거
+sudo swapoff /swapfile
+sudo sed -i '\|^/swapfile |d' /etc/fstab
+sudo rm -f /swapfile
+```
+
+> swap을 켠 뒤에도 mapping이 또 멈추면 OOM인지 먼저 확인한다:
+> `journalctl -k -b -1 | grep -i -E 'oom|killed process'` · `tail -n 120 lv2_module6/tool/bringup.log`
+
 
 # ros setting
 ## link

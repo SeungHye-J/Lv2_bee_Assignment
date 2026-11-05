@@ -67,7 +67,7 @@ sudo apt install -y cuda-nvcc-13-2 cuda-cudart-dev-13-2 libcublas-dev-13-2 libcu
 # 2) 소스 (git-lfs 없이도 빌드됨 — 시험 이미지만 LFS)
 GIT_LFS_SKIP_SMUDGE=1 git clone --depth 1 --branch v17.0.1 https://github.com/NVlabs/PyCuVSLAM.git ~/cuvslam/src
 
-# 3) 라이브러리 빌드 — Orin GPU(sm_87)만 · 스왑이 없어 jobs 4 (수십 분)
+# 3) 라이브러리 빌드 — Orin GPU(sm_87)만 · 스왑 8GB 설정됨 · jobs 4 (수십 분)
 export PATH=/usr/local/cuda/bin:$PATH
 cd ~/cuvslam
 CUVSLAM_SRC_DIR=$HOME/cuvslam/src CUVSLAM_DST_DIR=$HOME/cuvslam/build \
@@ -94,7 +94,7 @@ python3 -c "import cuvslam; print(cuvslam.get_version()); cuvslam.warm_up_gpu();
 
 | 방법 | 내용 | 확인할 것 |
 |---|---|---|
-| (a) 소스 빌드 | `isaac_ros_nvblox`(nvblox 코어 포함)와 의존 패키지를 Lyrical 워크스페이스에서 colcon 빌드. CUDA 아키텍처 87 (Orin) | 의존: `nvblox_msgs` · `nvblox_ros_common` · `nvblox_ros_python_utils` · `nvblox_rviz_plugin` · `isaac_ros_common` · `cuda_buffer` (deb Depends 기준). 빌드 시간·메모리 (스왑 없음 → jobs 줄이기) |
+| (a) 소스 빌드 | `isaac_ros_nvblox`(nvblox 코어 포함)와 의존 패키지를 Lyrical 워크스페이스에서 colcon 빌드. CUDA 아키텍처 87 (Orin) | 의존: `nvblox_msgs` · `nvblox_ros_common` · `nvblox_ros_python_utils` · `nvblox_rviz_plugin` · `isaac_ros_common` · `cuda_buffer` (deb Depends 기준). 빌드 시간·메모리 (스왑 8GB 설정됨 — [SETTING.md](SETTING.md) "Swap 8GB") |
 | (b) Isaac ROS 컨테이너 | NVIDIA 공식 컨테이너에서 nvblox만 띄우고 나머지는 지금 Lyrical 스택 | 컨테이너가 JetPack 7 + Orin을 지원하는지 · 배포판이 달라도 `nvblox_msgs`·`OccupancyGrid`·TF가 오가는지 |
 
 설치 확인:
@@ -127,6 +127,11 @@ export POLE_FRONT_CAM_SERIAL=261822074109 GRIPPER_CAM_SERIAL=261622075828
 ```
 
 `추적`이 늘지 않으면 카메라 영상이 안 오는 것 — 아래 4절 "카메라·SLAM이 멈춤" 참고.
+
+> **메모리**: mapping은 cuVSLAM + nvblox + VNC로 RAM이 빠듯하다. Jetson에는 8GB swap을
+> 설정해 두었지만([SETTING.md](SETTING.md) "Swap 8GB"), **mapping 중 Jetson VNC에서 RViz를
+> 같이 띄우지 않는다.** 지도가 끝나고 LOCALIZATION으로 넘어간 뒤 켠다. `free -h`의
+> `available`이 300MiB 아래로 떨어지면 중단한다.
 
 ### 3-1. cuVSLAM + nvblox 실기 시험 순서 (정지 상태부터)
 
