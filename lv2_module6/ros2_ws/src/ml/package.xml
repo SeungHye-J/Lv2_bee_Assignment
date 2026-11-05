@@ -25,9 +25,7 @@
   <depend>nav2_costmap_2d</depend>
   <depend>nav2_ros_common</depend>
   <depend>tf2</depend>
-  <depend>tf2_ros</depend>
   <depend>tf2_geometry_msgs</depend>
-  <depend>std_msgs</depend>
   <depend>std_srvs</depend>
   <depend>perception</depend>
   <depend>controller_interface</depend>
