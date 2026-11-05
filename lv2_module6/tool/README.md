@@ -179,10 +179,10 @@ cd tool
 ./run-cli arm set joint1=0.0 joint2=0.4 joint3=-0.2
 ./run-cli arm delta joint2=+0.05
 ./run-cli arm home
-./run-cli arm initial       # 시작 자세로 — 떠 있는 coordinator의 initial_pose·initial_gripper (없으면 plan.yaml) (메뉴: 팔 → 7)
+./run-cli arm initial       # 시작 자세로 — 떠 있는 skill_pose의 initial_pose·initial_gripper (없으면 skills.yaml) (메뉴: 팔 → 7)
 ./run-cli arm reboot          # 과부하 등 Hardware Error 난 모터만 재부팅 (메뉴: 팔 → 5)
 ./run-cli mode teach          # TEACH: 팔(joint1~5)·그리퍼 토크 끔 — 손으로 자세 잡기 (팔이 처지니 잡고 있을 것)
-./run-cli arm capture         # 지금 팔·그리퍼 자세를 plan.yaml initial_pose·initial_gripper 줄로 출력 (파일은 안 고침)
+./run-cli arm capture         # 지금 팔·그리퍼 자세를 skills.yaml(skill_pose) initial_pose·initial_gripper 줄로 출력 (파일은 안 고침)
 ./run-cli mode manual         # TEACH를 나가면 그 자리에서 토크 켬 (튀지 않게 목표를 지금 각으로 먼저 맞춤)
 
 ./run-cli gripper show
@@ -194,7 +194,7 @@ cd tool
 - `arm set`은 지정한 관절만 보내고, 나머지는 `manual_control`이 현재 각으로 채웁니다.
 - `MAPPING` 중에는 팔 명령이 스캔 자세 고정 때문에 거절됩니다. 그리퍼는 가능합니다.
 - 관절 한계는 `controller_manager`의 joint limiter가 최종 적용합니다.
-- 시작 자세 다시 잡기: 메뉴 **팔 → 6** — TEACH로 바꿈(팔·그리퍼 토크 끔) → 손으로 자세 → 확인 → `initial_pose`·`initial_gripper` 줄 출력 → 바로 MANUAL로(그 자리에서 토크 켬). 출력된 줄을 `ros2_ws/src/plan/config/plan.yaml`(coordinator)에 직접 붙여 넣고 bringup을 재시작하면 시작 자세가 됩니다. MANUAL은 토크가 늘 켜져 있고, 토크를 푸는 건 운영 모드 **TEACH**뿐입니다(메뉴 조작 모드 → 4). TEACH 동안 수동 바퀴·팔·그리퍼 명령과 자동 작업·시작 자세 이동은 멈추고, 바퀴 토크는 그대로입니다. 지도 MAPPING 중에는 TEACH가 거절됩니다.
+- 시작 자세 다시 잡기: 메뉴 **팔 → 6** — TEACH로 바꿈(팔·그리퍼 토크 끔) → 손으로 자세 → 확인 → `initial_pose`·`initial_gripper` 줄 출력 → 바로 MANUAL로(그 자리에서 토크 켬). 출력된 줄을 `ros2_ws/src/skills/config/skills.yaml`(`skill_pose`)에 직접 붙여 넣고 bringup을 재시작하면 시작 자세가 됩니다. MANUAL은 토크가 늘 켜져 있고, 토크를 푸는 건 운영 모드 **TEACH**뿐입니다(메뉴 조작 모드 → 4). TEACH 동안 수동 바퀴·팔·그리퍼 명령과 자동 작업·시작 자세 이동은 멈추고, 바퀴 토크는 그대로입니다. 지도 MAPPING 중에는 TEACH가 거절됩니다.
 - `arm reboot`은 `/state/devices/<wheels·arm·gripper>`에서 모터 에러(`joint2:과부하`)를 보고, 있으면 `/cmd/manual/reboot_motors`를 보낸 뒤 풀릴 때까지(최대 8초) 기다립니다. 에러가 없으면 보내지 않습니다. MANUAL 모드에서만 동작하며, 팔 메뉴에도 에러가 빨간색으로 표시됩니다.
 
 ### 지도

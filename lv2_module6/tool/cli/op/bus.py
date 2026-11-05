@@ -474,10 +474,10 @@ class Bus:
               ' — manual_control 진단 "마지막 모터 재부팅"·기구 걸림 확인', file=sys.stderr)
         return 1
 
-    PLAN_YAML = Path(__file__).resolve().parents[3] / 'ros2_ws' / 'src' / 'plan' / 'config' / 'plan.yaml'
+    PLAN_YAML = Path(__file__).resolve().parents[3] / 'ros2_ws' / 'src' / 'skills' / 'config' / 'skills.yaml'  # skill_pose가 시작 자세를 가진다
 
     def cmd_capture(self) -> int:
-        """지금 팔·그리퍼 자세를 plan.yaml(coordinator) 형식으로 보여 준다 — 파일은 안 고침, 사람이 붙여 넣는다."""
+        """지금 팔·그리퍼 자세를 skills.yaml(skill_pose) 형식으로 보여 준다 — 파일은 안 고침, 사람이 붙여 넣는다."""
         if not self._wait_joints():
             print('/joint_states 없음 — bringup/OpenCR 확인', file=sys.stderr)
             return 1
@@ -489,7 +489,7 @@ class Bus:
         values = [self.state.joints[j] for j in ARM_JOINTS]
         print('  '.join(f'{j}={self._rad_deg(v)}' for j, v in zip(ARM_JOINTS, values)))
         gripper = self.state.joints.get(GRIPPER_JOINT)
-        print(f'\n{self.PLAN_YAML} 의 coordinator: ros__parameters: 아래에 붙여 넣으세요 (bringup 재시작 후 적용)\n')
+        print(f'\n{self.PLAN_YAML} 의 skill_pose: ros__parameters: 아래에 붙여 넣으세요 (bringup 재시작 후 적용)\n')
         print('    initial_pose: [' + ', '.join(f'{v:.4f}' for v in values) + ']')
         if gripper is None:
             print('    # initial_gripper: (/joint_states에 gripper_left_joint 없음)')
@@ -498,23 +498,23 @@ class Bus:
         return 0
 
     def initial_pose(self) -> tuple[dict[str, float], float | None, str] | None:
-        """시작 자세 — 떠 있는 coordinator 파라미터(지금 적용 중인 값)를 먼저, 없으면 plan.yaml.
+        """시작 자세 — 떠 있는 skill_pose 파라미터(지금 적용 중인 값)를 먼저, 없으면 skills.yaml.
         반환: ({관절: rad}, 그리퍼 m 또는 None(음수 = 안 건드림), 출처)"""
-        cli = self.param_client('coordinator', '/')
+        cli = self.param_client('skill_pose', '/')
         if cli is not None and cli.wait_for_services(timeout_sec=2.0):
             vals = self.param_get_vals(cli, ['initial_pose_joints', 'initial_pose', 'initial_gripper'])
             if vals and len(vals) == 3 and list(vals[0].string_array_value) and list(vals[1].double_array_value):
                 g = vals[2].double_value
                 return (dict(zip(vals[0].string_array_value, vals[1].double_array_value)),
-                        g if g >= 0.0 else None, 'coordinator 파라미터')
+                        g if g >= 0.0 else None, 'skill_pose 파라미터')
         try:
             import yaml
-            p = yaml.safe_load(self.PLAN_YAML.read_text())['coordinator']['ros__parameters']
+            p = yaml.safe_load(self.PLAN_YAML.read_text())['skill_pose']['ros__parameters']
             g = float(p.get('initial_gripper', -1.0))
             return (dict(zip(p['initial_pose_joints'], map(float, p['initial_pose']))),
                     g if g >= 0.0 else None, str(self.PLAN_YAML))
         except Exception as exc:
-            print(f'시작 자세를 못 읽음 (coordinator 없음 · {self.PLAN_YAML}: {exc})', file=sys.stderr)
+            print(f'시작 자세를 못 읽음 (skill_pose 없음 · {self.PLAN_YAML}: {exc})', file=sys.stderr)
             return None
 
     def cmd_arm(self, args) -> int:
