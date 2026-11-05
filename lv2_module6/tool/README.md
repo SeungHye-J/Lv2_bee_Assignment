@@ -44,7 +44,7 @@ cd tool
 ./run-cli beep                # OpenCR 부저 기본음 · ./run-cli beep 4000 300 = 높이·길이 (메뉴 0)
 ```
 
-`start`는 이 셸의 환경(`FASTDDS_DEFAULT_PROFILES_FILE` · `ROS_DOMAIN_ID`)을 그대로 넘긴다 — `~/.bashrc`를 고쳤으면 새 터미널에서.
+`start`는 기본값으로 **`ROS_DOMAIN_ID=88` + `ros2_ws/fastdds_local_only.xml`(SHM 전용)** 을 쓴다 — DDS가 기기 밖으로 나가지도 들어오지도 않는다. 셸의 `FASTDDS_DEFAULT_PROFILES_FILE` · `ROS_DOMAIN_ID`를 지정하면 그 값이 우선한다 (PC에서 볼 때는 `fastdds.xml`).
 
 ```bash
 cd tool
@@ -278,12 +278,12 @@ cd tool
 점구름과 gripper 영상은 네트워크를 많이 쓰므로 기본으로 꺼 두었습니다.
 필요할 때 RViz Displays에서 켜세요.
 
-Jetson에서 로컬로 실행하면 네트워크를 타지 않습니다. PC에서 원격으로 볼 때는
-PC도 Jetson과 같은 `ROS_DOMAIN_ID`(Jetson은 0)로 맞추고, `ROS_LOCALHOST_ONLY`는 끄세요.
+Jetson 기본은 `ROS_DOMAIN_ID=88` + `fastdds_local_only.xml`(SHM만)이라 네트워크를 타지 않습니다. PC에서 원격으로 보려면 양쪽을 `fastdds.xml`(UDP 포함)로 바꾸고, PC도 같은 `ROS_DOMAIN_ID=88`로 맞추고 `ROS_LOCALHOST_ONLY`는 끄세요.
 
 ```bash
 # PC — Jetson과 같은 값
-export ROS_DOMAIN_ID=0
+export ROS_DOMAIN_ID=88
+export FASTDDS_DEFAULT_PROFILES_FILE=/path/to/ros2_ws/fastdds.xml
 ```
 
 느리면 RViz Image Display의 **Transport Hint**를 `compressed`로 바꾸거나
