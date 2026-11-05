@@ -1,16 +1,18 @@
 #!/usr/bin/env bash
 # 모델 파일 내려받기 — Notion/Drive/일반 URL → 이 워크스페이스 model/ 아래.
 #
-#   ./download.sh '<URL>' [받을폴더] [--name 파일이름] [--unzip] [--sha256 해시]
+#   ./download.sh '<URL>' [받을폴더] [파일이름] [--name 파일이름] [--unzip] [--sha256 해시]
 #   주의: URL은 반드시 따옴표로 감싼다 (Notion 링크의 &가 셸에서 잘림)
 #
 # 예)
-#   ./download.sh 'https://.../policy.onnx?download=1' nav_correction
+#   ./download.sh 'https://.../policy.onnx?download=1' rl_nav_correction
+#   ./download.sh 'https://.../policy.onnx?download=1' rl_nav_correction policy.onnx
 #   ./download.sh 'https://.../policy.onnx?download=1' nav_controller
 #   ./download.sh 'https://.../nav.zip?download=1' nav_controller --unzip
-#   ./download.sh 'https://.../policy.onnx' nav_correction --sha256 3f2a...
+#   ./download.sh 'https://.../policy.onnx' rl_nav_correction --sha256 3f2a...
 #
 # 받을폴더를 생략하면 model/ 바로 아래에 저장한다. 상대 경로는 이 스크립트 위치(model/) 기준.
+# 파일이름을 생략하면 URL 경로의 마지막 조각을 쓴다 (기존 동작).
 # 기본 동작: 이어받기(-C -) · 리다이렉트(-L) · HTTP 오류면 실패 · 브라우저 User-Agent(Notion 403 회피).
 set -euo pipefail
 
@@ -21,12 +23,20 @@ NAME=""
 UNZIP=0
 SHA=""
 
-usage() { sed -n '2,16p' "$0" | sed 's/^# \{0,1\}//'; }
+usage() { sed -n '2,/^set -euo/p' "$0" | sed '$d' | sed 's/^# \{0,1\}//'; }
 
 if [ $# -eq 0 ] || [ "$1" = "-h" ] || [ "$1" = "--help" ]; then usage; exit 0; fi
 URL="$1"; shift
-# 두 번째 인자가 옵션이 아니면 받을 폴더
-if [ $# -gt 0 ] && [[ "$1" != --* ]]; then DEST="$1"; shift; fi
+# 두/세 번째 위치 인자: [받을폴더] [파일이름]
+if [ $# -gt 0 ] && [[ "$1" != --* ]]; then
+  if [ $# -gt 1 ] && [[ "$2" != --* ]]; then
+    DEST="$1"; NAME="$2"; shift 2
+  elif [[ "$1" =~ \.(onnx|data|zip|tar\.gz|tgz|pt|bin|json|yaml|yml)$ ]]; then
+    NAME="$1"; shift            # 파일이름만 준 경우 → 기본 폴더(model/)
+  else
+    DEST="$1"; shift            # 받을폴더만 준 경우
+  fi
+fi
 while [ $# -gt 0 ]; do
   case "$1" in
     --name) NAME="${2:?--name 값}"; shift 2 ;;
@@ -113,4 +123,4 @@ esac
 
 echo "OK: $(du -h "$OUT" | cut -f1)  $OUT"
 echo "    모델 경로 예: ros2_ws/model/$(basename "$DEST")/$NAME"
-echo "    (rl_nav_correction은 model_path: policy.onnx → nav_correction/, rl_nav_controller는 nav_controller/)"
+echo "    (rl_nav_correction은 model_path: policy.onnx → rl_nav_correction/, rl_nav_controller는 nav_controller/)"

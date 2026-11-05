@@ -13,8 +13,8 @@
 //   model_path가 비었거나 파일이 없거나 obs 차원이 6이 아니면 Δ=0 (통과) — 로봇은 계속 움직인다.
 //   enabled=false · 센서(timeout_s=0.2s) 끊김도 Δ=0.
 // 모델 경로: 상대 경로면 share/ml/model/<경로> 하나만 본다 (설치 공간이 단일 진실 공급원).
-//   "nav_correction/policy.onnx"처럼 노드별 폴더 포함 — 노드마다 onnx를 가져와도 이름이 안 겹친다.
-//   기본값 "nav_correction/policy.onnx" (= share/ml/model/nav_correction/policy.onnx). 직접 지정은 절대 경로로.
+//   "rl_nav_correction/policy.onnx"처럼 노드별 폴더 포함 — 노드마다 onnx를 가져와도 이름이 안 겹친다.
+//   기본값 "rl_nav_correction/policy.onnx" (= share/ml/model/rl_nav_correction/policy.onnx). 직접 지정은 절대 경로로.
 #include <algorithm>
 #include <cmath>
 #include <memory>

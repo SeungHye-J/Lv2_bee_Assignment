@@ -16,7 +16,7 @@ constexpr int64_t OBS_TRACK = 6;
 RlNavCorrection::RlNavCorrection()
 : rclcpp::Node("rl_nav_correction") {
   declare_parameter<bool>("enabled", true);
-  declare_parameter<std::string>("model_path", "nav_correction/policy.onnx");  // share/ml/model/<노드>/<이름>. "" = 통과
+  declare_parameter<std::string>("model_path", "rl_nav_correction/policy.onnx");  // share/ml/model/<노드>/<이름>. "" = 통과
   declare_parameter<double>("max_vel_x", 0.26);
   declare_parameter<double>("max_vel_theta", 1.82);
   declare_parameter<double>("timeout_s", 0.2);
@@ -97,7 +97,7 @@ std::string RlNavCorrection::resolve_model_path(const std::string & path) const 
   const fs::path p(path);
   if (p.is_absolute()) return path;  // 절대 경로는 그대로 (개발용 직접 지정)
   // 상대 경로: share/ml/model/<경로> 하나만 본다 (설치 공간이 단일 진실 공급원).
-  //   "nav_correction/policy.onnx"처럼 노드별 폴더 포함 — 노드마다 onnx를 가져와도 이름이 안 겹친다.
+  //   "rl_nav_correction/policy.onnx"처럼 노드별 폴더 포함 — 노드마다 onnx를 가져와도 이름이 안 겹친다.
   //   bare 파일명("policy.onnx")도 그대로 받음. 소스 트리 폴백 없음.
   std::string share;
   try {
