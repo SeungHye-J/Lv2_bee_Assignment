@@ -135,6 +135,10 @@ cd tool
 `/state/operation_mode`, `/state/map_mode`, `/state/map_name`, `/state/emergency`,
 장치별 `/state/devices/<이름>`을 읽습니다.
 
+상단 상태바와 `status`의 배터리 %는 **3S LiPo 전압 기반 대략 추정**입니다.
+12V 아답터를 꽂으면 OpenCR 전원 입력값이라 배터리 잔량이 아니며, 12.45V 이상이면 `충전?`으로 표시합니다.
+정확한 잔량이 필요하면 주행 부하를 뺀 상태에서 전압을 보세요.
+
 ### 자동/수동 전환
 
 ```bash

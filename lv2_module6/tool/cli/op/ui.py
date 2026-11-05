@@ -389,7 +389,7 @@ class Ui:
         if bat == bat and bat < 11.0:  # NaN 아님 · 낮음 → 경고
             level = max(level, 1)
         parts = [errors and '모터 에러 ' + ', '.join(errors) or (opencr[1] if opencr else 'OpenCR 진단 -'),
-                 ('배터리 -' if bat != bat else '배터리 12V 꺼짐' if bat < 5.0 else f'배터리 {bat:.1f}V'),
+                 f'배터리 {st.battery_summary()}',
                  f'최고 온도 {temps[hot]}°C({hot})' if hot else '온도 -',
                  f'팔 전류 {arm_a:.2f}A',
                  f'그리퍼 {grip * 1000:.0f}mA' if grip is not None else '그리퍼 전류 -']

@@ -256,14 +256,12 @@ class Bus:
                     for name in (*ARM_JOINTS, GRIPPER_JOINT) if name in self.state.joints]
             if wheels:
                 print('바퀴        : ' + '  '.join(wheels))
-            bat = self.state.battery_v
-            if bat == bat and bat > 0.0:
-                print(f'배터리      : {bat:.2f} V')
             if arms:
                 print('관절        : ' + '  '.join(arms))
             if not wheels and not arms:
                 print('관절        : (알 수 없는 관절명: ' +
                       ', '.join(sorted(self.state.joints)) + ')')
+        print(f'배터리      : {self.state.battery_summary(long=True)}')
 
         if args.diagnostics not in (None, False):
             if not self.state.diagnostics:
@@ -431,8 +429,7 @@ class Bus:
                     tl = self.state.motor_temp.get('wheel_left_joint', -1)
                     tr = self.state.motor_temp.get('wheel_right_joint', -1)
                     temp = f'온도 L {tl} R {tr}°C' if tl >= 0 and tr >= 0 else '온도 ?'
-                    bat = self.state.battery_v
-                    bat_txt = f'{bat:.2f} V' if bat == bat and bat > 0.0 else '-'
+                    bat_txt = self.state.battery_summary()
                     err = [n for n in ('wheel_left_joint', 'wheel_right_joint')
                            if self.state.motor_text.get(n, '정상') not in ('', '정상')]
                     err_txt = (' · ' + self.term.paint('에러 ' + ', '.join(err), RED)) if err else ''

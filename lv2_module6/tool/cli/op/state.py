@@ -1,8 +1,14 @@
 """StateStore — ROS 상태 보관. 구독 콜백이 채우고, 화면·명령이 읽는다."""
 from __future__ import annotations
 
+import math
 import time
 from collections import deque
+
+# 3S LiPo (TurtleBot3 11.1V) 방전 곡선 — 대략값. 12.6V 만충 · 11.1V 공칭 · 10.5V 방전.
+#   아답터를 꽂으면 OpenCR 전원 입력값이라 배터리 잔량이 아니다 (표시에 '충전?'을 붙인다).
+BATTERY_CURVE = ((12.6, 100), (12.3, 90), (12.0, 75), (11.8, 60),
+                 (11.5, 40), (11.2, 20), (11.0, 10), (10.5, 0))
 
 
 class Rate:
@@ -107,6 +113,34 @@ class StateStore:
         self.battery_v = battery_v
         self.motor_temp.update(zip(names, temps))
         self.motor_text.update(zip(names, texts))
+
+    def battery_percent(self) -> int | None:
+        """3S LiPo 전압 → 대략 잔량 [%]. 전압이 없거나 12V가 꺼졌으면 None."""
+        v = self.battery_v
+        if not math.isfinite(v) or v < 5.0:
+            return None
+        if v >= BATTERY_CURVE[0][0]:
+            return 100
+        if v <= BATTERY_CURVE[-1][0]:
+            return 0
+        for (v1, p1), (v2, p2) in zip(BATTERY_CURVE, BATTERY_CURVE[1:]):
+            if v2 <= v <= v1:
+                return int(round(p2 + (v - v2) / (v1 - v2) * (p1 - p2)))
+        return None
+
+    def battery_summary(self, long: bool = False) -> str:
+        """상태바·텔레오퍼·status 공용 — '배터리' 접두어는 호출자가 붙인다."""
+        v = self.battery_v
+        if not math.isfinite(v):
+            return '-'
+        if v < 5.0:
+            return '12V 꺼짐'
+        pct = self.battery_percent()
+        if pct is None:
+            return f'{v:.2f} V'
+        charge = ' 충전?' if v >= 12.45 else ''
+        return (f'{v:.2f} V ({pct}% 추정{charge})' if long
+                else f'{v:.1f}V ({pct}% 추정{charge})')
 
     def on_diagnostics(self, statuses):
         self._touch()
