@@ -13,13 +13,15 @@ tool/
 │   ├── stop.sh
 │   ├── restart.sh
 │   └── operator.rviz
-├── node/                # 노드별 분석 도구 (run-cli ab가 호출) — node/README.md
-│   ├── common/bagio.py
-│   └── rl_nav_correction/report.py
+├── log/                 # 실행 결과 (raw.csv 등 · gitignore)
 └── cli/
     ├── start.sh
     ├── DEVELOP.md         # 개발자용 — TUI를 어떻게 만들었나 · 화면 흐름 규약 · 메뉴 추가 · 시험
     ├── operator_tool.py   # 얇은 App: 배선 + argparse + main
+    ├── calibration/       # 설정 — wheel/command.json (sim과 같은 네모)
+    ├── node/              # 노드별 분석 (run-cli ab가 호출) — node/README.md
+    │   ├── common/bagio.py
+    │   └── rl_nav_correction/report.py
     └── op/                # 실제 구현
         ├── terminal.py    # 터미널 원자 연산 (크기·색·표시너비)
         ├── defs.py        # 메뉴 내비게이션 상수
@@ -177,11 +179,13 @@ cd tool
 ### 칼리브레이션 (바퀴)
 
 바퀴 응답(gain · 지연)을 재서 sim에 맞추는 측정입니다. 메뉴: **13) 칼리브레이션 → 1) 바퀴**. 팔(`calibrate arm`)은 나중에 같은 메뉴에 붙입니다.
-계획(JSON)의 `(v, w)`를 수동 경로로 재생하며 응답을 `raw.csv`로 기록합니다. 기본 계획은 `tool/calibration/wheel_square.json`(sim과 같은 네모 54 s).
+계획(JSON)의 `(v, w)`를 수동 경로로 재생하며 응답을 `raw.csv`로 기록합니다.
+계획 파일은 **설정**이라 `tool/cli/calibration/wheel/command.json`(sim과 같은 네모 54 s)에 두고,
+결과는 **실행 로그**라 `tool/log/calibration/<시각>_wheel/raw.csv`에 남깁니다.
 
 ```bash
 ./run-cli calibrate wheel --check-only          # 안 움직이고 준비만 확인 (MANUAL · /odom · /imu · /joint_states)
-./run-cli calibrate wheel                       # 기본 네모 재생 + 기록 → tool/calibration/<시각>/raw.csv (--out 경로)
+./run-cli calibrate wheel                       # 기본 네모 재생 + 기록 → tool/log/calibration/<시각>_wheel/raw.csv
 ./run-cli calibrate wheel plan.json             # 다른 계획: {"dt": 0.05, "label": "real", "steps": [[v, w], ...]}  (v ≤ 0.26 m/s · |w| ≤ 1.82 rad/s · 180 s 이하)
 ```
 

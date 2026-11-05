@@ -3,7 +3,7 @@
 사용자 진입점은 `run-cli ab <노드> <동작>` / 메뉴 14 하나다. 이 파일은 UI 없이 동작만 담당한다.
   - ON/OFF: /rl_nav_correction/toggle (std_srvs/SetBool), 안 되면 파라미터 enabled로 대체
   - 기록: ros2 bag record를 백그라운드로 띄우고 ~/.cache/beebot/ab.json에 pid·bag 경로를 남긴다
-  - 리포트: tool/node/rl_nav_correction/report.py (rosbag2 → report.png)
+  - 리포트: tool/cli/node/rl_nav_correction/report.py (rosbag2 → report.png)
 
 bee는 ROS_DOMAIN_ID=88 + fastdds_local_only.xml(SHM 전용)이라 PC에서 원격 기록할 수 없다.
 그래서 bag은 기본적으로 bee의 ~/bags/ab에 쌓는다.
@@ -33,7 +33,7 @@ TOGGLE = '/rl_nav_correction/toggle'
 BAG_DIR = Path.home() / 'bags' / 'ab'
 STATE = Path.home() / '.cache' / 'beebot' / 'ab.json'
 RECORD_LOG = Path.home() / '.cache' / 'beebot' / 'ab-record.log'
-REPORT = Path(__file__).resolve().parents[2] / 'node' / 'rl_nav_correction' / 'report.py'
+REPORT = Path(__file__).resolve().parents[1] / 'node' / 'rl_nav_correction' / 'report.py'
 
 # /cmd_vel_smoothed·/cmd_vel까지 넣어 실제 바퀴 명령과 보정 결과를 같이 본다.
 TOPICS = (

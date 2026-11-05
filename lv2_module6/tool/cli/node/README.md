@@ -1,10 +1,10 @@
-# tool/node — 노드별 분석 도구
+# tool/cli/node — 노드별 분석 도구
 
 노드마다 폴더 하나. **기록·ON/OFF·리포트 진입점은 `run-cli ab` (메뉴 14) 하나**이고,
 이 폴더에는 리포트가 쓰는 분석 스크립트만 둔다. 공통 bag 읽기·궤적 계산은 `common/bagio.py`.
 
 ```text
-tool/node/
+tool/cli/node/
 ├── README.md
 ├── common/
 │   └── bagio.py                    # rosbag2 읽기 · 경로 투영(횡오차) · yaw
@@ -54,7 +54,7 @@ cd tool
 
 ## 노드 추가 시
 
-1. `tool/node/<노드>/` 폴더
+1. `tool/cli/node/<노드>/` 폴더
 2. `report.py` — 그 노드의 기록을 읽어 지표를 내는 분석 스크립트
 3. `run-cli`에 `ab`와 같은 서브커맨드/메뉴를 연결 (기록·토글은 `run-cli`가 담당)
 4. 이 README 표에 한 줄

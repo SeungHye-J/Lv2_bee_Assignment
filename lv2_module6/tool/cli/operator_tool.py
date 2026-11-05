@@ -259,9 +259,9 @@ def build_parser() -> argparse.ArgumentParser:
     calibrate = sub.add_parser('calibrate', help='칼리브레이션 (메뉴: 13) — wheel: 계획을 수동 경로로 재생하며 응답을 raw.csv로 기록 (로봇이 움직임)')
     cal_sub = calibrate.add_subparsers(dest='part', required=True)
     cal_wheel = cal_sub.add_parser('wheel', help='바퀴 응답 (MANUAL 모드 — 계획 JSON 재생)')
-    cal_wheel.add_argument('plan', nargs='?', default=str(Path(__file__).resolve().parents[1] / 'calibration' / 'wheel_square.json'),
-                           help='계획 파일 {"dt": 0.05, "steps": [[v, w], ...]} (기본 tool/calibration/wheel_square.json = sim과 같은 네모 54 s)')
-    cal_wheel.add_argument('--out', default=None, help='raw.csv 경로 (기본: tool/calibration/<시각>/raw.csv)')
+    cal_wheel.add_argument('plan', nargs='?', default=str(Path(__file__).resolve().parent / 'calibration' / 'wheel' / 'command.json'),
+                           help='계획 파일 {"dt": 0.05, "steps": [[v, w], ...]} (기본 tool/cli/calibration/wheel/command.json = sim과 같은 네모 54 s)')
+    cal_wheel.add_argument('--out', default=None, help='raw.csv 경로 (기본: tool/log/calibration/<시각>_wheel/raw.csv)')
     cal_wheel.add_argument('--check-only', action='store_true', help='안 움직이고 준비만 확인')
     cal_wheel.add_argument('--force', action='store_true', help='MANUAL 상태 확인을 건너뜀 (위험)')
 

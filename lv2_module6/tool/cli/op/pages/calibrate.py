@@ -8,7 +8,7 @@ from ..calibrate import load_plan
 from ..defs import STAY
 from .base import GoMenu, Menu, MenuItem
 
-DEFAULT_PLAN = Path(__file__).resolve().parents[3] / 'calibration' / 'wheel_square.json'   # tool/calibration/ — sim과 같은 네모 54 s
+DEFAULT_PLAN = Path(__file__).resolve().parents[2] / 'calibration' / 'wheel' / 'command.json'   # tool/cli/calibration/wheel/ — sim과 같은 네모 54 s
 
 
 class WheelState:
@@ -100,7 +100,7 @@ class WheelCalibrateMenu(Menu):
             '',
             ' 하는 일: 계획의 (v, w)를 /cmd/manual/cmd_vel로 20 Hz 재생하며',
             '   /odom · /imu · /joint_states · /cmd_vel을 raw.csv로 기록',
-            ' 저장: tool/calibration/<시각>/raw.csv',
+            ' 저장: tool/log/calibration/<시각>_wheel/raw.csv',
             ' 순서: 1) 준비 확인 → 공간 비움 → 2) 재생 (팔은 시작 자세로 자동 이동)',
             ' PC로: scp bee@bee.local:<폴더>/raw.csv … 후 isaac report.py (sim과 비교)',
         ]
