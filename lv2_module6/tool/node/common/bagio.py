@@ -1,4 +1,4 @@
-"""rosbag2 읽기·궤적 계산 공통 (tool/cli/ab/* 에서 같이 쓴다).
+"""rosbag2 읽기·궤적 계산 공통 (tool/node/* 에서 같이 쓴다).
 
   from common.bagio import read_bag, plan_points, project_to_polyline, series, yaw_of
 """
