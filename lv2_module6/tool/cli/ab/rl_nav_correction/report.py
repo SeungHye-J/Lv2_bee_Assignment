@@ -1,8 +1,8 @@
 #!/usr/bin/env python3
 """rl_nav_correction — rosbag2 A/B 리포트 (report.png).
 
-  ./run-cli ab report ~/bags/on ~/bags/off --labels ON OFF --out ~/report.png
-  ./run-cli ab record --label on   # (다른 터미널에서) 주행
+  ./run-cli ab rl_nav_correction report ~/bags/on ~/bags/off --labels ON OFF --out ~/report.png
+  ./run-cli ab rl_nav_correction guide --label test1   # command.json대로 자동 A/B
 
 읽는 토픽: /cmd_vel_nav · /cmd_vel_corrected · /odometry/filtered(/odom) · /odom · /imu · /plan · /rl_nav_correction/debug
 지표: 횡오차(RMSE·최대) · 헤딩오차(MAE) · 슬립(|ωimu−ωodom|) · 적용 Δ(평균·최대) · 시간·거리·보정 ON 비율

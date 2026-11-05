@@ -18,10 +18,10 @@ tool/
     ├── start.sh
     ├── DEVELOP.md         # 개발자용 — TUI를 어떻게 만들었나 · 화면 흐름 규약 · 메뉴 추가 · 시험
     ├── operator_tool.py   # 얇은 App: 배선 + argparse + main
-    ├── calibration/       # 설정 — wheel/command.json (sim과 같은 네모)
-    ├── node/              # 노드별 분석 (run-cli ab가 호출) — node/README.md
+    ├── ab/                # A/B 자동 주행·분석 — ab/README.md
     │   ├── common/bagio.py
-    │   └── rl_nav_correction/report.py
+    │   └── rl_nav_correction/{command.json,report.py}
+    ├── calibration/       # 설정 — wheel/command.json (sim과 같은 네모)
     └── op/                # 실제 구현
         ├── terminal.py    # 터미널 원자 연산 (크기·색·표시너비)
         ├── defs.py        # 메뉴 내비게이션 상수
@@ -265,11 +265,40 @@ cd tool
 `rl_nav_correction`의 ONNX 보정 ON/OFF를 같은 주행으로 비교한다. 기록은 bee 안에 쌓인다
 (`ROS_DOMAIN_ID=88` + SHM 전용이라 PC 원격 기록 불가).
 
+#### 자동 A/B — `command.json`
+
+`tool/cli/ab/rl_nav_correction/command.json`에 시작 자세와 `route` goal들을 정해 두면,
+CLI가 rosbag 기록과 Nav2 `/navigate_to_pose` 주행을 직접 수행한다. 사용자가 주행할 필요는 없다.
+
+```bash
+./run-cli ab rl_nav_correction status
+./run-cli ab rl_nav_correction guide --label test1
+```
+
+`guide` 순서:
+
+1. E-STOP OFF · AUTO 확인 (필요하면 AUTO로 전환)
+2. `start`로 이동 (설정한 경우)
+3. A 녹화 시작 (보정 ON) → `route` 주행 → 녹화 종료
+4. 시작 자세로 복귀 → 보정 OFF
+5. B 녹화 시작 → 같은 `route` 주행 → 녹화 종료
+6. 보정 ON 복원 → 최근 A/B 리포트 생성
+
+`command.json` 키: `frame_id` · `start` · `route` · `repeats` · `goal_timeout_s` · `settle_s` ·
+`auto_mode` · `move_to_start` · `return_to_start`. 자세한 설명은 [cli/ab/README.md](cli/ab/README.md).
+
+> 지도·로컬라이제이션이 없으면 `map→base_footprint` TF와 `/navigate_to_pose`가 없어 자동 주행이
+> 실패한다. 먼저 지도를 로드하고 LOCALIZATION이 active인지 확인한다.
+
+#### 수동 A/B — 녹화만
+
+자동 주행 대신 RViz/Nav2로 직접 같은 goal을 보내며 기록만 할 수도 있다.
+
 ```bash
 ./run-cli ab nodes                                   # A/B 대상 노드 (지금은 rl_nav_correction)
-./run-cli ab rl_nav_correction status                # 보정 ON/OFF · 모델 · 녹화 상태
+./run-cli ab rl_nav_correction status                # 보정 ON/OFF · 모델 · 계획 · 녹화 상태
 ./run-cli ab rl_nav_correction record --label A      # A 녹화 시작 (백그라운드)
-# 다른 터미널/RViz에서 주행 후
+# RViz 2D Goal Pose 또는 ros2 action send_goal /navigate_to_pose 로 주행 후
 ./run-cli ab rl_nav_correction stop
 
 ./run-cli ab rl_nav_correction off                   # B는 보정 끄기 (Δ=0)
@@ -284,7 +313,7 @@ cd tool
 
 - 기본 저장: `~/bags/ab/<시각>_<라벨>` (rosbag2 · mcap)
 - TUI 메뉴 **14) A/B 테스트 (노드별)** → **rl_nav_correction**:
-  상태 · ON/OFF · 녹화 시작/종료 · 최근 리포트 · 안내형 A/B(A ON → B OFF → 리포트)를 한 화면에서 실행.
+  상태 · ON/OFF · 녹화 시작/종료 · 최근 리포트 · **자동 A/B(command.json)** 를 한 화면에서 실행.
   새 `rl_nav_*` 노드는 `cli/op/ab.py`의 `AB_NODES`와 `cli/op/pages/ab.py`의 화면 매핑에 추가한다.
 - `learning_enabled:=false`는 `rl_nav_tuner`까지 꺼서 속도 프리셋이 달라진다.
   A/B는 반드시 `ab rl_nav_correction on`/`off`로 `rl_nav_correction`만 토글한다.

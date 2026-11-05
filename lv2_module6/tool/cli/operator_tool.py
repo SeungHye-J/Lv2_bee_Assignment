@@ -316,6 +316,7 @@ def build_parser() -> argparse.ArgumentParser:
     ab.add_argument('--out', default=None, help='record: 저장 폴더 · report: 출력 PNG')
     ab.add_argument('--last', action='store_true', help='report: 최근 녹화 2개 사용')
     ab.add_argument('--labels', nargs='*', default=None, help='report: 범례 이름 (예: A B)')
+    ab.add_argument('--config', default=None, help='guide: command.json 경로 (기본 tool/cli/ab/<노드>/command.json)')
 
     restart = sub.add_parser('restart', help='state_manager에 재시작 요청 (위험) — all = bringup 전체')
     restart.add_argument('target', help='all 또는 노드 이름')

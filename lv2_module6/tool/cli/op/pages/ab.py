@@ -116,72 +116,21 @@ class AbReportItem(MenuItem):
 
 class AbGuideItem(MenuItem):
     key = '6'
-    shows_busy = False  # 자체 확인창으로 진행한다
 
     def label(self):
-        return '안내형 A/B (A ON → B OFF → 리포트)'
-
-    def _wait(self, title: str, body: list[str]) -> bool:
-        return self.ui.modal_key(title, body + ['', 'Enter 계속 · Esc 취소']) == 'enter'
+        return '자동 A/B (command.json → Nav2 주행)'
 
     def run(self):
-        st = self.bus.ab.status()
-        if not st['alive']:
-            print('FAIL: rl_nav_correction 응답 없음 — bringup 확인', file=sys.stderr)
-            return STAY
         label = self.ui.modal_input(
-            '안내형 A/B',
-            ['A(ON) → B(OFF) 순서로 녹화합니다.',
-             'A/B는 같은 출발 자세·방향, 같은 goal로 주행하세요.',
+            '자동 A/B',
+            ['command.json의 start·route대로 A(ON) → 복귀 → B(OFF)를 주행합니다.',
+             'Nav2 /navigate_to_pose · AUTO · E-STOP OFF 필요',
              '라벨을 입력하세요'], '라벨>', default=time.strftime('%Y%m%d_%H%M%S'))
         if label is None:
             return STAY
-
-        bags: list[str] = []
-        changed = False
-        try:
-            if not st['enabled']:
-                ok, msg = self.bus.ab.toggle(True)
-                if not ok:
-                    print(f'FAIL: {msg}', file=sys.stderr)
-                    return STAY
-                changed = True
-            rec = self.bus.ab.start(f'{label}_A')
-            bags.append(rec['bag'])
-            if not self._wait('A 주행 (ON)', [f'녹화: {rec["bag"]}', 'A 주행을 마치면 Enter']):
-                print('취소: A 녹화를 종료합니다', file=sys.stderr)
-                return STAY
-            self.bus.ab.stop()
-
-            if not self.ui.confirm('B를 위해 보정을 끌까요?', default=True,
-                                   body=['B는 OFF(Δ=0)로 같은 주행을 합니다.']):
-                return STAY
-            ok, msg = self.bus.ab.toggle(False)
-            if not ok:
-                print(f'FAIL: {msg}', file=sys.stderr)
-                return STAY
-            changed = True
-            if not self._wait('B 준비', ['로봇을 A와 같은 출발 자세·방향으로 두고 Enter']):
-                return STAY
-
-            rec = self.bus.ab.start(f'{label}_B')
-            bags.append(rec['bag'])
-            if not self._wait('B 주행 (OFF)', [f'녹화: {rec["bag"]}', 'B 주행을 마치면 Enter']):
-                return STAY
-            self.bus.ab.stop()
-        finally:
-            if self.bus.ab.current():
-                self.bus.ab.stop()
-            if changed:
-                st2 = self.bus.ab.status()
-                if st2['enabled'] is not True:
-                    self.bus.ab.toggle(True)
-
-        if len(bags) == 2:
-            out = str(Path(bags[0]).parent / f'report_{time.strftime("%Y%m%d_%H%M%S")}.png')
-            rc = self.bus.ab.report(bags, ['A', 'B'], out)
-            if rc == 0:
-                print(f'저장: {out}')
+        rc = self.bus.ab.guide(label)
+        if rc != 0:
+            print(f'FAIL: 자동 A/B 실패 (rc={rc})', file=sys.stderr)
         return STAY
 
 

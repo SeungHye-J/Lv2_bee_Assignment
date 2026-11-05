@@ -3,14 +3,16 @@
 사용자 진입점은 `run-cli ab <노드> <동작>` / 메뉴 14 하나다. 이 파일은 UI 없이 동작만 담당한다.
   - ON/OFF: /rl_nav_correction/toggle (std_srvs/SetBool), 안 되면 파라미터 enabled로 대체
   - 기록: ros2 bag record를 백그라운드로 띄우고 ~/.cache/beebot/ab.json에 pid·bag 경로를 남긴다
-  - 리포트: tool/cli/node/rl_nav_correction/report.py (rosbag2 → report.png)
+  - 리포트: tool/cli/ab/rl_nav_correction/report.py (rosbag2 → report.png)
 
 bee는 ROS_DOMAIN_ID=88 + fastdds_local_only.xml(SHM 전용)이라 PC에서 원격 기록할 수 없다.
 그래서 bag은 기본적으로 bee의 ~/bags/ab에 쌓는다.
 """
 from __future__ import annotations
 
+import argparse
 import json
+import math
 import os
 import re
 import signal
@@ -33,7 +35,8 @@ TOGGLE = '/rl_nav_correction/toggle'
 BAG_DIR = Path.home() / 'bags' / 'ab'
 STATE = Path.home() / '.cache' / 'beebot' / 'ab.json'
 RECORD_LOG = Path.home() / '.cache' / 'beebot' / 'ab-record.log'
-REPORT = Path(__file__).resolve().parents[1] / 'node' / 'rl_nav_correction' / 'report.py'
+REPORT = Path(__file__).resolve().parents[1] / 'ab' / NODE / 'report.py'
+PLAN = Path(__file__).resolve().parents[1] / 'ab' / NODE / 'command.json'
 
 # /cmd_vel_smoothed·/cmd_vel까지 넣어 실제 바퀴 명령과 보정 결과를 같이 본다.
 TOPICS = (
@@ -52,6 +55,7 @@ class AbTest:
         self.prompt = bus.prompt
         self.term = bus.term
         self._toggle_cli = None
+        self._nav_cli = None
         self._param_cache = (0.0, None, None)  # (읽은 시각, enabled, model_path)
 
     # --------------------------------------------------------------- 상태 파일
@@ -118,6 +122,72 @@ class AbTest:
             self._save(data)
         return hist
 
+    # ------------------------------------------------------------------ 계획
+    @staticmethod
+    def _pose(value, where: str) -> dict:
+        if not isinstance(value, dict):
+            raise RuntimeError(f'{where}: {{x, y, yaw_deg}} 객체가 아님')
+        try:
+            x, y = float(value['x']), float(value['y'])
+            yaw = float(value.get('yaw_deg', 0.0))
+        except (KeyError, TypeError, ValueError):
+            raise RuntimeError(f'{where}: x·y(숫자) 필요') from None
+        if not all(math.isfinite(v) for v in (x, y, yaw)):
+            raise RuntimeError(f'{where}: 유한한 숫자가 아님')
+        return {'x': x, 'y': y, 'yaw_deg': yaw}
+
+    def load_plan(self, path: str | None = None) -> dict:
+        plan_path = Path(path).expanduser() if path else PLAN
+        if not plan_path.is_file():
+            raise RuntimeError(f'A/B 계획 없음: {plan_path}')
+        try:
+            raw = json.loads(plan_path.read_text())
+        except Exception as exc:
+            raise RuntimeError(f'A/B 계획 JSON 읽기 실패: {plan_path} ({exc})') from None
+        if not isinstance(raw, dict):
+            raise RuntimeError(f'A/B 계획이 객체가 아님: {plan_path}')
+        start = None if raw.get('start') is None else self._pose(raw['start'], 'start')
+        route_raw = raw.get('route')
+        if not isinstance(route_raw, list) or not route_raw:
+            raise RuntimeError('A/B 계획 route가 비어 있음')
+        if len(route_raw) > 50:
+            raise RuntimeError('A/B 계획 route가 너무 많음 (최대 50)')
+        route = [self._pose(p, f'route[{i}]') for i, p in enumerate(route_raw)]
+        try:
+            repeats = int(raw.get('repeats', 1))
+            timeout = float(raw.get('goal_timeout_s', 120.0))
+            settle = float(raw.get('settle_s', 1.0))
+        except (TypeError, ValueError):
+            raise RuntimeError('repeats·goal_timeout_s·settle_s는 숫자') from None
+        if not 1 <= repeats <= 20:
+            raise RuntimeError('repeats는 1~20')
+        if not 1.0 <= timeout <= 600.0:
+            raise RuntimeError('goal_timeout_s는 1~600초')
+        if not 0.0 <= settle <= 30.0:
+            raise RuntimeError('settle_s는 0~30초')
+        return {
+            'path': str(plan_path),
+            'frame_id': str(raw.get('frame_id') or 'map'),
+            'start': start,
+            'route': route,
+            'repeats': repeats,
+            'goal_timeout_s': timeout,
+            'settle_s': settle,
+            'auto_mode': bool(raw.get('auto_mode', True)),
+            'move_to_start': bool(raw.get('move_to_start', True)),
+            'return_to_start': bool(raw.get('return_to_start', True)),
+        }
+
+    def plan_summary(self, path: str | None = None) -> str:
+        try:
+            plan = self.load_plan(path)
+        except RuntimeError as exc:
+            return f'계획: 없음/오류 — {exc}'
+        start = (f'({plan["start"]["x"]:.2f}, {plan["start"]["y"]:.2f})'
+                 if plan['start'] else '현재 자세')
+        return (f'계획: {Path(plan["path"]).name} · goal {len(plan["route"])}개 · '
+                f'{plan["repeats"]}회 · 시작 {start}')
+
     # ------------------------------------------------------------------ 상태
     def params(self, force: bool = False) -> tuple[bool | None, str | None]:
         now = time.monotonic()
@@ -173,6 +243,7 @@ class AbTest:
         if hist:
             lines.append(' 최근: ' + ' / '.join(
                 f'{h.get("label", "?")} {Path(h["bag"]).name}' for h in hist))
+        lines.append(' ' + self.plan_summary())
         return lines
 
     # ------------------------------------------------------------------ 토글
@@ -333,6 +404,112 @@ class AbTest:
     def latest(self, n: int = 2) -> list[dict]:
         return self.history()[-n:]
 
+    # ------------------------------------------------------------------ 자동 주행
+    def _progress(self, text: str) -> None:
+        self.prompt.progress(text)   # TUI '처리 중' 창 — 메뉴 밖이면 무시
+        print(text)
+
+    def _sleep(self, seconds: float) -> None:
+        end = time.monotonic() + max(0.0, seconds)
+        while time.monotonic() < end and rclpy.ok():
+            rclpy.spin_once(self.node, timeout_sec=min(0.1, max(0.01, end - time.monotonic())))
+
+    def _current_map_pose(self, frame_id: str) -> dict:
+        """map→base_footprint TF로 지금 자세를 잡는다 (start=null일 때)."""
+        from rclpy.time import Time
+        from tf2_ros import Buffer, TransformListener
+
+        buf = Buffer()
+        listener = TransformListener(buf, self.node)
+        end = time.monotonic() + 5.0
+        last_err = ''
+        while time.monotonic() < end and rclpy.ok():
+            rclpy.spin_once(self.node, timeout_sec=0.1)
+            try:
+                tr = buf.lookup_transform(frame_id, 'base_footprint', Time())
+                t = tr.transform.translation
+                q = tr.transform.rotation
+                yaw = math.atan2(2.0 * (q.w * q.z + q.x * q.y),
+                                 1.0 - 2.0 * (q.y * q.y + q.z * q.z))
+                return {'x': float(t.x), 'y': float(t.y), 'yaw_deg': math.degrees(yaw)}
+            except Exception as exc:
+                last_err = str(exc)
+        del listener
+        raise RuntimeError(f'{frame_id}→base_footprint TF 없음 — 지도/로컬라이제이션 확인 ({last_err})')
+
+    def _nav_client(self):
+        if self._nav_cli is None:
+            from nav2_msgs.action import NavigateToPose
+            from rclpy.action import ActionClient
+            self._nav_cli = ActionClient(self.node, NavigateToPose, '/navigate_to_pose')
+        return self._nav_cli
+
+    def nav_goal(self, pose: dict, frame_id: str, timeout: float, what: str) -> None:
+        """Nav2 NavigateToPose 한 점 — 도착/성공까지 기다린다. 실패는 RuntimeError."""
+        from action_msgs.msg import GoalStatus
+        from geometry_msgs.msg import PoseStamped
+
+        cli = self._nav_client()
+        self._progress(f'{what}: /navigate_to_pose 대기')
+        if not cli.wait_for_server(timeout_sec=10.0):
+            raise RuntimeError('/navigate_to_pose 액션 서버 없음 — 지도/로컬라이제이션/Nav2 확인')
+        from nav2_msgs.action import NavigateToPose
+        goal = NavigateToPose.Goal()
+        goal.pose = PoseStamped()
+        goal.pose.header.frame_id = frame_id
+        goal.pose.header.stamp = self.node.get_clock().now().to_msg()
+        goal.pose.pose.position.x = float(pose['x'])
+        goal.pose.pose.position.y = float(pose['y'])
+        yaw = math.radians(float(pose.get('yaw_deg', 0.0)))
+        goal.pose.pose.orientation.z = math.sin(yaw / 2.0)
+        goal.pose.pose.orientation.w = math.cos(yaw / 2.0)
+
+        send = cli.send_goal_async(goal)
+        rclpy.spin_until_future_complete(self.node, send, timeout_sec=10.0)
+        if not send.done():
+            raise RuntimeError(f'{what}: goal 전송 timeout')
+        handle = send.result()
+        if handle is None or not handle.accepted:
+            raise RuntimeError(f'{what}: goal 거부됨')
+        result_fut = handle.get_result_async()
+        end = time.monotonic() + timeout
+        next_tick = 0.0
+        while not result_fut.done() and time.monotonic() < end and rclpy.ok():
+            rclpy.spin_until_future_complete(self.node, result_fut, timeout_sec=0.5)
+            now = time.monotonic()
+            if now >= next_tick:
+                self._progress(f'{what}: 주행 중 … {timeout - max(0.0, end - now):.0f}/{timeout:.0f}s')
+                next_tick = now + 2.0
+        if not result_fut.done():
+            handle.cancel_goal_async()
+            raise RuntimeError(f'{what}: timeout ({timeout:.0f}s)')
+        result = result_fut.result()
+        status = getattr(result, 'status', None)
+        if status != GoalStatus.STATUS_SUCCEEDED:
+            raise RuntimeError(f'{what}: Nav2 실패 (status={status})')
+        self._progress(f'{what}: 도착')
+
+    def _ensure_auto(self, plan: dict) -> None:
+        self.bus._poll(0.8)
+        if self.bus.state.emergency:
+            raise RuntimeError('비상정지 ON — 먼저 해제하세요')
+        if self.bus.state.operation == 'AUTO':
+            return
+        if not plan['auto_mode']:
+            raise RuntimeError(f'조작 모드가 {self.bus.state.operation or "?"} — AUTO 필요')
+        self._progress(f'조작 모드 {self.bus.state.operation or "?"} → AUTO')
+        rc = self.bus.cmd_mode(argparse.Namespace(mode='auto'))
+        if rc != 0:
+            raise RuntimeError('AUTO 전환 실패')
+
+    def _run_route(self, plan: dict, label: str) -> None:
+        route = plan['route']
+        for i, pose in enumerate(route, 1):
+            self.nav_goal(pose, plan['frame_id'], plan['goal_timeout_s'],
+                          f'{label} goal {i}/{len(route)}')
+            if plan['settle_s']:
+                self._sleep(plan['settle_s'])
+
     # ------------------------------------------------------------------ 명령
     LEGACY_ACTIONS = ('status', 'on', 'off', 'record', 'stop', 'report', 'guide')
 
@@ -392,64 +569,102 @@ class AbTest:
                     labels = [by_bag.get(bags[0], 'A'), by_bag.get(bags[1], 'B')]
                 return self.report(bags, labels, getattr(args, 'out', None))
             if action == 'guide':
-                return self.guide(getattr(args, 'label', None))
+                return self.guide(getattr(args, 'label', None), getattr(args, 'config', None))
             print(f'FAIL: 모르는 ab 동작: {action}', file=sys.stderr)
             return 2
         except (RuntimeError, OSError) as exc:
             print(f'FAIL: {exc}', file=sys.stderr)
             return 1
 
-    def guide(self, label: str | None = None) -> int:
-        """터미널용 안내형 A/B — A(ON) → B(OFF) → 리포트. 주행은 사람이 한다."""
-        if not sys.stdin.isatty():
-            print('FAIL: guide는 터미널에서만 실행하세요', file=sys.stderr)
-            return 2
+    def guide(self, label: str | None = None, config: str | None = None) -> int:
+        """command.json 계획대로 A(ON) → 복귀 → B(OFF)를 Nav2로 자동 주행하고 리포트."""
         label = (label or time.strftime('%Y%m%d_%H%M%S')).strip()
+        try:
+            plan = self.load_plan(config)
+        except RuntimeError as exc:
+            print(f'FAIL: {exc}', file=sys.stderr)
+            return 2
         st = self.status()
         if not st['alive']:
             print('FAIL: rl_nav_correction 응답 없음 — bringup 확인', file=sys.stderr)
             return 1
-        bags: list[str] = []
-        changed = False
         try:
-            if not st['enabled']:
-                ok, msg = self.toggle(True)
-                if not ok:
-                    print(f'FAIL: {msg}', file=sys.stderr)
-                    return 1
-                changed = True
-                print('보정 ON')
-            rec = self.start(f'{label}_A')
-            bags.append(rec['bag'])
-            print(f'A 녹화: {rec["bag"]}')
-            input('A 주행을 마친 뒤 Enter... ')
-            self.stop()
-            print('A 종료')
+            self._ensure_auto(plan)
+            if plan['start'] is None:
+                start = self._current_map_pose(plan['frame_id'])
+                self._progress(f'시작 자세: ({start["x"]:.2f}, {start["y"]:.2f}, {start["yaw_deg"]:.0f}°)')
+            else:
+                start = plan['start']
+        except RuntimeError as exc:
+            print(f'FAIL: {exc}', file=sys.stderr)
+            return 1
 
-            ok, msg = self.toggle(False)
+        if not st['enabled']:
+            ok, msg = self.toggle(True)
             if not ok:
                 print(f'FAIL: {msg}', file=sys.stderr)
                 return 1
-            changed = True
-            print('보정 OFF')
-            input('로봇을 A와 같은 출발 자세·방향으로 두고 Enter... ')
-            rec = self.start(f'{label}_B')
-            bags.append(rec['bag'])
-            print(f'B 녹화: {rec["bag"]}')
-            input('B 주행을 마친 뒤 Enter... ')
-            self.stop()
-            print('B 종료')
-        except (EOFError, KeyboardInterrupt):
-            print('\n중단', file=sys.stderr)
-            return 130
+
+        bags: list[str] = []
+        labels: list[str] = []
+        ok_all = True
+        try:
+            for r in range(1, plan['repeats'] + 1):
+                if plan['start'] is not None and plan['move_to_start']:
+                    self.nav_goal(start, plan['frame_id'], plan['goal_timeout_s'], f'{r}회차 시작 자세')
+                # A — 보정 ON
+                rec = self.start(f'{label}_r{r}_A')
+                bags.append(rec['bag'])
+                labels.append(f'A{r}')
+                self._progress(f'A{r} 녹화: {rec["bag"]}')
+                try:
+                    self._run_route(plan, f'A{r}')
+                except RuntimeError as exc:
+                    print(f'FAIL: {exc}', file=sys.stderr)
+                    ok_all = False
+                finally:
+                    self.stop()
+                if plan['return_to_start']:
+                    try:
+                        self.nav_goal(start, plan['frame_id'], plan['goal_timeout_s'], f'A{r} → 시작 자세')
+                    except RuntimeError as exc:
+                        print(f'FAIL: {exc}', file=sys.stderr)
+                        ok_all = False
+                        break
+
+                ok, msg = self.toggle(False)
+                if not ok:
+                    raise RuntimeError(msg)
+                # B — 보정 OFF
+                rec = self.start(f'{label}_r{r}_B')
+                bags.append(rec['bag'])
+                labels.append(f'B{r}')
+                self._progress(f'B{r} 녹화: {rec["bag"]}')
+                try:
+                    self._run_route(plan, f'B{r}')
+                except RuntimeError as exc:
+                    print(f'FAIL: {exc}', file=sys.stderr)
+                    ok_all = False
+                finally:
+                    self.stop()
+
+                ok, msg = self.toggle(True)
+                if not ok:
+                    raise RuntimeError(msg)
+                if not ok_all:
+                    break
+        except (RuntimeError, OSError) as exc:
+            print(f'FAIL: {exc}', file=sys.stderr)
+            ok_all = False
         finally:
             if self.current():
                 self.stop()
-            if changed:
-                st2 = self.status()
-                if st2['enabled'] is not True:
-                    self.toggle(True)
-        if len(bags) < 2:
-            return 1
-        print('리포트...')
-        return self.report(bags, ['A', 'B'])
+            st2 = self.status()
+            if st2['enabled'] is not True:
+                self.toggle(True)
+
+        if len(bags) >= 2:
+            out = str(Path(bags[0]).parent / f'report_{time.strftime("%Y%m%d_%H%M%S")}.png')
+            if self.report(bags, labels, out) != 0:
+                ok_all = False
+        return 0 if ok_all else 1
