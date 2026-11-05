@@ -27,6 +27,7 @@ class Ui:
         self._frame_size = None
         self._busy = None   # 지금 떠 있는 처리 중 창 (메뉴 항목 실행 동안)
         self._reconnect_check = None  # OperatorTool.check_cli_reconnect — 다이얼로그 안에서도 재연결 판단
+        self._reconnect_status = None  # OperatorTool.reconnect_status — 상태바 '재연결 Ns' 표시
         self._title = None  # 마지막으로 그린 화면 제목 (창이 떠 있는 동안 상단 상태바만 다시 그리기용)
         self._top_at = 0.0
         # 화면 아래에서 깜빡이는 실제 커서를 숨긴다 (입력은 다이얼로그의 '▏'로 표시).
@@ -426,18 +427,22 @@ class Ui:
                                      GREEN if active == len(self.state.devices) else YELLOW)
         else:
             dev_txt = self.term.paint('0/0', DIM)
-        # 갱신시각 (그리는 시점 벽시계 + 마지막 수신 뒤 경과)
-        now_wall = time.strftime('%m-%d %H:%M:%S', time.localtime())
-        if self.state.last_update <= 0:
-            upd_txt = self.term.paint('갱신 없음', YELLOW)
+        # 연결 상태 — 마지막 /state/* 수신 뒤 경과로 판단. 재연결 대기 중이면 남은 초를 같이.
+        if self.state.state_last_update <= 0:
+            conn_txt = self.term.paint('연결 ✗ 상태 없음 — bringup 확인', RED + BOLD)
         else:
-            age = time.monotonic() - self.state.last_update
-            if age <= 5.0:
-                upd_txt = self.term.paint(f'갱신 {now_wall} ({age:.1f}초 전)', DIM)
+            age = time.monotonic() - self.state.state_last_update
+            retry = self._reconnect_status() if self._reconnect_status is not None else None
+            if retry is not None:
+                conn_txt = self.term.paint(f'연결 ✗ {age:.0f}s — {retry}', RED + BOLD)
+            elif age <= 2.0:
+                conn_txt = self.term.paint('연결 ● 정상', GREEN)
+            elif age <= 5.0:
+                conn_txt = self.term.paint(f'연결 ▲ {age:.0f}s 지연', YELLOW)
             else:
-                upd_txt = self.term.paint(f'갱신 {now_wall} ({age:.0f}초 전 — 끊김?)', YELLOW)
+                conn_txt = self.term.paint(f'연결 ✗ {age:.0f}s 끊김 — bringup 확인', RED + BOLD)
         lines.append(f'  조작 {op_txt} | 지도 {mode_txt} | E-STOP {estop} | '
-                     f'장치 {dev_txt} | {upd_txt}')
+                     f'장치 {dev_txt} | {conn_txt}')
         # 2단 상시 상태바: 인지·임무·발화 (GUI 보드와 같은 내용, 1줄 요약)
         task = (self.state.task_status or '-')
         if len(task) > 38:

@@ -85,6 +85,7 @@ class OperatorTool(Node):
         self._restart_note = ''
         self._restart_armed_at = 0.0
         self.ui._reconnect_check = self.check_cli_reconnect
+        self.ui._reconnect_status = self.reconnect_status
         self._wire()
 
     # ------------------------------------------------------------- ROS 배선
@@ -93,6 +94,15 @@ class OperatorTool(Node):
         end = time.monotonic() + max(0.0, seconds)
         while time.monotonic() < end and rclpy.ok():
             rclpy.spin_once(self, timeout_sec=min(0.05, max(0.01, end - time.monotonic())))
+
+    def reconnect_status(self) -> str | None:
+        """상태바용 — 재연결을 기다리는 중이면 남은 초, 아니면 None."""
+        if not self._restart_armed_at:
+            return None
+        if self.state.state_last_update > self._restart_armed_at + 0.5:
+            return None
+        remain = max(0, int(12.0 - (time.monotonic() - self._restart_armed_at) + 0.999))
+        return f'재연결 {remain}s'
 
     def check_cli_reconnect(self):
         """launch 재시작 뒤 /state/*가 끊긴 채면 CLI를 새 프로세스로 다시 띄운다.
@@ -116,8 +126,6 @@ class OperatorTool(Node):
             return
         if now - self._restart_armed_at < 12.0:
             return
-        self.ui.console.write('\nbringup 재시작 뒤 상태가 끊겨 CLI를 다시 연결합니다…\n')
-        self.ui.console.flush()
         self.ui.close()
         os.execv(sys.executable, [sys.executable, '-u', str(Path(__file__).resolve()), 'menu'])
 
