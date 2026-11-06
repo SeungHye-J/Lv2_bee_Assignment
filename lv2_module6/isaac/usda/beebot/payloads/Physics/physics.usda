@@ -22,7 +22,7 @@ over "beebot"
             )
             {
                 double[] newton:inertia = [0.02937114, 0.03393188, 0.02999955, -1.992842e-05, 0.006707141, -2.318316e-06]
-                point3f physics:centerOfMass = (-0.054874, -0.000158, 0.082489)
+                point3f physics:centerOfMass = (-0.090000, -0.000158, 0.082489)
                 float3 physics:diagonalInertia = (0.022970832, 0.033931795, 0.036399936)
                 float physics:mass = 2.597760
                 quatf physics:principalAxes = (-0.00312012, 0.92828961, -0.00062000, -0.37184443)

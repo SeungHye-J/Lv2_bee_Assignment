@@ -9,8 +9,10 @@
 # 끝에 /dev/shm의 Fast DDS 공유 메모리 잔재도 지운다 (노드당 35 MB — 강제 종료된 노드가 남기면 RAM을 먹고 SHM 포트 오류가 남).
 #   ROS가 하나라도 안 죽었으면 지우지 않는다 (살아 있는 노드의 공유 메모리를 지우면 통신이 끊김).
 HERE="$(cd "$(dirname "$0")" && pwd)"
+# nvblox/cuVSLAM은 별도 workspace(~ /isaac_ros_ws)에 있어서 여기도 포함해야 한다.
+SLAM_WS="${SLAM_WS:-$HOME/isaac_ros_ws}"
 # [h] [n] — 패턴 글자가 이 스크립트를 부른 셸 명령줄과 겹쳐도 자기 자신은 안 걸리게
-PAT="(/opt/ros/[^/ ]+|$HERE/install|/ws/install)/[^ ]*li[b]/|bin/ros2 (launc[h]|ru[n]|topic|service|param|node|action|lifecycle|control)"
+PAT="(/opt/ros/[^/ ]+|$HERE/install|$SLAM_WS/install|/ws/install)/[^ ]*li[b]/|bin/ros2 (launc[h]|ru[n]|topic|service|param|node|action|lifecycle|control)"
 
 count() { pgrep -f "$PAT" | wc -l | tr -d ' '; }
 
@@ -36,12 +38,10 @@ if command -v ros2 >/dev/null 2>&1; then
 else
   pkill -f "ros2cli.daemon.daemoniz[e]" 2>/dev/null || true
 fi
-left=$(count)
-echo "남은 ROS 프로세스: ${left}개"
-if [ "$left" != 0 ]; then
-  echo "WARN: 안 죽은 ROS가 있어 Fast DDS 공유 메모리는 지우지 않음"
-else
-  m=$(ls /dev/shm 2>/dev/null | grep -c '^\(sem\.\)\?fastdds_')
-  rm -f /dev/shm/fastdds_* /dev/shm/sem.fastdds_* 2>/dev/null
-  echo "Fast DDS 공유 메모리 ${m}개 삭제"
+# 강제 종료된 참가자의 Fast DDS SHM 통로가 남으면 다음 state_manager가 포트 lock에 걸려
+# publisher가 하나도 안 보일 수 있다 (/state/* publisher count 0). ROS가 모두 꺼진 뒤에만 지운다.
+if [ "$(count)" = 0 ]; then
+  rm -rf /dev/shm/fastdds_* /dev/shm/sem.fastdds_* 2>/dev/null || true
+  echo "Fast DDS SHM 잔재 정리"
 fi
+echo "남은 ROS 프로세스: $(count)개"
