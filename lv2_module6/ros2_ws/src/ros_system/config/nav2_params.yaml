@@ -107,6 +107,7 @@ controller_server:
       wp_scale: 2.0            # 관측 정규화
       lidar_rays: 360          # nvblox 0.05 m voxel / 3.5 m → 1°(360)가 최대 의미 해상도
       lidar_max: 3.5           # [m] 스캔 최대거리 (정규화 기준)
+      lidar_inflation: 0.02    # [m] 사용자 안전 여유 — 기본 2 cm (학습 0~2 cm, 거의 raw)
       max_lin: 0.26            # [m/s] 정책 출력 ±1 스케일
       max_ang: 1.82            # [rad/s]
       extra_lin_vel: 0.0       # [m/s] 0~0.10 — 정책 출력에 더하는 추가 선속도 (max_lin 상한 유지, 0 = 끄기)

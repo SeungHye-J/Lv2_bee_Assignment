@@ -87,6 +87,7 @@ void RlNavController::configure(
   wp_scale_ = param<double>(node, name + ".wp_scale", wp_scale_);
   lidar_rays_ = param<int>(node, name + ".lidar_rays", lidar_rays_);
   lidar_max_ = param<double>(node, name + ".lidar_max", lidar_max_);
+  lidar_inflation_ = std::max(0.0, param<double>(node, name + ".lidar_inflation", lidar_inflation_));
   max_lin_ = param<double>(node, name + ".max_lin", max_lin_);
   max_ang_ = param<double>(node, name + ".max_ang", max_ang_);
   v_min_ratio_ = param<double>(node, name + ".v_min_ratio", v_min_ratio_);
@@ -217,7 +218,7 @@ void RlNavController::on_cloud(const sensor_msgs::msg::PointCloud2::SharedPtr cl
       const double by = r10 * px + r11 * py + r12 * pz + ty;
       const double bz = r20 * px + r21 * py + r22 * pz + tz;
       if (bz < z_min_ || bz > z_max_) continue;  // 바닥·천장 제외
-      const double r = std::max(0.0, std::hypot(bx, by) - esdf);  // ESDF 점 → 장애물 표면 거리
+      const double r = std::max(0.0, std::hypot(bx, by) - esdf - lidar_inflation_);  // ESDF 점 → 장애물 표면 거리 − 사용자 여유
       if (r > lidar_max_) continue;
       int bin = int(std::floor((std::atan2(by, bx) + M_PI) / (2 * M_PI) * lidar_rays_)) % lidar_rays_;
       if (bin < 0) bin += lidar_rays_;
