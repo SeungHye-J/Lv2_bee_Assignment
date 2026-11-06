@@ -95,6 +95,7 @@ void RlNavController::configure(
   points_stride_ = param<int>(node, name + ".points_stride", points_stride_);
   z_min_ = param<double>(node, name + ".z_min", z_min_);
   z_max_ = param<double>(node, name + ".z_max", z_max_);
+  esdf_max_distance_ = param<double>(node, name + ".esdf_max_distance", esdf_max_distance_);
   cloud_timeout_ = param<double>(node, name + ".cloud_timeout", cloud_timeout_);
   ranges_.assign(lidar_rays_, float(lidar_max_));
 
@@ -204,17 +205,20 @@ void RlNavController::on_cloud(const sensor_msgs::msg::PointCloud2::SharedPtr cl
   const size_t total = size_t(cloud->width) * cloud->height;
   try {
     sensor_msgs::PointCloud2ConstIterator<float> ix(*cloud, "x"), iy(*cloud, "y"), iz(*cloud, "z");
+    sensor_msgs::PointCloud2ConstIterator<float> ii(*cloud, "intensity");
     size_t n = 0;
-    for (size_t i = 0; i < total && n < 200000; ++i, ++ix, ++iy, ++iz, ++n) {
+    for (size_t i = 0; i < total && n < 200000; ++i, ++ix, ++iy, ++iz, ++ii, ++n) {
       if ((i % stride) != 0) continue;
       const double px = *ix, py = *iy, pz = *iz;
       if (!std::isfinite(px) || !std::isfinite(py) || !std::isfinite(pz)) continue;
+      const double esdf = *ii;  // nvblox ESDF intensity = 장애물까지 거리 [m]
+      if (!std::isfinite(esdf) || esdf < 0.0 || esdf > esdf_max_distance_) continue;
       const double bx = r00 * px + r01 * py + r02 * pz + tx;
       const double by = r10 * px + r11 * py + r12 * pz + ty;
       const double bz = r20 * px + r21 * py + r22 * pz + tz;
       if (bz < z_min_ || bz > z_max_) continue;  // 바닥·천장 제외
-      const double r = std::hypot(bx, by);
-      if (r > lidar_max_ || r < 0.05) continue;
+      const double r = std::max(0.0, std::hypot(bx, by) - esdf);  // ESDF 점 → 장애물 표면 거리
+      if (r > lidar_max_) continue;
       int bin = int(std::floor((std::atan2(by, bx) + M_PI) / (2 * M_PI) * lidar_rays_)) % lidar_rays_;
       if (bin < 0) bin += lidar_rays_;
       if (r < best[bin]) best[bin] = float(r);

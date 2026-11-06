@@ -96,8 +96,9 @@ controller_server:
       enable: true             # true = ONNX 정책 (모델 없으면 자동 바이패스)
       model_path: "rl_nav_controller/policy.onnx"  # share/ml/model/rl_nav_controller/policy.onnx
       scan_source: "points"    # points(점구름 가상 스캔) | scan(실제 LiDAR)
-      points_topic: "/nvblox_node/static_esdf_pointcloud"  # nvblox 2D ESDF height slice (PointCloud2)
+      points_topic: "/nvblox_node/combined_esdf_pointcloud"  # nvblox 2D ESDF height slice (static+dynamic, PointCloud2)
       points_stride: 1         # height slice 점을 다 쓴다
+      esdf_max_distance: 0.20  # [m] ESDF intensity(장애물까지 거리)가 이보다 큰 free 점은 버린다
       z_min: 0.03              # [m] base 기준 — nvblox slice 0.03~0.6 m
       z_max: 0.6
       cloud_timeout: 0.5       # [s] 점구름이 이보다 오래되면 바이패스

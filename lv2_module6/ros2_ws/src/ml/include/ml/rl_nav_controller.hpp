@@ -100,6 +100,7 @@ private:
   double extra_ang_vel_ = 0.0;  // [rad/s] 정책 출력에 더하는 추가 각속도 (0~0.50, max_ang 상한 유지)
   int points_stride_ = 4;
   double z_min_ = 0.03, z_max_ = 1.2;
+  double esdf_max_distance_ = 0.20;  // nvblox ESDF intensity(장애물까지 거리) 필터 [m]
   double cloud_timeout_ = 0.5;
 };
 

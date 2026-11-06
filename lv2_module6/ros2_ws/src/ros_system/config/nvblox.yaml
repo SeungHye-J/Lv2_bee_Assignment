@@ -9,7 +9,7 @@ nvblox_node:
     use_tf_transforms: true
     num_cameras: 2                 # camera_0 = pole_front_cam (늘) · camera_1 = gripper_cam (스캔 자세일 때만 — 아니면 depth 전부 0)
     voxel_size: 0.05               # [m] Nav2 costmap 해상도와 같게 (퍽 60 mm는 지도 대상 아님 — 인지가 따로)
-    mapping_type: "static_tsdf"
+    mapping_type: "dynamic"
     esdf_mode: "2d"
     publish_esdf_distance_slice: true
     use_depth: true
