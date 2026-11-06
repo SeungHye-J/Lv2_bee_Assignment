@@ -53,3 +53,6 @@ bringup.log
 
 # 칼리브레이션 결과 (tool/calibration/<시각>/raw.csv) — 계획 파일(wheel_square.json)만 커밋
 lv2_module6/tool/calibration/*/
+
+*.pt
+*.onnx

@@ -41,7 +41,7 @@ isaac/
 쓰는 venv마다 한 번 (editable — 코드 수정은 바로 반영):
 
 ```bash
-uv pip install --python ~/.venv-isaacsim/bin/python --no-deps -e lv2_module6/isaac
+uv pip install --python <isaaclab venv python 경로> --no-deps -e lv2_module6/isaac
 uv pip install --python ~/pa-course/IsaacLab-6.1/.venv/bin/python --no-deps -e lv2_module6/isaac
 ```
 

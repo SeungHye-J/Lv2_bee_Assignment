@@ -189,13 +189,13 @@ def main():
         runner.learn(num_learning_iterations=agent.max_iterations, init_at_random_ep_len=False)
         out = POLICY_DIR
         runner.export_policy_to_jit(path=str(log_dir / "exported"), filename="policy.pt")
-        out.mkdir(exist_ok=True)
+        (out / args.out).parent.mkdir(parents=True, exist_ok=True)  # --out v02/x.pt -> policies/v02/
         shutil.copy(log_dir / "exported" / "policy.pt", out / args.out)
         # ONNX copy for rl_arm_correction (C++ onnxruntime); obs normalizer is included like the JIT file
-        onnx_name = Path(args.out).with_suffix(".onnx").name
-        runner.export_policy_to_onnx(path=str(log_dir / "exported"), filename=onnx_name)
-        shutil.copy(log_dir / "exported" / onnx_name, out / onnx_name)
-        print(f"[train] exported {out / args.out}, {out / onnx_name} (log {log_dir})")
+        onnx_rel = Path(args.out).with_suffix(".onnx")
+        runner.export_policy_to_onnx(path=str(log_dir / "exported"), filename=onnx_rel.name)
+        shutil.copy(log_dir / "exported" / onnx_rel.name, out / onnx_rel)
+        print(f"[train] exported {out / args.out}, {out / onnx_rel} (log {log_dir})")
         report(env, "train-all")
     env.close()
 

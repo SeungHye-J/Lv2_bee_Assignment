@@ -65,6 +65,30 @@ def randomize_mass_synced(env, env_ids, asset_cfg: SceneEntityCfg, scale_range: 
     wp.copy(asset.data._body_inertia, wp.from_torch(inertia.contiguous()))
 
 
+# gravity::torques of ros2_ws/src/ml/include/ml/rl_arm_correction.hpp (planar arm, masses and centres of mass from the URDF)
+_G = 9.81
+_M_UA, _UA_X, _UA_Z = 0.128865, 0.008487, 0.104997
+_M_FA, _FA_X = 0.117300, 0.093796
+_M_WR, _WR_X, _WR_Z = 0.090152, 0.043623, 0.011449
+_M_HD, _HD_X, _HD_Z = 0.371242, 0.052686, 0.014472
+_J3_X, _J3_Z, _J4_X, _HAND_X = 0.024, 0.128, 0.124, 0.0629
+
+
+def _rotx(th, x, z):  # x of the vector (x, z) turned by pitch th
+    return x * torch.cos(th) + z * torch.sin(th)
+
+
+def _gravity_torques(q2, q3, q4):
+    """Gravity torque [Nm] about joints 2 and 3 (forward sag +), shape [n, 2]."""
+    t23, t234 = q2 + q3, q2 + q3 + q4
+    ua, p3 = _rotx(q2, _UA_X, _UA_Z), _rotx(q2, _J3_X, _J3_Z)
+    p4x = p3 + _rotx(t23, _J4_X, 0.0)
+    fax = p3 + _rotx(t23, _FA_X, 0.0)
+    wr, hd = p4x + _rotx(t234, _WR_X, _WR_Z), p4x + _rotx(t234, _HAND_X + _HD_X, _HD_Z)
+    return torch.stack([_G * (_M_UA * ua + _M_FA * fax + _M_WR * wr + _M_HD * hd),
+                        _G * (_M_FA * (fax - p3) + _M_WR * (wr - p3) + _M_HD * (hd - p3))], dim=1)
+
+
 @configclass
 class PlaceSceneCfg(InteractiveSceneCfg):
     ground = AssetBaseCfg(prim_path="/World/ground", spawn=sim_utils.GroundPlaneCfg())
@@ -128,6 +152,7 @@ class PlaceEnvCfg(DirectRLEnvCfg):
     corr_gain_range: tuple | None = None  # (lo, hi): per episode, corr_gain x U(lo, hi)
     sag_scale_range: tuple | None = None  # (lo, hi): per episode, sag x U(lo, hi) by arm joint stiffness / U
     obs_corr = True  # policy also sees the sag integral (last 5 observations; older policies: --obs_dim)
+    ff_gain, ff_max = 1.0, 0.2  # gravity feed-forward as rl_arm_correction (gravity_enabled): delta_j = -c_j x tau_j, joints 2-3 (0: off)
 
     # reward
     w_track, w_tilt, w_rate, w_act = 0.1, 0.2, 0.05, 0.002
@@ -258,15 +283,27 @@ class PlaceEnv(DirectRLEnv):
         """0 hold, 1 down, 2 settle, 3 release, 4 up, 5 wait, 6 done."""
         return (self.t[:, None] >= self.t_ph).sum(dim=1)
 
+    def _gravity_ff(self):
+        """Feed-forward joint offsets [n, 5]: -tau_j / k_j (nominal stiffness) for joints 2 and 3, as the real controller
+        (joint4 compliance is 0 there). tau from gravity::torques of rl_arm_correction.hpp, torch port."""
+        if self.cfg.ff_gain == 0.0:
+            return torch.zeros_like(self.delta)
+        q = self.robot.data.joint_pos.torch[:, self.arm_ids]
+        tau = _gravity_torques(q[:, 1], q[:, 2], q[:, 3])
+        ff = torch.zeros_like(self.delta)
+        ff[:, 1:3] = (-self.cfg.ff_gain * tau[:, :2] / self.k_arm0[:, 1:3]).clamp(-self.cfg.ff_max, self.cfg.ff_max)
+        return ff
+
     def _sag_step(self, q_ref, holding):
-        """Arm target q_ref + corr + delta. While holding, every corr_dt the integral moves corr by corr_k x
-        (q_ref + delta - q): it takes out the sag, not the residual (same law as the real rl_arm_correction)."""
+        """Arm target q_ref + corr + delta + gravity ff. While holding, every corr_dt the integral moves corr by corr_k x
+        (q_ref + delta - q): it takes out the sag that the feed-forward left, not the residual. (The real controller puts the
+        feed-forward into the error too: its twist hides behind the encoder. Here joint_pos is the drooped joint itself.)"""
         dt = self.physics_dt
         tick = (torch.round(self.t / dt).long() % max(1, round(self.cfg.corr_dt / dt))) == 0
         q_err = q_ref + self.delta - self.robot.data.joint_pos.torch[:, self.arm_ids]
         new = (self.corr + self.corr_k[:, None] * q_err).clamp(-self.cfg.corr_max, self.cfg.corr_max)
         self.corr = torch.where((holding & tick)[:, None], new, self.corr)
-        return q_ref + self.corr + self.delta
+        return q_ref + self.corr + self.delta + self._gravity_ff()
 
     def _sample_sag(self, env_ids):
         """Per episode: corr = 0, integral gain and sag size (arm stiffness k0 / s: sag under gravity ~ 1 / k)."""
