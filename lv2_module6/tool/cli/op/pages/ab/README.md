@@ -1,10 +1,10 @@
-# tool/cli/ab — A/B 자동 주행·분석
+# tool/cli/op/pages/ab — A/B 자동 주행·분석
 
 노드별 A/B 동작을 `command.json`으로 정의하고, CLI가 rosbag 기록과 Nav2 주행을 직접 수행한다.
 사용자가 주행할 필요는 없다.
 
 ```text
-tool/cli/ab/
+tool/cli/op/pages/ab/
 └── rl_nav_controller/
     └── command.json                # A/B 시작 자세·route·반복·timeout
 ```

@@ -2,6 +2,7 @@
 //   관측 51: 웨이포인트 5×2 + 가상 스캔 36 + v/w/gyro + 이전 행동 2
 //   가상 스캔: pole_front_cam 점구름(PointCloud2) → base_footprint 36방향 최소거리 (LiDAR 없음)
 //   ~/<controller>/toggle (std_srvs/SetBool): false(기본)=inner controller, true=정책
+//   ~/<controller>/status: [rl_active, reason, …] — CLI 노드 상태가 RL/DWB를 판별한다.
 #pragma once
 
 #include <array>
@@ -50,6 +51,10 @@ public:
 private:
   void load_model(const std::string & path);
   void on_cloud(const sensor_msgs::msg::PointCloud2::SharedPtr cloud);
+  // RL/DWB 상태 — [rl_active, reason, policy_loaded, enable, cloud_ok, cloud_age, scan_min, v, w, inner_kind]
+  //   reason: 0=RL, 1=모델 없음/로드 실패, 2=enable=false, 3=센서 없음/stale, 4=추론 실패
+  //   inner_kind: 1=DWB, 2=MPPI, 3=RPP, 4=RotationShim, 0=기타
+  void publish_status(int rl_active, int reason, const geometry_msgs::msg::TwistStamped & cmd);
 
   nav2::LifecycleNode::WeakPtr node_;
   std::string name_;
@@ -63,12 +68,14 @@ private:
 
   nav2::ServiceServer<std_srvs::srv::SetBool>::SharedPtr toggle_srv_;
   rclcpp::Publisher<std_msgs::msg::Float32MultiArray>::SharedPtr debug_pub_;
+  rclcpp::Publisher<std_msgs::msg::Float32MultiArray>::SharedPtr status_pub_;
   nav2::Subscription<sensor_msgs::msg::PointCloud2>::SharedPtr cloud_sub_;
   nav2::Subscription<sensor_msgs::msg::LaserScan>::SharedPtr scan_sub_;
   nav2::Subscription<sensor_msgs::msg::Imu>::SharedPtr imu_sub_;
 
   std::mutex mtx_;
   bool enable_ = false;
+  bool enable_requested_ = false;  // YAML/toggle 의도 — 모델이 없어 enable_을 내려도 이유를 구분한다
   bool use_scan_ = false;
   sensor_msgs::msg::LaserScan::SharedPtr scan_;
   std::vector<float> ranges_;  // 가상 스캔 (m) — lidar_rays_개
@@ -82,6 +89,7 @@ private:
   float prev_a_[2] = {0.0f, 0.0f};
 
   // 파라미터 (기본값 = 학습 env와 같게; 모델이 다르면 yaml에서 맞춘다)
+  int inner_kind_ = 0;  // 1=DWB, 2=MPPI, 3=RPP, 4=RotationShim — status/CLI 표시용
   int lookahead_ = 5;
   double wp_step_ = 0.30, wp_scale_ = 2.0;
   int lidar_rays_ = 36;

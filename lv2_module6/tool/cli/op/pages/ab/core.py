@@ -23,9 +23,9 @@ from pathlib import Path
 
 import rclpy
 
-from .consts import _param_value_to_py
+from ...consts import _param_value_to_py
 
-# A/B 메뉴에 노출할 노드 — 새 노드가 생기면 여기와 pages/ab.py의 화면 매핑에 추가한다.
+# A/B 메뉴에 노출할 노드 — 새 노드가 생기면 여기와 pages/ab/__init__.py의 화면 매핑에 추가한다.
 AB_NODES = (
     ('rl_nav_controller', 'Nav2 주행 정책 (정책 vs DWB)'),
 )
@@ -36,8 +36,8 @@ TOGGLE = '/controller_server/FollowPath/toggle'
 BAG_DIR = Path.home() / 'bags' / 'ab'
 STATE = Path.home() / '.cache' / 'beebot' / 'ab.json'
 RECORD_LOG = Path.home() / '.cache' / 'beebot' / 'ab-record.log'
-REPORT = Path(__file__).resolve().parents[1] / 'node' / 'rl_nav_controller' / 'report.py'
-PLAN = Path(__file__).resolve().parents[1] / 'ab' / NODE / 'command.json'
+REPORT = Path(__file__).resolve().parents[4] / 'node' / 'rl_nav_controller' / 'report.py'
+PLAN = Path(__file__).resolve().parent / NODE / 'command.json'
 
 # controller 출력 + 실제 움직임 + 정책 디버그를 같이 본다.
 TOPICS = ('/cmd_vel_nav',

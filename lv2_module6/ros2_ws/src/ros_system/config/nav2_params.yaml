@@ -93,7 +93,7 @@ controller_server:
     FollowPath:
       plugin: "ml::RlNavController"
       enable: true             # true = ONNX 정책 (모델 없으면 자동 바이패스)
-      model_path: "nav_controller/policy.onnx"  # share/ml/model/nav_controller/policy.onnx
+      model_path: "rl_nav_controller/policy.onnx"  # share/ml/model/rl_nav_controller/policy.onnx
       scan_source: "points"    # points(점구름 가상 스캔) | scan(실제 LiDAR)
       points_topic: "/pole_front_cam/depth/color/points_filtered"
       points_stride: 4         # 점구름 솎음 (4 = 1/4)
@@ -110,7 +110,9 @@ controller_server:
       extra_lin_vel: 0.0       # [m/s] 0~0.10 — 정책 출력에 더하는 추가 선속도 (max_lin 상한 유지, 0 = 끄기)
       extra_ang_vel: 0.0       # [rad/s] 0~0.50 — 정책 출력에 더하는 추가 각속도 (max_ang 상한 유지, 0 = 끄기)
       v_min_ratio: -0.2        # 후진 허용 비율 (음수 = 후진)
-      inner_plugin: "dwb_core::DWBLocalPlanner"   # 바이패스용 기본 controller
+      # 바이패스 controller — dwb(기본) · mppi · rpp · rotation_shim 또는 전체 pluginlib 클래스명.
+      #   선택한 플러그인의 파라미터는 아래 inner.* 블록에 맞출 것.
+      fallback_controller: "dwb"
       inner:                   # ← 기존 DWB 설정 (이름 앞에 inner. 붙임)
 
         # ── 속도 한계 [m/s · rad/s] — ml.yaml max_vel_x · max_vel_theta와 같은 값

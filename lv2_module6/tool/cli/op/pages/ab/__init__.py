@@ -11,9 +11,9 @@ import sys
 import time
 from pathlib import Path
 
-from ..ab import AB_NODES
-from ..defs import STAY
-from .base import GoMenu, Menu, MenuItem
+from ...defs import STAY
+from ..base import GoMenu, Menu, MenuItem
+from .core import AB_NODES
 
 
 class AbStatusItem(MenuItem):
