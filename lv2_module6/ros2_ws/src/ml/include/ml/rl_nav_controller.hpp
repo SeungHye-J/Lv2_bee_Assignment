@@ -1,6 +1,6 @@
 // RlNavController — Nav2 controller 플러그인 (ml 패키지) (ONNX 정책 + 기본 controller 바이패스).
-//   관측 51: 웨이포인트 5×2 + 가상 스캔 36 + v/w/gyro + 이전 행동 2
-//   가상 스캔: pole_front_cam 점구름(PointCloud2) → base_footprint 36방향 최소거리 (LiDAR 없음)
+//   관측 = 웨이포인트 5×2 + 가상 스캔 lidar_rays + v/w/gyro + 이전 행동 2
+//   가상 스캔: nvblox 2D ESDF height slice(PointCloud2) → base_footprint lidar_rays방향 최소거리 (LiDAR 없음)
 //   ~/<controller>/toggle (std_srvs/SetBool): false(기본)=inner controller, true=정책
 //   ~/<controller>/status: [rl_active, reason, …] — CLI 노드 상태가 RL/DWB를 판별한다.
 #pragma once

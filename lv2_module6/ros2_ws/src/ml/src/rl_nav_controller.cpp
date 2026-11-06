@@ -1,13 +1,13 @@
 // RlNavController — Nav2 controller 플러그인. 학습 정책(ONNX)으로 경로를 따라가고,
 //   정책이 없거나 끄면(기본) 안에 품은 기본 controller(DWB 등)로 그대로 넘긴다.
 //
-// 관측 51 (학습 env와 같은 순서·단위 — 바꾸면 학습도 같이):
+// 관측 (학습 env와 같은 순서·단위 — 바꾸면 학습도 같이):
 //   [웨이포인트 K=5 × (x, y)/wp_scale] (10)
-//   [가상 스캔 R=36 방향 거리/lidar_max] (36)
+//   [가상 스캔 R=lidar_rays 방향 거리/lidar_max] (기본 360)
 //   [v/max_lin, w/max_ang, gyro/max_ang, 이전 행동 a0, a1] (5)
-//   → 합 51
-// 가상 스캔: LiDAR가 없어서 /pole_front_cam/depth/color/points_filtered (PointCloud2)를
-//   base_footprint로 변환, 높이 z_min~z_max 점만 36방향 빈에 최소거리. 점구름이 없으면 기본 controller로 바이패스.
+//   → 합 2*K + R + 5
+// 가상 스캔: LiDAR가 없어서 nvblox 2D ESDF height slice(PointCloud2, 0.03~0.6 m)를
+//   base_footprint로 변환, 그 점들을 R방향 빈의 최소거리로. 점구름이 없으면 기본 controller로 바이패스.
 //   (scan_source=scan 이면 /scan LaserScan 사용 — 실제 LiDAR 붙였을 때)
 // 행동 [-1,1]² → v = a0 × max_lin (후진은 v_min_ratio까지) · w = a1 × max_ang
 #include "ml/rl_nav_controller.hpp"
