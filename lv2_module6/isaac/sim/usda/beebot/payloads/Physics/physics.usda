@@ -21,11 +21,11 @@ over "beebot"
                 prepend apiSchemas = ["PhysicsRigidBodyAPI", "PhysicsArticulationRootAPI", "NewtonArticulationRootAPI", "PhysicsMassAPI", "NewtonMassAPI"]
             )
             {
-                double[] newton:inertia = [0.02813, 0.032644, 0.027766, -0.000021613, 0.0064439, -0.0000014858]
-                point3f physics:centerOfMass = (-0.05077, -0.000171, 0.080461)
-                float3 physics:diagonalInertia = (0.021501513, 0.032643862, 0.034394626)
-                float physics:mass = 2.4006
-                quatf physics:principalAxes = (-0.38919315, 0.0012590096, 0.92114383, 0.004594014)
+                double[] newton:inertia = [0.02937114, 0.03393188, 0.02999955, -1.992842e-05, 0.006707141, -2.318316e-06]
+                point3f physics:centerOfMass = (-0.090000, -0.000158, 0.082489)
+                float3 physics:diagonalInertia = (0.022970832, 0.033931795, 0.036399936)
+                float physics:mass = 2.597760
+                quatf physics:principalAxes = (-0.00312012, 0.92828961, -0.00062000, -0.37184443)
 
                 over "box" (
                     prepend apiSchemas = ["NewtonCollisionAPI"]
