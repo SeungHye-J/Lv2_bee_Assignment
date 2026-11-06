@@ -2088,7 +2088,7 @@ class App:
 
     def current_urdf(self):
         """지금 돌고 있는 로봇 모델 폴더 — /robot_description 메시 경로 package://ros_system/urdf/<폴더>/meshes 에서.
-        ponytail: 메시 없는 모델(beebot_normal 등)은 URDF에 폴더 이름이 안 남아 마지막으로 고른 것 · 모르면 '?'
+        ponytail: 메시 없는 모델은 URDF에 폴더 이름이 안 남아 마지막으로 고른 것 · 모르면 '?'
         (정확히 하려면 ROS가 모델 이름을 토픽으로 내야 함)"""
         import re
         m = re.search(r'package://ros_system/urdf/([^/"]+)/meshes/', getattr(self, '_model_desc', None) or '')
