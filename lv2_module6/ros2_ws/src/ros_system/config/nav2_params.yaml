@@ -89,7 +89,7 @@ controller_server:
 
     # 경로 추종 플러그인 — ml::RlNavController (RL 정책, ONNX) + inner 바이패스
     #   enable=false → inner(DWB) 그대로. ~/FollowPath/toggle 서비스로 정책 ON/OFF.
-    #   LiDAR가 없어 nvblox 2D ESDF height slice(0.03~0.6 m, 0.05 m voxel)를 360방향 가상 스캔으로 쓴다.
+    #   LiDAR가 없어 nvblox 2D ESDF height slice(0.03~0.30 m, 0.05 m voxel)를 360방향 가상 스캔으로 쓴다.
     #   (raw 카메라 점구름은 costmap·collision_monitor가 계속 사용)
     FollowPath:
       plugin: "ml::RlNavController"
@@ -99,8 +99,8 @@ controller_server:
       points_topic: "/nvblox_node/combined_esdf_pointcloud"  # nvblox 2D ESDF height slice (static+dynamic, PointCloud2)
       points_stride: 1         # height slice 점을 다 쓴다
       esdf_max_distance: 0.20  # [m] ESDF intensity(장애물까지 거리)가 이보다 큰 free 점은 버린다
-      z_min: 0.03              # [m] base 기준 — nvblox slice 0.03~0.6 m
-      z_max: 0.6
+      z_min: 0.03              # [m] base 기준 — nvblox slice 0.03~0.30 m
+      z_max: 0.30
       cloud_timeout: 0.5       # [s] 점구름이 이보다 오래되면 바이패스
       lookahead: 5             # 관측 웨이포인트 개수 (학습과 같게)
       wp_step: 0.30            # [m] 웨이포인트 간격

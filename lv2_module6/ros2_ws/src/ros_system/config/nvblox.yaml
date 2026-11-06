@@ -29,9 +29,9 @@ nvblox_node:
     workspace_height_bounds_visualization_attachment_frame_id: "base_footprint"
     static_mapper:
       # 2D 격자로 자르는 높이 (map z = 바닥) — Nav2 costmap(min 0.03 · max 0.6) · RTAB-Map Grid(0.03~0.6)와 같은 기준
-      esdf_slice_height: 0.3
+      esdf_slice_height: 0.1
       esdf_slice_min_height: 0.03
-      esdf_slice_max_height: 0.6
+      esdf_slice_max_height: 0.3
       # pole_front_cam 바닥은 화면 맨 아래도 0.59 m — 3 m 넘는 depth는 잡음이 커서 안 씀 (costmap raytrace 3.0과 같게)
       projective_integrator_max_integration_distance_m: 3.0
       workspace_bounds_type: "height_bounds"

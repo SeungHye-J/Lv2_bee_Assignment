@@ -6,7 +6,7 @@
 //   [가상 스캔 R=lidar_rays 방향 거리/lidar_max] (기본 360)
 //   [v/max_lin, w/max_ang, gyro/max_ang, 이전 행동 a0, a1] (5)
 //   → 합 2*K + R + 5
-// 가상 스캔: LiDAR가 없어서 nvblox 2D ESDF height slice(PointCloud2, 0.03~0.6 m)를
+// 가상 스캔: LiDAR가 없어서 nvblox 2D ESDF height slice(PointCloud2, 0.03~0.30 m)를
 //   base_footprint로 변환, 그 점들을 R방향 빈의 최소거리로. 점구름이 없으면 기본 controller로 바이패스.
 //   (scan_source=scan 이면 /scan LaserScan 사용 — 실제 LiDAR 붙였을 때)
 // 행동 [-1,1]² → v = a0 × max_lin (후진은 v_min_ratio까지) · w = a1 × max_ang
