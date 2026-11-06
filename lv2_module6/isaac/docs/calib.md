@@ -183,7 +183,7 @@ ros2 launch ./arm_cam.launch.py use_moveit:=true                 # + move_group
 ros2 launch ./arm_cam.launch.py mock_hardware:=true use_cameras:=false   # 로봇 없이
 ```
 
-`rl_arm_correction`이 함께 떠서 `gravity_enabled: true`(`ros_system/config/controllers.yaml`) 앞먹임이 켜져 있다. 이 값은 켤 때 한 번만 읽으므로 런타임에 못 바꾼다. **8·9번 강성 측정과 11번을 할 때는 `false`로 바꾸고 launch를 다시 띄운다.** 안 그러면 처짐이 이미 보정된 값을 재거나 앞먹임이 두 번 들어간다.
+`rl_arm_correction`이 함께 떠서 `gravity_enabled: true`(`ros_system/config/controllers.yaml`) 앞먹임이 켜져 있다. 이 값은 켤 때 한 번만 읽으므로 런타임에 못 바꾼다. **8·9번 강성 측정과 11번을 할 때는 `false`로 바꾸고 launch를 다시 띄운다.** 안 그러면 처짐이 이미 보정된 값을 재거나 앞먹임이 두 번 들어간다. 같은 측정에서는 `twist_state:=false`도 준다 (기본 `true`는 `/joint_states`에 모델 비틀림을 더해 엔코더 각이 아니다).
 
 ### 7. joint_goto — 관절 옮기기
 
@@ -191,6 +191,7 @@ ros2 launch ./arm_cam.launch.py mock_hardware:=true use_cameras:=false   # 로�
 python3 joint_goto.py                     # 지금 각도 출력
 python3 joint_goto.py joint4=0            # joint4 → 0°, 나머지 유지 (최대 15 deg/s)
 python3 joint_goto.py joint2=0 joint3=0
+python3 joint_goto.py tip=0.19,0.07       # 손 수직 아래, 손가락 끝면 중심 앞 0.19 m · 바닥 위 0.07 m (URDF IK)
 ```
 
 `arm_cam.launch.py` 전용이다 (`hw.launch.py`에서는 `goal rejected`).

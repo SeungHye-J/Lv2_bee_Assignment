@@ -20,6 +20,8 @@
 //   command = q_ref + corr + Δ − d. c = 1/강성 (실측 feature/isaac-setup isaac/sim/R2S/sag_fit.py: j2 12.2 · j3 18.8 Nm/rad).
 //   τ는 현재 엔코더 각의 팔 평면 점질량 모델(gravity::torques, URDF 값). 처짐 적분 오차에도 넣어 적분이 지우지 않는다.
 //   gravity_z_offset_m: 자세와 무관한 고정 높이 오차를 올리는 양 [m] — 손가락 끝면 중심을 x·손 피치 그대로 위로 (gravity::lift).
+// twist_state (기본 켜짐 · ros_system launch가 하드웨어 twist_state와 같은 값을 줌): 상태 = 엔코더 + d (실제 각, TF = 실제). 앞먹임은 그대로 빼고,
+//   처짐 적분 오차·정책 관측에서는 앞먹임을 뺀다 — 상태가 이미 실제 각이라 넣으면 d가 두 번 빠진다.
 #include <algorithm>
 #include <array>
 #include <cmath>
@@ -185,6 +187,7 @@ private:
   bool have_prev_ = false;
   std::atomic<bool> reset_sag_{false};
   std::atomic<bool> gravity_enabled_{true};  // 파라미터 콜백이 씀 — 실행 중 켜고 끔
+  std::atomic<bool> twist_state_{true};      // 같은 콜백 — 상태 = 실제 각 (헤더 설명)
   rclcpp::node_interfaces::OnSetParametersCallbackHandle::SharedPtr gravity_cb_;
   double gravity_c2_ = 0.0, gravity_c3_ = 0.0, gravity_c4_ = 0.0, gravity_z_offset_ = 0.0, gravity_ramp_s_ = 2.0, gravity_max_ = 0.2;
   double gravity_scale_ = 0.0;  // 앞먹임 세기 0..1 (켜고 끌 때 서서히)

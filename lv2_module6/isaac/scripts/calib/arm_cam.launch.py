@@ -3,6 +3,7 @@
   ros2 launch ./arm_cam.launch.py   # in scripts/calib
   ros2 launch .../arm_cam.launch.py use_moveit:=true      # + move_group (stand / pick need it)
   ros2 launch .../arm_cam.launch.py use_gripper_cam:=false
+  ros2 launch .../arm_cam.launch.py twist_state:=false   # raw encoder angles in /joint_states (default true: + gravity twist)
   ros2 launch .../arm_cam.launch.py mock_hardware:=true use_cameras:=false      # no robot (use another ROS_DOMAIN_ID)
 
 Up: robot_state_publisher, ros2_control (BeebotSystemHardware), joint_state_broadcaster, gripper_controller,
@@ -29,6 +30,7 @@ ARGS = {  # name: default, passed through to ros_system.launch.py
     'gripper_cam_serial': os.environ.get('GRIPPER_CAM_SERIAL', ''),
     'gripper_cam_pointcloud': 'false',
     'pole_front_cam_pointcloud': 'false',
+    'twist_state': 'true',  # /joint_states·TF = encoder + gravity twist (real joint angle); false = raw encoder (stiffness runs)
 }
 OFF = ['use_ekf', 'use_slam', 'use_nav2', 'use_twist_mux']
 

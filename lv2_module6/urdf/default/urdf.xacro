@@ -20,6 +20,7 @@
   <xacro:arg name="mock_hardware" default="false"/>
   <xacro:arg name="mock_effort" default="0.0"/>
   <xacro:arg name="port" default="/dev/opencr"/>
+  <xacro:arg name="twist_state" default="true"/>  <!-- true: joint2·3 상태 = 엔코더 + 중력 비틀림 (BeebotSystemHardware 헤더) · 강성 측정만 false -->
   <xacro:arg name="mesh_uri" default="package://ros_system/urdf/meshes"/>
   <link name="base_footprint"/>
   <joint name="base_joint" type="fixed">
@@ -151,20 +152,6 @@
     </collision>
     <collision>
       <origin rpy="0 0 0" xyz="-0.177000 -0.064000 -0.005237"/>
-      <geometry>
-        <sphere radius="0.004763"/>
-      </geometry>
-    </collision>
-    <!-- front caster (v01) -->
-    <collision>
-      <origin rpy="0 0 0" xyz="0.049600 0.064000 -0.005237"/>
-      <geometry>
-        <sphere radius="0.004763"/>
-      </geometry>
-    </collision>
-    <!-- front caster (v01) -->
-    <collision>
-      <origin rpy="0 0 0" xyz="0.049600 -0.064000 -0.005237"/>
       <geometry>
         <sphere radius="0.004763"/>
       </geometry>
@@ -857,7 +844,7 @@
   <joint name="imu_joint" type="fixed">
     <parent link="base_link"/>
     <child link="imu_link"/>
-    <origin rpy="0 0 0" xyz="-0.064 0 0.068"/>
+    <origin rpy="0 0 0" xyz="0.0178 0 0.0585"/>  <!-- x: waffle front edge 0.0688 - 0.051 (measured); z: OpenCR board top in base_link mesh -->
   </joint>
   <!-- rear battery: ROBOTIS LB-012 (88x35x26 mm, 106 g), upright behind the pole, opposite the camera. Same as USD payloads/base.usda, Physics/physics.usda -->
   <joint name="battery_joint" type="fixed">
@@ -962,17 +949,22 @@
       <param name="mock">$(arg mock_hardware)</param>
       <param name="mock_effort">$(arg mock_effort)</param>
       <param name="port">$(arg port)</param>
+      <param name="twist_state">$(arg twist_state)</param>
+      <param name="twist_compliance_j2">0.0817</param>  <!-- [rad/Nm] = controllers.yaml gravity_compliance_j2 -->
+      <param name="twist_compliance_j3">0.0532</param>  <!-- [rad/Nm] = gravity_compliance_j3 -->
       <param name="baud_rate">1000000</param>
     </hardware>
     <joint name="wheel_left_joint">
       <command_interface name="velocity"/>
       <state_interface name="position"/>
       <state_interface name="velocity"/>
+      <state_interface name="effort"/>  <!-- 바퀴 모터 전류 [A] (S 맨 끝) -->
     </joint>
     <joint name="wheel_right_joint">
       <command_interface name="velocity"/>
       <state_interface name="position"/>
       <state_interface name="velocity"/>
+      <state_interface name="effort"/>  <!-- 바퀴 모터 전류 [A] (S 맨 끝) -->
     </joint>
     <joint name="joint1">
       <param name="offset">0.0</param>  <!-- [rad] 영점 오프셋: 서보 값 = 관절값 + offset (실측) -->
@@ -1106,6 +1098,7 @@
         <cmd_min>-${effort}</cmd_min>
       </plugin>
     </xacro:macro>
+    <!-- 시작 자세 = SRDF stow (plan.yaml initial_pose와 같음, URDF 한계 안) -->
     <xacro:gz_jpc joint="joint1"/>
     <xacro:gz_jpc joint="joint2" initial="-1.9024"/>
     <xacro:gz_jpc joint="joint3" initial="1.344"/>

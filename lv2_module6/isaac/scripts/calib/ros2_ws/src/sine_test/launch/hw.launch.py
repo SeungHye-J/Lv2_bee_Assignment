@@ -27,7 +27,7 @@ def generate_launch_description():
     arg = LaunchConfiguration
     controllers = PathJoinSubstitution([FindPackageShare('sine_test'), 'config', 'controllers.yaml'])
     robot_description = ParameterValue(Command([
-        'xacro ', arg('urdf'), ' mock_hardware:=', arg('mock_hardware'), ' port:=', arg('port'),
+        'xacro ', arg('urdf'), ' mock_hardware:=', arg('mock_hardware'), ' port:=', arg('port'), ' twist_state:=false',  # raw encoder angles
         ' mesh_uri:=', arg('mesh_uri')]), value_type=str)
     activate = ExecuteProcess(
         cmd=['ros2', 'control', 'set_hardware_component_state', 'BeebotSystem', 'active'], output='screen')

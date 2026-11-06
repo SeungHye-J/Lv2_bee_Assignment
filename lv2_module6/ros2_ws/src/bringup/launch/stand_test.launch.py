@@ -41,6 +41,7 @@ def generate_launch_description():
     return LaunchDescription([
         *[DeclareLaunchArgument(k, default_value=v, description=d) for k, (v, d) in passthrough.items()],
         DeclareLaunchArgument('miss_min_range', default_value='0.7', description='이 거리 안의 물체는 못 봐도 안 지움 (전체 bringup 기본 0.1)'),
+        DeclareLaunchArgument('perception_device', default_value='cpu', description='YOLO 장치 cpu | cuda (perception.yaml device를 덮어씀 — Isaac 시연 PC는 cuda)'),
         DeclareLaunchArgument('grasp_check', default_value='true', description='잡기 판정'),
         DeclareLaunchArgument('grasp_min_effort', default_value='0.25', description='잡기 판정 전류 하한 [A]'),
         DeclareLaunchArgument('learning_enabled', default_value='true', description='false면 정책 Δ 0'),
@@ -55,7 +56,8 @@ def generate_launch_description():
             launch_arguments={k: LaunchConfiguration(k) for k in {**passthrough, **FIXED}}.items())]),
 
         # 다가가면 퍽이 카메라 0.7 m 안(화면 아래·가까움)에 들어와 YOLO가 놓침 → 그 안의 물체는 못 봐도 지우지 않음 (기억 유지)
-        node('perception', 'perception_node', {'miss_min_range': ParameterValue(LaunchConfiguration('miss_min_range'), value_type=float)}),
+        node('perception', 'perception_node', {'miss_min_range': ParameterValue(LaunchConfiguration('miss_min_range'), value_type=float),
+                                               'device': LaunchConfiguration('perception_device')}),
         node('perception', 'hand_relative'),
         node('plan', 'coordinator'),
         GroupAction([IncludeLaunchDescription(

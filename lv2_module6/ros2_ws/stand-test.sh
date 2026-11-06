@@ -23,7 +23,7 @@ fi
 # Jetson 한 대 안에서만 도는 테스트라 SHM 전용 프로파일을 기본으로 (start.sh 기본은 fastdds.xml = UDP+SHM).
 # 11/04: fastdds.xml로 뜬 스택에서 EKF가 TF를 못 받아 "Failed to meet update rate"로 막히고 odom TF가 안 나왔음.
 # 다른 값으로 쓰려면 FASTDDS_DEFAULT_PROFILES_FILE=... ./stand-test.sh
-export FASTDDS_DEFAULT_PROFILES_FILE="${FASTDDS_DEFAULT_PROFILES_FILE:-$HERE/fastdds_local.xml}"
+export FASTDDS_DEFAULT_PROFILES_FILE="${FASTDDS_DEFAULT_PROFILES_FILE:-$HERE/fastdds_local_only.xml}"
 export ROS_DOMAIN_ID="${ROS_DOMAIN_ID:-88}"
 export ROS_AUTOMATIC_DISCOVERY_RANGE="${ROS_AUTOMATIC_DISCOVERY_RANGE:-SUBNET}"
 LAUNCH_FILE=stand_test.launch.py exec "$HERE/start.sh" "$@"

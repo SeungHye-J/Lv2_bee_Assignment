@@ -20,6 +20,7 @@
   <xacro:arg name="mock_hardware" default="false"/>
   <xacro:arg name="mock_effort" default="0.0"/>
   <xacro:arg name="port" default="/dev/opencr"/>
+  <xacro:arg name="twist_state" default="true"/>  <!-- true: joint2·3 상태 = 엔코더 + 중력 비틀림 (BeebotSystemHardware 헤더) · 강성 측정만 false -->
   <xacro:arg name="mesh_uri" default="package://ros_system/urdf/meshes"/>
   <link name="base_footprint"/>
   <joint name="base_joint" type="fixed">
@@ -948,6 +949,9 @@
       <param name="mock">$(arg mock_hardware)</param>
       <param name="mock_effort">$(arg mock_effort)</param>
       <param name="port">$(arg port)</param>
+      <param name="twist_state">$(arg twist_state)</param>
+      <param name="twist_compliance_j2">0.0817</param>  <!-- [rad/Nm] = controllers.yaml gravity_compliance_j2 -->
+      <param name="twist_compliance_j3">0.0532</param>  <!-- [rad/Nm] = gravity_compliance_j3 -->
       <param name="baud_rate">1000000</param>
     </hardware>
     <joint name="wheel_left_joint">
