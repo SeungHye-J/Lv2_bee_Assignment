@@ -4,6 +4,7 @@ Enter the moment the rear casters lift, the pose is logged and the arm goes back
 
   ros2 launch sine_test hw.launch.py                # terminal 1 (real robot)
   python3 tip_balance.py [--trials 3] [--speed 2]   # terminal 2
+  python3 tip_balance.py --payload 0.3             # weight [kg] held in the gripper when the arm alone can't tip it
   python3 tip_balance.py --self-test                # no ROS, no robot
 
 At the tipping point the whole robot's centre of mass is above the wheel axle, so with the URDF masses of everything
@@ -20,7 +21,7 @@ from pathlib import Path
 
 import numpy as np
 
-from arm_model import ARM, Arm
+from arm_model import ARM, TIP, Arm
 
 BACK_SPEED_DEG = 10.0  # [deg/s] after Enter and to the start pose
 OUT = Path(__file__).resolve().parent / 'logs' / 'tip_balance'
@@ -43,6 +44,12 @@ def base_com_at_tip(arm, q, grip=0.0):
     return world - frames['base_link'][0, 3]
 
 
+def add_payload(arm, kg):
+    """point mass at the finger-tip face centre (arm_model.mark); end_effector_link has no inertial of its own"""
+    if kg > 0:
+        arm.mass['end_effector_link'], arm.com['end_effector_link'] = kg, np.array([0.0, 0.0, TIP])
+
+
 def self_test():
     arm = Arm()
     q = [0.0, -0.4, 0.2, 0.1, 0.0]
@@ -53,6 +60,10 @@ def self_test():
     far, _ = total_com_x(arm, [0.0] * 5)
     near, _ = total_com_x(arm, [0.0, -1.9024, 1.344, 0.9023, 0.0])
     assert far > near  # reaching out moves the centre of mass forward
+    reach = [0.0, np.radians(80), np.radians(-80), 0.0, 0.0]  # furthest forward centre of mass inside the limits
+    bare = base_com_at_tip(arm, reach)
+    add_payload(arm, 0.3)
+    assert base_com_at_tip(arm, reach) < bare  # a weight in the hand tips a robot whose base mass sits further back
     print('self-test ok')
 
 
@@ -65,6 +76,7 @@ def main(args):
     from trajectory_msgs.msg import JointTrajectory, JointTrajectoryPoint
 
     arm = Arm()
+    add_payload(arm, args.payload)
     rclpy.init()
     node = rclpy.create_node('tip_balance')
     latest = {}
@@ -129,7 +141,8 @@ def main(args):
         q, grip = state()  # the pose at Enter, before the arm turns back
         send(start, BACK_SPEED_DEG)  # replaces the running goal: the arm starts back right away
         if not tipped:
-            print(f'  reached {args.target} without tipping: not a measurement')
+            print(f'  reached {args.target} without tipping: base_link com x < {base_com_at_tip(arm, q, grip) * 1000:.1f} mm, '
+                  f'not a measurement (add/raise --payload)')
             continue
         com = base_com_at_tip(arm, q, grip)
         model, _ = total_com_x(arm, q, grip)
@@ -142,6 +155,7 @@ def main(args):
         out.mkdir(parents=True, exist_ok=True)
         with open(out / 'log.csv', 'w', newline='') as f:
             w = csv.writer(f)
+            w.writerow([f'# payload {args.payload} kg'])
             w.writerow(['trial', 'speed_deg_s', *ARM, 'gripper_left_joint', 'base_com_x_m', 'model_total_com_x_m'])
             w.writerows(rows)
         coms = np.array([r[-2] for r in rows]) * 1000
@@ -155,6 +169,7 @@ if __name__ == '__main__':
     parser.add_argument('--self-test', action='store_true')
     parser.add_argument('--trials', type=int, default=3)
     parser.add_argument('--speed', type=float, default=2.0, help='fastest joint while reaching out [deg/s]')
+    parser.add_argument('--payload', type=float, default=0.0, help='mass held in the gripper [kg]; weigh it first')
     parser.add_argument('--start', type=float, nargs=5, default=[0.0, -109.0, 77.0, 51.7, 0.0], help='joint1..5 [deg], default stow')
     parser.add_argument('--target', type=float, nargs=5, default=[0.0, 0.0, 0.0, 0.0, 0.0], help='joint1..5 [deg], default straight out')
     cli = parser.parse_args()

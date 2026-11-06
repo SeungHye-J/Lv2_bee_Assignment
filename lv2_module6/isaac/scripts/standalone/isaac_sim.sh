@@ -18,10 +18,11 @@ RESET_FILE=/tmp/beebot_isaac_reset  # isaac_startup.py와 같은 경로
 rm -f "$RESET_FILE"
 # 관절 비틀림(opencr_bridge.py)과 그 보정(rl_arm_correction 앞먹임)을 늘 켠다. OPENCR_TWIST_SCALE=0 isaac_sim.sh 로 둘 다 끔
 export OPENCR_TWIST_SCALE="${OPENCR_TWIST_SCALE:-1}"
-# Fast DDS 프로파일은 실기 start.sh와 같은 ros2_ws/fastdds.xml (TypeLookup 끔 · SHM 32MB) — Isaac·ROS 모두.
+# Fast DDS 프로파일은 ros2_ws/fastdds_local_only.xml (TypeLookup 끔 · SHM 32MB · SHM만 = 이 머신 안에서만) — Isaac·ROS 모두.
+# 다른 터미널의 ros2 CLI도 같은 파일이어야 토픽이 보인다 (fastdds.xml(SHM+UDP)과 섞으면 서로 못 찾음, 2026-11-06 실측).
 # 개인 프로파일(TypeLookup 켜짐)로 띄우면 노드 40개 규모에서 기동 직후 약 2분간 controller_manager 서비스가 안 보여
 # spawner가 실패 → joint_states 없음 → nvblox가 gripper_cam TF를 못 구한 depth에 막혀 지도가 멈췄다 (2026-10-30 실측)
-export FASTDDS_DEFAULT_PROFILES_FILE="$HERE/../../../ros2_ws/fastdds.xml"
+export FASTDDS_DEFAULT_PROFILES_FILE="$HERE/../../../ros2_ws/fastdds_local_only.xml"
 source /opt/ros/lyrical/setup.bash   # Isaac도 이 환경(ROS_DISTRO=lyrical, ROS_DOMAIN_ID)을 물려받는다 — 카메라 토픽은 Isaac 안 bridge가 냄
 
 # --- 지난 실행 찌꺼기 정리 (2026-10-30: 남은 노드·같은 도메인의 다른 실행과 이름이 겹쳐 컨트롤러·TF가 꼬였다)
@@ -73,10 +74,10 @@ fi
 start_ros() {
 setsid ros2 launch "$HERE/${ISAAC_ROS_LAUNCH:-isaac_system.launch.py}" &
 ROS_PID=$!
-# 앞먹임 기본값(controllers.yaml)은 켜짐 — 비틀림을 끈 Isaac에서만 앞먹임도 끈다.
-# shortcut: 끌 때 한 번만 보낸다 — rl_arm_correction만 다시 띄우면 켜지니 그때는 ros2 param set 또는 이 스크립트를 다시 실행
+# 앞먹임·인지 처짐 보정 기본값은 켜짐 — 비틀림을 끈 Isaac에서만 둘 다 끈다.
+# shortcut: 끌 때 한 번만 보낸다 — rl_arm_correction·perception만 다시 띄우면 켜지니 그때는 ros2 param set 또는 이 스크립트를 다시 실행
 GRAV_PID=
-if [ "$OPENCR_TWIST_SCALE" = 0 ]; then
+if [ "$OPENCR_TWIST_SCALE" = 0 ]; then  # 비틀림이 없으면 launch가 twist_state도 끔 (isaac_manipulator_demo.launch.py)
   (until ros2 param set /rl_arm_correction gravity_enabled false >/dev/null 2>&1; do sleep 2; done
    echo "[isaac_sim] 중력 앞먹임 끔 (OPENCR_TWIST_SCALE=0)") &
   GRAV_PID=$!

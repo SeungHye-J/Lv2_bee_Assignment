@@ -8,6 +8,7 @@
   python3 pick_load_play.py --self-test                                              (ROS 없이 계산만 확인)
 """
 import argparse
+import json
 import math
 import sys
 import time
@@ -19,6 +20,11 @@ PLAN_ID_BASE = 2000000              # vlm_task_planner(1~) · mission_manager(10
 PAIR_M = 0.15                       # grasp_scorer NEIGHBOR_M — 이 안이면 같은 상자 위 퍽 둘
 INSPECT_Z = 0.11                    # 윗면 0.13보다 낮게 줌 — skill_inspect가 이 위 0.15 · 0.10 · 0.08을 시도하는데, 먼 퍽(x 0.24)은 손끝 z 0.19까지만 닿음
 STAND_CHECK_S = 1.0                 # plan stand_check_s — 세운 뒤 인지가 다시 볼 시간
+TAG_WAIT_S = 3.0                    # inspect 뒤 태그 붙은 퍽을 기다리는 시간 — 팔이 기둥 카메라를 가려 그 트랙은 2초 뒤 지워지고,
+                                    # 손 카메라 트랙(태그)은 inspect 1초 대기 끝에 아직 없을 때가 있었음 (Isaac 11-06)
+SLOT_FILE = '/tmp/beebot_slot_pucks.json'  # manipulator_env.py가 씀 — 퍽마다 가장 가까운 칸 · 거리 (Isaac 물리 정답 위치)
+SLOT_XY_M, SLOT_Z_M = 0.015, 0.02   # 칸 원점에서 이 안이면 적재 (칸 간격 0.065) — skill load 성공 보고는 동작 완료일 뿐이라 이걸로 셈
+SLOT_SETTLE_S = 1.5                 # load 뒤 퍽이 가라앉을 시간
 
 
 def dock_faces(a, b, robot):
@@ -45,7 +51,25 @@ def parse_storage(text):
     return slots
 
 
+def in_slots(rows):
+    """{퍽: {slot, dxy, dz}} → 칸 안에 든 퍽 {퍽: 칸}"""
+    return {n: r['slot'] for n, r in rows.items() if r['dxy'] <= SLOT_XY_M and abs(r['dz']) <= SLOT_Z_M}
+
+
+def read_slots():
+    """SLOT_FILE의 퍽 행 — 없거나 5 s보다 오래됐으면 None (Isaac 꺼짐 · manipulator_env 아님)"""
+    try:
+        with open(SLOT_FILE) as f:
+            d = json.load(f)
+    except (OSError, ValueError):
+        return None
+    return d['pucks'] if time.time() - d['t'] < 5.0 else None
+
+
 def self_test():
+    rows = {'a': {'slot': 0, 'dxy': 0.01, 'dz': -0.005}, 'b': {'slot': 3, 'dxy': 0.02, 'dz': 0.0},
+            'c': {'slot': 5, 'dxy': 0.0, 'dz': 0.05}}
+    assert in_slots(rows) == {'a': 0}
     assert parse_storage('0,1') == [0, 1] and parse_storage('11,4') == [11, 4]
     for bad in ('0', '1,1', '0,12', '0,x', '0,1,2', ''):
         try:
@@ -203,7 +227,7 @@ def main(args):
         print(f'  퍽 {k + 1} ({p[0]:.3f}, {p[1]:.3f})')
         if not retry(('inspect', f'{p[0]:.4f},{p[1]:.4f},{INSPECT_Z}', '')):
             print('  inspect 실패 — 본 것만')
-        o = puck_near(p, need_tag=True)
+        o = wait(lambda: puck_near(p, need_tag=True), TAG_WAIT_S, '태그 붙은 퍽')
         if o is None:
             print('  tag_unread')
             continue
@@ -217,8 +241,22 @@ def main(args):
         if not grab(o.id, p):
             print(f'  puck {tag}: load_pick_failed')
             continue
+        before = in_slots(read_slots() or {})
         if retry(('load', str(args.storage[k]) if args.storage else 'next', '')):
-            loaded += 1
+            t0 = time.monotonic()
+            while time.monotonic() - t0 < SLOT_SETTLE_S:
+                rclpy.spin_once(node, timeout_sec=0.1)
+            rows = read_slots()
+            new = {n: c for n, c in in_slots(rows or {}).items() if n not in before}
+            if rows is None:
+                print(f'  puck {tag}: {SLOT_FILE} 없음 — skill 보고만 믿고 적재로 셈')
+                loaded += 1
+            elif new:
+                print(f"  puck {tag}: 칸 {', '.join(map(str, new.values()))} 안 (Isaac 위치)")
+                loaded += 1
+            else:
+                near = ', '.join(f"{n} 칸 {r['slot']} xy {r['dxy'] * 100:.1f} cm z {r['dz'] * 100:+.1f} cm" for n, r in rows.items())
+                print(f'  puck {tag}: load_slot_miss — skill은 성공 보고, 칸 안 퍽 없음 ({near})')
         elif run(('place', f'{p[0]:.4f},{p[1]:.4f},0.07', '')):  # mission_manager load — 박스 제자리에 되돌림
             print(f'  puck {tag}: load_tray_failed (박스에 되돌림)')
         else:

@@ -4,6 +4,11 @@
   python3 joint_goto.py joint4=0            # joint4 -> 0 deg
   python3 joint_goto.py joint2=0 joint3=0   # several at once
   python3 joint_goto.py                     # nothing to move: prints the current angles
+  python3 joint_goto.py tip=0.19,0.07       # hand straight down, finger-tip face centre 0.19 m ahead, 0.07 m above floor
+  python3 joint_goto.py tip=0.19,0.07,10    # same, hand pitched 10 deg from straight down
+
+tip= solves joint2..4 with the URDF IK (arm_model.hand_ik, base_footprint: z = floor) and sets joint1 = joint5 = 0.
+Encoder angles only: the real tip ends up lower by the gravity sag unless rl_arm_correction compensates it.
 
 Joint speed is limited to 15 deg/s (at least 3 s). Needs arm_cam.launch.py (or the main bringup) running.
 """
@@ -24,7 +29,15 @@ MAX_SPEED_DEG = 15.0
 goal = {}
 for a in sys.argv[1:]:
     name, _, val = a.partition('=')
-    if name not in JOINTS or not val: sys.exit(f'bad argument {a!r}: use jointN=<deg>, N = 1..5')
+    if name == 'tip':
+        from arm_model import Arm
+        x, z, *pitch = (float(v) for v in val.split(','))
+        v = Arm().hand_ik(x, z, pitch[0] if pitch else 0.0)
+        if v is None: sys.exit(f'FAIL: no IK solution for tip x={x} z={z}')
+        goal.update(joint1=0.0, joint5=0.0, **{j: float(np.degrees(d)) for j, d in zip(('joint2', 'joint3', 'joint4'), v)})
+        print('tip IK [deg]:', {j: round(d, 2) for j, d in goal.items()})
+        continue
+    if name not in JOINTS or not val: sys.exit(f'bad argument {a!r}: use jointN=<deg>, N = 1..5, or tip=x,z[,pitch]')
     goal[name] = float(val)
 
 rclpy.init()
