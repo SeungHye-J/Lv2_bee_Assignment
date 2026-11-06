@@ -107,7 +107,7 @@ std::vector<V3> waypoints(const V3 & centre, double yaw, bool is_box, const Para
     return q;
   };
   std::vector<V3> pts;
-  if (p.drag_m > 0.0) {  // 먼 끝을 잡은 채 로봇 쪽으로 대각선으로 끌고, 끝점에서 눌러 놓기 (기하는 실기 stand_geometry)
+  if (p.drag_m > 0.0) {  // 먼 끝을 잡은 채 로봇 쪽으로 대각선으로 끌고, 끝점에서 눌러 놓기 (기하는 실기 11-04 세우기 시험 292ec509)
     const V3 pinch = on_arc(0.0, 0.0);
     const int nd = up_segments(p);
     pts.push_back(pinch);
