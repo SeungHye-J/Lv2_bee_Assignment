@@ -6,10 +6,10 @@ Isaac Sim이 beebot 하드웨어 역할을 하고, 실기와 같은 ROS 노드�
 
 ## 시연 목록
 
-| 시연 | 장면 + ROS | 임무 | 상태 |
-|---|---|---|---|
-| [퍽 집어 적재](#퍽-집어-적재) | `pick_load_demo.sh` | `pick_load_play.py` | 2개 중 0개 적재 (손 카메라 3D 오프셋 의심, 원인 미확정) |
-| [전체 미션](#전체-미션) | `isaac_sim.sh` | `mission_manager` | 아래 절 참고 |
+| 시연 | 장면 + ROS | 임무 |
+|---|---|---|
+| [퍽 집어 적재](#퍽-집어-적재) | `pick_load_demo.sh` | `pick_load_play.py` |
+| [전체 미션](#전체-미션) | `isaac_sim.sh` | `mission_manager` |
 
 ## 퍽 집어 적재
 
@@ -21,7 +21,7 @@ Isaac Sim이 beebot 하드웨어 역할을 하고, 실기와 같은 ROS 노드�
    isaac/scripts/demo/pick_load_demo.sh
    ```
 
-2. Isaac 창이 뜨면 새 터미널에서 임무를 시작한다.
+2. Isaac 창이 뜨면 새 터미널에서 임무를 시작한다. `ROS_DOMAIN_ID`는 1번 터미널 값을 물려받으니 같게 두고, `FASTDDS_DEFAULT_PROFILES_FILE`은 `ros2_ws/fastdds_local_only.xml`이어야 토픽이 보인다 (`isaac_sim.sh`가 쓰는 파일).
 
    ```bash
    source ros2_ws/install/setup.bash && python3 -u isaac/scripts/demo/pick_load_play.py --clear-basket
@@ -54,10 +54,11 @@ python3 -u isaac/scripts/demo/pick_load_play.py --clear-basket --storage 0,1
 | `--headless` | `pick_load_demo.sh` | 창 없이 실행 |
 | `--no-play` | `pick_load_demo.sh` | Play를 자동으로 누르지 않음 |
 | `--no-policy` | `pick_load_demo.sh` | 그 skill 정책을 끄고 기준 동작만. `pick_standing_puck,load_slot` (이름 = `ros2_ws/model/skills/` 폴더) · `all` |
+| `--no-twist-state` | `pick_load_demo.sh` | `/joint_states`에 관절 비틀림을 더하지 않음 (엔코더 각 그대로). 기본은 더함 = TF가 실제 팔 (`twist_state`) |
 | `--storage` | `pick_load_play.py` | 적재함 칸 2개를 싣는 순서대로. 없으면 `next` |
 | `--self-test` | `pick_load_play.py` | ROS 없이 계산만 확인 |
 
-누운 퍽은 `mission_manager`와 같이 `stand` 후 `stand_pick`으로 집는다. 이 경로는 아직 시연에서 검증하지 않았다.
+누운 퍽은 `mission_manager`와 같이 `stand` 후 `stand_pick`으로 집는다.
 
 ## 전체 미션
 

@@ -8,6 +8,7 @@ Isaac Sim 장면·로봇 USD(`usda/`)와 Isaac Lab 학습(`rl/bee_isaac/tasks/`)
 2. [학습](lab.md) — 팔 RL 잔차, skill별 학습 환경, 결과
 3. [USD](usd.md) — 장면·로봇 USD 구조, 퍽·상자·미로 물리, 텍스처
 4. [실기 측정](calib.md) — Real to Sim 관절 응답 측정과 도표
+5. [v02 학습 계획](v02.md) — 시뮬에도 중력 앞먹임을 넣고 다시 학습
 
 ## 폴더 구조
 
@@ -23,14 +24,14 @@ isaac/
 │   ├── tasks/          Isaac Lab 학습 환경 (*_env.py)
 │   └── data/           slot_table
 ├── scripts/            실행 파일 — 공용 코드는 bee_isaac에서 import
-│   ├── train.py · train_queue.sh · export_onnx.py
+│   ├── train.py · train_queue.sh
 │   ├── demo/           시연 (pick_load_demo.sh · pick_load_play.py)
 │   ├── standalone/     Isaac + ROS 실행 기반 (isaac_sim.sh · manipulator_env · reset.sh · opencr_bridge · launch)
 │   ├── calib/          실기 측정 (Real to Sim, 예전 R2S — 결과 logs/는 git 제외)
 │   └── tools/          slot_table · stand_plan · sim_drive
 ├── usda/               USD 파일 (usd.md)
 ├── source/             장면용 이미지 (HDRI · texture) — usda가 ../source로 참조
-├── policies/           학습한 정책 (.pt · .onnx)
+├── policies/           학습한 정책 (.pt · .onnx) · export_onnx.py — 새 결과물(*.pt · *.onnx)은 git 제외
 └── docs/               문서 (README.md가 목차)
 ```
 
