@@ -807,6 +807,32 @@ def test_box_tracks():
         rclpy.shutdown()
 
 
+def test_obb_v8_posture_and_lying_yaw():
+    """OBB v8 (isaac-synthetic): 자세는 모델 이름 · 누운 퍽 축은 회전 박스 장축을 바닥 평면에 투영한 방향"""
+    import numpy as np
+    from perception_node import box_long_px, lying_yaw, model_posture
+    assert model_posture("puck_red_box") == "standing"
+    assert model_posture("puck_green_cyl_lying") == "lying"
+    assert model_posture("puck_red") == "" and model_posture("puck") == ""
+    # 카메라가 1 m 위에서 바로 아래를 봄 (광학 z → 아래 · x → 추적 x · y → 추적 −y), f 500 · 중심 (320, 240)
+    rot = np.array([[1.0, 0, 0], [0, -1.0, 0], [0, 0, -1.0]])
+    trans = np.array([0.0, 0.0, 1.0])
+    # 화면에서 가로로 긴 박스 (장축 = 영상 u = 추적 x) → yaw 0
+    flat = [[300, 230], [340, 230], [340, 250], [300, 250]]
+    assert abs(lying_yaw(flat, 500, 500, 320, 240, rot, trans, 0.0)) < 1e-6
+    # 세로로 긴 박스 (장축 = 영상 v = 추적 −y) → ±90°
+    tall = [[310, 220], [330, 220], [330, 260], [310, 260]]
+    assert abs(abs(lying_yaw(tall, 500, 500, 320, 240, rot, trans, 0.0)) - np.pi / 2) < 1e-6
+    # 정사각형에 가까우면 (끝면이 보임) 축을 못 믿음
+    square = [[310, 230], [330, 230], [330, 250], [310, 250]]
+    assert lying_yaw(square, 500, 500, 320, 240, rot, trans, 0.0) is None
+
+    class Obb:
+        xyxyxyxy = [np.array(flat, float)]
+    assert box_long_px(Obb(), (0, 0, 10, 10)) == 40.0
+    assert box_long_px(object(), (0, 0, 10, 25)) == 25.0
+
+
 def test_box_rois():
     """상자 YOLO 네모(rois) 안의 점만 씀 — 네모가 상자 위면 그대로 찾고 · 다른 곳이면 못 찾음 · 빈 목록이면 상자 없음 (11/04)"""
     import numpy as np
