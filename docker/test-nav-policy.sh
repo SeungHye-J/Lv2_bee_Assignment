@@ -5,6 +5,8 @@
 #   예) test-nav-policy
 # NOTE: set -u 사용 금지 — setup.bash가 미설정 변수를 참조해서 죽음.
 if [ -z "$BASH_VERSION" ]; then exec bash "$0" "$@"; fi   # sh(dash)로 실행해도 bash로 재실행
+SMOKE=0
+if [ "${1:-}" = smoke ]; then SMOKE=1; shift; fi   # CI용: 배선 확인까지만, goal 완주 대기 안 함
 source /opt/ros/lyrical/setup.bash
 BIN_DIR=$(dirname "${BASH_SOURCE[0]}")
 [ "$BIN_DIR" = . ] && BIN_DIR="$PWD"   # 컨테이너(/usr/local/bin)·호스트(docker/) 모두 동작
@@ -184,6 +186,12 @@ drive() {  # $1 = on|off (토글) · $2 = 라벨 · $3 = goal JSON
     echo "FAIL: [$2] FollowPath/status 없음"
     kill "$goal_pid" 2>/dev/null
     return 1
+  fi
+  if [ "${SMOKE:-0}" = 1 ]; then
+    # CI 스모크 모드: 배선 확인까지만 하고 goal 완주는 기다리지 않는다
+    kill "$goal_pid" 2>/dev/null
+    echo "OK: [$2] 스모크 확인 (도착 대기 생략)"
+    return 0
   fi
   wait "$goal_pid"
   if grep -qi "succeeded" /tmp/nav-goal.log; then
