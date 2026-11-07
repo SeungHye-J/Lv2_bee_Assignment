@@ -630,12 +630,20 @@ class AbTest:
         bags: list[str] = []
         labels: list[str] = []
         ok_all = True
+        # 그룹 폴더: ab/<노드>/<guide 시작시각>/ — leg bag + report.png를 한데 묶음.
+        group_dir = BAG_DIR / time.strftime('%Y%m%d_%H%M%S')
+        n = 1
+        while group_dir.exists():
+            n += 1
+            group_dir = BAG_DIR / f'{time.strftime("%Y%m%d_%H%M%S")}_{n}'
+        group_dir.mkdir(parents=True, exist_ok=True)
         try:
             for r in range(1, plan['repeats'] + 1):
                 if plan['start'] is not None and plan['move_to_start']:
                     self.nav_goal(start, plan['frame_id'], plan['goal_timeout_s'], f'{r}회차 시작 자세')
                 # A — 정책 ON
-                rec = self.start(f'{label}_r{r}_A')
+                rec = self.start(f'{label}_r{r}_A',
+                                 out=str(group_dir / f'{time.strftime("%Y%m%d_%H%M%S")}_A'))
                 bags.append(rec['bag'])
                 labels.append(f'A{r}')
                 self._progress(f'A{r} 녹화: {rec["bag"]}')
@@ -658,7 +666,8 @@ class AbTest:
                 if not ok:
                     raise RuntimeError(msg)
                 # B — 정책 OFF (inner DWB)
-                rec = self.start(f'{label}_r{r}_B')
+                rec = self.start(f'{label}_r{r}_B',
+                                 out=str(group_dir / f'{time.strftime("%Y%m%d_%H%M%S")}_B'))
                 bags.append(rec['bag'])
                 labels.append(f'B{r}')
                 self._progress(f'B{r} 녹화: {rec["bag"]}')
@@ -686,8 +695,7 @@ class AbTest:
                 self.toggle(True)
 
         if len(bags) >= 2:
-            group = re.sub(r'[^\w.-]+', '_', label.strip()) or 'run'
-            out = str(Path(bags[0]).parent / f'report_{group}.png')
+            out = str(group_dir / 'report.png')
             if self.report(bags, labels, out) != 0:
                 ok_all = False
         return 0 if ok_all else 1

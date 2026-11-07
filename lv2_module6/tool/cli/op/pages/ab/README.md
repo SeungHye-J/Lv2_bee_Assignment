@@ -16,9 +16,10 @@ tool/cli/op/pages/ab/
 
 ```text
 tool/artifacts/ab/rl_nav_controller/
-├── 20261107_121524_ci_xxx_r1_A/    # A leg bag ({날짜}_{그룹}_r{반복}_{A,B})
-├── 20261107_121524_ci_xxx_r1_B/    # B leg bag
-└── report_ci_xxx.png               # report_{그룹}.png (guide label=그룹)
+└── 20261107_123739/                # guide 한 번 = 그룹 폴더 (시작 시각)
+    ├── 20261107_123745_A/          # A leg bag ({시각}_A)
+    ├── 20261107_124010_B/          # B leg bag ({시각}_B)
+    └── report.png                  # 고정명 (그룹 폴더 안)
 ```
 
 ## command.json
