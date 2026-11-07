@@ -26,7 +26,6 @@ cd "$WS" || { echo "FAIL: $WS 없음"; exit 2; }
 KILL_PAT="($WS/install|/opt/ros/lyrical)/[^ ]*lib/|ros2 launch"
 kill_all() {
   local pids
-  [ -n "${ESDF_PID:-}" ] && kill "$ESDF_PID" 2>/dev/null
   pids=$(pgrep -f "$KILL_PAT" 2>/dev/null) || return 0
   # shellcheck disable=SC2086
   [ -n "$pids" ] && kill $pids 2>/dev/null
@@ -95,56 +94,15 @@ timeout 30 ros2 topic echo --once /global_costmap/costmap nav_msgs/msg/Occupancy
 echo "코스트맵: 흐름 확인"
 # discovery 안정화 대기 (기동 직후 서비스 호출이 타임아웃 나지 않게)
 sleep 20
-# ESDF 더미: 컨트롤러는 nvblox ESDF 점구름(intensity=장애물까지 거리)을 본다.
-# headless에선 nvblox가 안 돌므로 빈 점구름(intensity 필드 포함)을 깔아준다 = 전방 free.
+# ESDF: course 모드에선 fake_nvblox가 /nvblox_node/combined_esdf_pointcloud 발행 (빈 지도 가정).
 # 없으면 sensor_ok=false → 정책이 한 번도 안 돌고 DWB 바이패스만 돈다 (테스트가 그걸 못 잡음).
-# FRAME / 토픽명은 nav2_params FollowPath.points_topic과 같게 (기본 /nvblox_node/combined_esdf_pointcloud).
+# 예전엔 여기서 인라인 python 더미를 깔았으나 fake_nvblox로 일원화 — 안 뜨면 FAIL.
 ESDF_TOPIC="${ESDF_TOPIC:-/nvblox_node/combined_esdf_pointcloud}"
-HAS_ESDF=0
-if timeout 8 ros2 topic echo --once "$ESDF_TOPIC" sensor_msgs/msg/PointCloud2 > /dev/null 2>&1; then
-  echo "ESDF: 실점군 사용"
-  HAS_ESDF=1
+if timeout 15 ros2 topic echo --once "$ESDF_TOPIC" sensor_msgs/msg/PointCloud2 > /dev/null 2>&1; then
+  echo "ESDF: fake_nvblox 점구름 확인"
 else
-  cat > /tmp/esdf_dummy_pub.py <<'EOF'
-import math
-import struct
-import rclpy
-from rclpy.node import Node
-from rclpy.qos import QoSProfile, ReliabilityPolicy, HistoryPolicy
-from sensor_msgs.msg import PointCloud2, PointField
-from std_msgs.msg import Header
-# 빈 점구름(width 0)은 on_cloud가 데이터 없음으로 버리므로, far-free 점 72개를 깐다.
-# 반경 5m 링 · z 0.1m · intensity(esdf) 1.0 → r이 lidar_max(3.5)를 넘어 전부 스킵 = 전방 free.
-N = 72
-PTS = []
-for i in range(N):
-    a = 2.0 * math.pi * i / N
-    PTS += [5.0 * math.cos(a), 5.0 * math.sin(a), 0.1, 1.0]
-RAW = struct.pack('<%df' % len(PTS), *PTS)
-class EmptyEsdf(Node):
-    def __init__(self):
-        super().__init__('test_empty_esdf')
-        qos = QoSProfile(reliability=ReliabilityPolicy.BEST_EFFORT,
-                         history=HistoryPolicy.KEEP_LAST, depth=5)
-        self.pub = self.create_publisher(PointCloud2, '/nvblox_node/combined_esdf_pointcloud', qos)
-        self.timer = self.create_timer(0.2, self.tick)
-    def tick(self):
-        m = PointCloud2()
-        m.header = Header(stamp=self.get_clock().now().to_msg(), frame_id='base_footprint')
-        m.height, m.width = 1, N
-        m.fields = [PointField(name=n, offset=o, datatype=PointField.FLOAT32, count=1)
-                    for n, o in (('x', 0), ('y', 4), ('z', 8), ('intensity', 12))]
-        m.is_bigendian, m.point_step, m.row_step, m.is_dense = False, 16, 16 * N, True
-        m.data = list(RAW)
-        self.pub.publish(m)
-def main():
-    rclpy.init(); rclpy.spin(EmptyEsdf()); rclpy.shutdown()
-main()
-EOF
-  timeout 600 python3 /tmp/esdf_dummy_pub.py > /tmp/esdf-dummy.log 2>&1 &
-  ESDF_PID=$!
-  sleep 5  # controller가 소스를 잡을 시간
-  echo "ESDF: 빈 점구름 발행 (전방 free 가정)"
+  echo "FAIL: ESDF 점구름 없음 ($ESDF_TOPIC) — fake_nvblox가 떴는지 확인"
+  exit 1
 fi
 
 # run-cli ab guide로 A/B 전체 수행 (토글·녹화·주행·리포트 한 번에)
