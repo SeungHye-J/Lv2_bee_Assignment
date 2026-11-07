@@ -261,6 +261,14 @@ def test_self_filter():
     assert not is_self("puck", np.array([2.75, 0.30, 0.02]), body, *args)       # 옆 바닥 퍽
     assert not is_self("puck", np.array([2.54, 0.0, 0.02]), body, *args)        # 범퍼 바로 앞 바닥 퍽 (차체 반경 안이지만 바닥)
     assert not is_self("obstacle", np.array([3.20, 0.0, 0.10]), body, *args)    # 앞 장애물
+    # body_box (차체 직사각형): 상자 위 차체 앞 퍽은 남기고 적재함 퍽은 버림 · 차체가 돌아 있어도 base_frame 기준
+    bb = [-0.25, 0.08, 0.15]
+    assert is_self("puck", np.array([2.54, 0.0, 0.15]), body, *args)                          # 반경 0.2 — 차체 앞 19 cm 상자 위 퍽도 지움
+    assert not is_self("puck", np.array([2.54, 0.0, 0.15]), (*body, np.eye(3)), *args, bb)    # 직사각형 — 남김
+    assert is_self("puck", np.array([2.25, 0.03, 0.12]), (*body, np.eye(3)), *args, bb)       # 적재함 안 퍽
+    yaw90 = np.array([[0.0, -1.0, 0.0], [1.0, 0.0, 0.0], [0.0, 0.0, 1.0]])
+    assert not is_self("puck", np.array([2.35, 0.19, 0.15]), (base, [], yaw90), *args, bb)    # 돌아 있는 차체 앞
+    assert is_self("puck", np.array([2.35, -0.19, 0.15]), (base, [], yaw90), *args, bb)       # 돌아 있는 차체 뒤 (적재함)
 
 
 
@@ -924,3 +932,60 @@ def test_capture_dice():
         assert len(got) == 1
     finally:
         rclpy.shutdown()
+
+
+def test_tag_gamma_glare():
+    """광택 반사로 검은 칸이 회색으로 뜬 원기둥 윗면 태그 (Isaac gripper_cam 11/07 실측 잘라낸 것, 태그 0):
+    원본만으로는 비트를 못 읽고 감마로 어둡게 편 영상을 더하면 읽음"""
+    import cv2
+    from perception_node import detect_tags, tag_detector
+
+    img = cv2.imread(str(Path(__file__).parent / "data" / "glare_tag0.png"))
+    assert [t[0] for t in detect_tags(tag_detector(), img)] == []
+    assert [t[0] for t in detect_tags(tag_detector(), img, 2.5)] == [0]
+
+
+def test_tag_in_overlapping_boxes():
+    """앞 퍽 윗면 태그가 뒤 퍽 박스 아래쪽에도 들 때 — 가운데에 더 가까운 앞 퍽 것 (11/07 Isaac seed 2010 실측 박스)"""
+    import numpy as np
+    from perception_node import tag_in_box
+
+    corners = np.zeros((4, 2))
+    tags = [(2, (1290.0, 200.0), None, corners)]
+    front, back = (1243, 160, 1316, 285), (1283, 97, 1350, 198)
+    ids = set(range(12))
+    assert tag_in_box(tags, front, ids, [front, back])[0] == 2
+    assert tag_in_box(tags, back, ids, [front, back]) == (None, None)
+    assert tag_in_box(tags, back, ids)[0] == 2  # others 없이는 예전처럼 붙음
+
+
+def test_tag_half_big():
+    """가까워 크게(한 변 약 75 px) 찍힌 원기둥 윗면 태그 7 — 원본에선 테두리를 못 찾고 반 크기에서 읽음
+    (11/07 Isaac gripper_cam 디버그 영상에서 잘라 냄 — 글씨·회색 박스가 같이 찍혀 있음)"""
+    import cv2
+    from perception_node import detect_tags, tag_detector
+
+    img = cv2.imread(str(Path(__file__).parent / "data" / "big_tag7.png"))
+    assert [t[0] for t in detect_tags(tag_detector(), img)] == []
+    tags = detect_tags(tag_detector(), img, half=True)
+    assert [t[0] for t in tags] == [7]
+    assert 60 < tags[0][2][2] - tags[0][2][0] < 120  # 꼭짓점은 원본 화소 (반 크기 좌표 × 2)
+
+
+def test_merge_duplicate_pucks():
+    """같은 퍽의 겹친 박스 둘 → 하나 (태그는 아는 쪽) · 3 cm 안 같은 퍽 트랙 둘 → 오래된 id 하나 · 태그·색이 다르면 안 합침"""
+    import numpy as np
+    from perception_node import merge_overlap_dets, merge_tracks
+
+    d = lambda box, conf, **kw: {"class_name": "puck", "box": box, "conf": conf, "color": "red", **kw}
+    out = merge_overlap_dets([d((100, 100, 140, 180), 0.6, tag=4), d((102, 98, 142, 175), 0.9), d((300, 100, 340, 180), 0.8)], 0.5)
+    assert len(out) == 2 and out[0]["conf"] == 0.9 and out[0]["tag"] == 4
+    assert len(merge_overlap_dets([d((100, 100, 140, 180), 0.6, tag=4), d((102, 98, 142, 175), 0.9, tag=5)], 0.5)) == 2  # 태그 다름
+    assert len(merge_overlap_dets([d((100, 100, 140, 180), 0.6), {**d((102, 98, 142, 175), 0.9), "color": "green"}], 0.5)) == 2
+
+    tr = lambda p, t, **kw: {"class_name": "puck", "p": np.array(p), "P": np.eye(3), "t": t, "color": "red", "hits": 3, "seen": {}, **kw}
+    tracks = {1: tr([0.257, 0.026, 0.13], 1.0), 2: tr([0.258, 0.034, 0.13], 2.0, tag=4), 3: tr([0.172, -0.03, 0.13], 2.0)}
+    assert merge_tracks(tracks, 0.03) == {2: 1}
+    assert sorted(tracks) == [1, 3] and tracks[1]["tag"] == 4 and tracks[1]["hits"] == 6 and tracks[1]["p"][1] == 0.034
+    tracks = {1: tr([0.25, 0.03, 0.13], 1.0, tag=4), 2: tr([0.26, 0.03, 0.13], 2.0, tag=10)}
+    assert merge_tracks(tracks, 0.03) == {} and len(tracks) == 2  # 태그가 다르면 다른 퍽
