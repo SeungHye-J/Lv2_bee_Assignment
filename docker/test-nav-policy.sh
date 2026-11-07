@@ -147,87 +147,37 @@ EOF
   echo "ESDF: 빈 점구름 발행 (전방 free 가정)"
 fi
 
-# A/B 궤적 비교용 bag 기록 (리포트는 tool/node/rl_nav_controller/report.py 로 생성)
-BAG_TOPICS="/cmd_vel_nav /odometry/filtered /odom /imu /plan /controller_server/FollowPath/debug /controller_server/FollowPath/status"
-if [ -d /debug ]; then BAG_BASE=/debug/tool/artifacts/nav-policy; else BAG_BASE=~/bags/nav-policy; fi
-BAG_DIR=$BAG_BASE/$(date +%Y%m%d_%H%M%S)
-mkdir -p "$BAG_DIR"
-echo "bag 저장: $BAG_DIR"
-GOAL_A="{pose: {header: {frame_id: 'map'}, pose: {position: {x: 0.5, y: 0.0, z: 0.0}, orientation: {w: 1.0}}}}"
-GOAL_B="{pose: {header: {frame_id: 'map'}, pose: {position: {x: 0.0, y: 0.0, z: 0.0}, orientation: {w: 1.0}}}}"
-drive() {  # $1 = on|off (토글) · $2 = 라벨 · $3 = goal JSON
-  local tries=0 ok=""
-  while [ $tries -lt 3 ]; do
-    if timeout 30 ros2 service call /controller_server/FollowPath/toggle std_srvs/srv/SetBool "{data: $([ "$1" = on ] && echo true || echo false)}" 2>/dev/null | grep -q "success=True"; then
-      ok=1
-      break
-    fi
-    tries=$((tries + 1))
-    sleep 5
-  done
-  [ -n "$ok" ] || { echo "FAIL: toggle $1 실패"; return 1; }
-  echo "--- [$2] toggle $1 ok, goal 주행 ---"
-  timeout 120 ros2 action send_goal /navigate_to_pose nav2_msgs/action/NavigateToPose "$3" > /tmp/nav-goal.log 2>&1 &
-  local goal_pid=$!
-  local bag="$BAG_DIR/$2"
-  timeout -s KILL 300 ros2 bag record -o "$bag" $BAG_TOPICS > "/tmp/nav-bag-$2.log" 2>&1 &
-  local bag_pid=$!
-  # status 한 방: compute가 돌면 무조건 찍힌다 (정책이면 rl_active=1, 바이패스면 0).
-  # goal 끝나기 전에 바로 붙어야 해서 대기 없이 실행한다.
-  timeout -s KILL 90 ros2 topic echo --once /controller_server/FollowPath/status std_msgs/msg/Float32MultiArray > /tmp/nav-status.log 2>&1
-  if grep -q "data:" /tmp/nav-status.log 2>/dev/null; then
-    echo "OK: [$2] FollowPath/status 수신"
-    head -14 /tmp/nav-status.log | tail -13
-    rl_active=$(grep -A1 "^data:" /tmp/nav-status.log | tail -1 | tr -d ' -')
-    echo "rl_active=$rl_active (기대: $([ "$1" = on ] && echo 1 || echo 0))"
-    if [ "$1" = on ] && [ "${rl_active%%.*}" != 1 ]; then
-      echo "FAIL: [$2] 정책 미동작 (rl_active=$rl_active)"
-      kill "$goal_pid" "$bag_pid" 2>/dev/null
-      return 1
-    fi
-    if [ "$1" != on ] && [ "${rl_active%%.*}" != 0 ]; then
-      echo "FAIL: [$2] DWB인데 정책 활성 (rl_active=$rl_active)"
-      kill "$goal_pid" "$bag_pid" 2>/dev/null
-      return 1
-    fi
-    echo "OK: [$2] 모드 일치 (rl_active=$rl_active)"
-  else
-    echo "FAIL: [$2] FollowPath/status 없음"
-    kill "$goal_pid" "$bag_pid" 2>/dev/null
-    return 1
-  fi
-  if [ "${SMOKE:-0}" = 1 ]; then
-    # CI 스모크 모드: 배선 확인까지만 하고 goal 완주는 기다리지 않는다
-    kill "$goal_pid" "$bag_pid" 2>/dev/null
-    echo "OK: [$2] 스모크 확인 (도착 대기 생략)"
-    return 0
-  fi
-  wait "$goal_pid"
-  kill "$bag_pid" 2>/dev/null; wait "$bag_pid" 2>/dev/null
-  if grep -qi "succeeded" /tmp/nav-goal.log; then
-    echo "OK: [$2] goal 도착"
-  elif [ "$1" = on ]; then
-    # 정책 leg 도착 실패는 모델 품질 문제일 수 있음 — 인프라는 위에서 검증됨. WARN으로 남기고 계속 간다.
-    echo "WARN: [$2] goal 미도착 (정책 주행 품질 확인 필요)"; tail -5 /tmp/nav-goal.log
-  else
-    echo "FAIL: [$2] goal 미도착 (DWB 기준선 실패)"; tail -5 /tmp/nav-goal.log; return 1
-  fi
-}
+# run-cli ab guide로 A/B 전체 수행 (토글·녹화·주행·리포트 한 번에)
+GUIDE_LABEL="ci_$(date +%Y%m%d_%H%M%S)"
+python3 /ws/tool/cli/operator_tool.py ab rl_nav_controller guide --label "$GUIDE_LABEL" || { echo "FAIL: ab guide 실패"; exit 1; }
+echo "OK: ab guide 완료 (A=정책, B=DWB)"
 
-drive off "DWB" "$GOAL_A" || exit 1
+# 리포트 확인 (guide가 BAG_DIR/report_<ts>.png 생성)
+REPORT=$(ls -t /debug/tool/artifacts/ab/*/report_*.png 2>/dev/null | head -1)
+[ -n "$REPORT" ] || { echo "FAIL: 리포트 없음"; exit 1; }
+echo "리포트: $REPORT"
 
-drive on "정책" "$GOAL_B" || exit 1
+# 정책 leg bag에 FollowPath/debug가 있어야 실제 정책이 돈 것 (DWB 바이패스 아님)
+ABAG=$(ls -td /debug/tool/artifacts/ab/*_r1_A /debug/tool/artifacts/ab/*_A 2>/dev/null | head -1)
+[ -n "$ABAG" ] || { echo "FAIL: 정책 bag 없음"; exit 1; }
+DCNT=$(python3 - "$ABAG" <<'PYEOF'
+import sys
+from pathlib import Path
+from rosbag2_py import SequentialReader, StorageOptions, ConverterOptions
+uri = sys.argv[1]
+sid = "mcap" if list(Path(uri).glob("*.mcap")) else "sqlite3"
+r = SequentialReader()
+r.open(StorageOptions(uri=uri, storage_id=sid), ConverterOptions("", ""))
+n = 0
+while r.has_next():
+    topic, _, _ = r.read_next()
+    if "FollowPath/debug" in topic:
+        n += 1
+print(n)
+PYEOF
+)
+[ "${DCNT:-0}" -gt 0 ] 2>/dev/null || { echo "FAIL: 정책 bag에 debug 없음 (바이패스 의심)"; exit 1; }
+echo "OK: 정책 bag에 debug 토픽 $DCNT개 (정책 실제 동작)"
 
-# 정책 ON 복원 확인 (다음 실행·수동 주행이 DWB로 남지 않게)
-timeout 10 ros2 service call /controller_server/FollowPath/toggle std_srvs/srv/SetBool "{data: true}" 2>/dev/null \
-  | grep -q "success=True" || { echo "FAIL: toggle on 복원 실패"; exit 1; }
-
-REPORT_PY=/tmp/nav-ab/rl_nav_controller/report.py
-if [ -f "$REPORT_PY" ]; then
-  python3 "$REPORT_PY" "$BAG_DIR"/*/ --labels DWB 정책 --out "$BAG_DIR/report.png" 2>&1 | tail -12
-  echo "리포트: $BAG_DIR/report.png"
-else
-  echo "WARN: 리포트 스크립트 없음 ($REPORT_PY) — bag만 저장됨: $BAG_DIR"
-fi
 echo "=========================="
-echo "PASS: nav-policy (ONNX 로드 · toggle off/on · DWB/정책 주행 · rl_active 일치)"
+echo "PASS: nav-policy (run-cli ab guide · 리포트 · debug 확인)"
