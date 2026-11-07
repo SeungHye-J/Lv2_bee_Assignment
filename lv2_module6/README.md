@@ -237,7 +237,7 @@ lv2_module6/
 # 테스트베드 (저장소 루트에서) — 자세한 건 develop/DEVELOP.md
 cd docker && docker compose build && docker compose up -d && docker compose exec lyrical bash
 test-all                                  # push 전 필수 (CI와 같은 검사)
-test-faker 0                              # 띄워 두기 (fake_opencr가 OpenCR — 미끄럼·충돌·통신 끊김) → 호스트에서 simulator/main.py
+test-faker 0                              # 띄워 두기 (fake_opencr가 OpenCR — 미끄럼·충돌·통신 끊김) → 호스트에서 simulator/vazebo/main.py
 test-faker 0 mock_hardware:=true          # OpenCR 없이 mock (물리 없음)
 
 # 실기 (라즈베리파이·PC, CI 배포 패키지 또는 저장소)

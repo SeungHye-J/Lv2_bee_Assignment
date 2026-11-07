@@ -33,7 +33,6 @@ lv2_module6/firmware/build/
 /lv2_module6/ros2_ws/debug/
 /lv2_module6/ros2_ws/firmware/
 /lv2_module6/ros2_ws/map/*
-!/lv2_module6/ros2_ws/map/default
 # 지도 정본(nvblox.nvblx)은 커서 커밋 안 함 — default 폴더도 미리보기(map.pgm·yaml)만
 /lv2_module6/ros2_ws/map/*/nvblox.nvblx
 
@@ -49,3 +48,6 @@ bringup.log
 # 칼리브레이션 결과 (tool/calibration/<시각>/raw.csv) — 계획 파일(wheel_square.json)만 커밋
 lv2_module6/tool/calibration/*/
 
+
+# run-cli 산출물 (tool/artifacts/<테스트>/<시각>_<라벨>/ — bag·리포트, 호스트 직접 실행 시)
+lv2_module6/tool/artifacts/

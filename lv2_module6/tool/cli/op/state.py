@@ -53,7 +53,7 @@ class StateStore:
         self.tracked_count = 0
         self.task_status = ''
         self.say_last = ''
-        self.rates: dict[str, Rate] = {}  # 상단 생존 표시 — 키는 ui.TOPIC_DOTS
+        self.rates: dict[str, Rate] = {}  # 상단 생존 표시 — 키는 state_bar/top_state_bar.py TOPIC_RATES
         self.rl_status: list[float] = []  # controller_server FollowPath RL/DWB 상태
         self.rl_status_time = 0.0
 

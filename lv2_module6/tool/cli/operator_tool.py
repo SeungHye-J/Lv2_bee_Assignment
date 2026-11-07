@@ -48,6 +48,7 @@ from std_msgs.msg import Bool, String
 
 from op.bus import Bus
 from op.consts import _nonnegative_float, _positive_float
+from op.defs import STAY
 from op.pages import MainMenu
 from op.state import StateStore
 from op.terminal import Terminal
@@ -79,12 +80,14 @@ class OperatorTool(Node):
         super().__init__('operator_tool')
         self.term = Terminal()
         self.state = StateStore()
-        self.ui = Ui(self.term, self.state, self.poll)
+        self.ui = Ui(self.term, self.state)
         self.bus = Bus(self, self.state, self.ui, self.term)
         self._device_subs: dict[str, object] = {}
         self._restart_note = ''
         self._restart_armed_at = 0.0
-        self.ui._reconnect_check = self.check_cli_reconnect
+        # 화면 틀(Window) 신호 — ROS 폴링·재연결은 'tick', 이름으로 화면 열기는 'navigate'
+        self.ui.window.connect('tick', self._on_tick)
+        self.ui.window.connect('navigate', self._on_navigate)
         self.ui._reconnect_status = self.reconnect_status
         self._wire()
 
@@ -94,6 +97,16 @@ class OperatorTool(Node):
         end = time.monotonic() + max(0.0, seconds)
         while time.monotonic() < end and rclpy.ok():
             rclpy.spin_once(self, timeout_sec=min(0.05, max(0.01, end - time.monotonic())))
+
+    def _on_tick(self, seconds: float):
+        if not rclpy.ok():   # 종료 신호 — 메뉴 루프를 끝낸다
+            raise SystemExit(0)
+        self.poll(seconds)
+        self.check_cli_reconnect()
+
+    def _on_navigate(self, name: str):
+        page = self.screen(name)
+        return page.show() if page is not None else STAY
 
     def reconnect_status(self) -> str | None:
         """상태바용 — 재연결을 기다리는 중이면 남은 초, 아니면 None."""

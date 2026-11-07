@@ -14,6 +14,7 @@
 from __future__ import annotations
 
 import argparse
+import json
 import math
 import sys
 from pathlib import Path
@@ -74,6 +75,31 @@ def _interp(t_grid, t, v):
     return out
 
 
+def _start_plan(msgs, route_csv: Path) -> np.ndarray:
+    """route 구간마다 Nav2가 그 구간 출발점에서 만든 첫 전역 경로를 이어 붙인다 (출발→G1→G2…).
+    로봇이 밀려난 뒤 다시 짠 경로(마지막 /plan)를 기준으로 쓰면 진행·횡오차가 틀린다.
+    구간 i = route[i]에서 0.25 m 안에서 시작하고 route[i+1] 근처에서 끝나는 가장 이른 /plan. route가 없으면 첫 /plan."""
+    paths = [np.array([[p.pose.position.x, p.pose.position.y] for p in m.poses], float) for _t, m in msgs]
+    paths = [q for q in paths if len(q) >= 2]
+    if not paths:
+        return np.zeros((0, 2))
+    try:
+        route = np.atleast_2d(np.genfromtxt(route_csv, delimiter=",", skip_header=1))[:, :2]
+    except Exception:
+        return paths[0]
+    out, k = [], 0
+    for i in range(len(route) - 1):
+        for j in range(k, len(paths)):
+            q = paths[j]
+            if np.hypot(*(q[0] - route[i])) <= 0.25 and np.hypot(*(q[-1] - route[i + 1])) <= 0.3:
+                out.append(q)
+                k = j + 1
+                break
+        else:
+            break  # 그 구간 경로가 없음 = 앞 goal에서 실패 — 거기까지만
+    return np.vstack(out) if out else paths[0]
+
+
 def export_leg(bagdir: str) -> tuple[Path, Path]:
     """bag → legdir/raw.csv + plan.csv. 반환 (raw, plan)."""
     leg = Path(bagdir)
@@ -124,24 +150,67 @@ def export_leg(bagdir: str) -> tuple[Path, Path]:
     raw = leg / "raw.csv"
     np.savetxt(raw, mat, delimiter=",", header=header, comments="", fmt="%.6f")
     poly = plan_points(data.get("/plan", []))
+    nav = _start_plan(data.get("/plan", []), leg / "plan.csv")
+    if len(nav) >= 2:  # Nav2가 출발점에서 만든 전역 경로 — 횡오차·진행 기준 · 리포트 점선
+        np.savetxt(leg / "nav_plan.csv", nav, delimiter=",", header="x,y", comments="", fmt="%.4f")
     plan = leg / "plan.csv"
+    if plan.is_file():
+        poly = []  # guide가 쓴 route(출발 + goal)가 정본 — bag의 Nav2 /plan(촘촘한 경로)으로 덮지 않는다
     if len(poly) >= 1:
         np.savetxt(plan, np.asarray(poly, float), delimiter=",", header="x,y", comments="", fmt="%.6f")
     print(f"export: {raw} ({len(grid)}행) + {plan if plan.exists() else '(plan 없음)'}")
     return raw, plan
 
 
+def _load_map(folder: Path):
+    """그룹 폴더의 map.pgm·map.yaml (guide가 /map을 저장) → (img[행 0 = 위], origin xy, res) 또는 None."""
+    pgm, yml = folder / "map.pgm", folder / "map.yaml"
+    if not (pgm.is_file() and yml.is_file()):
+        return None
+    try:
+        raw = pgm.read_bytes()
+        tok, pos = [], 0
+        while len(tok) < 4:  # P5 · 폭 · 높이 · 최댓값 (주석 줄 건너뜀)
+            while raw[pos:pos + 1].isspace():
+                pos += 1
+            if raw[pos:pos + 1] == b"#":
+                pos = raw.index(b"\n", pos) + 1
+                continue
+            end = pos
+            while not raw[end:end + 1].isspace():
+                end += 1
+            tok.append(raw[pos:end].decode())
+            pos = end
+        w, h = int(tok[1]), int(tok[2])
+        img = np.frombuffer(raw[pos + 1:pos + 1 + w * h], np.uint8).reshape(h, w)
+        meta = {}
+        for line in yml.read_text().splitlines():
+            if ":" in line and not line.lstrip().startswith("#"):
+                k, v = line.split(":", 1)
+                meta[k.strip()] = v.strip()
+        org = [float(v) for v in meta["origin"].strip("[]").split(",")[:2]]
+        return img, (org[0], org[1]), float(meta["resolution"])
+    except Exception as exc:
+        print(f"WARN: 지도 읽기 실패 ({exc}) — 지도 없이 그림", file=sys.stderr)
+        return None
+
+
 def load_run(path: str) -> dict:
-    """leg 폴더(raw.csv 우선) 또는 bag → numpy dict."""
+    """leg 폴더(raw.csv 우선) 또는 bag → numpy dict. pose.csv(map 기준 자세)·result.json·그룹 지도도 같이."""
     leg = Path(path)
     raw = leg / "raw.csv"
-    if not raw.is_file():
-        # bag 직접 지정 — export 후 읽기
-        export_leg(str(leg))
-    m = np.genfromtxt(raw, delimiter=",", names=True)
-    if m.ndim == 0:
-        m = m.reshape(1)
-    d: dict = {k: np.atleast_1d(m[k].astype(float)) for k in m.dtype.names}
+    cols = ("t,cmd_v,cmd_w,act_v,act_w,odom_v,odom_w,odom_x,odom_y,odom_yaw,"
+            "a0,a1,scan_min,dbg_v_odom,dbg_w_odom,on").split(",")
+    d: dict = {k: np.array([np.nan]) for k in cols}  # bag이 비어도(바로 끝난 leg) 리포트는 나오게
+    try:
+        if not raw.is_file():
+            export_leg(str(leg))  # bag 직접 지정 — export 후 읽기
+        m = np.genfromtxt(raw, delimiter=",", names=True)
+        if m.ndim == 0:
+            m = m.reshape(1)
+        d.update({k: np.atleast_1d(m[k].astype(float)) for k in m.dtype.names})
+    except Exception as exc:
+        print(f"WARN: {leg.name} 토픽 기록 없음 ({exc})", file=sys.stderr)
     plan = leg / "plan.csv"
     d["plan_xy"] = np.zeros((0, 2))
     if plan.is_file():
@@ -153,7 +222,35 @@ def load_run(path: str) -> dict:
                 d["plan_xy"] = np.column_stack([p["x"], p["y"]])
         except Exception:
             pass
+    # 궤적: map 기준 pose.csv(guide가 TF로 기록) 우선 — plan.csv와 같은 좌표계.
+    #   odom은 시뮬 텔레포트·SLAM 보정으로 map과 어긋나 웨이포인트와 겹쳐 그리면 틀린다.
+    d["xy_frame"] = "odom"
+    d["xy"] = np.column_stack([d["odom_x"], d["odom_y"]])
+    d["xy_yaw"] = d["odom_yaw"]
+    pose = leg / "pose.csv"
+    if pose.is_file():
+        try:
+            q = np.atleast_2d(np.genfromtxt(pose, delimiter=",", skip_header=1))
+            if q.shape[0] >= 2 and q.shape[1] >= 4:
+                d["xy"], d["xy_yaw"], d["xy_t"], d["xy_frame"] = q[:, 1:3], q[:, 3], q[:, 0], "map"
+        except Exception:
+            pass
+    d["nav_xy"] = np.zeros((0, 2))
+    nav = leg / "nav_plan.csv"
+    if nav.is_file():
+        try:
+            d["nav_xy"] = np.atleast_2d(np.genfromtxt(nav, delimiter=",", skip_header=1))[:, :2]
+        except Exception:
+            pass
     d["leg"] = leg.name
+    d["result"] = {}
+    res = leg / "result.json"  # guide가 남긴 leg 판정 (도착·모드 검증) — 수동 녹화엔 없음
+    if res.is_file():
+        try:
+            d["result"] = json.loads(res.read_text())
+        except Exception:
+            pass
+    d["map"] = _load_map(leg.parent)
     return d
 
 
@@ -164,189 +261,299 @@ def _finite(*arrs):
     return m
 
 
+def _wall_clearance(xy: np.ndarray, mp) -> float | None:
+    """궤적 점마다 가장 가까운 벽 칸까지 거리의 최솟값 [m] (지도 있을 때만)."""
+    if mp is None or len(xy) == 0:
+        return None
+    img, (ox, oy), res = mp
+    rr, cc = np.nonzero(img < 50)  # 점유 칸
+    if len(rr) == 0:
+        return None
+    h = img.shape[0]
+    walls = np.column_stack([ox + (cc + 0.5) * res, oy + (h - 1 - rr + 0.5) * res])
+    best = np.inf
+    for i in range(0, len(xy), max(1, len(xy) // 400)):
+        best = min(best, float(np.min(np.hypot(walls[:, 0] - xy[i, 0], walls[:, 1] - xy[i, 1]))))
+    return max(0.0, best - res / 2)  # 칸 중심 → 칸 가장자리
+
+
+def _ref_path(d: dict) -> np.ndarray:
+    """횡오차·진행 기준 경로 — Nav2가 실제로 만든 전역 경로(nav_plan.csv), 없으면 route 직선(plan.csv)."""
+    nav = np.asarray(d.get("nav_xy", np.zeros((0, 2))), float)
+    return nav if len(nav) >= 2 else np.asarray(d.get("plan_xy", np.zeros((0, 2))), float)
+
+
 def stats_run(d: dict) -> dict:
     res: dict = {}
-    t, x, y = d["t"], d["odom_x"], d["odom_y"]
-    m = _finite(t, x, y)
-    if np.sum(m) >= 2:
-        res["duration"] = float(t[m][-1] - t[m][0])
-        res["length"] = float(np.sum(np.hypot(np.diff(x[m]), np.diff(y[m]))))
+    xy = d["xy"]
+    mk = _finite(xy[:, 0], xy[:, 1]) if len(xy) else np.zeros(0, bool)
+    xy = xy[mk]
+    t = d["t"]
+    mt = _finite(t)
+    if np.sum(mt) >= 2:
+        res["duration"] = float(t[mt][-1] - t[mt][0])
+    if len(xy) >= 2:
+        res["length"] = float(np.sum(np.hypot(*np.diff(xy, axis=0).T)))
     for k, nk in (("cmd_v", "cmd_v_mean"), ("act_v", "act_v_mean"), ("odom_v", "odom_v_mean"),
                    ("a0", "a0_mean"), ("a1", "a1_mean"), ("on", "on"), ("scan_min", "scan_min")):
         v = d.get(k, np.array([np.nan]))
         v = v[np.isfinite(v)]
         if len(v):
             res[nk] = float(np.mean(v))
-    # 명령 적산 vs 실제 (유효 cmd 구간)
-    cv, cw = d["cmd_v"], d["cmd_w"]
-    m2 = _finite(d["t"], cv, cw)
+    v = d.get("odom_v", np.array([np.nan]))
+    v = v[np.isfinite(v)]
+    if len(v):
+        res["reverse_ratio"] = float(np.mean(v < -0.01))  # 후진한 시간 비율
+    cv = d["cmd_v"]
+    m2 = _finite(d["t"], cv)
     if np.sum(m2) >= 2:
         tt = d["t"][m2]
         dt = np.clip(np.diff(tt, prepend=tt[0]), 0.0, 1.0)
-        yaw0 = float(d["odom_yaw"][m][0]) if np.sum(m) else 0.0
-        yaw = yaw0 + np.cumsum(cw[m2] * dt)
         res["cmd_length"] = float(np.sum(np.abs(cv[m2] * dt)))
-        res["cmd_end"] = (float(x[m][0] + np.sum(cv[m2] * np.cos(yaw) * dt)),
-                          float(y[m][0] + np.sum(cv[m2] * np.sin(yaw) * dt)))
-    poly = d.get("plan_xy", np.zeros((0, 2)))
-    if len(poly) >= 2 and np.sum(m) >= 2:
-        xy = np.column_stack([x[m], y[m]])
-        dist, s, head = project_to_polyline(xy, np.asarray(poly, float))
-        yawm = d["odom_yaw"][m]
+    poly = np.asarray(d.get("plan_xy", np.zeros((0, 2))), float)
+    ref = _ref_path(d)
+    if len(poly) >= 2 and len(xy) >= 2:
+        dist, s, head = project_to_polyline(xy, ref)
         res["lat_rmse"] = float(np.sqrt(np.mean(dist ** 2)))
         res["lat_max"] = float(np.max(np.abs(dist)))
-        res["head_mae"] = float(np.mean(np.abs(wrap(yawm - head))))
         res["progress"] = float(s[-1]) if len(s) else 0.0
+        res["path_len"] = float(np.sum(np.hypot(*np.diff(ref, axis=0).T)))
+        res["goal_err"] = float(np.hypot(*(xy[-1] - poly[-1])))
+    clr = _wall_clearance(xy, d.get("map"))
+    if clr is not None:
+        res["clearance"] = clr
     return res
 
 
-def plot_single(d: dict, st: dict, label: str, color: str, out: Path, title: str) -> None:
-    plt = _mpl()
-    fig, axes = plt.subplots(2, 2, figsize=(13, 9.0))
-    fig.subplots_adjust(left=0.06, right=0.98, top=0.90, bottom=0.18, hspace=0.32, wspace=0.22)
-    fig.suptitle(title, fontsize=14, fontweight="bold", color=color)
-    t = d["t"]
-
-    ax = axes[0, 0]
-    for k, ls, lw, lab in (("cmd_v", "-", 1.4, "명령(cmd_vel_nav)"), ("act_v", ":", 1.0, "실제(cmd_vel)"),
-                           ("odom_v", "--", 0.9, "오돔")):
-        v = d.get(k, np.array([]))
-        m = _finite(t, v)
-        if np.any(m):
-            ax.plot(t[m] - t[m][0], v[m], color, lw=lw, ls=ls, alpha=0.9, label=lab)
-    ax.set_title(f"{label} 선속도 [m/s] — 명령 vs 실제 vs 오돔")
-    ax.set_xlabel("time [s]")
-    ax.grid(alpha=0.3)
-    ax.legend(fontsize=8)
-
-    ax = axes[0, 1]
-    m = _finite(t, d["odom_x"], d["odom_y"])
-    if np.any(m):
-        ax.plot(d["odom_x"][m], d["odom_y"][m], color, lw=2.0, label=f"{label} 실제(오돔)")
-    poly = d.get("plan_xy", np.zeros((0, 2)))
-    if len(poly) >= 2:
-        ax.plot(poly[:, 0], poly[:, 1], "k--", lw=1.2, alpha=0.7, label="웨이포인트(plan)")
-        ax.scatter(poly[:, 0], poly[:, 1], c="k", s=18, zorder=5)
-    if "cmd_end" in st and np.any(m):
-        ax.plot([d["odom_x"][m][0], st["cmd_end"][0]], [d["odom_y"][m][0], st["cmd_end"][1]],
-                color, lw=1.0, ls=":", alpha=0.8, label="명령 적산")
-    ax.set_title(f"{label} XY 궤적 [m] — 실제 vs 웨이포인트 vs 명령적산")
-    ax.set_aspect("equal", adjustable="datalim")
-    ax.grid(alpha=0.3)
-    ax.legend(fontsize=8)
-
-    ax = axes[1, 0]
-    if "lat_rmse" in st and np.any(m):
-        xy = np.column_stack([d["odom_x"][m], d["odom_y"][m]])
-        dist, s, _ = project_to_polyline(xy, np.asarray(poly, float))
-        ax.plot(s, dist * 100.0, color, lw=1.5)
-        ax.axhline(0, c="k", lw=0.8, alpha=0.5)
-    ax.set_title("경로 횡오차 [cm]")
-    ax.set_xlabel("진행 거리 [m]")
-    ax.grid(alpha=0.3)
-
-    ax = axes[1, 1]
-    has_dbg = False
-    for k, ls, lab in (("a0", "-", "a0 (v)"), ("a1", ":", "a1 (ω)")):
-        v = d.get(k, np.array([]))
-        mm = _finite(t, v)
-        if np.any(mm):
-            ax.plot(t[mm] - t[mm][0], v[mm], color, lw=1.3, ls=ls, label=f"{label} {lab}")
-            has_dbg = True
-    ax.set_title("정책 행동 [-1,1]" + ("" if has_dbg else " (디버그 없음 — DWB)"))
-    ax.set_xlabel("time [s]")
-    ax.grid(alpha=0.3)
-    if has_dbg:
-        ax.legend(fontsize=8)
-
-    lines = [f"{label}: " + " · ".join(
-        f"{k}={v:.4g}" for k, v in st.items() if isinstance(v, float))]
-    fig.text(0.01, 0.02, "\n".join(lines), fontsize=9, va="bottom")
-    fig.savefig(out, dpi=140)
-    print(f"저장: {out}")
-    for ln in lines:
-        print(ln)
-    plt.close(fig)
+# ---------------------------------------------------------------- 그림 (A/B 비교 · leg 하나 공통)
+INK, MUTED, GRID = "#263238", "#78909c", "#eceff1"
+OK_C, FAIL_C, BAD_C = "#2e7d32", "#ef6c00", "#757575"
 
 
-def plot_compare(runs, out: Path) -> None:
-    """runs = [(label, color, d, st)]. A/B 한눈에 — 큰 라벨·요약표."""
-    plt = _mpl()
-    fig, axes = plt.subplots(2, 2, figsize=(14, 9.5))
-    fig.subplots_adjust(left=0.06, right=0.98, top=0.88, bottom=0.24, hspace=0.35, wspace=0.25)
-    fig.suptitle("rl_nav_controller — A(정책 ON) vs B(DWB) 비교", fontsize=15, fontweight="bold")
+def _style(ax, title=None):
+    for side in ("top", "right"):
+        ax.spines[side].set_visible(False)
+    for side in ("left", "bottom"):
+        ax.spines[side].set_color("#b0bec5")
+    ax.tick_params(colors=MUTED, labelsize=8.5)
+    ax.grid(color=GRID, lw=0.8)
+    ax.set_axisbelow(True)
+    if title:
+        ax.set_title(title, loc="left", fontsize=11, fontweight="bold", color=INK, pad=8)
 
-    ax = axes[0, 0]
+
+def _verdict(d: dict) -> tuple[str, str]:
+    res = d.get("result") or {}
+    if not res:
+        return "판정 없음 (수동 녹화)", BAD_C
+    if res.get("stopped"):
+        return "중지됨 — 사용자가 멈춤", BAD_C
+    if not res.get("valid", True):
+        return "무효 — 비교에서 제외", BAD_C
+    return ("도착", OK_C) if res.get("arrived") else ("실패 — 목표 못 감", FAIL_C)
+
+
+def _draw_map(ax, runs) -> None:
+    mp = next((d["map"] for _l, _c, d, _s in runs if d.get("map") is not None), None)
+    pts = [d["xy"][_finite(d["xy"][:, 0], d["xy"][:, 1])] for _l, _c, d, _s in runs if len(d["xy"])]
+    poly = next((np.asarray(d["plan_xy"], float) for _l, _c, d, _s in runs if len(d.get("plan_xy", [])) >= 1),
+                np.zeros((0, 2)))
+    allp = np.vstack([p for p in pts if len(p)] + ([poly] if len(poly) else [])) if (pts or len(poly)) else np.zeros((0, 2))
+    if mp is not None:
+        img, (ox, oy), res = mp
+        h, w = img.shape
+        rgb = np.empty((h, w, 3))
+        rgb[img >= 250] = (0.98, 0.98, 0.98)                     # 빈 곳
+        rgb[(img > 50) & (img < 250)] = (0.88, 0.90, 0.91)      # 모름
+        rgb[img <= 50] = (0.22, 0.28, 0.31)                     # 벽
+        ax.imshow(rgb, extent=(ox, ox + w * res, oy, oy + h * res), origin="upper", interpolation="nearest", zorder=0)
+    navs = [(label, color, np.asarray(d["nav_xy"], float)) for label, color, d, _s in runs if len(d.get("nav_xy", [])) >= 2]
+    for label, color, nav in navs:  # leg마다 Nav2가 그 leg에서 만든 경로 (구간별로 이어 붙임) — leg 색 점선 + 경로 점
+        ax.plot(nav[:, 0], nav[:, 1], color=color, lw=1.1, ls=(0, (4, 3)), alpha=0.55, zorder=2,
+                label=f"{label} Nav2 전역 경로 (웨이포인트의 출처)")
+        ax.scatter(nav[:, 0], nav[:, 1], s=7, color=color, alpha=0.6, lw=0, zorder=2.5)
+        allp = np.vstack([allp, nav]) if len(allp) else nav
+    if not navs and len(poly) >= 2:
+        ax.plot(poly[:, 0], poly[:, 1], color=INK, lw=1.4, ls=(0, (4, 3)), alpha=0.75, zorder=2, label="출발→목표 (직선)")
     for label, color, d, _st in runs:
-        m = _finite(d["t"], d["cmd_v"])
+        xy = d["xy"][_finite(d["xy"][:, 0], d["xy"][:, 1])]
+        if len(xy) < 2:
+            continue
+        ax.plot(xy[:, 0], xy[:, 1], color=color, lw=3.0, alpha=0.9, solid_capstyle="round", zorder=3, label=f"{label} 실제")
+        step = max(1, len(xy) // 6)  # 진행 방향 화살표
+        for i in range(step, len(xy) - 1, step):
+            dx, dy = xy[i + 1] - xy[i]
+            if math.hypot(dx, dy) > 1e-4:
+                ax.annotate("", xy=xy[i + 1], xytext=xy[i], zorder=4,
+                            arrowprops=dict(arrowstyle="-|>", color=color, lw=0, mutation_scale=13))
+        ax.scatter(*xy[-1], s=70, color=color, edgecolor="white", lw=1.5, zorder=5)
+        ax.annotate(f" {label} 끝", xy[-1], color=color, fontsize=9, fontweight="bold", zorder=6,
+                    xytext=(4, 4), textcoords="offset points")
+    if len(poly):
+        ax.scatter(*poly[0], marker="^", s=130, color=OK_C, edgecolor="white", lw=1.5, zorder=6, label="출발")
+        ax.scatter(poly[1:, 0], poly[1:, 1], marker="*", s=260, color="#fbc02d", edgecolor=INK, lw=0.8, zorder=6,
+                   label="목표 (route)")
+        for i, (gx, gy) in enumerate(poly[1:], 1):
+            ax.annotate(f"G{i}", (gx, gy), xytext=(7, -13), textcoords="offset points", fontsize=10,
+                        fontweight="bold", color=INK, zorder=7,
+                        bbox=dict(boxstyle="round,pad=0.2", fc="white", ec="#fbc02d", lw=1))
+    if len(allp):  # 경로 주변으로 확대 (최소 2.4 m 폭)
+        lo, hi = allp.min(0), allp.max(0)
+        c, half = (lo + hi) / 2, max(1.2, float(np.max(hi - lo)) / 2 + 0.6)
+        ax.set_xlim(c[0] - half, c[0] + half)
+        ax.set_ylim(c[1] - half, c[1] + half)
+    ax.set_aspect("equal")
+    frame = runs[0][2].get("xy_frame", "odom")
+    _style(ax, "지도 위 궤적" + ("" if mp is not None else " (지도 없음)") + ("" if frame == "map" else " · odom 좌표(지도와 어긋날 수 있음)"))
+    ax.set_xlabel("x [m]", color=MUTED, fontsize=9)
+    ax.set_ylabel("y [m]", color=MUTED, fontsize=9)
+    ax.legend(loc="best", fontsize=8.5, framealpha=0.92, edgecolor="#cfd8dc")
+
+
+def _time_panel(ax, runs, key_cmd, key_act, title, unit):
+    for label, color, d, _st in runs:
+        t = d["t"]
+        m = _finite(t, d[key_cmd])
         if np.any(m):
-            ax.plot(d["t"][m] - d["t"][m][0], d["cmd_v"][m], color, lw=1.6, label=f"{label} 명령")
-        m2 = _finite(d["t"], d["act_v"])
+            ax.plot(t[m] - t[m][0], d[key_cmd][m], color=color, lw=1.8, label=f"{label} 명령")
+        m2 = _finite(t, d[key_act])
         if np.any(m2):
-            ax.plot(d["t"][m2] - d["t"][m2][0], d["act_v"][m2], color, lw=1.0, ls=":", alpha=0.85,
-                    label=f"{label} 실제")
-    ax.set_title("A/B 선속도 [m/s] — 명령(실선) vs 실제(점선)")
-    ax.set_xlabel("time [s]")
-    ax.grid(alpha=0.3)
-    ax.legend(fontsize=9, loc="upper right")
+            ax.plot(t[m2] - t[m2][0], d[key_act][m2], color=color, lw=1.1, ls=":", alpha=0.9, label=f"{label} 실제")
+    ax.axhline(0, color="#b0bec5", lw=0.8)
+    _style(ax, title)
+    ax.set_xlabel("시간 [s]", color=MUTED, fontsize=9)
+    ax.set_ylabel(unit, color=MUTED, fontsize=9)
+    ax.legend(fontsize=7.5, ncol=2, framealpha=0.9, edgecolor="#cfd8dc")
 
-    ax = axes[0, 1]
-    for label, color, d, _st in runs:
-        m = _finite(d["t"], d["odom_x"], d["odom_y"])
-        if np.any(m):
-            ax.plot(d["odom_x"][m], d["odom_y"][m], color, lw=2.2, label=f"{label} 실제")
-    poly = runs[0][2].get("plan_xy", np.zeros((0, 2)))
-    if len(poly) < 2 and len(runs) > 1:
-        poly = runs[1][2].get("plan_xy", np.zeros((0, 2)))
-    if len(poly) >= 2:
-        ax.plot(poly[:, 0], poly[:, 1], "k--", lw=1.2, alpha=0.7, label="웨이포인트")
-        ax.scatter(poly[:, 0], poly[:, 1], c="k", s=22, zorder=5)
-    ax.set_title("A/B XY 궤적 [m] — 파랑=A 실제, 빨강=B 실제")
-    ax.set_aspect("equal", adjustable="datalim")
-    ax.grid(alpha=0.3)
-    ax.legend(fontsize=9)
 
-    ax = axes[1, 0]
-    for label, color, d, _st in runs:
-        m = _finite(d["t"], d["odom_x"], d["odom_y"])
-        pp = d.get("plan_xy", np.zeros((0, 2)))
-        if np.any(m) and len(pp) >= 2:
-            xy = np.column_stack([d["odom_x"][m], d["odom_y"][m]])
-            dist, s, _ = project_to_polyline(xy, np.asarray(pp, float))
-            ax.plot(s, dist * 100.0, color, lw=1.6, label=label)
-    ax.axhline(0, c="k", lw=0.8, alpha=0.5)
-    ax.set_title("A/B 경로 횡오차 [cm]")
-    ax.set_xlabel("진행 거리 [m]")
-    ax.grid(alpha=0.3)
-    ax.legend(fontsize=9)
+def _fmt(v, f, scale=1.0):
+    return "-" if v is None or (isinstance(v, float) and not math.isfinite(v)) else f.format(v * scale)
 
-    ax = axes[1, 1]
+
+def _kpi_table(ax, runs) -> None:
     ax.axis("off")
-    rows = []
-    for label, _c, _d, st in runs:
-        rows.append([label,
-                     f"{st.get('duration', float('nan')):.1f}s",
-                     f"{st.get('length', float('nan')):.2f} m",
-                     f"{st.get('cmd_length', float('nan')):.2f} m",
-                     f"{st.get('lat_rmse', float('nan')) * 100:.1f} cm" if "lat_rmse" in st else "-",
-                     f"{st.get('on', float('nan')):.0%}" if "on" in st else "- (DWB)"])
-    tab = ax.table(cellText=rows,
-                   colLabels=["leg", "시간", "실제 이동", "명령 적산", "횡오차 RMSE", "정책 ON"],
-                   loc="center", colWidths=[0.12, 0.14, 0.2, 0.2, 0.2, 0.14])
+    rows = [  # (이름, 값 함수, 작을수록 좋음?)
+        ("판정", lambda d, st: _verdict(d)[0], None),
+        ("정책 실행", lambda d, st: _fmt((d.get("result") or {}).get("rl_ratio", st.get("on")), "{:.0%}"), None),
+        ("도착한 목표", lambda d, st: (f"{d['result']['goals_reached']} / {d['result']['goals_total']}"
+                                  if "goals_total" in (d.get("result") or {}) else "-"), None),
+        ("걸린 시간", lambda d, st: _fmt(st.get("duration"), "{:.1f} s"), "duration"),
+        ("주행 거리", lambda d, st: _fmt(st.get("length"), "{:.2f} m"), None),
+        ("경로 진행", lambda d, st: (_fmt(st.get("progress"), "{:.2f}") + " / " + _fmt(st.get("path_len"), "{:.2f} m"))
+         if "progress" in st else "-", None),
+        ("도착 오차", lambda d, st: _fmt(st.get("goal_err"), "{:.0f} cm", 100), "goal_err"),
+        ("횡오차 RMSE", lambda d, st: _fmt(st.get("lat_rmse"), "{:.1f} cm", 100), "lat_rmse"),
+        ("횡오차 최대", lambda d, st: _fmt(st.get("lat_max"), "{:.1f} cm", 100), "lat_max"),
+        ("벽 최소 거리", lambda d, st: _fmt(st.get("clearance"), "{:.0f} cm", 100), None),
+        ("후진 시간", lambda d, st: _fmt(st.get("reverse_ratio"), "{:.0%}"), "reverse_ratio"),
+    ]
+    cells, colors = [], []
+    valid_all = all((d.get("result") or {}).get("valid", True) and (d.get("result") or {}).get("arrived", True)
+                    for _l, _c, d, _s in runs)
+    for name, fn, better_key in rows:
+        row = [name] + [fn(d, st) for _l, _c, d, st in runs]
+        col = ["#f5f7f8"] + ["white"] * len(runs)
+        if name == "판정":
+            col = ["#f5f7f8"] + [_verdict(d)[1] for _l, _c, d, _s in runs]
+        elif better_key and len(runs) == 2 and valid_all:  # 둘 다 유효·도착일 때만 더 나은 쪽 강조
+            vals = [st.get(better_key) for _l, _c, _d, st in runs]
+            if all(v is not None for v in vals) and vals[0] != vals[1]:
+                col[1 + int(np.argmin(vals))] = "#e8f5e9"
+        cells.append(row)
+        colors.append(col)
+    tab = ax.table(cellText=cells, cellColours=colors, colLabels=["지표"] + [l for l, _c, _d, _s in runs],
+                   loc="upper center", cellLoc="center", colWidths=[0.30] + [0.70 / len(runs)] * len(runs))
     tab.auto_set_font_size(False)
-    tab.set_fontsize(10)
+    tab.set_fontsize(9.5)
+    tab.scale(1, 1.32)
     for (r, c), cell in tab.get_celld().items():
+        cell.set_edgecolor("#e0e6e9")
         if r == 0:
-            cell.set_facecolor("#eeeeee")
-        elif c == 0:
-            cell.set_facecolor(runs[r - 1][1])
+            cell.set_facecolor(INK if c == 0 else runs[c - 1][1])
             cell.get_text().set_color("white")
             cell.get_text().set_fontweight("bold")
-    ax.set_title("A/B 요약", pad=12)
+        elif c == 0:
+            cell.get_text().set_color(MUTED)
+            cell.get_text().set_ha("left")
+        elif r == 1:
+            cell.get_text().set_color("white")
+            cell.get_text().set_fontweight("bold")
+    _style(ax, "핵심 지표")
 
-    fig.savefig(out, dpi=140)
+
+def plot_report(runs, out: Path, title: str, subtitle: str = "") -> None:
+    """runs = [(label, color, d, st)] — 1개면 leg 리포트, 2개면 A/B 비교. 지도·속도·각속도(또는 정책 행동)·횡오차·지표."""
+    plt = _mpl()
+    from matplotlib.gridspec import GridSpec
+    fig = plt.figure(figsize=(16, 10.4), facecolor="white")
+    gs = GridSpec(3, 3, figure=fig, left=0.05, right=0.98, top=0.85, bottom=0.06,
+                  hspace=0.42, wspace=0.26, height_ratios=[1, 1, 1.05])
+    fig.text(0.05, 0.955, title, fontsize=18, fontweight="bold", color=INK)
+    if subtitle:
+        fig.text(0.05, 0.925, subtitle, fontsize=10, color=MUTED)
+    notes = []  # 무효·실패 이유 — 표만 보고 결과를 믿지 않게 제목 바로 아래
+    for label, _c, d, _st in runs:
+        res = d.get("result") or {}
+        why = res.get("invalid_reason") or res.get("error")
+        if why:
+            notes.append(f"{label}: {why if len(why) <= 120 else why[:119] + '…'}")
+    if notes:
+        fig.text(0.05, 0.897, "⚠ " + "   ·   ".join(notes), fontsize=9, color="#b71c1c")
+    x = 0.98  # 오른쪽 위: leg별 판정 배지
+    for label, color, d, _st in reversed(runs):
+        text, vc = _verdict(d)
+        t = fig.text(x, 0.945, f"  {label} · {text}  ", ha="right", va="center", fontsize=11, fontweight="bold",
+                     color="white", bbox=dict(boxstyle="round,pad=0.45", fc=vc, ec="none"))
+        fig.canvas.draw()
+        x = t.get_window_extent().transformed(fig.transFigure.inverted()).x0 - 0.016
+
+    _draw_map(fig.add_subplot(gs[0:2, 0:2]), runs)
+    _time_panel(fig.add_subplot(gs[0, 2]), runs, "cmd_v", "act_v", "선속도", "m/s")
+    ax = fig.add_subplot(gs[1, 2])
+    single_policy = len(runs) == 1 and np.any(np.isfinite(runs[0][2].get("a0", np.array([np.nan]))))
+    if single_policy:  # leg 하나 + 정책이면 정책 행동 그대로
+        label, color, d, _st = runs[0]
+        t = d["t"]
+        for k, ls, lab in (("a0", "-", "a0 → 선속도"), ("a1", ":", "a1 → 각속도")):
+            m = _finite(t, d[k])
+            if np.any(m):
+                ax.plot(t[m] - t[m][0], d[k][m], color=color, lw=1.6, ls=ls, label=lab)
+        ax.axhline(0, color="#b0bec5", lw=0.8)
+        ax.set_ylim(-1.05, 1.05)
+        _style(ax, "정책 행동 [-1, 1]")
+        ax.set_xlabel("시간 [s]", color=MUTED, fontsize=9)
+        ax.legend(fontsize=7.5, framealpha=0.9, edgecolor="#cfd8dc")
+    else:
+        _time_panel(ax, runs, "cmd_w", "act_w", "각속도", "rad/s")
+
+    ax = fig.add_subplot(gs[2, 0])
+    drew = False
+    for label, color, d, _st in runs:
+        xy = d["xy"][_finite(d["xy"][:, 0], d["xy"][:, 1])]
+        poly = _ref_path(d)
+        if len(xy) >= 2 and len(poly) >= 2:
+            dist, s, _ = project_to_polyline(xy, poly)
+            ax.plot(s, dist * 100.0, color=color, lw=1.8, label=label)
+            drew = True
+    ax.axhline(0, color="#b0bec5", lw=0.8)
+    _style(ax, "경로 횡오차 (Nav2 전역 경로 기준 · 왼쪽 +)" if any(len(d.get("nav_xy", [])) >= 2 for _l, _c, d, _s in runs)
+           else "경로 횡오차 (출발→목표 직선 기준 · 왼쪽 +)")
+    ax.set_xlabel("경로 진행 [m]", color=MUTED, fontsize=9)
+    ax.set_ylabel("cm", color=MUTED, fontsize=9)
+    if drew:
+        ax.legend(fontsize=8, framealpha=0.9, edgecolor="#cfd8dc")
+
+    _kpi_table(fig.add_subplot(gs[2, 1:3]), runs)
+    fig.savefig(out, dpi=130, facecolor="white")
     print(f"저장: {out}")
     plt.close(fig)
+
+
+def _subtitle(paths) -> str:
+    leg = Path(paths[0])
+    plan = load_run(paths[0]).get("plan_xy", np.zeros((0, 2)))
+    goals = " → ".join(f"G{i} ({x:.2f}, {y:.2f})" for i, (x, y) in enumerate(np.asarray(plan, float)[1:6], 1))
+    return f"{leg.parent.name}  ·  출발 ({plan[0][0]:.2f}, {plan[0][1]:.2f}) → {goals}" if len(plan) else leg.parent.name
 
 
 def main() -> int:
@@ -368,7 +575,9 @@ def main() -> int:
         label = (a.labels[0] if a.labels else d.get("leg", "run"))
         color = A_COLOR if label.upper().startswith("A") else B_COLOR
         out = Path(a.out) if a.out else Path(a.paths[0]) / "report.png"
-        plot_single(d, st, label, color, out, f"rl_nav_controller — {label} leg 리포트")
+        mode = "정책" if label.upper().startswith("A") else "DWB"
+        plot_report([(label, color, d, st)], out, f"rl_nav_controller · {label} ({mode})", _subtitle(a.paths))
+        print(f"[{label}] " + " · ".join(f"{k}={v:.4g}" for k, v in st.items() if isinstance(v, float)))
         return 0
     runs = []
     for i, p in enumerate(a.paths[:2]):
@@ -379,7 +588,7 @@ def main() -> int:
         runs.append((label, color, d, st))
         print(f"[{label}] " + " · ".join(f"{k}={v:.4g}" for k, v in st.items() if isinstance(v, float)))
     out = Path(a.out) if a.out else Path(a.paths[0]).parent / "compare.png"
-    plot_compare(runs, out)
+    plot_report(runs, out, "rl_nav_controller A/B — 정책(A) vs DWB(B)", _subtitle(a.paths))
     return 0
 
 

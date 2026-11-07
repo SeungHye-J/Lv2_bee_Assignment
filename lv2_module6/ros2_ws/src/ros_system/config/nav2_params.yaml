@@ -21,8 +21,11 @@ bt_navigator:
     odom_topic: /odometry/filtered
     # BT를 한 번 tick하는 주기(ms). 10 → 100Hz. 로봇 속도와는 무관하고 configure 때 한 번 읽혀 실행 중 변경 불가.
     bt_loop_duration: 10
-    # BT 노드가 액션 서버(planner·controller·behavior)를 기다리는 기본 시간(ms).
-    default_server_timeout: 20
+    # BT 노드가 액션 서버(planner·controller·behavior)·서비스(is_path_valid)의 응답을 기다리는 시간(ms). Nav2 기본 20.
+    #   20이면 부하가 몰릴 때(도커 테스트베드 — perception YOLO·카메라 대역과 함께) 응답이 늦어
+    #   'Behavior Tree action client timed out waiting'(error 107)로 goal이 통째로 실패했음 (2026-11-07 A/B 실측)
+    #   → 100. 기다리는 시간만 늘 뿐 주행 판단은 같다.
+    default_server_timeout: 100
     # BT를 만들 때 BT 노드가 쓰는 서비스(planner_server의 is_path_valid 등)를 기다리는 시간(ms). 기본 1000ms —
     # 기동 직후 부하로 1초 안에 안 보이면 bt_navigator 활성화가 실패해 Nav2 전체가 중단됐음(실측) → 10초
     wait_for_service_timeout: 10000
