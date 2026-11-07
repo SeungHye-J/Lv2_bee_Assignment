@@ -52,6 +52,10 @@ case " $* " in
   *\ mock_hardware:=*) : ;;
   *) [ -e /dev/opencr ] || set -- "$@" "mock_hardware:=true" ;;   # 호스트엔 가상 시리얼이 없어서 mock으로
 esac
+case " $* " in
+  *\ course:=*) : ;;
+  *) set -- "$@" "course:=twin_closed_maze" ;;   # Nav2 정책 시험은 옛 미로 (기본값은 dice_maze)
+esac
 set -m
 ros2 launch faker faker.launch.py "$@" > /tmp/nav-policy.log 2>&1 & LAUNCH_PID=$!
 

@@ -23,8 +23,8 @@ run_one "$(bin_of test-firmware)"
 run_one "$(bin_of test-packages)"
 run_one "$(bin_of test-hardware)"
 run_one "$(bin_of test-bringup)"
-run_one "$(bin_of test-faker)" 1
-run_one "$(bin_of test-faker)" 1
+run_one "$(bin_of test-faker)" 1 "course:=twin_closed_maze"
+run_one "$(bin_of test-faker)" 1 "course:=twin_closed_maze"
 run_one "$(bin_of test-nav-policy)"
 
 echo "=========================="
