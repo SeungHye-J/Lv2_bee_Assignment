@@ -936,12 +936,11 @@ def test_capture_dice():
 
 def test_tag_gamma_glare():
     """광택 반사로 검은 칸이 회색으로 뜬 원기둥 윗면 태그 (Isaac gripper_cam 11/07 실측 잘라낸 것, 태그 0):
-    원본만으로는 비트를 못 읽고 감마로 어둡게 편 영상을 더하면 읽음"""
+    감마로 어둡게 편 영상을 더하면 읽음 (원본만으로 읽히는지는 OpenCV 버전마다 달라 보지 않음 — 4.6은 못 읽음)"""
     import cv2
     from perception_node import detect_tags, tag_detector
 
     img = cv2.imread(str(Path(__file__).parent / "data" / "glare_tag0.png"))
-    assert [t[0] for t in detect_tags(tag_detector(), img)] == []
     assert [t[0] for t in detect_tags(tag_detector(), img, 2.5)] == [0]
 
 
@@ -960,13 +959,12 @@ def test_tag_in_overlapping_boxes():
 
 
 def test_tag_half_big():
-    """가까워 크게(한 변 약 75 px) 찍힌 원기둥 윗면 태그 7 — 원본에선 테두리를 못 찾고 반 크기에서 읽음
-    (11/07 Isaac gripper_cam 디버그 영상에서 잘라 냄 — 글씨·회색 박스가 같이 찍혀 있음)"""
+    """가까워 크게(한 변 약 75 px) 찍힌 원기둥 윗면 태그 7 — 반 크기 영상을 더하면 읽음
+    (원본만으로 읽히는지는 OpenCV 버전마다 다름 — 4.6은 못 읽고 CI의 새 버전은 읽음. 11/07 Isaac 디버그 영상에서 잘라 냄)"""
     import cv2
     from perception_node import detect_tags, tag_detector
 
     img = cv2.imread(str(Path(__file__).parent / "data" / "big_tag7.png"))
-    assert [t[0] for t in detect_tags(tag_detector(), img)] == []
     tags = detect_tags(tag_detector(), img, half=True)
     assert [t[0] for t in tags] == [7]
     assert 60 < tags[0][2][2] - tags[0][2][0] < 120  # 꼭짓점은 원본 화소 (반 크기 좌표 × 2)
