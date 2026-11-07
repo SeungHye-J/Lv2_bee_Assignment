@@ -147,6 +147,11 @@ EOF
   echo "ESDF: 빈 점구름 발행 (전방 free 가정)"
 fi
 
+# A/B 궤적 비교용 bag 기록 (리포트는 tool/node/rl_nav_controller/report.py 로 생성)
+BAG_TOPICS="/cmd_vel_nav /odometry/filtered /odom /imu /plan /controller_server/FollowPath/debug /controller_server/FollowPath/status"
+BAG_DIR=~/bags/nav-policy/$(date +%Y%m%d_%H%M%S)
+mkdir -p "$BAG_DIR"
+echo "bag 저장: $BAG_DIR"
 GOAL_A="{pose: {header: {frame_id: 'map'}, pose: {position: {x: 0.5, y: 0.0, z: 0.0}, orientation: {w: 1.0}}}}"
 GOAL_B="{pose: {header: {frame_id: 'map'}, pose: {position: {x: 0.0, y: 0.0, z: 0.0}, orientation: {w: 1.0}}}}"
 drive() {  # $1 = on|off (토글) · $2 = 라벨 · $3 = goal JSON
@@ -163,6 +168,9 @@ drive() {  # $1 = on|off (토글) · $2 = 라벨 · $3 = goal JSON
   echo "--- [$2] toggle $1 ok, goal 주행 ---"
   timeout 120 ros2 action send_goal /navigate_to_pose nav2_msgs/action/NavigateToPose "$3" > /tmp/nav-goal.log 2>&1 &
   local goal_pid=$!
+  local bag="$BAG_DIR/$2"
+  timeout -s KILL 300 ros2 bag record -o "$bag" $BAG_TOPICS > "/tmp/nav-bag-$2.log" 2>&1 &
+  local bag_pid=$!
   # status 한 방: compute가 돌면 무조건 찍힌다 (정책이면 rl_active=1, 바이패스면 0).
   # goal 끝나기 전에 바로 붙어야 해서 대기 없이 실행한다.
   timeout -s KILL 90 ros2 topic echo --once /controller_server/FollowPath/status std_msgs/msg/Float32MultiArray > /tmp/nav-status.log 2>&1
@@ -173,27 +181,28 @@ drive() {  # $1 = on|off (토글) · $2 = 라벨 · $3 = goal JSON
     echo "rl_active=$rl_active (기대: $([ "$1" = on ] && echo 1 || echo 0))"
     if [ "$1" = on ] && [ "${rl_active%%.*}" != 1 ]; then
       echo "FAIL: [$2] 정책 미동작 (rl_active=$rl_active)"
-      kill "$goal_pid" 2>/dev/null
+      kill "$goal_pid" "$bag_pid" 2>/dev/null
       return 1
     fi
     if [ "$1" != on ] && [ "${rl_active%%.*}" != 0 ]; then
       echo "FAIL: [$2] DWB인데 정책 활성 (rl_active=$rl_active)"
-      kill "$goal_pid" 2>/dev/null
+      kill "$goal_pid" "$bag_pid" 2>/dev/null
       return 1
     fi
     echo "OK: [$2] 모드 일치 (rl_active=$rl_active)"
   else
     echo "FAIL: [$2] FollowPath/status 없음"
-    kill "$goal_pid" 2>/dev/null
+    kill "$goal_pid" "$bag_pid" 2>/dev/null
     return 1
   fi
   if [ "${SMOKE:-0}" = 1 ]; then
     # CI 스모크 모드: 배선 확인까지만 하고 goal 완주는 기다리지 않는다
-    kill "$goal_pid" 2>/dev/null
+    kill "$goal_pid" "$bag_pid" 2>/dev/null
     echo "OK: [$2] 스모크 확인 (도착 대기 생략)"
     return 0
   fi
   wait "$goal_pid"
+  kill "$bag_pid" 2>/dev/null; wait "$bag_pid" 2>/dev/null
   if grep -qi "succeeded" /tmp/nav-goal.log; then
     echo "OK: [$2] goal 도착"
   elif [ "$1" = on ]; then
@@ -212,5 +221,12 @@ drive on "정책" "$GOAL_B" || exit 1
 timeout 10 ros2 service call /controller_server/FollowPath/toggle std_srvs/srv/SetBool "{data: true}" 2>/dev/null \
   | grep -q "success=True" || { echo "FAIL: toggle on 복원 실패"; exit 1; }
 
+REPORT_PY=/tmp/nav-ab/rl_nav_controller/report.py
+if [ -f "$REPORT_PY" ]; then
+  python3 "$REPORT_PY" "$BAG_DIR"/*/ --labels DWB 정책 --out "$BAG_DIR/report.png" 2>&1 | tail -12
+  echo "리포트: $BAG_DIR/report.png"
+else
+  echo "WARN: 리포트 스크립트 없음 ($REPORT_PY) — bag만 저장됨: $BAG_DIR"
+fi
 echo "=========================="
 echo "PASS: nav-policy (ONNX 로드 · toggle off/on · DWB/정책 주행 · rl_active 일치)"

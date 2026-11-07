@@ -181,7 +181,7 @@ cd tool
 
 바퀴 응답(gain · 지연)을 재서 sim에 맞추는 측정입니다. 메뉴: **13) 칼리브레이션 → 1) 바퀴**. 팔(`calibrate arm`)은 나중에 같은 메뉴에 붙입니다.
 계획(JSON)의 `(v, w)`를 수동 경로로 재생하며 응답을 `raw.csv`로 기록합니다.
-계획 파일은 **설정**이라 `tool/cli/op/pages/calibration/wheel/command.json`(sim과 같은 네모 54 s)에 두고,
+계획 파일은 **설정**이라 `tool/cli/calibration/wheel/command.json`(sim과 같은 네모 54 s)에 두고,
 결과는 **실행 로그**라 `tool/log/calibration/<시각>_wheel/raw.csv`에 남깁니다.
 
 ```bash
@@ -277,7 +277,7 @@ cd tool
 정책(ONNX) vs inner DWB를 같은 주행·같은 goal로 비교한다. 기록은 bee 안에 쌓인다.
 
 - 자동: `./run-cli ab rl_nav_controller guide --label test1`
-  (`tool/cli/op/pages/ab/rl_nav_controller/command.json`의 start·route대로 A(정책) → 복귀 → B(DWB) 주행)
+  (`tool/cli/ab/rl_nav_controller/command.json`의 start·route대로 A(정책) → 복귀 → B(DWB) 주행)
 - 수동: `status` · `record --label` · `stop` · `report --last` (위 ab/README 참고)
 - 리포트는 `tool/node/rl_nav_controller/report.py`가 만든다
 
