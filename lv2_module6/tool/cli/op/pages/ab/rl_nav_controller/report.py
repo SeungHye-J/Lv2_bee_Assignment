@@ -18,7 +18,8 @@ from pathlib import Path
 import numpy as np
 
 HERE = Path(__file__).resolve().parent
-sys.path.insert(0, str(HERE.parent))
+TOOL = HERE.parents[4]  # .../tool (ab/rl_nav_controller에서 4 위: ab·pages·op·cli)
+sys.path.insert(0, str(TOOL / "node"))
 from common.bagio import plan_points, project_to_polyline, read_bag, series, wrap, yaw_of  # noqa: E402
 
 FONTS = ["/usr/share/fonts/opentype/noto/NotoSansCJK-Regular.ttc",

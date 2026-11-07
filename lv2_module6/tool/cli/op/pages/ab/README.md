@@ -6,10 +6,11 @@
 ```text
 tool/cli/op/pages/ab/
 └── rl_nav_controller/
-    └── command.json                # A/B 시작 자세·route·반복·timeout
+    ├── command.json                # A/B 시작 자세·route·반복·timeout
+    └── report.py                   # rosbag2 → report.png (횡오차·속도·궤적·정책 행동)
 ```
 
-리포트는 `tool/node/rl_nav_controller/report.py`가 만든다.
+리포트는 같은 폴더 `report.py`가 만든다.
 
 ## 산출물 (tool/artifacts/ab/<노드>/)
 

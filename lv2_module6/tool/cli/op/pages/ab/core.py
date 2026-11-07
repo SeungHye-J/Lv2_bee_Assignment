@@ -3,7 +3,7 @@
 사용자 진입점은 `run-cli ab <노드> <동작>` / 메뉴 14 하나다. 이 파일은 UI 없이 동작만 담당한다.
   - ON/OFF: /controller_server/FollowPath/toggle (std_srvs/SetBool), 안 되면 파라미터 FollowPath.enable로 대체
   - 기록: ros2 bag record를 백그라운드로 띄우고 ~/.cache/beebot/ab.json에 pid·bag 경로를 남긴다
-  - 리포트: tool/node/rl_nav_controller/report.py (rosbag2 → report.png)
+  - 리포트: pages/ab/rl_nav_controller/report.py (rosbag2 → report.png)
 
 bee는 ROS_DOMAIN_ID=88 + fastdds_local_only.xml(SHM 전용)이라 PC에서 원격 기록할 수 없다.
 산출물(bag·리포트)은 tool/artifacts/ab/<노드> 아래에 쌓는다 (컨테이너: /debug/tool/artifacts).
@@ -47,7 +47,7 @@ ARTIFACT_ROOT = _artifact_root()
 BAG_DIR = ARTIFACT_ROOT / 'ab' / NODE  # 노드별 폴더: ab/rl_nav_controller/<bag> · report_<그룹>.png
 STATE = Path.home() / '.cache' / 'beebot' / 'ab.json'
 RECORD_LOG = Path.home() / '.cache' / 'beebot' / 'ab-record.log'
-REPORT = Path(__file__).resolve().parents[4] / 'node' / 'rl_nav_controller' / 'report.py'
+REPORT = Path(__file__).resolve().parent / NODE / 'report.py'  # command.json 옆
 PLAN = Path(__file__).resolve().parent / NODE / 'command.json'
 
 # controller 출력 + 실제 움직임 + 정책 디버그를 같이 본다.
