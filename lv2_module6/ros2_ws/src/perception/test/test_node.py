@@ -987,3 +987,76 @@ def test_merge_duplicate_pucks():
     assert sorted(tracks) == [1, 3] and tracks[1]["tag"] == 4 and tracks[1]["hits"] == 6 and tracks[1]["p"][1] == 0.034
     tracks = {1: tr([0.25, 0.03, 0.13], 1.0, tag=4), 2: tr([0.26, 0.03, 0.13], 2.0, tag=10)}
     assert merge_tracks(tracks, 0.03) == {} and len(tracks) == 2  # 태그가 다르면 다른 퍽
+
+
+def test_puck_center_from_surface():
+    """퍽 depth 점(앞 표면) → 중심: 비스듬히 보면 시선 수평 방향으로 15 mm 안쪽 · 바로 위에서 보면 그대로 · 옆으로는 안 움직임"""
+    import numpy as np
+    from perception_node import puck_center
+
+    cam = np.array([0.09, 0.03, 0.31])
+    surf = np.array([0.25, 0.03, 0.12])                       # 앞으로 0.16 · 아래로 0.19 → 약 50° 내려다봄
+    c = puck_center(surf, cam, 0.015, 45.0)
+    assert abs(c[1] - surf[1]) < 1e-9 and abs(c[2] - surf[2]) < 1e-9
+    assert 0.010 < c[0] - surf[0] < 0.015                     # cos 50° / cos 45° ≈ 0.91 → 13.6 mm
+    flat = puck_center(np.array([0.40, 0.03, 0.12]), cam, 0.015, 45.0)
+    assert abs(flat[0] - 0.415) < 1e-9                        # 얕게 보면 15 mm 전부
+    top = puck_center(np.array([0.09, 0.03, 0.12]), cam, 0.015, 45.0)
+    assert np.allclose(top, [0.09, 0.03, 0.12])               # 바로 위
+    assert np.allclose(puck_center(surf, cam, 0.0, 45.0), surf)  # 끔
+
+
+def test_tag_center_top_and_side():
+    """태그 꼭짓점 + depth → 퍽 중심: 윗면 태그는 태그 가운데 그대로 · 옆면 태그는 면 법선 반대로 반폭 15 mm 안쪽"""
+    import numpy as np
+    from perception_node import tag_center
+
+    fx = fy = 600.0
+    cx, cy = 320.0, 240.0
+
+    def view(cam, fwd, up):  # 카메라 → 추적 좌표 회전 (광학: x 오른쪽 · y 아래 · z 앞)
+        z = np.asarray(fwd, float) / np.linalg.norm(fwd)
+        x = np.cross(z, up)
+        x /= np.linalg.norm(x)
+        return np.stack([x, np.cross(z, x), z], 1), np.asarray(cam, float)
+
+    def corners_of(rot, trans, centre, ax, ay, hs=0.008):  # 태그 꼭짓점 화소 (aruco 순서: 왼위 오위 오아 왼아)
+        pts = [centre + (-hs) * ax + hs * ay, centre + hs * ax + hs * ay, centre + hs * ax - hs * ay, centre - hs * ax - hs * ay]
+        out = []
+        for p in pts:
+            c = rot.T @ (p - trans)
+            out.append([fx * c[0] / c[2] + cx, fy * c[1] / c[2] + cy])
+        return np.array(out), (rot.T @ (centre - trans))[2]
+
+    # 윗면: 위에서 비스듬히 · 퍽 윗면 중심 (0.25, 0.02, 0.13)
+    rot, trans = view([0.10, 0.02, 0.32], [0.15, 0.0, -0.19], [0, 0, 1])
+    top = np.array([0.25, 0.02, 0.13])
+    cs, z = corners_of(rot, trans, top, np.array([0, -1.0, 0]), np.array([1.0, 0, 0]))
+    depth = np.full((480, 640), z, np.float32)
+    c = tag_center(cs, depth, 0.016, 0.015, fx, fy, cx, cy, rot, trans)
+    assert c is not None and np.linalg.norm(c - top) < 0.002
+
+    # 옆면: 카메라를 향한 −x 면 (면 중심 (0.235, 0.02, 0.10)) → 퍽 중심 (0.25, 0.02, 0.10)
+    rot, trans = view([0.05, 0.02, 0.16], [0.18, 0.0, -0.06], [0, 0, 1])
+    face = np.array([0.235, 0.02, 0.10])
+    cs, z = corners_of(rot, trans, face, np.array([0, -1.0, 0]), np.array([0, 0, 1.0]))
+    depth = np.full((480, 640), z, np.float32)
+    c = tag_center(cs, depth, 0.016, 0.015, fx, fy, cx, cy, rot, trans)
+    assert c is not None and np.linalg.norm(c[:2] - [0.25, 0.02]) < 0.002
+
+    assert tag_center(cs, np.zeros((480, 640), np.float32), 0.016, 0.015, fx, fy, cx, cy, rot, trans) is None  # depth 없음
+
+
+def test_arm_near_drops_finger_depth():
+    """손가락(가까움)이 퍽 영역 일부를 가리면 그 depth만 빼고 퍽 depth로 · 손가락이 대부분이거나 마스크가 없으면 안 뺌"""
+    import numpy as np
+    from perception_node import arm_near, box_depth_m
+
+    d = np.full((90, 90), 0.25, np.float32)
+    d[30:60, 30:45] = 0.11                      # 손가락 (영역 가운데 1/3의 절반)
+    arm = np.zeros(d.shape, bool)
+    arm[:, :50] = True
+    assert abs(box_depth_m(d, (0, 0, 90, 90), 0.3, arm) - 0.25) < 1e-6
+    assert not arm_near(d[30:60, 30:60], None).any()
+    full = np.full((30, 30), 0.11, np.float32)
+    assert not arm_near(full, np.ones((30, 30), bool)).any()  # 전부 손가락처럼 가까움 → 기준도 그 값 → 안 뺌

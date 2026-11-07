@@ -117,6 +117,23 @@ def same_object(tr, d):
     return a in NO_COLOR or b in NO_COLOR or a == b
 
 
+def puck_center(p, cam, offset, full_deg):
+    """퍽 depth 점(보이는 표면) → 퍽 중심 쪽으로: 카메라 → 점 수평 방향으로 offset × min(1, cos(내려다본 각)/cos(full_deg)).
+    비스듬히 보면 앞면(중심에서 반지름만큼 카메라 쪽)을 재고, 바로 위에서 보면 윗면 가운데라 거의 안 옮김.
+    11/07 Isaac (Isaac 참값 비교, 퍽 8개): 시선 방향 −14~−19 mm (비스듬히 · 사각 퍽 −15.2~−15.4) · 위에서 −9 · 0 mm, 옆 방향 3 mm 이하"""
+    if offset <= 0:
+        return p
+    d = np.asarray(p, float) - np.asarray(cam, float)
+    h = float(np.hypot(d[0], d[1]))
+    if h < 1e-6:
+        return p
+    cos_down = h / float(np.linalg.norm(d))  # 내려다본 각의 cos (수평으로 보면 1)
+    k = min(1.0, cos_down / np.cos(np.radians(full_deg)))
+    out = np.array(p, float)
+    out[:2] += d[:2] / h * offset * k
+    return out
+
+
 def box_iou(a, b):
     """화면 박스 (x0, y0, x1, y1) 두 개의 IoU"""
     w = min(a[2], b[2]) - max(a[0], b[0])
@@ -424,14 +441,40 @@ def tag_shape(face, posture):
     return ""
 
 
-def box_depth_m(depth_m, box, min_valid):
+def arm_near(patch, arm, margin=0.05):
+    """팔(손가락)이 찍힌 화소 중 물체보다 margin 넘게 가까운 것 → True (그 depth는 물체가 아님)
+    margin 5 cm: 손가락은 카메라에서 약 10 cm · 퍽은 17 cm 넘음. 2 cm로는 사각 퍽 윗면(옆면보다 몇 cm 가까움)까지 빼서 15 mm 틀어졌음
+    물체 depth 기준 = 영역 depth의 80 백분위 (손가락은 늘 물체보다 카메라 쪽) — 팔 마스크 안에서만 뺌 ·
+    손가락이 영역 대부분이면 기준도 손가락이라 아무것도 안 뺌 (손 밑에서 집는 중 퍽까지 지우지 않게)"""
+    if arm is None or not arm.any():
+        return np.zeros(patch.shape, bool)
+    ok = np.isfinite(patch) & (patch > 0.05)
+    if ok.sum() < 8:
+        return np.zeros(patch.shape, bool)
+    return arm & ok & (patch < float(np.percentile(patch[ok], 80)) - margin)
+
+
+def arm_mask_image(arm_px, shape):
+    """arm_pixels [[u, v, r], …] → 팔·손가락이 찍힌 화소 (반경 = 팔 두께 1.5배 + 6 px — find_box_tops와 같음) · 없으면 None"""
+    if arm_px is None or not len(arm_px):
+        return None
+    m = np.zeros(shape[:2], np.uint8)
+    for u, v, r in arm_px:
+        if -100 < u < shape[1] + 100 and -100 < v < shape[0] + 100:
+            cv2.circle(m, (int(u), int(v)), int(r * 1.5 + 6), 1, -1)
+    return m.astype(bool) if m.any() else None
+
+
+def box_depth_m(depth_m, box, min_valid, arm=None):
     """퍽 박스 가운데 1/3 영역의 깊이 중앙값 [m] — 가장자리 배경이 섞이지 않게. 0(측정 실패) 제외
     측정된 화소가 영역의 min_valid(비율)보다 적으면 0.0 (= 깊이 없음):
     퍽이 18cm보다 가까우면 퍽 화소는 0이 되고 사이로 보인 배경 몇 화소만 남아, 그 중앙값(1.2m)을 퍽 거리로 쓰던 문제 (10/21 실측)"""
     x0, y0, x1, y1 = box
     bw, bh = x1 - x0, y1 - y0
-    patch = depth_m[y0 + bh // 3:y1 - bh // 3 + 1, x0 + bw // 3:x1 - bw // 3 + 1]
-    valid = patch[np.isfinite(patch) & (patch > 0.05)]
+    sl = (slice(y0 + bh // 3, y1 - bh // 3 + 1), slice(x0 + bw // 3, x1 - bw // 3 + 1))
+    patch = depth_m[sl]
+    near = arm_near(patch, arm[sl] if arm is not None else None)  # 손가락 depth는 뺌 (11/07: 손가락 밑 퍽 위치가 1 cm 넘게 틀어짐)
+    valid = patch[np.isfinite(patch) & (patch > 0.05) & ~near]
     if valid.size == 0 or valid.size < min_valid * patch.size:
         return 0.0
     return float(np.median(valid))
@@ -636,6 +679,43 @@ def tag_yaw(corners, size_m, fx, fy, cx, cy, rot):
     return None, ""       # 비스듬한 면 — 잘못 구한 자세일 수 있어 안 씀
 
 
+def tag_center(corners, depth_m, size_m, half_w, fx, fy, cx, cy, rot, trans, arm=None):
+    """서 있는 퍽의 태그 → 퍽 중심 (추적 좌표) · 못 구하면 None
+    태그 가운데 화소의 depth(태그 안쪽 절반의 중앙값)로 태그 가운데의 3D 점 — 태그는 면 위에 붙어 있어 표면 → 중심 가정이 필요 없음.
+      윗면 태그: 그 점이 곧 윗면 중심 (xy = 퍽 중심) · 옆면 태그: 면 법선(solvePnP) 반대로 half_w 들어감 · 비스듬한 면은 안 씀
+    11/07: depth 박스 중앙값 + 표면 보정(puck_center)보다 이쪽이 먼저 — 태그를 읽은 퍽만"""
+    pts = np.asarray(corners, np.float64).reshape(4, 2)
+    u, v = pts.mean(0)
+    (x0, y0), (x1, y1) = pts.min(0), pts.max(0)
+    qx, qy = (x1 - x0) / 4, (y1 - y0) / 4
+    h, w = depth_m.shape[:2]
+    sl = (slice(max(int(y0 + qy), 0), min(int(np.ceil(y1 - qy)), h)), slice(max(int(x0 + qx), 0), min(int(np.ceil(x1 - qx)), w)))
+    patch = depth_m[sl]
+    valid = patch[np.isfinite(patch) & (patch > 0.05) & ~arm_near(patch, arm[sl] if arm is not None else None)]
+    if valid.size < 3:
+        return None
+    z = float(np.median(valid))
+    p = rot @ np.array([(u - cx) * z / fx, (v - cy) * z / fy, z]) + trans
+    hs = size_m / 2.0
+    obj = np.array([[-hs, hs, 0], [hs, hs, 0], [hs, -hs, 0], [-hs, -hs, 0]], np.float64)
+    k = np.array([[fx, 0, cx], [0, fy, cy], [0, 0, 1]], np.float64)
+    try:
+        ok, rvec, _ = cv2.solvePnP(obj, pts.reshape(4, 1, 2), k, None, flags=cv2.SOLVEPNP_IPPE_SQUARE)
+    except cv2.error:
+        return None
+    if not ok:
+        return None
+    n = (rot @ cv2.Rodrigues(rvec)[0])[:, 2]  # 태그 법선 (추적 좌표)
+    if abs(n[2]) > 0.87:  # 윗면
+        return p
+    if abs(n[2]) < 0.5:   # 옆면 — 법선은 면 바깥(카메라 쪽) · 수평 성분만
+        nh = np.array([n[0], n[1], 0.0]) / max(float(np.hypot(n[0], n[1])), 1e-9)
+        if nh @ (trans - p) < 0:  # 법선이 카메라 반대쪽으로 나왔으면 뒤집음
+            nh = -nh
+        return p - nh * half_w
+    return None
+
+
 def axis_yaw(points_xy, min_points, min_elong):
     """퍽 화소의 바닥 위 점들(추적 좌표 x·y) → 긴 축 yaw (주성분) · 점이 적거나 길쭉하지 않으면 None
     누운 퍽처럼 한 방향으로 길 때만 (긴 축 표준편차 ÷ 짧은 축 ≥ min_elong) — 정사각형에 가까우면 방향을 못 정함"""
@@ -800,6 +880,9 @@ class PerceptionNode(Node):
         self.declare_parameter("cpu_threads", 2)
         self.declare_parameter("sync_slop", 0.05)
         self.declare_parameter("match_dist", 0.4)
+        self.declare_parameter("puck_center_offset", 0.015)    # [m] 퍽 표면 → 중심 (반지름·반폭) — puck_center (0 = 끔)
+        self.declare_parameter("puck_center_full_deg", 45.0)   # 이보다 얕게 내려다보면 offset 전부 · 바로 위면 0
+        self.declare_parameter("tag_center", True)             # 태그를 읽은 서 있는 퍽은 태그 가운데로 중심 (tag_center)
         self.declare_parameter("det_merge_iou", 0.5)   # 한 프레임에서 겹친 같은 퍽 박스를 하나로 (0 = 끔) — merge_overlap_dets
         self.declare_parameter("track_merge_m", 0.03)  # 이 안의 같은 퍽 트랙 둘을 하나로 [m] (0 = 끔) — merge_tracks
         self.declare_parameter("pixel_sigma", 4.0)
@@ -930,6 +1013,9 @@ class PerceptionNode(Node):
         self.body_box = self.body_box if len(self.body_box) == 3 else []
         self.match_dist = float(self.get_parameter("match_dist").value)
         self.det_merge_iou = float(self.get_parameter("det_merge_iou").value)
+        self.puck_center_offset = float(self.get_parameter("puck_center_offset").value)
+        self.puck_center_full_deg = float(self.get_parameter("puck_center_full_deg").value)
+        self.tag_center = bool(self.get_parameter("tag_center").value)
         self.track_merge_m = float(self.get_parameter("track_merge_m").value)
         self.pixel_sigma = float(self.get_parameter("pixel_sigma").value)
         self.depth_sigma0 = float(self.get_parameter("depth_sigma0").value)
@@ -1094,13 +1180,14 @@ class PerceptionNode(Node):
         # (실측: 스캔 자세 팔을 obstacle 0.5~0.7로 잡고 위치는 팔 뒤 바닥 (0.42, 0.20, −0.03)) → 팔을 화면에 투영해 박스 안에 있으면 버림
         arm_px = (arm_pixels(body[1], rot, trans, s["fx"], s["fy"], s["cx"], s["cy"])
                   if body is not None and self.self_arm_hits > 0 else np.zeros((0, 2)))
+        arm_mask = arm_mask_image(arm_px, depth_m.shape) if len(arm_px) else None  # 퍽 depth에서 손가락을 뺄 때
         dets = []
         qr_boxes = []
         s["drops"] = drops = []  # 버린 퍽 박스와 이유 — 디버그 영상에 회색 박스 옆에 씀
         puck_boxes = [clip_box(b.xyxy[0].tolist(), w, h) for b in boxes_in  # 태그를 겹친 퍽 중 어디에 붙일지 (tag_in_box)
                       if split_class(self.names.get(int(b.cls[0]), ""))[0] == "puck"]
         for b in boxes_in:
-            tag = None
+            tag, tag_c = None, None
             shape, yaw, yaw_period = "", None, 0.0  # 퍽만 채움
             name = self.names.get(int(b.cls[0]))
             if name is None:
@@ -1114,7 +1201,7 @@ class PerceptionNode(Node):
             posture = ""
             if cls == "puck":
                 # 퍽 판단 — 깊이 50% 규칙 · 색 · 크기·자세 · 잘림·근접 (YOLO 이름의 자세는 안 믿음 — 실물에서 틀렸음)
-                zm = box_depth_m(depth_m, (x0, y0, x1, y1), self.depth_min_valid)
+                zm = box_depth_m(depth_m, (x0, y0, x1, y1), self.depth_min_valid, arm_mask)
                 roi = s["bgr"][y0:y1, x0:x1]
                 color, _ = puck_color(roi, self.puck_colors, self.hue_tol)
                 color, _ = settle_puck_color(roi, color, model_color, self.puck_colors, self.check_model_color)
@@ -1143,6 +1230,8 @@ class PerceptionNode(Node):
                 tag_y, face = (tag_yaw(corners, self.puck_tag_size, s["fx"], s["fy"], s["cx"], s["cy"], rot)
                                if corners is not None else (None, ""))
                 shape = tag_shape(face, posture) or (puck_shape(name) if fine else "")  # 몸통 면 태그가 보이면 YOLO 모양보다 우선
+                tag_c = (tag_center(corners, depth_m, self.puck_tag_size, self.puck_center_offset, s["fx"], s["fy"], s["cx"], s["cy"], rot, trans, arm_mask)
+                         if corners is not None and posture != "lying" and self.tag_center else None)
                 yaw, yaw_period = None, 0.0
                 if posture == "lying" and hasattr(b, "xyxyxyxy"):  # OBB 모델: 회전 박스 장축 → 누운 퍽 축 (depth 점보다 먼저)
                     c3 = rot @ np.array([((x0 + x1) / 2 - s["cx"]) * zm / s["fx"], ((y0 + y1) / 2 - s["cy"]) * zm / s["fy"], zm]) + trans
@@ -1164,6 +1253,12 @@ class PerceptionNode(Node):
             if cls == "qr_board":
                 qr_boxes.append((x0, y0, x1, y1))
             z_map = rot @ np.array([px, py, zm]) + trans
+            if cls in PUCK_CLASSES:  # depth는 보이는 표면 — 중심은 시선 방향으로 더 안쪽
+                z_map = puck_center(z_map, trans, self.puck_center_offset, self.puck_center_full_deg)
+                # 태그 가운데에서 구한 중심이 더 정확 (11/07 Isaac 퍽 14개: 0.3~1.2 mm) — 단 박스 depth 추정과 3 cm 넘게 다르면 안 믿음
+                #   (손가락 바로 아래 퍽: 태그 가운데 depth에 손가락이 섞여 높이가 12 cm 위로 나왔음)
+                if tag_c is not None and np.linalg.norm(tag_c - z_map) < 0.03:
+                    z_map = tag_c
             arm_in_box = cls not in PUCK_CLASSES and box_has_arm((x0, y0, x1, y1), arm_px, self.self_arm_hits)  # 퍽은 그리퍼 밑에서 집으므로 뺌
             if body is not None and (arm_in_box or is_self(cls, z_map, body, self.body_radius, self.body_height, self.self_radius, self.body_box)):
                 with self.lock:

@@ -18,6 +18,9 @@ perception:
     match_dist: 0.4         # 같은 클래스 검출을 기존 트랙에 붙이는 거리 한도 [m] — 그 안에서 마할라노비스 거리 작은 쌍부터 1:1
     det_merge_iou: 0.5      # 한 프레임에서 겹친(IoU ≥) 같은 퍽 박스를 하나로 (0 = 끔) — fuse가 1:1이라 두 번째 박스가 중복 트랙이 됐음 (11/07)
     track_merge_m: 0.03     # 이 안의 같은 퍽 트랙 둘을 오래된 id 하나로 [m] (0 = 끔) — 퍽 폭 3 cm보다 작게 (붙은 다른 퍽은 안 합침)
+    puck_center_offset: 0.015  # [m] depth 점(보이는 표면) → 퍽 중심: 카메라 → 점 수평 방향으로 이만큼 (0 = 끔) — 안 하면 비스듬히 볼 때 중심보다 15 mm 카메라 쪽 (11/07 Isaac)
+    puck_center_full_deg: 45.0  # 이보다 얕게 내려다보면 offset 전부, 바로 위에서 보면 0 (cos 비례)
+    tag_center: true          # 태그를 읽은 서 있는 퍽은 태그 가운데 depth로 중심 (윗면 = 그대로 · 옆면 = 법선 반대로 puck_center_offset) — 위 표면 보정보다 먼저
     pixel_sigma: 4.0        # 박스 중심 픽셀 오차 [px] → 가로·세로 σ = pixel_sigma·z/f
     depth_sigma0: 0.005     # depth 오차 σz = depth_sigma0 + depth_sigma_k·z² [m] (RealSense: 거리² 비례)
     depth_sigma_k: 0.01     #   → 0.3m 0.6cm · 1m 1.5cm · 2m 4.5cm · 4m 17cm
