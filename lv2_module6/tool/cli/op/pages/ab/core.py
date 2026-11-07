@@ -67,6 +67,7 @@ class AbTest:
         self.term = bus.term
         self._toggle_cli = None
         self._nav_cli = None
+        self._pub_reset = None
         self._param_cache = (0.0, None, None)  # (읽은 시각, enabled, model_path)
 
     # --------------------------------------------------------------- 상태 파일
@@ -458,6 +459,40 @@ class AbTest:
             self._nav_cli = ActionClient(self.node, NavigateToPose, '/navigate_to_pose')
         return self._nav_cli
 
+    def _reset_sim_pose(self, pose: dict, frame_id: str) -> None:
+        """시뮬 로봇을 leg 시작점으로 텔레포트 — A가 맵 밖으로 나가도 B는 기획 가능.
+        fake_opencr 있으면 /cmd/fake_opencr/set_pose(진짜 위치), mock이면
+        /diff_drive_controller/set_odometry(odom). 둘 다 쏜다 — 각 모드에서 하나씩만 먹는다."""
+        import math as _math
+        from geometry_msgs.msg import PoseStamped
+        yaw = _math.radians(float(pose.get('yaw_deg', 0.0)))
+        if self._pub_reset is None:
+            from std_msgs.msg import String as _S  # noqa — 임포트 순서 고정용 더미
+            self._pub_reset = self.node.create_publisher(PoseStamped, '/cmd/fake_opencr/set_pose', 10)
+        m = PoseStamped()
+        m.header.frame_id = frame_id
+        m.header.stamp = self.node.get_clock().now().to_msg()
+        m.pose.position.x = float(pose['x'])
+        m.pose.position.y = float(pose['y'])
+        m.pose.orientation.z = _math.sin(yaw / 2.0)
+        m.pose.orientation.w = _math.cos(yaw / 2.0)
+        for _ in range(3):
+            self._pub_reset.publish(m)
+            self.bus._poll(0.2)
+        try:
+            from control_msgs.srv import SetOdometry
+            cli = self.node.create_client(SetOdometry, '/diff_drive_controller/set_odometry')
+            if cli.wait_for_service(timeout_sec=2.0):
+                req = SetOdometry.Request()
+                req.x = float(pose['x'])
+                req.y = float(pose['y'])
+                req.yaw = yaw
+                fut = cli.call_async(req)
+                rclpy.spin_until_future_complete(self.node, fut, timeout_sec=5.0)
+        except Exception:
+            pass
+        self.bus._poll(1.0)  # TF·EKF가 점프를 따라잡을 시간
+
     def nav_goal(self, pose: dict, frame_id: str, timeout: float, what: str) -> None:
         """Nav2 NavigateToPose 한 점 — 도착/성공까지 기다린다. 실패는 RuntimeError."""
         from action_msgs.msg import GoalStatus
@@ -495,7 +530,12 @@ class AbTest:
                 self._progress(f'{what}: 주행 중 … {timeout - max(0.0, end - now):.0f}/{timeout:.0f}s')
                 next_tick = now + 2.0
         if not result_fut.done():
-            handle.cancel_goal_async()
+            # 취소가 처리되기 전에 다음 goal을 보내면 BT가 거부한다 — 결과 올 때까지 대기.
+            cancel = handle.cancel_goal_async()
+            rclpy.spin_until_future_complete(self.node, cancel, timeout_sec=5.0)
+            end2 = time.monotonic() + 5.0
+            while not result_fut.done() and time.monotonic() < end2 and rclpy.ok():
+                rclpy.spin_until_future_complete(self.node, result_fut, timeout_sec=0.5)
             raise RuntimeError(f'{what}: timeout ({timeout:.0f}s)')
         result = result_fut.result()
         status = getattr(result, 'status', None)
@@ -621,6 +661,8 @@ class AbTest:
             print(f'FAIL: {exc}', file=sys.stderr)
             return 1
 
+        self._reset_sim_pose(start, plan['frame_id'])
+        self._progress(f'시작 자세 리셋: ({start["x"]:.2f}, {start["y"]:.2f}, {start["yaw_deg"]:.0f}°)')
         # 파라미터 읽기(status) 대신 토글 서비스로 확실히 ON을 보장한다.
         ok, msg = self.toggle(True)
         if not ok:
@@ -660,7 +702,7 @@ class AbTest:
                     except RuntimeError as exc:
                         print(f'FAIL: {exc}', file=sys.stderr)
                         ok_all = False
-                        break
+                        self._reset_sim_pose(start, plan['frame_id'])  # 복귀 주행 실패 → 텔레포트로 B 시작점 보장
 
                 ok, msg = self.toggle(False)
                 if not ok:
@@ -694,8 +736,11 @@ class AbTest:
             if st2['enabled'] is not True:
                 self.toggle(True)
 
+        for bag, label in zip(bags, labels):
+            if self.report([bag], [label], str(Path(bag) / 'report.png')) != 0:
+                ok_all = False
         if len(bags) >= 2:
-            out = str(group_dir / 'report.png')
+            out = str(group_dir / 'compare.png')
             if self.report(bags, labels, out) != 0:
                 ok_all = False
         return 0 if ok_all else 1

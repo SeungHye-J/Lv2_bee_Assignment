@@ -16,11 +16,14 @@ tool/cli/op/pages/ab/
 
 ```text
 tool/artifacts/ab/rl_nav_controller/
-└── 20261107_123739/                # guide 한 번 = 그룹 폴더 (시작 시각)
-    ├── 20261107_123745_A/          # A leg bag ({시각}_A)
-    ├── 20261107_124010_B/          # B leg bag ({시각}_B)
-    └── report.png                  # 고정명 (그룹 폴더 안)
+└── 20261107_124659/                # guide 한 번 = 그룹 폴더 (시작 시각)
+    ├── 20261107_124659_A/          # A leg: bag(.mcap) + raw.csv + plan.csv + report.png
+    ├── 20261107_124726_B/          # B leg: bag(.mcap) + raw.csv + plan.csv + report.png
+    └── compare.png                 # A vs B 비교 리포트 (고정명)
 ```
+
+raw.csv 열: t,cmd_v,cmd_w,act_v,act_w,odom_v,odom_w,odom_x,odom_y,odom_yaw,
+a0,a1,scan_min,dbg_v_odom,dbg_w_odom,on (20Hz 공통 격자) — calibration/wheel raw.csv와 같은 결.
 
 ## command.json
 

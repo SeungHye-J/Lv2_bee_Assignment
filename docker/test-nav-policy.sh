@@ -114,13 +114,21 @@ GUIDE_LABEL="ci_$(date +%Y%m%d_%H%M%S)"
 python3 /ws/tool/cli/operator_tool.py ab rl_nav_controller guide --label "$GUIDE_LABEL" || { echo "FAIL: ab guide 실패"; exit 1; }
 echo "OK: ab guide 완료 (A=정책, B=DWB)"
 
-# 리포트 확인 (guide가 BAG_DIR/report_<ts>.png 생성)
-REPORT=$(ls -t /debug/tool/artifacts/ab/*/report_*.png 2>/dev/null | head -1)
-[ -n "$REPORT" ] || { echo "FAIL: 리포트 없음"; exit 1; }
-echo "리포트: $REPORT"
+# 산출물 확인 (guide가 ab/<노드>/<시작시각>/{A,B}/ + compare.png 생성)
+GROUP=$(ls -td /debug/tool/artifacts/ab/rl_nav_controller/*/ 2>/dev/null | head -1)
+[ -n "$GROUP" ] || { echo "FAIL: A/B 그룹 폴더 없음"; exit 1; }
+[ -f "$GROUP/compare.png" ] || { echo "FAIL: compare.png 없음 ($GROUP)"; exit 1; }
+echo "비교 리포트: ${GROUP}compare.png"
+for LEG in A B; do
+  LEGDIR=$(ls -td "$GROUP"*_$LEG 2>/dev/null | head -1)
+  [ -n "$LEGDIR" ] || { echo "FAIL: $LEG leg 폴더 없음"; exit 1; }
+  [ -f "$LEGDIR/report.png" ] || { echo "FAIL: $LEG leg 리포트 없음"; exit 1; }
+  [ -f "$LEGDIR/raw.csv" ] || { echo "FAIL: $LEG leg raw.csv 없음"; exit 1; }
+  echo "leg $LEG: $LEGDIR (report.png + raw.csv)"
+done
 
 # 정책 leg bag에 FollowPath/debug가 있어야 실제 정책이 돈 것 (DWB 바이패스 아님)
-ABAG=$(ls -td /debug/tool/artifacts/ab/*_r1_A /debug/tool/artifacts/ab/*_A 2>/dev/null | head -1)
+ABAG=$(ls -td "$GROUP"*_A 2>/dev/null | head -1)
 [ -n "$ABAG" ] || { echo "FAIL: 정책 bag 없음"; exit 1; }
 DCNT=$(python3 - "$ABAG" <<'PYEOF'
 import sys
