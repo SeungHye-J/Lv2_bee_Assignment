@@ -22,5 +22,7 @@ if ls build/*/CMakeCache.txt >/dev/null 2>&1 && \
 fi
 colcon build --symlink-install --event-handlers console_direct- "$@" || { echo "FAIL: colcon build"; exit 1; }
 if [ -d /debug ]; then  # 컨테이너만: 호스트 공유 폴더에 install 실파일 복사
+  # 끊긴 심볼릭링크(지워진 모델 등) 정리 — 없으면 cp -rL이 통째로 실패해서 뒤 단계까지 막힘
+  find "$WS/install" -xtype l -delete 2>/dev/null
   rm -rf /debug/install && cp -rL "$WS/install" /debug/install && echo "install → /debug/install (호스트: lv2_module6/debug/install)"
 fi
