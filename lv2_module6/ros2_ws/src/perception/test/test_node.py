@@ -1044,7 +1044,15 @@ def test_tag_center_top_and_side():
     c = tag_center(cs, depth, 0.016, 0.015, fx, fy, cx, cy, rot, trans)
     assert c is not None and np.linalg.norm(c[:2] - [0.25, 0.02]) < 0.002
 
-    assert tag_center(cs, np.zeros((480, 640), np.float32), 0.016, 0.015, fx, fy, cx, cy, rot, trans) is None  # depth 없음
+    # depth 없음 (D435 Min-Z보다 가까움) → solvePnP 위치로 대신
+    c = tag_center(cs, np.zeros((480, 640), np.float32), 0.016, 0.015, fx, fy, cx, cy, rot, trans)
+    assert c is not None and np.linalg.norm(c[:2] - [0.25, 0.02]) < 0.002
+
+    # 손목 카메라로 집기 직전: 윗면 태그 8 cm 위에서 내려다봄, depth 없음
+    rot, trans = view([0.25, 0.02, 0.21], [0.0, 0.0, -1.0], [1.0, 0, 0])
+    cs, _ = corners_of(rot, trans, top, np.array([0, -1.0, 0]), np.array([1.0, 0, 0]))
+    c = tag_center(cs, np.zeros((480, 640), np.float32), 0.016, 0.015, fx, fy, cx, cy, rot, trans)
+    assert c is not None and np.linalg.norm(c - top) < 0.001
 
 
 def test_arm_near_drops_finger_depth():

@@ -679,12 +679,31 @@ def tag_yaw(corners, size_m, fx, fy, cx, cy, rot):
     return None, ""       # 비스듬한 면 — 잘못 구한 자세일 수 있어 안 씀
 
 
+def tag_pnp(corners, size_m, fx, fy, cx, cy):
+    """태그 꼭짓점 → 카메라 기준 (rvec, tvec) · 못 구하면 None (solvePnP IPPE_SQUARE, 영상 왜곡 0으로 봄)
+    tvec = 카메라 → 태그 가운데 [m] — depth 없이 태그 크기만으로 나옴. 가까울수록 정확 (640×360 fx 약 466: 8 cm에서 16 mm 태그 약 90 px)"""
+    hs = size_m / 2.0
+    obj = np.array([[-hs, hs, 0], [hs, hs, 0], [hs, -hs, 0], [-hs, -hs, 0]], np.float64)
+    k = np.array([[fx, 0, cx], [0, fy, cy], [0, 0, 1]], np.float64)
+    try:
+        ok, rvec, tvec = cv2.solvePnP(obj, np.asarray(corners, np.float64).reshape(4, 1, 2), k, None,
+                                      flags=cv2.SOLVEPNP_IPPE_SQUARE)
+    except cv2.error:
+        return None
+    return (rvec, tvec.reshape(3)) if ok else None
+
+
 def tag_center(corners, depth_m, size_m, half_w, fx, fy, cx, cy, rot, trans, arm=None):
     """서 있는 퍽의 태그 → 퍽 중심 (추적 좌표) · 못 구하면 None
     태그 가운데 화소의 depth(태그 안쪽 절반의 중앙값)로 태그 가운데의 3D 점 — 태그는 면 위에 붙어 있어 표면 → 중심 가정이 필요 없음.
+      depth가 없으면(D435 Min-Z보다 가까움: 640×360 약 14 cm) solvePnP 위치(tvec)로 대신 — 손목 카메라로 집기 직전 (11/07)
       윗면 태그: 그 점이 곧 윗면 중심 (xy = 퍽 중심) · 옆면 태그: 면 법선(solvePnP) 반대로 half_w 들어감 · 비스듬한 면은 안 씀
     11/07: depth 박스 중앙값 + 표면 보정(puck_center)보다 이쪽이 먼저 — 태그를 읽은 퍽만"""
     pts = np.asarray(corners, np.float64).reshape(4, 2)
+    pnp = tag_pnp(pts, size_m, fx, fy, cx, cy)
+    if pnp is None:
+        return None
+    rvec, tvec = pnp
     u, v = pts.mean(0)
     (x0, y0), (x1, y1) = pts.min(0), pts.max(0)
     qx, qy = (x1 - x0) / 4, (y1 - y0) / 4
@@ -692,19 +711,11 @@ def tag_center(corners, depth_m, size_m, half_w, fx, fy, cx, cy, rot, trans, arm
     sl = (slice(max(int(y0 + qy), 0), min(int(np.ceil(y1 - qy)), h)), slice(max(int(x0 + qx), 0), min(int(np.ceil(x1 - qx)), w)))
     patch = depth_m[sl]
     valid = patch[np.isfinite(patch) & (patch > 0.05) & ~arm_near(patch, arm[sl] if arm is not None else None)]
-    if valid.size < 3:
-        return None
-    z = float(np.median(valid))
-    p = rot @ np.array([(u - cx) * z / fx, (v - cy) * z / fy, z]) + trans
-    hs = size_m / 2.0
-    obj = np.array([[-hs, hs, 0], [hs, hs, 0], [hs, -hs, 0], [-hs, -hs, 0]], np.float64)
-    k = np.array([[fx, 0, cx], [0, fy, cy], [0, 0, 1]], np.float64)
-    try:
-        ok, rvec, _ = cv2.solvePnP(obj, pts.reshape(4, 1, 2), k, None, flags=cv2.SOLVEPNP_IPPE_SQUARE)
-    except cv2.error:
-        return None
-    if not ok:
-        return None
+    if valid.size >= 3:
+        z = float(np.median(valid))
+        p = rot @ np.array([(u - cx) * z / fx, (v - cy) * z / fy, z]) + trans
+    else:
+        p = rot @ tvec + trans
     n = (rot @ cv2.Rodrigues(rvec)[0])[:, 2]  # 태그 법선 (추적 좌표)
     if abs(n[2]) > 0.87:  # 윗면
         return p
@@ -1202,6 +1213,11 @@ class PerceptionNode(Node):
             if cls == "puck":
                 # 퍽 판단 — 깊이 50% 규칙 · 색 · 크기·자세 · 잘림·근접 (YOLO 이름의 자세는 안 믿음 — 실물에서 틀렸음)
                 zm = box_depth_m(depth_m, (x0, y0, x1, y1), self.depth_min_valid, arm_mask)
+                if zm <= 0 and self.tag_center:  # 너무 가까워 depth 없음 → 퍽 태그가 보이면 그 거리(solvePnP)로 대신
+                    _, corners = tag_in_box(tags, (x0, y0, x1, y1), self.puck_tag_ids, puck_boxes)
+                    pnp = tag_pnp(corners, self.puck_tag_size, s["fx"], s["fy"], s["cx"], s["cy"]) if corners is not None else None
+                    if pnp is not None and pnp[1][2] > 0:
+                        zm = float(pnp[1][2])
                 roi = s["bgr"][y0:y1, x0:x1]
                 color, _ = puck_color(roi, self.puck_colors, self.hue_tol)
                 color, _ = settle_puck_color(roi, color, model_color, self.puck_colors, self.check_model_color)
