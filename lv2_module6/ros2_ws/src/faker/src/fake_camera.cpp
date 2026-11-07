@@ -98,7 +98,9 @@ void FakeCamera::publish_dummy() {
   f.seq = last_seq_;
   f.stamp = now().seconds();
   f.hfov_deg = dummy_hfov_deg_;
-  last_frame_ = now();
+  // last_frame_은 건드리지 않는다 — 여길 갱신하면 다음 poll에서
+  // (now - last_frame_) > dummy_timeout_s가 다시 2초를 기다려 더미가 0.5Hz가 된다 (실측).
+  // 더미는 poll마다 나간다 (진짜 카메라 30Hz급 — collision_monitor source_timeout 1.0s 여유).
   publish(f, bgr, depth);
 }
 

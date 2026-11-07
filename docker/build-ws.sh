@@ -8,6 +8,7 @@
 # shellcheck disable=SC1091
 if [ -z "$BASH_VERSION" ]; then exec bash "$0" "$@"; fi   # sh(dash)로 실행해도 bash로 재실행
 source /opt/ros/lyrical/setup.bash
+[ -f /opt/nav2_common/setup.bash ] && source /opt/nav2_common/setup.bash  # nav2_common (ml이 find_package)
 BIN_DIR=$(dirname "${BASH_SOURCE[0]}")
 [ "$BIN_DIR" = . ] && BIN_DIR="$PWD"   # 형제 스크립트 탐색용 — 컨테이너(/usr/local/bin)·호스트(docker/) 모두 동작
 if [ -z "$WS" ]; then

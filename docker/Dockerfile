@@ -61,6 +61,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     ros-lyrical-robot-localization \
     ros-lyrical-rosx-introspection \
     ros-lyrical-onnxruntime-vendor \
+    fonts-noto-cjk \
     ros-lyrical-cv-bridge \
     libopencv-dev \
     rapidjson-dev \

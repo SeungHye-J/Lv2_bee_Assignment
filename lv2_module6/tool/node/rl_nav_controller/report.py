@@ -3,7 +3,8 @@
 
   ./run report ~/bags/policy ~/bags/dwb --labels 정책 DWB --out ~/report.png
 
-읽는 토픽: /cmd_vel_nav(컨트롤러 출력) · /odometry/filtered · /odom · /imu · /plan ·
+읽는 토픽: /cmd_vel_nav(컨트롤러 출력) · /cmd_vel(모니터 통과 후 실제) · /cmd_vel_mux ·
+          /odometry/filtered · /odom · /imu · /plan ·
           /controller_server/FollowPath/debug  [a0, a1, v_out, w_out, scan_min, v_odom, w_odom, on]
 지표: 횡오차(RMSE·최대) · 헤딩 MAE · 평균속도·시간·거리 · 가상스캔 최소거리 · 정책 ON 비율
 """
@@ -25,6 +26,24 @@ FONTS = ["/usr/share/fonts/opentype/noto/NotoSansCJK-Regular.ttc",
 DBG = "/controller_server/FollowPath/debug"
 
 
+def cmd_path(data: dict, odom_xy0=None, yaw0: float = 0.0):
+    """/cmd_vel(실제 나간 속도)을 unicycle 적산한 궤적 — "명령대로 갔으면" 경로.
+    시작점은 오돔 첫 자세(없으면 원점). 반환 (xs, ys, length)."""
+    msgs = data.get("/cmd_vel") or data.get("/cmd_vel_nav") or []
+    if len(msgs) < 2:
+        return None, None, 0.0
+    t = np.array([s for s, _ in msgs], float)
+    v = np.array([m.twist.linear.x for _, m in msgs], float)
+    w = np.array([m.twist.angular.z for _, m in msgs], float)
+    dt = np.diff(t, prepend=t[0])
+    dt = np.clip(dt, 0.0, 1.0)
+    yaw = yaw0 + np.cumsum(w * dt)
+    dx = v * np.cos(yaw) * dt
+    dy = v * np.sin(yaw) * dt
+    x0, y0 = odom_xy0 if odom_xy0 is not None else (0.0, 0.0)
+    return x0 + np.cumsum(dx), y0 + np.cumsum(dy), float(np.sum(np.abs(v * dt)))
+
+
 def stats(bag: str, data: dict) -> dict:
     res: dict = {}
     odom = data.get("/odometry/filtered") or data.get("/odom") or []
@@ -35,6 +54,9 @@ def stats(bag: str, data: dict) -> dict:
         res["duration"] = float(t[-1] - t[0]) if len(t) > 1 else 0.0
         res["length"] = float(np.sum(np.linalg.norm(np.diff(xy, axis=0), axis=1)))
         res["v_mean"] = float(np.mean(np.abs(v)))
+        _, _, res["cmd_length"] = cmd_path(data,
+            (float(xy[0, 0]), float(xy[0, 1])) if len(xy) else None,
+            float(yaw[0]) if len(yaw) else 0.0)
         poly = plan_points(data.get("/plan", []))
         if len(poly) >= 2:
             d, s, head = project_to_polyline(xy, poly)
@@ -75,6 +97,10 @@ def plot(runs, out: Path) -> None:
             t, v = series(d["/cmd_vel_nav"], lambda m: m.twist.linear.x)
             if t.size:
                 ax.plot(t - t[0], v, c, lw=1.4, label=f"{label} cmd")
+        if d.get("/cmd_vel"):
+            t, v = series(d["/cmd_vel"], lambda m: m.twist.linear.x)
+            if t.size:
+                ax.plot(t - t[0], v, c, lw=0.9, ls=":", alpha=0.9, label=f"{label} actual")
         od = d.get("/odometry/filtered") or d.get("/odom") or []
         if od:
             t, v = series(od, lambda m: m.twist.twist.linear.x)
@@ -93,7 +119,11 @@ def plot(runs, out: Path) -> None:
         if od:
             xy = np.array([[m.pose.pose.position.x, m.pose.pose.position.y] for _, m in od])
             if len(xy):
-                ax.plot(xy[:, 0], xy[:, 1], c, lw=1.5, label=label)
+                ax.plot(xy[:, 0], xy[:, 1], c, lw=1.5, label=f"{label} odom")
+                xs, ys, _cl = cmd_path(d, (float(xy[0, 0]), float(xy[0, 1])),
+                                       float(yaw_of(od[0][1].pose.pose.orientation)))
+                if xs is not None:
+                    ax.plot(xs, ys, c, lw=0.9, ls=":", alpha=0.8, label=f"{label} cmd적산")
         if poly is None and d.get("/plan"):
             poly = plan_points(d["/plan"])
     if poly is not None and len(poly) >= 2:
@@ -143,7 +173,9 @@ def plot(runs, out: Path) -> None:
         if "scan_min" in st:
             parts.append(f"가상스캔 최소 {st['scan_min']:.2f} m")
         if "duration" in st:
-            parts.append(f"{st['duration']:.1f}s · {st['length']:.2f} m")
+            parts.append(f"{st['duration']:.1f}s · 실제 {st['length']:.2f} m")
+        if "cmd_length" in st:
+            parts.append(f"명령 적산 {st['cmd_length']:.2f} m")
         if "on" in st:
             parts.append(f"정책 ON {st['on']:.0%}")
         lines.append(f"{label}: " + " · ".join(parts))

@@ -6,7 +6,7 @@
   - 리포트: tool/node/rl_nav_controller/report.py (rosbag2 → report.png)
 
 bee는 ROS_DOMAIN_ID=88 + fastdds_local_only.xml(SHM 전용)이라 PC에서 원격 기록할 수 없다.
-산출물(bag·리포트)은 tool/artifacts/ab 아래에 쌓는다 (컨테이너: /debug/tool/artifacts).
+산출물(bag·리포트)은 tool/artifacts/ab/<노드> 아래에 쌓는다 (컨테이너: /debug/tool/artifacts).
 """
 from __future__ import annotations
 
@@ -44,14 +44,14 @@ def _artifact_root() -> Path:
 
 
 ARTIFACT_ROOT = _artifact_root()
-BAG_DIR = ARTIFACT_ROOT / 'ab'
+BAG_DIR = ARTIFACT_ROOT / 'ab' / NODE  # 노드별 폴더: ab/rl_nav_controller/<bag> · report_<그룹>.png
 STATE = Path.home() / '.cache' / 'beebot' / 'ab.json'
 RECORD_LOG = Path.home() / '.cache' / 'beebot' / 'ab-record.log'
 REPORT = Path(__file__).resolve().parents[4] / 'node' / 'rl_nav_controller' / 'report.py'
 PLAN = Path(__file__).resolve().parent / NODE / 'command.json'
 
 # controller 출력 + 실제 움직임 + 정책 디버그를 같이 본다.
-TOPICS = ('/cmd_vel_nav',
+TOPICS = ('/cmd_vel_nav', '/cmd_vel', '/cmd_vel_mux',  # nav 출력 · 모니터 통과 후 실제 · mux 출력
     '/odometry/filtered', '/odom', '/imu', '/plan', '/tf', '/tf_static',
     '/controller_server/FollowPath/debug',
 )
@@ -600,6 +600,10 @@ class AbTest:
             return 2
         # DDS 참여자가 굳은 상태에서 bag record를 띄우면 Fast DDS SHM 포트 lock으로 실패한다.
         # 상단 연결이 정상으로 돌아온 뒤에만 시작한다 (자동 재연결은 12초 뒤).
+        # 단발 실행에선 discovery 전에 체크하면 첫 수신 없이 inf로 실패한다 — 첫 /state까지 최대 10초 대기.
+        end = time.monotonic() + 10.0
+        while self.bus.state.state_last_update <= 0 and time.monotonic() < end and rclpy.ok():
+            self.bus._poll(0.2)
         age = (time.monotonic() - self.bus.state.state_last_update
                if self.bus.state.state_last_update > 0 else float('inf'))
         if age > 5.0:
@@ -682,7 +686,8 @@ class AbTest:
                 self.toggle(True)
 
         if len(bags) >= 2:
-            out = str(Path(bags[0]).parent / f'report_{time.strftime("%Y%m%d_%H%M%S")}.png')
+            group = re.sub(r'[^\w.-]+', '_', label.strip()) or 'run'
+            out = str(Path(bags[0]).parent / f'report_{group}.png')
             if self.report(bags, labels, out) != 0:
                 ok_all = False
         return 0 if ok_all else 1

@@ -58,6 +58,10 @@ case " $* " in
   *) set -- "$@" "course:=twin_closed_maze" ;;   # Nav2 정책 시험은 옛 미로 (기본값은 dice_maze)
 esac
 set -m
+# 묵은 시뮬레이터 프레임 치우기 — .json이 있으면 fake_camera가 "한 번 받고 끊김"으로 판단해
+# 더미 모드로 안 가고 영상·점구름이 안 나온다. headless 테스트는 프레임 없이 시작한다.
+CAM_DIR="${CAM_DIR:-/debug/input/hardware/camera}"
+[ -d "$CAM_DIR" ] && rm -f "$CAM_DIR"/*.json
 ros2 launch faker faker.launch.py "$@" > /tmp/nav-policy.log 2>&1 & LAUNCH_PID=$!
 
 # EKF 오도메트리 대기 (fake_opencr → /joint_states → EKF)
@@ -81,11 +85,11 @@ echo "OK: ONNX loaded"
 timeout 10 ros2 service list 2>/dev/null | grep -q "/controller_server/FollowPath/toggle" \
   || { echo "FAIL: FollowPath/toggle 서비스 없음"; exit 1; }
 
-# 점구름 소스: fake_camera가 시뮬레이터 프레임 또는 더미(장애물 없음)를 낸다 — 흐름 확인.
-# 안 흘러오면 faker 배선 문제 — 테스트 진행 불가.
-timeout 15 ros2 topic echo --once /pole_front_cam/depth/color/points_filtered sensor_msgs/msg/PointCloud2 > /dev/null 2>&1 \
-  || { echo "FAIL: 점구름 흐름 없음 (fake_camera 확인)"; exit 1; }
-echo "점구름: 흐름 확인"
+# 카메라: fake_camera가 시뮬레이터 프레임 또는 더미(회색 영상)를 낸다 — 흐름 확인.
+# 더미 모드(depth 0)는 점구름을 일부러 안 낸다(장애물 없음 가정) — 정책은 위 ESDF를 본다.
+timeout 15 ros2 topic echo --once /pole_front_cam/color/image_raw sensor_msgs/msg/Image > /dev/null 2>&1 \
+  || { echo "FAIL: 카메라 영상 없음 (fake_camera 확인)"; exit 1; }
+echo "카메라: 흐름 확인"
 # 코스트맵 발행 확인 (planner가 "Costmap timed out" 내지 않게 — map + voxel 초기화 대기)
 timeout 30 ros2 topic echo --once /local_costmap/costmap nav_msgs/msg/OccupancyGrid > /dev/null 2>&1 \
   || { echo "FAIL: local costmap 없음"; exit 1; }
