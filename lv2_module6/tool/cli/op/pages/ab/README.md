@@ -64,10 +64,10 @@ cd tool
 ./run-cli ab rl_nav_controller on
 
 ./run-cli ab rl_nav_controller report --last         # 최근 두 녹화 → report.png
-./run-cli ab rl_nav_controller report ~/bags/ab/A ~/bags/ab/B --labels 정책 DWB --out ~/ab.png
+./run-cli ab rl_nav_controller report tool/artifacts/ab/<A> tool/artifacts/ab/<B> --labels 정책 DWB
 ```
 
-- 기본 저장: `~/bags/ab/<시각>_<라벨>` (rosbag2 · mcap)
+- 기본 저장: `tool/artifacts/ab/<시각>_<라벨>` (rosbag2 · mcap · 컨테이너: `/debug/tool/artifacts/ab`)
 - TUI 메뉴 **14) A/B 테스트 (노드별)** → **rl_nav_controller**:
   상태 · ON/OFF · 녹화 시작/종료 · 최근 리포트 · **자동 A/B(command.json)** 를 한 화면에서 실행.
 - 공정한 비교: 같은 출발 자세·방향, 같은 goal, 같은 배터리·바닥에서 ON/OFF를 번갈아 여러 번.

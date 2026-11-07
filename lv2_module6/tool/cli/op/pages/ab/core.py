@@ -6,7 +6,7 @@
   - 리포트: tool/node/rl_nav_controller/report.py (rosbag2 → report.png)
 
 bee는 ROS_DOMAIN_ID=88 + fastdds_local_only.xml(SHM 전용)이라 PC에서 원격 기록할 수 없다.
-그래서 bag은 기본적으로 bee의 ~/bags/ab에 쌓는다.
+산출물(bag·리포트)은 tool/artifacts/ab 아래에 쌓는다 (컨테이너: /debug/tool/artifacts).
 """
 from __future__ import annotations
 
@@ -33,7 +33,18 @@ AB_NODES = (
 NODE = 'rl_nav_controller'
 PARAM_NODE = 'controller_server'  # 플러그인이라 파라미터는 controller_server가 들고 있음 (FollowPath.*)
 TOGGLE = '/controller_server/FollowPath/toggle'
-BAG_DIR = Path.home() / 'bags' / 'ab'
+
+
+def _artifact_root() -> Path:
+    # run-cli 산출물 루트: 컨테이너(/debug 공유 볼륨 있음)면 debug 아래,
+    # 호스트 직접 실행이면 레포 tool/artifacts 아래. 둘 다 git 무시 대상.
+    if Path('/debug').is_dir():
+        return Path('/debug/tool/artifacts')
+    return Path(__file__).resolve().parents[4] / 'artifacts'
+
+
+ARTIFACT_ROOT = _artifact_root()
+BAG_DIR = ARTIFACT_ROOT / 'ab'
 STATE = Path.home() / '.cache' / 'beebot' / 'ab.json'
 RECORD_LOG = Path.home() / '.cache' / 'beebot' / 'ab-record.log'
 REPORT = Path(__file__).resolve().parents[4] / 'node' / 'rl_nav_controller' / 'report.py'
