@@ -2,6 +2,7 @@
 # 전체 검사 (컨테이너 안에서 실행): test-all — push 전 로컬 게이트, CI도 이것만 돌린다.
 #   serial(가상 시리얼) → firmware(OpenCR 컴파일·업로드) → packages(패키지별 colcon test)
 #   → hardware(BeebotSystemHardware ↔ 시리얼) → bringup(🛠 노드 기동) → faker 정상 흐름 → faker 파지 실패·재계획 흐름
+#   → nav-policy(RlNavController ONNX 로드·토글·DWB/정책 주행)
 # 하나라도 FAIL이면 즉시 중단 (exit 1).
 if [ -z "$BASH_VERSION" ]; then exec bash "$0" "$@"; fi   # sh(dash)로 실행해도 bash로 재실행
 run_one() {
@@ -24,6 +25,7 @@ run_one "$(bin_of test-hardware)"
 run_one "$(bin_of test-bringup)"
 run_one "$(bin_of test-faker)" 1
 run_one "$(bin_of test-faker)" 1
+run_one "$(bin_of test-nav-policy)"
 
 echo "=========================="
 echo "ALL PASS"
