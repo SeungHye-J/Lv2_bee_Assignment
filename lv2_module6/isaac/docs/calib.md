@@ -23,7 +23,7 @@
 | [처짐 측정](#8-sag_measure--처짐-측정) | 줄자 높이 vs TF | `arm_cam.launch.py` | `python3 sag_measure.py` |
 | [강성 계산](#9-sag_fit--sag_table--강성처짐-표-계산) | 비틀림 강성·처짐 표 | 없음 | `python3 sag_fit.py --bias --joints 2 3` |
 | [처짐 동선 시뮬](#10-sag_sim_check--처짐-동선-시뮬-점검) | 충돌·속도 사전 점검 | 없음 | Isaac Lab python |
-| [앞먹임 시험](#11-gravity_comp--앞먹임-시험) | 강성 값 검증 | `arm_cam.launch.py` | `python3 gravity_comp.py --scale 0.5` |
+| [앞먹임 시험](#11-앞먹임-시험--강성-값-검증) | 강성 값 검증 | `arm_cam.launch.py` | `python3 sag_measure.py --sag off` (앞먹임 켬 · 끔 비교) |
 | [퍽 회전 전류](#12-pivot_test--퍽-회전-전류) | 세우기용 그리퍼 전류 | `arm_cam.launch.py` | `python3 pivot_test.py --shape box` |
 | [세우기 반복](#13-stand_loop--세우기-반복) | `stand` skill 실기 확인 | `stand_test.launch.py` | `python3 stand_loop.py` |
 
@@ -44,7 +44,7 @@ sin_test / profile_test ──follow_joint_trajectory (action)──────
 | `idle_record.py` | 정지 상태 `/joint_states` 기록 (ROS 노드, 일반 python 으로 실행) |
 | `tip_balance.py` | 기울기 시작 자세로 차체 무게중심 계산 |
 | `arm_cam.launch.py` · `joint_goto.py` | 팔 + 카메라 bringup · 관절 옮기기 |
-| `sag_measure.py` · `sag_fit.py` · `sag_table.py` · `sag_sim_check.py` · `gravity_comp.py` · `arm_model.py` | 처짐 측정·강성 계산·표·시뮬 점검·앞먹임 시험·기구학 |
+| `sag_measure.py` · `sag_fit.py` · `sag_table.py` · `sag_sim_check.py` · `arm_model.py` | 처짐 측정·강성 계산·표·시뮬 점검·기구학 |
 | `pivot_test.py` · `stand_loop.py` | 세우기 시험 (퍽 회전 전류 · `stand` 반복) |
 | `plot_logs.py` · `freq_response.py` · `profile_analysis.py` · `compare_runs.py` | 도표·분석 (ROS 불필요, `profile_analysis.py` 만 xacro 사용) |
 | `logs/` | 결과. 사인 `logs/<ts>_<joint>/`, 주기별 `logs/freq/`, profile `logs/profile/`, 정지 `logs/<ts>_idle/` |
@@ -228,16 +228,23 @@ Isaac Lab에서 측정 동선의 충돌과 속도를 미리 본다. 접촉이나
 ~/pa-course/IsaacLab-6.1/.venv/bin/python sag_sim_check.py --viz kit       # 창으로 보기
 ```
 
-### 11. gravity_comp — 앞먹임 시험
+### 11. 앞먹임 시험 — 강성 값 검증
 
-측정한 강성으로 관절 보정값을 계산해 `rl_arm_correction`의 `~/delta`로 보낸다. 시작할 때 `max_delta`를 0.15로 올린다. Ctrl+C를 누르면 서서히 빠지고 끝난다.
+중력 앞먹임은 `rl_arm_correction` 안에 들어 있다 (`gravity_enabled`, `controllers.yaml` 기본 켬 · 강성 `gravity_compliance_j2`·`j3`).
+`arm_cam.launch.py`가 `ros_system`과 함께 `rl_arm_correction`을 올리므로 따로 스크립트를 돌리지 않는다
+(예전 `gravity_comp.py`는 `rl_arm_correction`의 `~/delta`로 보냈는데, 지금 컨트롤러는 그 토픽을 받지 않아 지웠다 — 같이 돌리면 앞먹임이 두 번 들어감).
 
 ```bash
-python3 gravity_comp.py --scale 0.5       # 처음엔 절반
-python3 gravity_comp.py --k2 12.2 --k3 18.8
+ros2 launch .../arm_cam.launch.py twist_state:=false            # 강성 측정 때와 같게 /joint_states = 엔코더 각
+python3 sag_measure.py --sag off --rounds 2                      # 앞먹임 켬 (기본)
+ros2 param set /rl_arm_correction gravity_enabled false          # 끄고 같은 자세로 다시 재서 비교
+python3 sag_measure.py --sag off --rounds 2
 ```
 
-정책과 함께 돌리지 않는다 (둘 다 `~/delta`를 낸다). 실행 중 `sag_measure.py`를 돌리면 처짐이 편향값(약 −4.9 mm)만 남아야 한다.
+강성 값이 맞으면 앞먹임을 켰을 때 처짐이 편향값(약 −4.9 mm)만 남는다. 강성 값을 바꿔 시험하려면
+`ros_system/config/controllers.yaml`의 `gravity_compliance_j2`·`j3`(= 1/강성)를 고치고 다시 띄운다
+(컨트롤러는 실행 중에 `gravity_enabled`·`twist_state`만 바꿀 수 있고 강성 값은 시작할 때 읽음).
+하드웨어 `twist_state`(상태 쪽)의 강성은 `urdf.xacro`의 `twist_compliance_j2`·`j3` — 값을 확정하면 두 곳을 같이 고친다.
 
 ### 12. pivot_test — 퍽 회전 전류
 

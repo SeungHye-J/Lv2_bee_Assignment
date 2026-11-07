@@ -202,6 +202,21 @@ class Board:
             pass  # nobody reading and the pty buffer is full: drop, like an unplugged USB
 
 
+def camera_info_off(stage):
+    """Isaac camera_info publishers off — every Isaac start path execs this file (isaac_startup.py · manipulator_env.py).
+    On ROS Lyrical (experimental in Isaac 6.1) ROS2CameraInfoHelper leaks ~1 GB/min of RAM: OOM after ~25 min (11-06,
+    each graph node type switched off in turn — only this one leaks; with Isaac's bundled Jazzy it does not).
+    Nothing is lost: camera_adapter.py publishes camera_info itself (Isaac's arrives corrupted on Lyrical).
+    Session layer only — the scene files are unchanged."""
+    from pxr import Usd
+    with Usd.EditContext(stage, stage.GetSessionLayer()):
+        for prim in stage.Traverse():
+            t = prim.GetAttribute("node:type")
+            if t and t.Get() == "isaacsim.ros2.bridge.ROS2CameraInfoHelper":
+                prim.GetAttribute("inputs:enabled").Set(False)
+
+
+camera_info_off(omni.usd.get_context().get_stage())
 old = getattr(builtins, "_beebot_opencr", None)
 if old is not None:
     old.close()
