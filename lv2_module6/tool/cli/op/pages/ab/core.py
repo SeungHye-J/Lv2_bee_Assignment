@@ -493,6 +493,21 @@ class AbTest:
             pass
         self.bus._poll(1.0)  # TF·EKF가 점프를 따라잡을 시간
 
+    @staticmethod
+    def _write_plan_csv(bag: str, start: dict, plan: dict) -> None:
+        """leg 폴더에 plan.csv (route 웨이포인트, map 좌표).
+        bag의 /plan은 latched라 rosbag record가 놓치기 일쑤 — guide가 아는 route를 직접 쓴다."""
+        try:
+            import csv
+            pts = [(float(start['x']), float(start['y']))]
+            pts += [(float(p['x']), float(p['y'])) for p in plan.get('route', [])]
+            with open(Path(bag) / 'plan.csv', 'w', newline='') as f:
+                w = csv.writer(f)
+                w.writerow(['x', 'y'])
+                w.writerows(pts)
+        except Exception as exc:
+            print(f'WARN: plan.csv 기록 실패: {exc}', file=sys.stderr)
+
     def nav_goal(self, pose: dict, frame_id: str, timeout: float, what: str) -> None:
         """Nav2 NavigateToPose 한 점 — 도착/성공까지 기다린다. 실패는 RuntimeError."""
         from action_msgs.msg import GoalStatus
@@ -686,6 +701,7 @@ class AbTest:
                 # A — 정책 ON
                 rec = self.start(f'{label}_r{r}_A',
                                  out=str(group_dir / f'{time.strftime("%Y%m%d_%H%M%S")}_A'))
+                self._write_plan_csv(rec['bag'], start, plan)
                 bags.append(rec['bag'])
                 labels.append(f'A{r}')
                 self._progress(f'A{r} 녹화: {rec["bag"]}')
@@ -710,6 +726,7 @@ class AbTest:
                 # B — 정책 OFF (inner DWB)
                 rec = self.start(f'{label}_r{r}_B',
                                  out=str(group_dir / f'{time.strftime("%Y%m%d_%H%M%S")}_B'))
+                self._write_plan_csv(rec['bag'], start, plan)
                 bags.append(rec['bag'])
                 labels.append(f'B{r}')
                 self._progress(f'B{r} 녹화: {rec["bag"]}')

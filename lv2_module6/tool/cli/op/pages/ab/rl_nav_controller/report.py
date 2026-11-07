@@ -171,11 +171,12 @@ def stats_run(d: dict) -> dict:
     if np.sum(m) >= 2:
         res["duration"] = float(t[m][-1] - t[m][0])
         res["length"] = float(np.sum(np.hypot(np.diff(x[m]), np.diff(y[m]))))
-    for k in ("cmd_v", "act_v", "odom_v", "a0", "a1", "on", "scan_min"):
+    for k, nk in (("cmd_v", "cmd_v_mean"), ("act_v", "act_v_mean"), ("odom_v", "odom_v_mean"),
+                   ("a0", "a0_mean"), ("a1", "a1_mean"), ("on", "on"), ("scan_min", "scan_min")):
         v = d.get(k, np.array([np.nan]))
         v = v[np.isfinite(v)]
         if len(v):
-            res[k + "_mean"] = float(np.mean(v))
+            res[nk] = float(np.mean(v))
     # 명령 적산 vs 실제 (유효 cmd 구간)
     cv, cw = d["cmd_v"], d["cmd_w"]
     m2 = _finite(d["t"], cv, cw)
