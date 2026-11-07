@@ -149,7 +149,8 @@ fi
 
 # A/B 궤적 비교용 bag 기록 (리포트는 tool/node/rl_nav_controller/report.py 로 생성)
 BAG_TOPICS="/cmd_vel_nav /odometry/filtered /odom /imu /plan /controller_server/FollowPath/debug /controller_server/FollowPath/status"
-BAG_DIR=~/bags/nav-policy/$(date +%Y%m%d_%H%M%S)
+if [ -d /debug ]; then BAG_BASE=/debug/tool/artifacts/nav-policy; else BAG_BASE=~/bags/nav-policy; fi
+BAG_DIR=$BAG_BASE/$(date +%Y%m%d_%H%M%S)
 mkdir -p "$BAG_DIR"
 echo "bag 저장: $BAG_DIR"
 GOAL_A="{pose: {header: {frame_id: 'map'}, pose: {position: {x: 0.5, y: 0.0, z: 0.0}, orientation: {w: 1.0}}}}"
