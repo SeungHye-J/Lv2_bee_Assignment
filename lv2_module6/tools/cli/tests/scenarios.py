@@ -155,17 +155,14 @@ def scenario(name: str, seed: dict | None = None):
 def _(s):
     s.step(DOWN, wait=0.5)
     s.step(DOWN, wait=0.5)
-    s.step(ENTER, '조작 모드')
+    s.step(ENTER, '조작')
     s.step(ESC, '메인 메뉴')
     s.finish()
 
 
 @scenario('calibrate-menu-wheel')
 def _(s):
-    s.step(b'1', wait=0.4)   # 메인 포커스는 항목 키(숫자)로 — 13은 두 자리라 방향키로 간다
-    s.step(ESC, '메인 메뉴')
-    for _ in range(12):      # 13번째 항목 (칼리브레이션)
-        s.step(DOWN, wait=0.15)
+    s.step(b'7', wait=0.4)   # 7) 칼리브레이션
     s.step(ENTER, '칼리브레이션')
     s.step(ENTER, '바퀴 칼리브레이션')
     s.step(ESC, wait=0.4)
@@ -175,7 +172,9 @@ def _(s):
 
 @scenario('manual-cancel-no-extra-dialog')
 def _(s):
-    s.step(b'4', wait=0.4)
+    s.step(b'3', wait=0.4)
+    s.step(ENTER, '조작')
+    s.step(b'2', wait=0.4)
     s.step(ENTER, '수동 주행 / 텔레오퍼')
     s.step(DOWN, wait=0.4)
     s.step(ENTER, 'MANUAL 모드로 전환할까요?')
@@ -187,7 +186,9 @@ def _(s):
 
 @scenario('drive-confirm-execute')
 def _(s):
-    s.step(b'4', wait=0.4)
+    s.step(b'3', wait=0.4)
+    s.step(ENTER, '조작')
+    s.step(b'2', wait=0.4)
     s.step(ENTER, '수동 주행 / 텔레오퍼')
     s.step(DOWN, wait=0.4)
     s.step(ENTER, 'MANUAL 모드로 전환할까요?')
@@ -208,18 +209,15 @@ def _(s):
     s.finish()
 
 
-@scenario('map-mode-course-restart')
+@scenario('map-mode-mapping', seed={'map_mode': 'LOCALIZATION', 'map_name': 'default'})
 def _(s):
-    s.step(b'7', wait=0.4)
+    s.step(b'4', wait=0.4)
     s.step(ENTER, '지도')
     s.step(DOWN, wait=0.4)
     s.step(DOWN, wait=0.4)
     s.step(ENTER, 'MAPPING 모드로 전환할까요?')
-    s.step(b'y', '재시작할까요?')
-    s.expect('COURSE(정지 지도)')  # 이유가 확인창 안에 보여야 함
-    s.expect('GPU')               # 테스트베드에선 SLAM이 못 뜬다는 경고
-    s.step(b'y', '/cmd/restart')
-    s.expect('재시작 all map:=slam')  # /state/restart 응답을 보여 줌
+    s.step(b'y', '/cmd/map_mode')       # state_manager가 launch를 map:=slam으로 다시 띄움
+    s.expect('바꾼 인자 map:=slam')      # /state/restart 응답
     s.step(ESC, '지도 저장')
     s.finish()
 
@@ -227,7 +225,7 @@ def _(s):
 @scenario('map-mode-slam-restart-reply', seed={'map_mode': 'MAPPING', 'map_name': '20261017_223015'})
 def _(s):
     # SLAM 중 모드 전환 = launch 재시작 — 몇 초 안에 map_mode가 안 바뀌어도 실패가 아님. 재시작 응답을 보여 줌
-    s.step(b'7', wait=0.4)
+    s.step(b'4', wait=0.4)
     s.step(ENTER, '지도')
     for _ in range(3):
         s.step(DOWN, wait=0.4)
@@ -241,7 +239,7 @@ def _(s):
 @scenario('map-switch-missing-map', seed={'map_mode': 'LOCALIZATION', 'map_name': 'default'})
 def _(s):
     # 없는 지도 이름 — state_manager는 진단에만 남기므로 CLI가 먼저 거절하고 있는 지도를 보여 줌
-    s.step(b'7', wait=0.4)
+    s.step(b'4', wait=0.4)
     s.step(ENTER, '지도')
     s.step(b'5', wait=0.4)
     s.step(ENTER, '이름 직접 입력')
@@ -258,7 +256,9 @@ def _(s):
 
 @scenario('arm-value-modal-cancel')
 def _(s):
-    s.step(b'5', wait=0.4)
+    s.step(b'3', wait=0.4)
+    s.step(ENTER, '조작')
+    s.step(b'3', wait=0.4)
     s.step(ENTER, '팔')
     s.step(b'2', wait=0.4)   # 2) 관절 목표 설정 (번호로 — 메뉴 순서가 바뀌어도 안 깨짐)
     s.step(ENTER, 'MANUAL 모드로 전환할까요?')
@@ -275,7 +275,9 @@ def _(s):
 
 @scenario('teleop-hud')
 def _(s):
-    s.step(b'4', wait=0.4)
+    s.step(b'3', wait=0.4)
+    s.step(ENTER, '조작')
+    s.step(b'2', wait=0.4)
     s.step(ENTER, '수동 주행 / 텔레오퍼')
     s.step(ENTER, 'MANUAL 모드로 전환할까요?')
     s.step(b'y', 'Esc 종료')
@@ -302,7 +304,9 @@ def _(s):
 
 @scenario('estop-on-immediate-off-confirm')
 def _(s):
-    s.step(b'9', wait=0.3)
+    s.step(b'3', wait=0.3)
+    s.step(ENTER, '조작')
+    s.step(b'6', wait=0.3)
     s.step(ENTER, '비상정지 ON')
     s.step(DOWN, wait=0.3)
     s.step(ENTER, '비상정지 → ON')  # 확인창 없이 바로
@@ -316,8 +320,7 @@ def _(s):
 
 @scenario('letter-key-focus-restart-validate')
 def _(s):
-    s.step(b'1', wait=0.1)
-    s.step(b'0', wait=0.3)
+    s.step(b'5', wait=0.3)
     s.step(ENTER, '전체 재시작')
     s.step(b'a', wait=0.3)
     s.step(ENTER, 'RESTART를 입력')
@@ -329,7 +332,10 @@ def _(s):
 
 @scenario('settings-float-validate')
 def _(s):
-    s.step(b'4', wait=0.3)
+    s.step(b'3', wait=0.3)
+    s.step(ENTER, '조작')
+    s.step(b'2', wait=0.3)
+    s.step(ENTER, '수동 주행 / 텔레오퍼')
     s.step(ENTER, '속도/시간 설정')
     s.step(b'7', wait=0.3)
     s.step(ENTER, '선속도')
@@ -358,8 +364,7 @@ def _(s):
         print('SKIP ab-route-map-pick: 지정한 route.json이 이미 있음 — 지우지 않으려고 건너뜀')
         return
     try:
-        s.step(b'1', wait=0.15)
-        s.step(b'4', wait=0.4)                               # 14) A/B
+        s.step(b'8', wait=0.4)                               # 8) A/B
         s.step(ENTER, 'A/B 테스트 (노드별)')
         s.step(ENTER, 'A/B 테스트 · rl_nav_controller')
         s.step(b'1', wait=0.2)
@@ -386,13 +391,13 @@ def _(s):
 
 @scenario('map-pose-pick-sim-only')
 def _(s):
-    s.step(b'7', wait=0.3)                    # 7) 지도/위치
+    s.step(b'4', wait=0.3)                    # 4) 지도/위치
     s.step(ENTER, '·  지도/위치')
     s.step(b'8', wait=0.2)                    # 8) 위치 지정 (지도에서 찍기)
     s.send(ENTER)
     s.expect('로봇 위치 지정', timeout=20)
     s.step(ENTER, '로봇 위치로 지정할까요?')
-    s.step(b'y', '실제 로봇')                 # 시뮬레이터(faker)가 없으면 거부 — 실제 로봇은 위치 지정 미지원
+    s.step(b'y', 'initialpose')              # faker 없으면 /initialpose로 (구독자 없으면 거부)
     s.step(ESC, 'Tab 중앙')
     s.step(ESC, '·  지도/위치')
     s.finish()
@@ -400,7 +405,9 @@ def _(s):
 
 @scenario('arm-page-confirm')
 def _(s):
-    s.step(b'5', wait=0.3)                        # 5) 팔
+    s.step(b'3', wait=0.3)                        # 3) 조작
+    s.step(ENTER, '조작')
+    s.step(b'3', wait=0.3)                        # 3) 팔
     s.step(ENTER, '·  팔')
     s.step(b'0', wait=0.2)                        # 0) 팔 조작 화면
     s.send(ENTER)

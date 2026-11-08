@@ -48,12 +48,13 @@ class StateStore:
         self.last_joint_time = 0.0
         self.last_update = 0.0  # 마지막 토픽 수신 시각 (monotonic) — 헤더 갱신시각 표시용
         self.state_last_update = 0.0  # 마지막 /state/* 수신 — launch 재시작 뒤 CLI 재연결 판단용
+        self.state_last_wall = 0.0    # 마지막 /state/* 수신 벽시계 시각 — 상단 '마지막 통신' 표시용
         self.param_clients: dict = {}
         # 상시 상태바용 (없으면 0/빈 값으로 표시, 보드 미동작 아님)
         self.tracked_count = 0
         self.task_status = ''
         self.say_last = ''
-        self.rates: dict[str, Rate] = {}  # 상단 생존 표시 — 키는 state_bar/top_state_bar.py TOPIC_RATES
+        self.rates: dict[str, Rate] = {}  # 상단 생존 표시 — 키는 bars/state/top_state_bar.py TOPIC_RATES
         self.rl_status: list[float] = []  # controller_server FollowPath RL/DWB 상태
         self.rl_status_time = 0.0
 
@@ -73,28 +74,30 @@ class StateStore:
         """토픽 수신 시각 기록 — 헤더 갱신시각 표시용."""
         self.last_update = time.monotonic()
 
+    def _touch_state(self):
+        """ /state/* 수신 — 경과(monotonic)와 벽시계 시각을 같이 기록한다."""
+        self._touch()
+        self.state_last_update = time.monotonic()
+        self.state_last_wall = time.time()
+
     def on_state_value(self, key: str, data: str):
         self.values[key] = data
-        self._touch()
-        self.state_last_update = time.monotonic()
+        self._touch_state()
 
     def on_emergency(self, data: bool):
-        self._touch()
-        self.state_last_update = time.monotonic()
+        self._touch_state()
         self.emergency = bool(data)
 
     def on_devices(self, names: list[str]) -> list[str]:
         """장치 목록 갱신 → 새로 나타난 장치 이름 반환 (상세 구독용)."""
-        self._touch()
-        self.state_last_update = time.monotonic()
+        self._touch_state()
         fresh = [n for n in names if n not in self.devices]
         self.devices = list(names)
         return fresh
 
     def on_device_detail(self, name: str, text: str):
         self.device_details[name] = text
-        self._touch()
-        self.state_last_update = time.monotonic()
+        self._touch_state()
 
     def on_joints(self, names, positions, velocities=None, efforts=None):
         self._touch()

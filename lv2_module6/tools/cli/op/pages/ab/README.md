@@ -43,7 +43,7 @@ a0,a1,scan_min,dbg_v_odom,dbg_w_odom,on (20Hz 공통 격자) — calibration/whe
 
 ## TUI로 A/B 하는 법 (한눈에)
 
-**14) A/B 테스트 → rl_nav_controller**:
+**13) A/B 테스트 → rl_nav_controller**:
 
 ```text
 1) ① 경로 정하기   — RViz에서 goal 찍기 · 텔레오퍼로 몰고 가며 g로 찍기 · 좌표 (한 번만, 녹화 안 함)
@@ -63,7 +63,7 @@ a0,a1,scan_min,dbg_v_odom,dbg_w_odom,on (20Hz 공통 격자) — calibration/whe
 ## 경로 지정 — 실기에서 사람이 goal을 정하는 법
 
 A·B는 **같은 경로를 그대로** 주행해야 비교가 된다 — leg마다 따로 찍지 않고, 한 번 정한 경로를 둘 다 쓴다.
-TUI **14) A/B → rl_nav_controller → 1) ① 경로 정하기**:
+TUI **13) A/B → rl_nav_controller → 1) ① 경로 정하기**:
 
 | 항목 | 쓰는 법 |
 |---|---|
@@ -162,6 +162,6 @@ fake_camera = 코스 지도 ray-casting depth(costmap·collision_monitor — B(D
 ```
 
 - 기본 저장: `tools/artifacts/ab/<시각>_<라벨>` (rosbag2 · mcap · 컨테이너: `/debug/tools/artifacts/ab`)
-- TUI 메뉴 **14) A/B 테스트 (노드별)** → **rl_nav_controller** → **4) 수동 (고급)**:
+- TUI 메뉴 **13) A/B 테스트 (노드별)** → **rl_nav_controller** → **4) 수동 (고급)**:
   상태 · 정책 ON/OFF · 녹화 시작/종료 · 리포트 — 위 명령줄과 같은 일을 메뉴로 (자동 A/B는 이걸 전부 알아서 하므로 보통은 필요 없음).
 - 공정한 비교: 같은 출발 자세·방향, 같은 goal, 같은 배터리·바닥에서 ON/OFF를 번갈아 여러 번.

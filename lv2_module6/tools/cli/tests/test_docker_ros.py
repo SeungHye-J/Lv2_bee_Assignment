@@ -48,7 +48,7 @@ try:
           'Subscription count: 2\n  - /operator_tool (reliable, volatile)\n')
     write(root / 'node' / 'list', '/state_manager\n/joint_state_broadcaster\n')
     write(root / 'node' / 'state_manager' / 'params',
-          'map_dir: /ws/map\nmap_mode: COURSE\nmap_name: \n'
+          'map_dir: /ws/map\nmap_mode: MAPPING\nmap_name: \n'
           'use_sim_time: false\nsome_list: [1, 2, 3]\n')
     (root / 'input' / 'service' / 'map_saver' / 'save_map').mkdir(parents=True)
 

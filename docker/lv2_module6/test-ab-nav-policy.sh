@@ -30,7 +30,7 @@ export FASTDDS_DEFAULT_PROFILES_FILE=${FASTDDS_DEFAULT_PROFILES_FILE:-$WS/fastdd
 
 case " $* " in
   *\ course:=*) : ;;
-  *) set -- "$@" "course:=isaac_maze" ;;   # 정책을 학습한 Isaac 미로 (course/README.md)
+  *) set -- "$@" "course:=isaac_maze" ;;   # 정책을 학습한 Isaac 미로
 esac
 case " $* " in
   *\ use_monitor:=*) : ;;

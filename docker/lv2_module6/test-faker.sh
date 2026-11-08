@@ -6,9 +6,9 @@
 #   초: SUCCEEDED 뒤 더 돌릴 시간 (기본 1). 0이면 Ctrl+C까지 띄워 둠 (판정 없음)
 #   예) test-faker                       정상 흐름
 #       test-faker 1                        파지까지 전체 흐름 (진짜 move_group)
-#       test-faker 0                      띄워 두고 다른 터미널에서 ros2 topic echo … (시뮬레이터 [ROS 재시작] = /cmd/restart → state_manager가 다시 띄움)
+#       test-faker 0                      띄워 두고 다른 터미널에서 ros2 topic echo … ([ROS 재시작] = /cmd/restart → state_manager가 다시 띄움)
 #       test-faker 1 mock_hardware:=true    OpenCR 없이 mock (물리 없음)
-# 배관(joint_states · odom · Nav2 · monitor)은 항상 본다. 작업 흐름(카메라 → 인지 → 작업 성공)은 사용자가 호스트 시뮬레이터를 켰을 때만.
+# 배관(joint_states · odom · Nav2 · monitor)은 항상 본다. 작업 흐름(카메라 → 인지 → 작업 성공)은 호스트 카메라 입력이 있을 때만.
 # 토픽·노드·패키지 기록은 monitor_manager가 debug/topic · node · pkg · output/topic 에 남긴다.
 # NOTE: set -u 사용 금지 — setup.bash가 미설정 변수를 참조해서 죽음.
 # shellcheck disable=SC1091
@@ -64,6 +64,21 @@ case " $* " in
   *\ use_monitor:=false*) MONITOR=0 ;;   # 호스트 가벼운 실행용 (도커·CI는 기본 true)
   *) MONITOR=1 ;;
 esac
+case " $* " in
+  *\ map:=*) : ;;   # 사용자가 직접 지정 (map:=slam = 새 매핑 · map:=saved = 저장 지도)
+  *) if find "$WS/map" -maxdepth 2 -name nvblox.nvblx 2>/dev/null | grep -q .; then
+       set -- "$@" "map:=saved"; echo "저장 지도로 시작: map:=saved (새 매핑은 test-faker … map:=slam)"
+     else
+       set -- "$@" "map:=slam"; echo "저장 지도 없음 — map:=slam (센서로 지도 작성)"
+     fi ;;
+esac
+# 흐름 판정(DUR>0)은 자동 미션이 필요 — 부팅 기본 MANUAL이므로 테스트만 AUTO로 올린다.
+if [ "$DUR" != 0 ]; then
+  case " $* " in
+    *\ operation:=*) : ;;
+    *) set -- "$@" "operation:=AUTO" ;;
+  esac
+fi
 set -m
 ros2 launch faker faker.launch.py "$@" > /tmp/faker.log 2>&1 & LAUNCH_PID=$!
 JS=$(timeout 60 ros2 topic echo --once /joint_states sensor_msgs/msg/JointState 2>/dev/null)
@@ -76,7 +91,7 @@ for i in 1 2; do
   JS=$(timeout 30 ros2 topic echo --once /joint_states sensor_msgs/msg/JointState 2>/dev/null)
 done
 
-# 카메라 = 사용자가 호스트에서 켠 시뮬레이터 (테스트가 띄우지 않음). 켜져 있으면 /robot_description을 받은 뒤 렌더 시작 → 최대 20초 기다림
+# 카메라 = 호스트에서 외부로 넣는 파일 (테스트가 띄우지 않음). 갱신되면 /robot_description을 받은 뒤 렌더 시작 → 최대 20초 기다림
 # 꺼져 있으면 카메라 → 인지 → 작업 흐름 검사는 건너뛰고 배관(joint_states · odom · Nav2 · monitor)만 본다
 META=$DEBUG_DIR/input/hardware/camera/pole_front_cam.json
 for _ in $(seq 20); do
@@ -85,6 +100,9 @@ for _ in $(seq 20); do
 done
 CAM_OK=0
 [ -f "$META" ] && [ $(( $(date +%s) - $(stat -c %Y "$META") )) -lt 3 ] && CAM_OK=1
+# 매핑 중(MAPPING)에는 지도가 아직 없어 미션 흐름을 판정하지 않는다 — 배관만 본다
+MAP_MODE=$(python3 -c "import json; print(json.load(open('$DEBUG_DIR/output/topic/state/map_mode/message'))['data']['data'])" 2>/dev/null || true)
+[ "$MAP_MODE" = MAPPING ] && CAM_OK=0
 # Nav2 서버가 다 active인지 — 관리자 둘의 마지막 서버: collision_monitor(lifecycle_manager_base) · bt_navigator(lifecycle_manager_navigation)
 NAV2=
 # 차가운 첫 기동은 60초를 넘길 수 있다 (실측 63초) — 여유 있게 90초
@@ -104,7 +122,7 @@ if [ "$DUR" = 0 ]; then
   # 띄워 두기. 재시작은 state_manager가 한다 (/cmd/restart "all [이름:=값 …]" · "node <이름>" — 실기 bringup과 같은 길):
   #   all이면 state_manager의 도우미가 이 launch를 끄고 → build-ws(faker restart_prepare) → 같은 명령줄(바꾼 인자만 새 값)로 다시 띄움.
   #   다시 뜬 launch는 이 스크립트의 자식이 아니므로, 도우미가 도는 동안(MARKER 있음)이나 faker launch가 하나라도 떠 있으면 기다린다.
-  #   시뮬레이터 [ROS 재시작] → 파일 debug/input/topic/cmd/restart → input_manager가 발행(읽은 파일은 지움 — 두 번 안 감) → state_manager
+  #   [ROS 재시작] → 파일 debug/input/topic/cmd/restart → input_manager가 발행(읽은 파일은 지움 — 두 번 안 감) → state_manager
   #   ROS가 통째로 막혀 state_manager가 못 받으면: 다른 터미널에서 ros-faker-restart (끄고 test-faker 0 새로)
   MARKER=/tmp/beebot_restart.pending   # manager.yaml restart_marker와 같게
   echo "실행 중 (로그 /tmp/faker.log)... 종료는 Ctrl+C · 재시작 = /cmd/restart (state_manager)"
@@ -142,9 +160,9 @@ fi
 if [ "$CAM_OK" = 1 ]; then
   [ -n "$DONE" ] || { echo "FAIL: /task_status SUCCEEDED 없음 (60초)"; tail -n 40 /tmp/faker.log; exit 1; }
   grep -q '🔊' /tmp/faker.log || { echo "FAIL: /robot_say 없음"; exit 1; }
-  echo "PASS: faker 흐름 (시뮬레이터 카메라 → 인지 → vlm → coordinator → Nav2·grasp·move_group → task_status SUCCEEDED)"
+  echo "PASS: faker 흐름 (카메라 → 인지 → vlm → coordinator → Nav2·grasp·move_group → task_status SUCCEEDED)"
 else
-  echo "건너뜀: 작업 흐름 — 시뮬레이터 꺼짐 ($META 갱신 없음). 흐름까지 보려면 호스트에서 시뮬레이터를 켜고 다시: cd lv2_module6/simulator && .venv/bin/python main.py"
+  echo "건너뜀: 작업 흐름 — 호스트 카메라 입력 없음 ($META 갱신 없음). 흐름까지 보려면 카메라 파일을 넣고 다시 실행"
 fi
 if [ "$MONITOR" = 1 ]; then
   echo "PASS: faker 배관 (controller_manager ↔ fake_opencr → /joint_states · EKF /odometry/filtered · Nav2 active · monitor_manager)"

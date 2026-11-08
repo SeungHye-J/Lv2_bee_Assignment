@@ -20,7 +20,7 @@ import math
 import numpy as np
 import rclpy
 from message_filters import ApproximateTimeSynchronizer, Subscriber
-from geometry_msgs.msg import PoseStamped, TransformStamped
+from geometry_msgs.msg import PoseStamped, PoseWithCovarianceStamped, TransformStamped
 from nav_msgs.msg import Odometry, Path
 from rclpy.node import Node
 from rclpy.qos import qos_profile_sensor_data
@@ -59,6 +59,22 @@ def map_to_odom(base, odom_from_base):
     a = yaw - oyaw
     c, s = math.cos(a), math.sin(a)
     return x - (c * ox - s * oy), y - (s * ox + c * oy), a
+
+
+def compose(a, b):
+    """평면 자세 a·b (x, y, yaw)."""
+    ax, ay, ayaw = a
+    bx, by, byaw = b
+    c, s = math.cos(ayaw), math.sin(ayaw)
+    yaw = ayaw + byaw
+    return ax + c * bx - s * by, ay + s * bx + c * by, math.atan2(math.sin(yaw), math.cos(yaw))
+
+
+def inverse(a):
+    """평면 자세 역변환."""
+    x, y, yaw = a
+    c, s = math.cos(yaw), math.sin(yaw)
+    return -c * x - s * y, s * x - c * y, -yaw
 
 
 def body_twist(prev, cur, dt):
@@ -105,6 +121,12 @@ class CuvslamSlam(Node):
         self.path = Path()
         self.path.header.frame_id = self.map
         self.info = None
+        self.map_offset = (0.0, 0.0, 0.0)   # /initialpose로 맞춘 map 프레임 보정
+        self.last_base = None                # 최근 SLAM map 자세 (initialpose 보정 계산용)
+        self.pending_initialpose = None
+        self.create_subscription(PoseWithCovarianceStamped,
+                                 self.declare_parameter('initialpose_topic', '/initialpose').value,
+                                 self.on_initialpose, 10)
         self.create_subscription(CameraInfo, self.declare_parameter('camera_info', '/pole_front_cam/color/camera_info').value,
                                  self.on_info, qos_profile_sensor_data)
         color = Subscriber(self, Image, self.declare_parameter('rgb', '/pole_front_cam/color/image_raw').value,
@@ -118,6 +140,28 @@ class CuvslamSlam(Node):
 
     def on_info(self, m):
         self.info = m
+
+    def on_initialpose(self, m):
+        """RViz 2D Pose Estimate / CLI initialpose — map 프레임에서 로봇 위치를 다시 맞춘다.
+        cuVSLAM 자체를 리셋하지 않고 map→odom에 보정 offset을 건다 (추적은 계속)."""
+        if m.header.frame_id not in ('', self.map):
+            self.get_logger().warning(f'initialpose frame {m.header.frame_id!r} 무시 — {self.map}만 지원')
+            return
+        p = m.pose.pose
+        q = p.orientation
+        yaw = math.atan2(2.0 * (q.w * q.z + q.x * q.y), 1.0 - 2.0 * (q.y * q.y + q.z * q.z))
+        desired = (p.position.x, p.position.y, yaw)
+        if self.last_base is None:
+            self.pending_initialpose = desired
+            self.get_logger().info('initialpose 대기 — 첫 추적 프레임 뒤 적용')
+            return
+        self.apply_initialpose(desired)
+
+    def apply_initialpose(self, desired):
+        self.map_offset = compose(desired, inverse(self.last_base))
+        self.path.poses.clear()
+        self.get_logger().warn(
+            f'initialpose 적용: map ({desired[0]:+.2f}, {desired[1]:+.2f}, {math.degrees(desired[2]):+.1f}°)')
 
     def start(self, frame):
         """첫 프레임: camera_info로 rig, URDF TF로 base_footprint←카메라. 단독 SLAM이면 루프 클로저(평면 제약) 켬"""
@@ -172,6 +216,10 @@ class CuvslamSlam(Node):
         if self.prev is not None:
             self.publish_odom(c.header.stamp, body_twist(self.prev[1], cur, (ns - self.prev[0]) * 1e-9))
         self.prev = (ns, cur)
+        self.last_base = cur
+        if self.pending_initialpose is not None:
+            self.apply_initialpose(self.pending_initialpose)
+            self.pending_initialpose = None
         if self.publish_map_tf:
             self.publish_map(c.header.stamp, slam if slam is not None else p)  # 루프 클로저 반영된 SLAM 위치 우선
 
@@ -194,7 +242,9 @@ class CuvslamSlam(Node):
             return
         odom_from_base = mat((o.rotation.x, o.rotation.y, o.rotation.z, o.rotation.w),
                              (o.translation.x, o.translation.y, o.translation.z))
-        base = base_pose(self.base_from_cam, mat(p.rotation, p.translation))
+        base_raw = base_pose(self.base_from_cam, mat(p.rotation, p.translation))
+        self.last_base = base_raw
+        base = compose(self.map_offset, base_raw)
         x, y, yaw = map_to_odom(base, odom_from_base)
         tf = TransformStamped()
         tf.header.stamp = (Time.from_msg(stamp) + self.map_tf_tolerance).to_msg()

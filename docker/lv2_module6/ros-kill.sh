@@ -27,23 +27,9 @@ if pgrep -f "$KILL_PAT" >/dev/null; then
   done
   pkill -9 -f "$KILL_PAT" 2>/dev/null || true
 fi
-# Gazebo 시뮬레이터 + ros_gz_bridge/relay/씬 마커/신호등/동적 장애물
-# (develop/gazebo/start.sh가 띄운 것 — ROS KILL_PAT에 안 걸림)
-pkill -INT -f "gz-sim-mai[n]" 2>/dev/null
-pkill -INT -f "gz-sim-gui-clien[t]" 2>/dev/null
-pkill -INT -f "paramete[r]_bridge.*[.]yaml" 2>/dev/null
-pkill -INT -f "(gazebo/relay|gz_relay)[.]py" 2>/dev/null
-pkill -INT -f "(publish_poses|gz_obstacle_markers)[.]py" 2>/dev/null
-pkill -INT -f "gazebo/(traffic_lights|dynamic_obstacles)[.]py" 2>/dev/null
-pkill -INT -f "rvi[z]2" 2>/dev/null   # develop/rviz/start.sh (호스트 RViz)
+pkill -INT -f "rvi[z]2" 2>/dev/null   # 호스트 RViz
 sleep 3
-pkill -9 -f "gz-sim-mai[n]" 2>/dev/null || true
-pkill -9 -f "gz-sim-gui-clien[t]" 2>/dev/null || true
-pkill -9 -f "paramete[r]_bridge.*[.]yaml" 2>/dev/null || true
-pkill -9 -f "(gazebo/relay|gz_relay)[.]py" 2>/dev/null || true
-pkill -9 -f "(publish_poses|gz_obstacle_markers)[.]py" 2>/dev/null || true
-pkill -9 -f "gazebo/(traffic_lights|dynamic_obstacles)[.]py" 2>/dev/null || true
 pkill -9 -f "rvi[z]2" 2>/dev/null || true
 ros2 daemon stop >/dev/null 2>&1 || true
 rm -rf /dev/shm/fastdds_* /dev/shm/sem.fastdds_* 2>/dev/null
-echo "ROS+Gazebo 스택 정리됨 (남은 노드 $(pgrep -fc "$KILL_PAT")개 · daemon·공유메모리 캐시 삭제)"
+echo "ROS 스택 정리됨 (남은 노드 $(pgrep -fc "$KILL_PAT")개 · daemon·공유메모리 캐시 삭제)"

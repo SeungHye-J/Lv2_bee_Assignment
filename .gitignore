@@ -35,10 +35,8 @@ lv2_module6/firmware/build/
 /lv2_module6/ros2_ws/map/*/nvblox.nvblx
 
 
-/lv2_module6/simulator/yolo_job.log
 /log/
 /.playwright-mcp/
-/lv2_module6/simulator/dataset/
 
 # run-cli start 로그 (실행한 폴더에 생김)
 bringup.log
@@ -52,4 +50,3 @@ lv2_module6/tools/artifacts/
 
 # macOS
 .DS_Store
-/lv2_module6/ros2_ws/map/

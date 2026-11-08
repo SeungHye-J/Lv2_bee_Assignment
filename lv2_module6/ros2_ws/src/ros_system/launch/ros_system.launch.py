@@ -183,7 +183,7 @@ def generate_launch_description():
         flag('pole_front_cam_pointcloud', 'true', 'pole_front_cam PointCloud2 발행 (body_filter/Nav2용)'),
         flag('gripper_cam_pointcloud', 'false', 'gripper_cam PointCloud2 발행 (grasp_scorer용, 필요할 때만 true)'),
         flag('use_ekf', 'true', 'robot_localization EKF'),
-        flag('use_slam', 'true', 'SLAM(cuVSLAM + nvblox) — false면 map→odom·/map 없음 (테스트베드 faker map:=course는 map_server가 대신)'),
+        flag('use_slam', 'true', 'SLAM(cuVSLAM + nvblox) — false면 map→odom·/map 없음 (테스트베드 faker는 fake_nvblox가 대신)'),
         flag('localization', 'true', 'true=위치추정 모드(운영, 저장 지도로), false=매핑 모드(지도를 새로 만듦)'),
         flag('nvblox_map', '~/.ros/nvblox.nvblx', 'nvblox 지도 파일 — 매핑이면 끌 때 여기에 저장, 위치추정이면 시작할 때 여기서 불러옴'),
         flag('use_nav2', 'true', '진짜 Nav2 서버 (planner · controller · behavior · bt_navigator · velocity_smoother · collision_monitor)'),
@@ -266,7 +266,7 @@ def check_slam(context):
         missing.append('nvblox_ros (isaac_ros_nvblox — documents/jetson-orin-nano/CUVSLAM.md "nvblox")')
     if missing:
         raise RuntimeError('SLAM(cuVSLAM + nvblox)에 필요한 것이 없음: ' + ', '.join(missing) +
-                           ' — GPU 없는 곳(테스트베드)은 faker map:=course 또는 use_slam:=false로')
+                           ' — GPU 없는 곳(테스트베드)은 faker fake_slam:=true(기본) 또는 use_slam:=false로')
     return []
 
 

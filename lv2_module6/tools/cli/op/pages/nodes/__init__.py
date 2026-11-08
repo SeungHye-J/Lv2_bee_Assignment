@@ -6,7 +6,7 @@ import time
 
 from ...defs import STAY
 from ...terminal import BOLD, DIM, GREEN, RED, YELLOW
-from ..base import GoMenu, InfoItem, Menu, MenuItem
+from ...menus import GoMenu, InfoItem, Menu, MenuItem
 
 
 class RestartAllItem(MenuItem):
@@ -100,13 +100,16 @@ class NodeActionMenu(Menu):
         items: list[MenuItem] = [NodeStatusItem(self.app, self._row['name'])]
         target = self._param_target()
         if target:
-            from .params import NodeParamMenu
+            from ..params import NodeParamMenu
             items.append(GoMenu(self.app, '4', '파라미터 · 진단 (live · 1초 갱신)',
                                 NodeParamMenu(self.app, target[0], target[1])))
         if self._row['pid']:
             items.append(NodeRestartItem(self.app, self._row['name'], self._row['lifecycle']))
         if self._row['lifecycle']:
             items.append(NodeActivateItem(self.app, self._row['name']))
+        feature = feature_for(self._row['name'])
+        if feature is not None:
+            items += feature.actions(self.app, self.bus, self._row['name'])
         return items
 
     def _refresh_status(self):
@@ -118,7 +121,7 @@ class NodeActionMenu(Menu):
     def center(self):
         self._refresh_status()
         lines = list(self._lines)
-        lines += ['', ' 4) 파라미터 · 진단 live 화면으로']
+        lines += ['', ' 4) 파라미터 · 진단 live 화면으로', ' a) 서비스 목록 · 호출 (테스트)']
         return lines + self.ui.center_summary()
 
 
@@ -179,6 +182,8 @@ class NodesMenu(Menu):
         lines.append(' ' + (self.term.paint('active 아님: ' + ', '.join(idle), YELLOW) if idle
                             else '수명주기 노드 전부 active'))
         lines += ['', f' 최근 재시작: {note}']
+        if any(r['name'] == 'state_manager' for r in self._rows):
+            lines += self.bus.node_feature_lines('state_manager', summary=True)
         if any(r['name'] == 'controller_server' for r in self._rows):
             lines += self.bus.node_feature_lines('controller_server', summary=True)
         lines.append(' a) 전체 재시작은 RESTART 입력 필요')
@@ -187,8 +192,9 @@ class NodesMenu(Menu):
 
 from .feature import NodeFeature
 from .controller_server import ControllerServerFeature
+from .state_manager import StateManagerFeature
 
-FEATURES: tuple[NodeFeature, ...] = (ControllerServerFeature(),)
+FEATURES: tuple[NodeFeature, ...] = (ControllerServerFeature(), StateManagerFeature())
 
 
 def feature_for(name: str) -> NodeFeature | None:

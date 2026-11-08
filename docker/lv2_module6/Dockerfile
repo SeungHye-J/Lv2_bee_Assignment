@@ -71,7 +71,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     && rm -rf /var/lib/apt/lists/*
 
 # 진짜 Nav2 — ros_system이 서버를 직접 띄운다 (nav2_bringup은 시뮬레이션 의존성까지 수백 개라 안 씀).
-# faker도 대역 없이 이걸 쓴다. map_server는 시뮬레이터·테스트용 코스 지도(faker/maps) (실기는 SLAM이 지도·map→odom)
+# faker도 대역 없이 이걸 쓴다. map_server는 저장 지도용 — 테스트베드는 fake_nvblox가 /map을 낸다
 RUN apt-get update && apt-get install -y --no-install-recommends \
     ros-lyrical-nav2-lifecycle-manager \
     ros-lyrical-nav2-common \
@@ -113,7 +113,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     && rm -rf /tmp/pick_ik_ws
 # (colcon --install-base /opt/ros/lyrical 는 ROS의 setup.bash를 덮어써서 안 씀 — 패키지 폴더만 복사: lib · share · ament_index)
 
-# SLAM(cuVSLAM + nvblox)은 GPU가 필요해 테스트베드 이미지엔 넣지 않음 — faker map:=course가 지도·위치를 대신
+# SLAM(cuVSLAM + nvblox)은 GPU가 필요해 테스트베드 이미지엔 넣지 않음 — faker fake_nvblox/fake_cuvslam이 지도·위치를 대신
 #   (Jetson 설치: documents/jetson-orin-nano/CUVSLAM.md)
 
 # YOLO perception (CPU 추론용) — torch CPU + ultralytics. libGL은 cv2용.

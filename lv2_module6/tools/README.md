@@ -1,6 +1,6 @@
 # tools
 
-운영 도구 — 수동 조작 CLI(`run-cli`) · RViz(`run-rviz`) · 코스 변환기(`course/`). CLI를 고치는 개발자는 [cli/DEVELOP.md](cli/DEVELOP.md)를 봅니다. 별도 ROS 노드를 새로 만들지 않고, 이미 떠 있는
+운영 도구 — 수동 조작 CLI(`run-cli`) · RViz(`run-rviz`) · Isaac 지도 생성기(`course/`). CLI를 고치는 개발자는 [cli/DEVELOP.md](cli/DEVELOP.md)를 봅니다. 별도 ROS 노드를 새로 만들지 않고, 이미 떠 있는
 `state_manager`·`manual_control`의 토픽과 `map_saver` 서비스를 사용합니다.
 
 ```text
@@ -11,7 +11,7 @@ tools/
 ├── run-cli          # 메뉴(기본) · start|stop|restart = 로봇 스택(bringup) · 그 밖은 CLI 명령
 ├── run-rviz         # start|stop|restart 실행기 (기본 start)
 ├── bag/             # rosbag 기록 (record.sh · snap_on_fail.py)
-├── course/          # 코스 변환기 — build_walls · build_dice · build_map · build_map_usd (자산은 ../course/)
+├── course/          # Isaac USD → faker/world 지도 (build_map_usd.py)
 ├── rviz/
 │   ├── start.sh     # RVIZ_CONFIG=operator(기본)·light·ab
 │   ├── stop.sh
@@ -271,7 +271,7 @@ cd tools
 - `map mode` · `map switch`는 **launch 전체를 다시 띄웁니다** (cuVSLAM·nvblox는 실행 중 전환이 없음 — state_manager가 `all map:=slam` · `all map:=saved map_name:=<이름>`).
   CLI는 `/state/restart`의 첫 응답(`all: 재시작 중 …` · `거절: …`)만 보여 주고 끝납니다. 다시 뜨는 데 수십 초(nvblox 지도 저장 → SLAM 시작) — 끝났는지는 `map status`.
 - 없는 지도 이름 · 지도 폴더 없이 `localization`은 CLI가 먼저 거절합니다 (state_manager는 거절 이유를 `/diagnostics`에만 남김).
-- COURSE(테스트베드 정지 지도)에서는 확인 뒤 `/cmd/restart`로 갈아탑니다. SLAM은 GPU가 있어야 해서 **GPU 없는 테스트베드에선 시작하다 멈춥니다**.
+- COURSE는 없어졌습니다. 테스트베드(faker)는 fake SLAM(fake_cuvslam + fake_nvblox)으로 GPU 없이 MAPPING(센서로 지도 작성)/LOCALIZATION(저장 지도)이 됩니다.
 - `map save`는 `/map_saver/save_map`(map:=slam·saved일 때만 뜸)을 불러 `.pgm`·`.yaml`을 저장합니다.
   저장할 때 `/nvblox_node/save_map`으로 `nvblox.nvblx`도 명시적으로 저장한 뒤,
   **LOCALIZATION으로 전환할지 물어보고** 위치추정으로 다시 뜹니다.
@@ -384,9 +384,7 @@ export ROS_DOMAIN_ID=42
   발행은 `[PUB ...]`로 찍히고 mode/estop/map 요청은 가짜 state_manager가 받아 상태를 바꿉니다.
 - `docker` — 도커 `test-faker 0`이 쓰는 `lv2_module6/debug` 파일을 폴링합니다. faker가 꺼져 있으면 자동으로 띄우고 준비될 때까지 기다립니다.
   구독은 `output/topic`, 발행은 `input/topic`, 서비스는 `input/service`↔`output/service`.
-  메뉴를 띄우면 호스트 SIL 뷰어(`simulator/vazebo/simple.py`)가 자동으로 같이 뜹니다
-  (왼쪽 실환경 3D — 마우스로 돌려 보는 시점, 오른쪽 카메라 "보내기 전 SIM / fake_camera가 받은 후 ROS" × RGB·DEPTH·POINT). `--no-sim`으로 끄고 `--sim`으로 강제합니다.
-  faker의 `service_action_input` 화이트리스트 밖 서비스와 파라미터 변경은 아직 미지원입니다.
+  faker의 `service_action_bag_input` 화이트리스트 밖 서비스와 파라미터 변경은 아직 미지원입니다.
 
 `start/stop/restart/build`는 `real` 전용입니다.
 
@@ -395,8 +393,7 @@ cd tools
 ./run-cli --source fake                   # 대화형 메뉴 (가짜 ROS)
 ./run-cli --source fake status
 ./run-cli --source docker status          # 도커 스택을 debug 파일로 (뷰어 없음)
-./run-cli --source docker menu            # + SIL 뷰어 (지도·카메라 before/after)
-./run-cli --source docker --no-sim menu   # 뷰어 없이 메뉴만
+./run-cli --source docker menu            # 메뉴
 ./run-cli --source docker --debug-dir ../debug menu
 python3 cli/tests/scenarios.py            # pty로 실제 키를 넣어 화면 흐름 전수 검증
 python3 cli/tests/scenarios.py teleop-hud # 시나리오 하나만

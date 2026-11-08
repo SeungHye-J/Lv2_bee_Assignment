@@ -287,10 +287,6 @@ class Bus:
         target = args.mode.upper()
         if target == 'EXPLORE' and self.state.map_mode not in ('MAPPING', ''):
             print('WARN: EXPLORE는 지도 모드 MAPPING에서만 허용됩니다', file=sys.stderr)
-        if target == 'TEACH':
-            if self.state.map_mode == 'MAPPING':
-                print('WARN: TEACH는 지도 모드 MAPPING에서는 거절됩니다 (팔 스캔 자세 고정)', file=sys.stderr)
-            print('TEACH: 팔(joint1~5)·그리퍼 토크가 꺼집니다 — 팔이 처지니 손으로 잡으세요. 끝나면 `arm capture` → `mode manual`(토크 켬)')
         self._publish(self.pub_operation, String(data=target))
         if self._wait_value('operation_mode', target, 2.5):
             print(f'조작 모드 → {target}')
@@ -748,7 +744,7 @@ class Bus:
                 maps = self.local_maps(map_dir)
             print('지도 목록: ' + (', '.join(maps) if maps else '-'))
             if self.state.map_mode == 'MAPPING' and self.state.values.get('map_name'):
-                print('작성 중   : nvblox.nvblx는 LOCALIZATION 전환/종료 때 저장 — 그 전에는 목록에 없음')
+                print('작성 중   : 실제 nvblox는 LOCALIZATION 전환/종료 때 nvblox.nvblx 저장 (테스트베드 fake SLAM은 계속 씀)')
             return 0
 
         if args.action == 'list':
@@ -765,13 +761,10 @@ class Bus:
 
         if args.action == 'mode':
             target = args.name.upper() if args.name else ''
-            if target not in ('MAPPING', 'LOCALIZATION'):
-                print('거부: map mode는 mapping 또는 localization', file=sys.stderr)
+            if target not in ('NONE', 'MAPPING', 'LOCALIZATION'):
+                print('거부: map mode는 none, mapping 또는 localization', file=sys.stderr)
                 return 2
             self._poll(0.5)
-            if self.state.map_mode == 'COURSE':
-                # COURSE(정지 지도)는 state_manager가 바꾸지 않음 — launch 재시작으로 갈아탐
-                return self._map_restart_for(target, None)
             if self.state.map_mode == target:
                 print(f'이미 지도 모드 {target}')
                 return 0
@@ -785,8 +778,6 @@ class Bus:
                 print('거부: map switch에는 지도 이름이 필요합니다', file=sys.stderr)
                 return 2
             self._poll(0.5)
-            if self.state.map_mode == 'COURSE':
-                return self._map_restart_for('LOCALIZATION', args.name)
             if args.name == self.state.values.get('map_name') and self.state.map_mode == 'LOCALIZATION':
                 print(f'이미 지도 {args.name}')
                 return 0
@@ -798,6 +789,7 @@ class Bus:
             return self._map_restart_reply(lambda: self._send_map_name(args.name), f'지도 → {args.name}')
 
         if args.action == 'save':
+            self._poll(0.6)   # 일회성 프로세스도 /state/map_mode·map_name을 먼저 받는다
             rc = self._map_save(args, map_dir)
             if rc != 0 or self.state.map_mode != 'MAPPING':
                 return rc
@@ -808,14 +800,14 @@ class Bus:
                 else:
                     try:
                         ans = input('지도 미리보기 저장 완료 — LOCALIZATION으로 전환할까요? '
-                                    '(nvblox.nvblx 저장 + 다시 뜨기) [Y/n] ')
+                                    '(다시 뜨기 — 수십 초) [Y/n] ')
                     except EOFError:
                         ans = 'n'
                     localize = ans.strip().lower() not in ('n', 'no')
             if not localize:
-                print('LOCALIZATION 전환 생략 — nvblox.nvblx는 나중에 전환/종료할 때 저장됩니다.')
+                print('LOCALIZATION 전환 생략 — 실제 nvblox는 나중에 전환/종료할 때 지도를 저장합니다.')
                 return 0
-            print('LOCALIZATION으로 전환 — nvblox.nvblx 저장 + 다시 뜨기 (수십 초)')
+            print('LOCALIZATION으로 전환 — 지도 저장 + 다시 뜨기 (수십 초)')
             return self.cmd_map(self.map_args('mode', name='localization'))
 
         print(f'모르는 map action: {args.action}', file=sys.stderr)
@@ -836,28 +828,11 @@ class Bus:
                     print(f'요청 실패: {note}', file=sys.stderr)
                     return 1
                 print(f'{desc} — {note}')
-                print('다시 뜨는 데 수십 초 걸립니다 (nvblox 지도 저장 → SLAM 시작). 확인: map status')
+                print('다시 뜨는 데 수십 초 걸립니다 (빌드 → 지도 모드 시작). 확인: map status')
                 return 0
         print('요청 실패: state_manager 응답 없음 — 거절 이유는 /diagnostics의 state_manager '
               '"지도 모드 전환 실패"에 있음', file=sys.stderr)
         return 1
-
-    def _map_restart_for(self, mode: str, name: str | None) -> int:
-        """COURSE(정지 지도)에서 MAPPING/LOCALIZATION·지도 전환 요청 → launch 재시작으로 갈아탐
-        (state_manager는 COURSE를 바꾸지 않으므로 /cmd/restart를 직접 보냄)."""
-        if mode == 'MAPPING':
-            launch_args, desc = 'map:=slam', 'MAPPING(스캔)'
-        elif name:
-            launch_args, desc = f'map:=saved map_name:={name}', f'LOCALIZATION(지도 {name})'
-        else:
-            launch_args, desc = 'map:=saved', 'LOCALIZATION(최근 지도)'
-        if not self.prompt.confirm('재시작할까요?', default=False, body=[
-                '지금은 COURSE(정지 지도)라 바로 전환이 안 됩니다.',
-                f'launch 재시작으로 {desc} 모드로 갈아탑니다: all {launch_args}',
-                '주의: SLAM(cuVSLAM + nvblox)은 GPU가 있어야 함 — GPU 없는 테스트베드에선 시작하다 멈춥니다.']):
-            return 1
-        return self._map_restart_reply(lambda: self._publish(self.pub_restart, String(data=f'all {launch_args}')),
-                                       f'재시작 all {launch_args}')
 
     def _robot_map_dir(self) -> str:
         """state_manager의 map_dir 파라미터 — map_saver가 도는 쪽(로봇·컨테이너)의 지도 폴더. 못 읽으면 ''."""
@@ -867,22 +842,38 @@ class Bus:
         vals = self.param_get_vals(cli, ['map_dir'])
         return str(getattr(vals[0], 'string_value', '') or '') if vals else ''
 
+    def _nvblox_exists(self, path: Path) -> bool:
+        """nvblox.nvblx가 있는가 — 도커는 CLI(호스트)와 지도(컨테이너 /ws/map)가 다른 곳에 있다."""
+        if path.is_file():
+            return True
+        # /ws/map/<이름>/nvblox.nvblx → 호스트 lv2_module6/ros2_ws/map/<이름>/nvblox.nvblx (compose 바인드)
+        if path.parent.parent == Path('/ws/map'):
+            return (self.default_map_dir() / path.parent.name / 'nvblox.nvblx').is_file()
+        return False
+
     def _save_nvblox_map(self, path: Path) -> int:
         """nvblox 정본(.nvblx) 저장 — map_saver의 pgm/yaml과 별개다.
 
         nvblox_node의 after_shutdown_map_save_path는 종료 때 png/yaml만 쓰고 .nvblx는
         쓰지 않는다. 그래서 서비스 ~/save_map을 명시적으로 불러야 위치추정용 지도가 남는다.
+        테스트베드 fake SLAM은 fake_nvblox가 자리 파일을 이미 썼다 — 서비스·메시지가 없으면 그 파일로 성공한다.
         """
         try:
             from nvblox_msgs.srv import FilePath
         except ImportError:
+            if self._nvblox_exists(path):
+                print(f'가짜 SLAM — 저장 지도 유지: {path}')
+                return 0
             print('거부: nvblox_msgs 없음 — ~/isaac_ros_ws/install/setup.bash를 source해야 합니다',
                   file=sys.stderr)
             return 1
         cli = self.node.create_client(FilePath, '/nvblox_node/save_map')
         if not cli.wait_for_service(timeout_sec=5.0):
-            print('거부: /nvblox_node/save_map 없음 — nvblox가 MAPPING 중인지 확인', file=sys.stderr)
             self.node.destroy_client(cli)
+            if self._nvblox_exists(path):
+                print(f'가짜 SLAM — 저장 지도 유지: {path}')
+                return 0
+            print('거부: /nvblox_node/save_map 없음 — nvblox가 MAPPING 중인지 확인', file=sys.stderr)
             return 1
         req = FilePath.Request()
         req.file_path = str(path)
@@ -904,6 +895,17 @@ class Bus:
         if SaveMapSrv is None:
             print('거부: nav2_msgs가 없어 map save를 사용할 수 없습니다', file=sys.stderr)
             return 2
+        if self.state.map_mode == 'NONE':
+            print('거부: 지도 없음(NONE) — 먼저 MAPPING 또는 LOCALIZATION으로 전환하세요', file=sys.stderr)
+            return 2
+        if self.state.state_last_update <= 0:
+            print('거부: /state 통신 없음 — 스택 재연결 후 다시 시도하세요', file=sys.stderr)
+            return 1
+        age = time.monotonic() - self.state.state_last_update
+        if age > 3.0:
+            print(f'거부: 스택 연결이 끊겨 있음 (마지막 통신 {age:.0f}s 전) — 재연결 후 다시 시도하세요',
+                  file=sys.stderr)
+            return 1
         name = self.state.values.get('map_name') or ''
         # `run-cli map save`는 새 프로세스라 /state/map_name이 아직 안 왔을 수 있다.
         # map status처럼 잠깐 기다린다 — 안 기다리면 MAPPING 중인데도 "지도 이름 없음"으로 거부된다.
@@ -1057,6 +1059,57 @@ class Bus:
         feature = feature_for(name)
         return feature.status_lines(self, name, summary=summary) if feature else []
 
+    def node_services(self, name: str) -> list[tuple[str, str, bool]]:
+        """노드가 제공하는 서비스 (이름, 타입, 호출 가능) — 실기 rclpy · 도커는 service_action_bag_input 목록."""
+        full = name.strip('/')
+        short = full.rsplit('/', 1)[-1]
+        ns = '/' + full.rsplit('/', 1)[0] if '/' in full else '/'
+        items = []
+        try:
+            items = self.node.get_service_names_and_types_by_node(short, ns)
+        except Exception:
+            pass
+        if not items:
+            try:
+                all_items = self.node.get_service_names_and_types()
+            except Exception:
+                all_items = []
+            prefix = f'/{full}/'
+            items = [(s, t) for s, t in all_items if s == f'/{full}' or s.startswith(prefix)]
+        callable_fn = getattr(self.node, 'service_callable', None)
+        rows = []
+        for s, types in items:
+            callable_ = bool(callable_fn(s)) if callable_fn else True
+            rows.append((s, types[0] if types else '', callable_))
+        return sorted(set(rows))
+
+    def call_service(self, name: str, type_name: str, request: dict):
+        """서비스 호출 — (ok, data dict | error str). 도커는 파일 브리지, 실기는 동적 rclpy 클라이언트."""
+        if hasattr(self.node, 'call_service'):  # DockerRos
+            return self.node.call_service(name, type_name, request or {})
+        try:
+            from rosidl_runtime_py.convert import message_to_ordereddict
+            from rosidl_runtime_py.set_message import set_message_fields
+            from rosidl_runtime_py.utilities import get_service
+        except ImportError as exc:
+            return False, f'rosidl_runtime_py 없음: {exc}'
+        try:
+            srv = get_service(type_name)
+            cli = self.node.create_client(srv, name)
+            try:
+                if not cli.wait_for_service(timeout_sec=2.0):
+                    return False, f'서버 없음: {name}'
+                req = srv.Request()
+                set_message_fields(req, request or {})
+                res = self.param_wait(cli.call_async(req), timeout=10.0)
+                if res is None:
+                    return False, '응답 없음 (10초)'
+                return True, message_to_ordereddict(res)
+            finally:
+                self.node.destroy_client(cli)
+        except Exception as exc:  # noqa: BLE001 — 타입/필드 오류를 화면에 그대로
+            return False, f'서비스 호출 실패: {exc}'
+
     def node_status_lines(self, name: str) -> list[str]:
         row = next((r for r in self.node_rows() if r['name'] == name), None)
         lines = [f'[{name}]']
@@ -1104,7 +1157,7 @@ class Bus:
         return 1
 
     def cmd_ab(self, args) -> int:
-        """A/B 테스트 — op/pages/ab/core.py로 위임 (메뉴 14와 같은 구현)."""
+        """A/B 테스트 — op/pages/ab/core.py로 위임 (메뉴 13와 같은 구현)."""
         from .pages.ab.core import AbTest
         return AbTest(self).cmd(args)
 

@@ -4,7 +4,6 @@ ROS 2 Lyrical 실기 워크스페이스 — 로봇 bringup, 지도·주행, 팔�
 
 - 전체 설계: [`../../documents/project/ros/README.md`](../../documents/project/ros/README.md)
 - 미션 설명: [`../../documents/mission/MISSION.md`](../../documents/mission/MISSION.md)
-- 개발·도커·테스트: [`../simulator/gazebo`](../simulator/gazebo/DEVELOP.md)
 
 ## 1. 빠른 시작
 
@@ -243,9 +242,6 @@ launch가 죽지 않고 **SLAM 없이** 뜹니다.
 # 저장된 지도로 위치추정 (기본)
 ./start.sh
 ./start.sh map:=saved map_name:=20261017_163731
-
-# 테스트베드 코스 지도 (SLAM 없음 — faker map_server)
-./start.sh map:=course
 ```
 
 - 지도 폴더: `ros2_ws/map/` (launch가 `map_dir`를 자동 지정)

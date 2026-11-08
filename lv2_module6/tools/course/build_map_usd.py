@@ -1,10 +1,10 @@
-"""Isaac 미로(USD) → Nav2 map_server 지도 (PGM + YAML) — build_map.py와 같은 규약
+"""Isaac 미로(USD) → Nav2 map_server 지도 (PGM + YAML) — 기존 코스 지도와 같은 규약
 
 Isaac Lab 장면(isaac/usda/scene_sim.usda)이 쓰는 미로 isaac/usda/maze/maze.usda의 collision 메시를
 위에서 본 모양 그대로 칠한다. 대각선 벽이 있어 walls.json(축에 평행한 상자)으로는 옮길 수 없어서 메시를 직접 쓴다.
   map 원점 = 출발 칸 — scene_sim.usda의 beebot 위치를 미로 좌표로 옮긴 곳 (faker: map = odom 원점)
   벽 = 점유(0, 검정) · 나머지 = 빈 곳(254). 해상도 RES. 높이 Z_MIN~Z_MAX에 걸친 collision 삼각형만.
-  출력: ros2_ws/src/faker/maps/isaac_maze.pgm · isaac_maze.yaml  (미로가 바뀔 때만 다시 실행해 커밋)
+  출력: ros2_ws/src/faker/world/isaac_maze.pgm · isaac_maze.yaml  (미로가 바뀔 때만 다시 실행해 커밋)
 
   pip install usd-core   # pxr — 이 도구를 돌릴 때만 필요
   python3 lv2_module6/tools/course/build_map_usd.py
@@ -14,7 +14,7 @@ from pathlib import Path
 
 from pxr import Gf, Usd, UsdGeom
 
-RES = 0.05            # [m/칸] — build_map.py와 같게
+RES = 0.05            # [m/칸] — 기존 코스 지도와 같게
 MARGIN = 0.20         # 미로 바깥 여유 [m]
 Z_MIN, Z_MAX = 0.03, 0.30  # 로봇이 부딪히는 높이 [m] (nvblox slice와 같은 범위)
 NAME = 'isaac_maze'
@@ -23,7 +23,7 @@ HERE = Path(__file__).resolve().parent
 ISAAC = HERE.parents[1] / 'isaac' / 'usda'
 MAZE = ISAAC / 'maze' / 'maze.usda'
 SCENE = ISAAC / 'scene_sim.usda'
-OUT = HERE.parents[1] / 'ros2_ws' / 'src' / 'faker' / 'maps'
+OUT = HERE.parents[1] / 'ros2_ws' / 'src' / 'faker' / 'world'
 
 
 def spawn_in_maze(scene_path=SCENE):

@@ -1,5 +1,5 @@
 // fake_opencr 구현 — 설명·선언은 include/faker/fake_opencr.hpp, main은 fake_opencr_main.cpp
-// 물리 상수 — 로봇 외곽(FOOT_*)은 충돌 판정용. simulator/opencr.py ROBOT_R(0.18)은 퍽 밀기 판정에만 씀
+// 물리 상수 — 로봇 외곽(FOOT_*)은 충돌 판정용. 0.18은 퍽 밀기 판정에만 씀
 // 로봇 외곽 (base_footprint 기준, URDF base 상자 앞 +0.069 · 뒤 −0.233 · 바퀴 바깥 ±0.153) — 박스 앞 1~2 cm까지 붙는 박스 접근용.
 constexpr double FOOT_FRONT = 0.069, FOOT_REAR = -0.233, FOOT_SIDE = 0.153;
 #include "faker/fake_opencr.hpp"
@@ -370,13 +370,27 @@ void FakeOpenCR::tick() {
     const double nx = x_ + v * std::cos(yaw_) * dt;
     const double ny = y_ + v * std::sin(yaw_) * dt;
     const double nyaw = yaw_ + w * dt;
-    // 이미 겹친 상태(시작 자리 등)에선 막지 않음 — 빠져나올 수 있게. 회전도 외곽 모서리가 벽을 파고들면 막음
-    bumped_ = collide(nx, ny, nyaw) && !collide(x_, y_, yaw_);
-    if (!bumped_) {
+    // 이미 겹친 상태(시작 자리 등)에선 막지 않음 — 빠져나올 수 있게.
+    // 전진+회전을 한 번에 검사하면 좁은 틈에서 회전만 걸려도 직진까지 막혀 꼼짝 못 한다.
+    // 그래서 안 되면 직진만 / 회전만 따로 시도한다 (벽을 따라 빠져나오게).
+    const bool current_bad = collide(x_, y_, yaw_);
+    const bool full_bad = collide(nx, ny, nyaw);
+    bumped_ = false;
+    if (!full_bad || current_bad) {
       x_ = nx;
       y_ = ny;
+      yaw_ = nyaw;
+    } else if (!collide(nx, ny, yaw_)) {  // 회전은 막혀도 직진은 가능
+      x_ = nx;
+      y_ = ny;
+      bumped_ = true;
+    } else if (!collide(x_, y_, nyaw)) {  // 직진은 막혀도 제자리 회전은 가능
+      yaw_ = nyaw;
+      bumped_ = true;
+    } else {
+      bumped_ = true;
     }
-    yaw_ = std::fmod((bumped_ ? yaw_ : nyaw) + M_PI, 2 * M_PI);
+    yaw_ = std::fmod(yaw_ + M_PI, 2 * M_PI);
     if (yaw_ < 0) yaw_ += 2 * M_PI;
     yaw_ -= M_PI;
     yaw_rate_ = w;

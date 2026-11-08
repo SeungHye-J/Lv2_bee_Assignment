@@ -79,6 +79,8 @@ class KeyReader:
             return 'home'
         if final == b'F':
             return 'end'
+        if final == b'Z':   # Shift+Tab (CSI Z · 일부 터미널은 CSI 1;2 Z)
+            return 'shift+tab'
         if final == b'~':
             code = seq[1:-1].split(b';')[0]
             return {b'1': 'home', b'4': 'end', b'5': 'pgup',
@@ -96,7 +98,7 @@ class KeyReader:
 
     def read(self, timeout=0.1):
         """키 하나 → ('enter'|'esc'|'up'|'down'|'left'|'right'|'pgup'|'pgdn'|
-        'home'|'end'|'backspace'|'ctrl_u'|'tab'|<문자>) · 없으면 None."""
+        'home'|'end'|'backspace'|'ctrl_u'|'tab'|'shift+tab'|<문자>) · 없으면 None."""
         if self.fd is None:
             return None
         ready, _, _ = select.select([self.fd], [], [], timeout)

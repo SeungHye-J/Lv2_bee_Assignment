@@ -46,7 +46,7 @@
 - **launch 파일:** 전체 기동(bringup), 📦 기동(ros_system), 리매핑 (diff_drive_controller 토픽 → /cmd_vel·/odom, twist_mux 출력 → /cmd_vel_mux), 학습 노드 on/off 인자
 - **설정 파일:** 패키지별 config/*.yaml, nav2_params.yaml, ekf.yaml, controllers.yaml, twist_mux.yaml, diagnostics.yaml, collision_monitor 다각형, MoveIt 설정 패키지
 - **상태 진단:** 모든 🛠 노드 · 하드웨어 플러그인이 diagnostic_updater로 /diagnostics
-- **OpenCR 펌웨어 · 대회 코스 · 운영 CLI:** lv2_module6/firmware · course · tools (run-cli — 상태·진단 상세·수동 조작·모터 재부팅). simulator는 더 쓰지 않음
+- **OpenCR 펌웨어 · 운영 CLI:** lv2_module6/firmware · tools (run-cli — 상태·진단 상세·수동 조작·모터 재부팅) · 시뮬레이션은 `isaac/usda`
 - **Isaac Lab 환경 코드:** 관측·행동·보상·랜덤화 정의 (ROS 노드 아님)
 
 ### 패키지 구성
@@ -55,10 +55,8 @@
 lv2_module6/
 ├── urdf/<이름>/urdf.xacro         # 모델 폴더마다 (기본 beebot_mesh, launch urdf:=) — TB3 + OM-X(RM-X52-TNM) + 손목 roll + 카메라 2대 · ros2_control 태그
 ├── firmware/beebot_opencr/       # OpenCR 펌웨어
-├── course/                       # 대회 코스 (미로)
 ├── ai-service/                   # 호스트 계획 서버 (VLM · 사람) — ROS 아님
 ├── tools/                         # run-cli 운영 도구
-├── simulator/                    # SIL 시뮬레이터 (더 쓰지 않음)
 └── ros2_ws/src/
     ├── perception/   # perception · body_filter · signal_decoder + msg
     ├── plan/         # user_input · vlm_task_planner · explorer · coordinator + msg

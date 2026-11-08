@@ -1,6 +1,6 @@
 """A/B 테스트 — Nav2 주행 정책 ON/OFF를 같은 주행으로 비교.
 
-메뉴 14 → 노드 목록 → 그 노드의 A/B 화면. 지금은 rl_nav_controller 하나이고,
+메뉴 13 → 노드 목록 → 그 노드의 A/B 화면. 지금은 rl_nav_controller 하나이고,
 새 노드가 생기면 ab_node_pages()에 한 줄 추가한다.
 
 기록은 백그라운드로 돌고, 메뉴에서 '녹화 종료'를 누르면 rosbag2가 정상 마무리된다.
@@ -14,7 +14,7 @@ from pathlib import Path
 from ...defs import STAY
 from ...dialog import RVIZ_GOAL_TOPIC, RouteRvizDialog, fmt_pose
 from ...terminal import GREEN, RED
-from ..base import GoMenu, Menu, MenuItem
+from ...menus import GoMenu, Menu, MenuItem
 from .core import AB_NODES
 
 
