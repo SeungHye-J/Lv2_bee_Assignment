@@ -137,7 +137,7 @@ class ObjectsWindow:
             lab.config(image=self.photos[cam])
 
     def loc_text(self):
-        """위치추정 오차 — 인지 좌표는 로봇이 아는 위치(EKF·RTAB-Map) 기준이라 이만큼 통째로 어긋나 지도에 그려진다"""
+        """위치추정 오차 — 인지 좌표는 로봇이 아는 위치(EKF·SLAM) 기준이라 이만큼 통째로 어긋나 지도에 그려진다"""
         e = self.localization_error() if self.localization_error else None
         if e is None:
             return ''

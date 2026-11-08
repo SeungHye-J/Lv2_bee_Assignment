@@ -14,7 +14,7 @@ git clone <저장소>
 cd Lv2_bee_Assignment
 git switch develop                     # 작업은 develop에서 브랜치를 따서 (CONTRIBUTING.md)
 
-cd docker
+cd docker/lv2_module6
 docker compose build                   # 이미지: ROS 2 Lyrical + ros2_control + EKF + arduino-cli(OpenCR) (처음 한 번, 몇 분)
 docker compose up -d
 docker compose exec lyrical bash       # 컨테이너 셸 — 이후 명령은 전부 여기서
@@ -31,7 +31,7 @@ DDS 환경 (docker-compose · CI 공통): `ROS_AUTOMATIC_DISCOVERY_RANGE=SUBNET`
 | `../../firmware` | `/firmware` | OpenCR 펌웨어 스케치 |
 | `../../debug` | `/debug` | 토픽 기록 · 시뮬레이터 연동 · 가상 시리얼(input/hardware/serial·output/hardware/serial) (gitignore). **양방향**: 호스트→컨테이너(`input/topic/` 명령·수동, `input/hardware/camera/` 카메라 장면, `service/*/request`·`action/*/goal·cancel`)와 컨테이너→호스트(`output/topic/`·`service/*/response·type|info`·`action/*/accept·feedback·result`, `output/hardware/serial`)가 같은 폴더를 쓴다. 펌웨어 빌드 결과는 `firmware/build/` (gitignore). 소유권·권한은 아래 "공유 폴더 권한" 참조 |
 
-Dockerfile·`docker/*.sh`를 고쳤으면 `docker compose build` 후 `docker compose up -d`로 다시 띄웁니다 (스크립트는 이미지에 복사돼 있음).
+Dockerfile·`docker/lv2_module6/*.sh`를 고쳤으면 `docker compose build` 후 `docker compose up -d`로 다시 띄웁니다 (스크립트는 이미지에 복사돼 있음).
 
 ### 공유 폴더 권한 (`../../debug`)
 
@@ -39,14 +39,14 @@ Dockerfile·`docker/*.sh`를 고쳤으면 `docker compose build` 후 `docker com
 
 그래서 양쪽 다 쓸 수 있게 디렉토리는 777로 유지합니다:
 
-- `../../../docker/entrypoint.sh`: 기동 시 `input/`·`input/hardware/camera/`·`output/topic/`·`service/`·`action/`·`interface/`·`output/` 미리 생성 + `chmod -R 777 /debug`
+- `../../../docker/lv2_module6/entrypoint.sh`: 기동 시 `input/`·`input/hardware/camera/`·`output/topic/`·`service/`·`action/`·`interface/`·`output/` 미리 생성 + `chmod -R 777 /debug`
 - `faker` 노드(`monitor_manager`·`service_action_monitor`·`service_action_input`): 디렉토리 생성 직후 `chmod 0777` — 실행 중 새로 생기는 `output/topic/<토픽>/`·`service/<이름>/`·`action/<이름>/`도 호스트가 rename(원자적 쓰기)으로 교체 가능
 - 파일 자체는 644여도 된다: 읽는 쪽은 읽기만, 쓰는 쪽은 디렉토리 권한으로 rename 하므로
 
 `PermissionError`가 나면 컨테이너에서 소유권 회수 — 호스트 `sudo`는 비밀번호가 필요할 수 있으니 컨테이너(root) 경유가 확실:
 
 ```bash
-cd docker && docker compose exec -u root lyrical bash -c "chown -R 1000:1000 /debug && chmod -R 777 /debug"
+cd docker/lv2_module6 && docker compose exec -u root lyrical bash -c "chown -R 1000:1000 /debug && chmod -R 777 /debug"
 ```
 
 참고: `build/`·`install/`·`../../../log`는 호스트에 그대로 남으므로 재생성 뒤에도 `colcon build` 없이 바로 쓸 수 있습니다. 빌드가 꼬였다 싶으면 `install`·`build` 지우고 처음부터 다시 합니다(지울 때 소유권 주의 — 위 chown 참고).
@@ -62,7 +62,7 @@ cd docker && docker compose exec -u root lyrical bash -c "chown -R 1000:1000 /de
 | `test-hardware` | controller_manager를 실기 모드(`mock_hardware:=false`)로 가상 시리얼에 붙여 펌웨어 프로토콜 확인 (C 명령 송신 · S 상태 → `/joint_states`) |
 | `test-bringup` | 🛠 노드가 모두 뜨는지 (perception · user_input · vlm_task_planner · coordinator · arm_safety_monitor · manual_control · body_filter · state_manager) |
 | `test-faker [초\|0] [launch 인자]` | 더미로 전체 흐름 → `/task_status` SUCCEEDED면 PASS. `0`이면 띄워 두기 (Ctrl+C 종료, 시뮬레이터 [ROS 재시작] = `/cmd/restart all` → state_manager가 ROS 전부 껐다 `build-ws` 후 같은 인자로 다시 띄움 — 다시 뜬 launch가 끝날 때까지 기다림). 기본은 fake_opencr가 가상 시리얼 반대편 OpenCR 역할 (`mock_hardware:=true`면 OpenCR 없이 mock — 물리 없음), `ml:=real`이면 ML 대역 대신 진짜 ml 노드. 지도 `map:=course`(기본, 코스 지도 외움) · `map:=slam`(SLAM 스캔 → 새 폴더 `ros2_ws/map/<날짜_시각>/nvblox.nvblx` — GPU 필요) · `map:=saved`(저장 지도로 위치추정 — default 폴더, 없으면 가장 최근, `map_name:=<폴더>`로 고름) |
-| `ros-kill` | ROS 전부 끄기 + 캐시 정리: launch에 SIGINT → 최대 20초 대기(RTAB-Map DB 닫기) → 안 죽은 것만 SIGKILL → ros2 daemon stop · `/dev/shm/fastdds_*` 삭제 |
+| `ros-kill` | ROS 전부 끄기 + 캐시 정리: launch에 SIGINT → 최대 20초 대기(nvblox 지도 저장) → 안 죽은 것만 SIGKILL → ros2 daemon stop · `/dev/shm/fastdds_*` 삭제 |
 | `ros-restart [launch 인자]` | **진짜 bringup** 다시 띄우기: `ros-kill` → `build-ws` → `ros2 launch bringup bringup.launch.py [인자]` (🛠 노드 + ros_system 📦, Ctrl+C 종료, 로그 `/tmp/bringup.log`). 컨테이너엔 RealSense·OpenCR가 없으니 보통 `use_ros_system:=false` |
 | `ros-faker-restart [launch 인자]` | **테스트베드(faker)** 다시 띄우기: state_manager가 떠 있으면 `/cmd/restart all [인자]` 요청(시뮬레이터 [ROS 재시작]과 같음 — 끄고 `build-ws` 후 같은 인자로), ROS가 막혀 state_manager가 없으면 `ros-kill` 후 `test-faker 0 [인자]` |
 | (기록) | `test-faker` 실행 중 **monitor_manager**(노드 하나)가 남김 (시작할 때 `output/topic/`·`topic/`·`node/`·`pkg/`를 비우고 새로 — 지난 실행 값이 남지 않게, `input/`·`output/hardware/`는 그대로): `output/topic/<토픽>/message`·`image.jpg`, `topic/<토픽>/info`·`type`·`topic/list`, `node/<노드>/info`·`params`·`node/list`, `pkg/<패키지>/prefix`·`executables`·`pkg/list` (예전 test-logger — 토픽마다 ros2 CLI를 띄워 CPU를 먹어서 없앰). 빌드 뒤 `install/` 실파일 복사본은 `debug/install` (`build-ws`) |
@@ -87,20 +87,20 @@ ros2 topic pub --once /cmd/e_stop std_msgs/msg/Bool '{data: true}'             #
 
 ### 호스트(로컬 ROS)에서 직접 — 컨테이너 없이
 
-ROS 2 Lyrical이 깔린 리눅스면 `docker/*.sh`를 그대로 씁니다. 경로는 자동 감지라 지정할 것 없음 (`/ws` 있으면 컨테이너, 없으면 레포 안 `ros2_ws`; `debug`도 `/debug`→없으면 `../../debug`):
+ROS 2 Lyrical이 깔린 리눅스면 `docker/lv2_module6/*.sh`를 그대로 씁니다. 경로는 자동 감지라 지정할 것 없음 (`/ws` 있으면 컨테이너, 없으면 레포 안 `ros2_ws`; `debug`도 `/debug`→없으면 `../../debug`):
 
 ```bash
 source /opt/ros/lyrical/setup.bash
 export ROS_DOMAIN_ID=88  # 같은 LAN 다른 팀과 분리 (컨테이너 compose·~/.bashrc와 같은 값)
 ./lv2_module6/ros2_ws/rebuild.sh              # 최초 1회 풀빌드 (build/·install/·log 재생성)
-docker/test-faker.sh 0                        # 띄워 두기 — 이후 셸에선 source lv2_module6/ros2_ws/install/setup.bash
+docker/lv2_module6/test-faker.sh 0                        # 띄워 두기 — 이후 셸에선 source lv2_module6/ros2_ws/install/setup.bash
 ```
 
 자주 쓰는 건 `../../operation` 아래 **주제별 디렉토리**에 묶었습니다 (어디서 실행해도 됨):
 
 ```text
 develop/
-├── bringup/faker.sh        # = docker/test-faker.sh 0 (use_gz_cameras:=true)
+├── bringup/faker.sh        # = docker/lv2_module6/test-faker.sh 0 (use_gz_cameras:=true)
 ├── gazebo/                 # start·kill·restart·reset + 월드/태그/신호등/동적 장애물
 │   ├── generate_world.py / generate_tags.py
 │   ├── traffic_lights.py / dynamic_obstacles.py
@@ -114,7 +114,7 @@ develop/
 ```
 
 ```bash
-lv2_module6/develop/bringup/faker.sh                  # = docker/test-faker.sh 0 (인자 그대로 전달)
+lv2_module6/develop/bringup/faker.sh                  # = docker/lv2_module6/test-faker.sh 0 (인자 그대로 전달)
 lv2_module6/develop/rviz/start.sh                     # RViz2 + 기본 구성(URDF·TF·Map, rviz/default.rviz)
 lv2_module6/develop/rviz/kill.sh                      # RViz 종료
 lv2_module6/develop/rviz/restart.sh                   # kill → start
@@ -196,7 +196,7 @@ source install/setup.bash                                   # 빌드 후 새 셸
     ros-lyrical-moveit-simple-controller-manager ros-lyrical-moveit-ros-visualization \
     ros-lyrical-ament-cmake-pytest
   ```
-  위 목록 = `../../../docker/Dockerfile`의 apt 목록 (그게 컨테이너 정본 — Dockerfile에 추가하면 여기도 같이 고친다).
+  위 목록 = `../../../docker/lv2_module6/Dockerfile`의 apt 목록 (그게 컨테이너 정본 — Dockerfile에 추가하면 여기도 같이 고친다).
   pick_ik (MoveIt IK)는 Lyrical apt에 없어 소스 빌드 (Dockerfile과 같은 커밋 `7c97fe2`). 아래 스크립트가 apt 의존성·빌드·`/opt/ros/lyrical` 복사를 한 번에 합니다:
   ```bash
   lv2_module6/develop/moveit/setup.sh
@@ -253,10 +253,10 @@ perception::msg::TrackedObjectArray msg;
   ros2_control 플러그인(BeebotSystemHardware · RlArmCorrection)도 hpp(선언) + cpp(구현 + PLUGINLIB_EXPORT_CLASS).
 - 빌드: 패키지의 노드 구현(`src/<노드>.cpp`)은 라이브러리 `<패키지>_nodes` 하나로 묶고, 실행 파일(`src/<노드>_main.cpp`)과 gtest가 그걸 링크한다 — 테스트가 같은 클래스를 같은 프로세스에 띄울 수 있게.
 - 새 노드: 위 세 파일 → `CMakeLists.txt`의 `add_library(${PROJECT_NAME}_nodes …)`에 `src/<노드>.cpp`, `foreach(node …)`·`install(TARGETS …)`에 이름 추가 →
-  `bringup`에 `node('<패키지>', '<실행 파일>')` → `../../../docker/test-bringup.sh`의 `NODES`에 노드 이름 → `bringup` 묶음에 이름.
+  `bringup`에 `node('<패키지>', '<실행 파일>')` → `../../../docker/lv2_module6/test-bringup.sh`의 `NODES`에 노드 이름 → `bringup` 묶음에 이름.
 - 토픽·메시지·QoS는 설계 문서 표를 따른다. 센서는 `rclcpp::SensorDataQoS()`(best_effort), 명령은 reliable, 가끔만 바뀌는 상태(`/sub_goals`, `/task_status`)는 reliable + transient_local.
 - 학습 노드는 `enabled` 파라미터로 끌 수 있어야 하고, 꺼지거나 모델 파일이 없으면 기본 동작(Δ=0 · 규칙)으로 돌아야 한다.
-- **도커·CI에는 GPU·모델이 없다** — 테스트베드는 진짜 ml 노드 대신 **faker ML 대역**(ml 노드와 1:1 — `fake_grasp_scorer`, 컨트롤러 `faker/FakeRlArmCorrection`)을 같은 이름·토픽으로 띄운다 (`ml:=fake` 기본, `bringup use_ml:=false`).
+- **도커·CI에는 GPU가 없다** — 모델은 `models/`에 커밋돼 있고 CPU ONNX/정책으로 돌 수 있다. 기본은 **faker ML 대역**(ml 노드와 1:1 — `fake_grasp_scorer`, 컨트롤러 `faker/FakeRlArmCorrection`)이고, `ml:=real`이면 진짜 ml 노드를 CPU로 띄운다 (`bringup use_ml:=false`).
   진짜로 돌려 보려면 `test-faker 0 ml:=real`. ml 패키지의 gtest(`colcon test`)는 도커에서 돌므로 **CPU만으로 도는 테스트**로 둔다.
   ml 노드의 토픽·서비스·파라미터를 바꾸면 같은 이름의 대역 `faker/src/fake_<노드>.cpp`도 같이 맞춘다. 하나만 진짜로: `grasp_scorer:=real` (rl_arm_correction도 같음)
 - **상태는 `/diagnostics`로** — 노드 클래스에 `diagnostic_updater::Updater diag_{this};` 를 두고 `diag_.add("상태", …)`에서
@@ -302,7 +302,7 @@ Python 노드(perception)는 **pytest**(`ament_cmake_pytest` + `test/test_node.p
 | perception | `test/test_body_filter.cpp` | URDF 충돌 상자(+padding) 안의 점은 빠지고 밖의 점만 `points_filtered`로 나간다 |
 | control | `test/test_arm_safety_monitor.cpp` | 전류 과다가 0.1초 넘게 이어지면 `/arm_safety_event` |
 | control | `test/test_manual_control.cpp` | `/state/operation_mode`가 MANUAL일 때만 `/cmd/manual/cmd_vel` → `/cmd_vel_manual` |
-| manager | `test/test_state_manager.cpp` | `/cmd/operation_mode` → `/state/operation_mode` · `/cmd/map_mode` → RTAB-Map 응답 뒤 `/state/map_mode` (서버 없거나 COURSE면 그대로) |
+| manager | `test/test_state_manager.cpp` | `/cmd/operation_mode` → `/state/operation_mode` · `/cmd/map_mode` → launch 재시작 요청(`/state/restart`) 뒤 `/state/map_mode` (COURSE면 그대로) |
 | ml | `test/test_mlp_policy.cpp` | ONNX 정책 입출력 차원·클램프 |
 | plan | `test/test_explorer.cpp` | 프론티어(빈 칸·모르는 칸 경계)를 덩어리로 묶어 중심 칸을 고르고, 작은 덩어리·모르는 곳 없는 지도는 빈 결과 |
 | plan | `test/test_coordinator.cpp` | 허용 안 된 동작이 든 계획은 FAILED로 거부 · 수동 모드로 바뀌면 진행 중 계획을 멈춤(manual_override) |

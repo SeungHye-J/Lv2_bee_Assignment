@@ -15,7 +15,7 @@ test-faker 기동 상태에서 실행 — 시뮬 렌더를 `pole_cam`에 투영�
 
 ```bash
 # 컨테이너 (저장소 루트에서)
-cd docker && docker compose up -d && docker compose exec lyrical bash
+cd docker/lv2_module6 && docker compose up -d && docker compose exec lyrical bash
 test-faker 0   # 끄지 말 것 — 데이터셋 뽑는 동안 유지
 # 호스트 (새 터미널)
 cd lv2_module6/simulator
@@ -34,7 +34,7 @@ cd lv2_module6/simulator
 
 - 출력 고정: `simulator/runs/<name>/weights/best.pt`
   (`train_yolo.py:34`에서 `project=HERE/runs` 절대경로 고정 — cwd가 어디든 여기로 간다)
-- 끝나면 스크립트가 자동으로 `../../ros2_ws/model/yolo/model.pt`에 복사한다 (`train_yolo.py:35-39`)
+- 끝나면 스크립트가 자동으로 `../../models/yolo/model.pt`에 복사한다 (`train_yolo.py:35-39`)
 - MPS(Mac GPU) 기준 100에폭 약 1.5시간. 로그는 nohup으로: `nohup ./.venv/bin/python train_yolo.py --epochs 100 > /tmp/train.log 2>&1 &`
 
 ### 학습 현황 보기

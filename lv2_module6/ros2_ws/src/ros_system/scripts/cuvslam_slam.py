@@ -5,8 +5,8 @@
   publish_map_tf:=false면 시각 오도메트리만 (map→odom을 다른 곳이 낼 때)
 
   입력: pole_front_cam 컬러 + 정렬 depth + camera_info (RGBD 모드 — D435는 IMU가 없어 VIO 불가)
-  map = 출발할 때의 base_footprint (RTAB-Map과 같음), x·y·yaw만 (RTAB-Map Reg/Force3DoF와 같음 — 경기장 바닥은 평평)
-  카메라에서 min_depth 안 픽셀은 가림 — 화면 가운데 찍히는 자기 팔이 로봇과 같이 움직여 회전을 덜 잡게 함 (RTAB-Map Vis/MinDepth와 같은 이유)
+  map = 출발할 때의 base_footprint (기존 SLAM과 같음), x·y·yaw만 (기존 SLAM Reg/Force3DoF와 같음 — 경기장 바닥은 평평)
+  카메라에서 min_depth 안 픽셀은 가림 — 화면 가운데 찍히는 자기 팔이 로봇과 같이 움직여 회전을 덜 잡게 함 (기존 SLAM Vis/MinDepth와 같은 이유)
   설치 (Jetson Orin + JetPack 7 — 자세히: documents/jetson-orin-nano/CUVSLAM.md): 배포 휠(cu13 aarch64)은 Thor 전용(SVE)이라 Orin에선 Illegal instruction → 소스 빌드
     sudo apt install cuda-nvcc-13-2 cuda-cudart-dev-13-2 libcublas-dev-13-2 libcusolver-dev-13-2 libcusparse-dev-13-2 \\
                      libnvjitlink-dev-13-2 cuda-nvrtc-dev-13-2 cuda-driver-dev-13-2
@@ -82,7 +82,7 @@ class CuvslamSlam(Node):
         self.base = self.declare_parameter('base_frame', 'base_footprint').value
         self.odom = self.declare_parameter('odom_frame', 'odom').value
         self.map = self.declare_parameter('map_frame', 'map').value
-        # true = 단독 SLAM(루프 클로저 + TF map→odom) · false = 시각 오도메트리만 (RTAB-Map이 map→odom)
+        # true = 단독 SLAM(루프 클로저 + TF map→odom) · false = 시각 오도메트리만 (SLAM이 map→odom)
         self.publish_map_tf = bool(self.declare_parameter('publish_map_tf', True).value)
         # map→odom을 이만큼 미래 시각으로 냄 (AMCL·slam_toolbox transform_tolerance와 같은 관례) — 영상 처리 지연 때문에
         # 최신 map→odom이 방금 들어온 depth 영상보다 옛 시각이라, nvblox가 그 영상 시각으로 TF를 찾으면 '미래 외삽'으로 실패해
@@ -121,7 +121,7 @@ class CuvslamSlam(Node):
 
     def start(self, frame):
         """첫 프레임: camera_info로 rig, URDF TF로 base_footprint←카메라. 단독 SLAM이면 루프 클로저(평면 제약) 켬"""
-        import cuvslam  # 설치 안 됐으면 여기서만 실패 (RTAB-Map 모드엔 영향 없음)
+        import cuvslam  # 설치 안 됐으면 여기서만 실패 (SLAM 모드엔 영향 없음)
         try:
             t = self.tf_buf.lookup_transform(self.base, frame, Time()).transform
         except Exception as e:  # noqa: BLE001 — TF가 아직 안 왔으면 다음 프레임에

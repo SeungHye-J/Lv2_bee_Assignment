@@ -305,7 +305,7 @@ local_costmap:
 
 
 # ─────────────────────────────────────────────────────────────────────────────
-# global_costmap — map 전체. 정지 지도(/map: 실기 RTAB-Map · 시뮬레이터 map_server) + pole_front_cam 장애물
+# global_costmap — map 전체. 정지 지도(/map: 실기 SLAM · 시뮬레이터 map_server) + pole_front_cam 장애물
 # ─────────────────────────────────────────────────────────────────────────────
 global_costmap:
   global_costmap:
@@ -419,7 +419,7 @@ collision_monitor:
 
 # ─────────────────────────────────────────────────────────────────────────────
 # lifecycle 관리자 — 맡은 서버를 순서대로 configure·activate (하나라도 실패하면 그 관리자 것만 중단)
-#   둘로 나눈 이유: 하나로 묶으면 RTAB-Map이 아직 map→odom을 못 낼 때 global_costmap 실패로 바퀴 명령 체인까지
+#   둘로 나눈 이유: 하나로 묶으면 SLAM이 아직 map→odom을 못 낼 때 global_costmap 실패로 바퀴 명령 체인까지
 #   inactive → 수동 조작(→ twist_mux → velocity_smoother → collision_monitor)도 막힘 (실측, map:=slam)
 #   bond_timeout: 활성화한 서버와 이 시간(초) 안에 bond(생존 신호)가 이어지지 않으면 중단.
 #     기동 직후 CPU가 몰리면(진짜 Nav2 + 컨트롤러 + 인지) 10초 안에 신호가 늦게 와서 중단됐음(실측) → 여유 있게

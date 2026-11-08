@@ -266,7 +266,7 @@ def test_self_filter():
 
 
 def test_track_in_odom_publish_in_map():
-    """추적은 odom, 발행은 그 순간의 map ← odom: RTAB-Map이 map→odom을 고치면 저장된 물체도 같이 옮겨짐 (로봇과 같은 보정)"""
+    """추적은 odom, 발행은 그 순간의 map ← odom: SLAM이 map→odom을 고치면 저장된 물체도 같이 옮겨짐 (로봇과 같은 보정)"""
     import numpy as np
     from builtin_interfaces.msg import Time
 
@@ -277,7 +277,7 @@ def test_track_in_odom_publish_in_map():
         node.tracks[1] = {"class_name": "puck", "p": np.array([1.0, 0.0, 0.02]), "P": np.diag([1e-4, 4e-4, 1e-4]),
                           "t": 0.0, "size": np.array([0.06, 0.06, 0.04]), "conf": 0.9, "last_seen": Time(),
                           "seen": {"pole_front_cam": 0.0}, "camera": "pole_front_cam", "px": (1, 1), "color": "red"}
-        # map ← odom: 0.2m 옆 · 90° 회전 (RTAB-Map 보정)
+        # map ← odom: 0.2m 옆 · 90° 회전 (SLAM 보정)
         node.tf.set_transform(_tf("map", "odom", 0, 0.2, (0.0, 0.0, 0.7071068, 0.7071068)), "test")
         m = node.to_map(node.tracks[1])
         assert np.allclose(m["p"], [0.2, 1.0, 0.02], atol=1e-6)            # odom (1,0) → 90° 돌려 (0,1) + 0.2 옆

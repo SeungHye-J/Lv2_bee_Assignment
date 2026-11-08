@@ -162,7 +162,7 @@ export POLE_FRONT_CAM_SERIAL=261822074109 GRIPPER_CAM_SERIAL=261622075828
 **PC RViz는 지도·TF·로봇 모델만 받는다** (`RVIZ_CONFIG=light`):
 
 ```bash
-ROS_DOMAIN_ID=42 RVIZ_CONFIG=light lv2_module6/tool/rviz/start.sh
+ROS_DOMAIN_ID=42 RVIZ_CONFIG=light lv2_module6/tools/rviz/start.sh
 ```
 
 | 증상 | 원인 (실측) | 대처 |

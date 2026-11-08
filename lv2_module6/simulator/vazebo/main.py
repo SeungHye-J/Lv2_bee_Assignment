@@ -773,7 +773,7 @@ class MapView:
     def __init__(self, sim):
         self.sim = sim
         self._base = None  # (base 미로좌표, 수신시각) — /tf 캐시
-        self._map_odom = (0.0, 0.0, 0.0)  # 마지막으로 본 map→odom (x, y, yaw) — RTAB-Map 보정, 없으면 항등
+        self._map_odom = (0.0, 0.0, 0.0)  # 마지막으로 본 map→odom (x, y, yaw) — SLAM 보정, 없으면 항등
         self.ppm = PX_PER_M * MAP_SCALE
         self.drop_hint = None  # 판 드래그 중 놓일 칸 (x, y, sx, sy, 놓을 수 있나) — 점선 사각형
         self.zoom = 1.0    # 보기 확대 (로봇 위치가 아니라 지도 보기만)
@@ -793,10 +793,10 @@ class MapView:
         return [n for n in (data or {}).get('data', '').split('\n') if n]
 
     def map_to_world(self):
-        """RTAB-Map map 프레임 → 미로(시뮬레이터 world) 변환 (tx, ty, th): world = R(th)·map + t.
+        """SLAM map 프레임 → 미로(시뮬레이터 world) 변환 (tx, ty, th): world = R(th)·map + t.
         같은 로봇의 두 자세로 구함 — 실제 위치(fake_opencr, 없으면 /odom+출발 칸)와 로봇이 아는 map 위치(map→odom ∘ /odom).
         저장 지도를 불러오면 map 원점이 출발 칸과 다르므로 '원점 = 출발 칸' 가정을 쓰면 안 됨. /odom 없으면 출발 칸 기준"""
-        # map→odom(RTAB-Map)은 /tf 파일이 마지막 메시지 하나뿐이라(EKF odom→base_footprint가 대부분) 보일 때마다 캐시
+        # map→odom(SLAM)은 /tf 파일이 마지막 메시지 하나뿐이라(EKF odom→base_footprint가 대부분) 보일 때마다 캐시
         tf, _ = read_msg('tf')
         mo = next((t for t in (tf or {}).get('transforms', []) if t.get('child_frame_id') == 'odom'), None)
         if mo:
@@ -816,7 +816,7 @@ class MapView:
 
     def draw_grid(self, img, topic, occupancy=False, max_age=None):
         """OccupancyGrid(monitor_manager data)를 지도에 반투명으로 — 칸 → 화면 px 아핀 변환 한 번 (칸마다 그리지 않음).
-        프레임: map이면 원점 = 출발 칸, odom이면 map→odom(RTAB-Map, 없으면 항등)을 거쳐서. 2초 넘은 것은 안 그림"""
+        프레임: map이면 원점 = 출발 칸, odom이면 map→odom(SLAM, 없으면 항등)을 거쳐서. 2초 넘은 것은 안 그림"""
         grid, meta, age = read_grid(topic)
         if grid is None or not grid.size or (max_age is not None and age > max_age):
             return
@@ -969,7 +969,7 @@ class MapView:
         return None
 
     def base_map_estimate(self):
-        """로봇이 아는 자기 위치 (map x, y, yaw) = map→odom(RTAB-Map) ∘ odom→base_footprint(EKF TF) — perception이 쓰는 것.
+        """로봇이 아는 자기 위치 (map x, y, yaw) = map→odom(SLAM) ∘ odom→base_footprint(EKF TF) — perception이 쓰는 것.
         TF가 없으면 실제 위치(미로 − 출발 칸)로 대신"""
         base = self.base_from_tf()
         if base is None:
@@ -1561,15 +1561,15 @@ class App:
                 self.sent.config(text='지도 선택없음 — Nav2 지도를 겹치지 않고, 로봇 지도 이름을 따라가지 않음'
                                       + (f' (로봇은 지금 지도 {cur} 를 계속 씀 — ROS는 그대로)' if cur else ''))
             if name != '선택없음':
-                # 그 지도로 갈아끼움 → state_manager가 RTAB-Map load_database + 위치추정 (결과 /state/map_name · /state/map_mode)
+                # 그 지도로 갈아끼움 → state_manager가 launch를 새 지도로 다시 띄움 (결과 /state/map_name · /state/map_mode)
                 # 화면엔 토픽 /map([Nav2 지도])으로만 — 호스트의 map.pgm 파일은 안 씀 (실기에 붙이면 의미 없음)
                 self.navmap_on.set(True)
                 self.view.show_navmap = True
-                if (read_msg('state/map_mode')[0] or {}).get('data') == 'COURSE':  # RTAB-Map 없음 → 그 지도로 다시 띄울지
+                if (read_msg('state/map_mode')[0] or {}).get('data') == 'COURSE':  # SLAM 없음 → 그 지도로 다시 띄울지
                     self.restart_ros(f'map:=saved map_name:={name}', f'지금은 코스 지도(COURSE)입니다.\n지도 {name} 로 위치추정 모드로 ROS를 다시 띄울까요?')
                 elif name != (read_msg('state/map_name')[0] or {}).get('data'):
                     send('/cmd/map_name', 'std_msgs/msg/String', {'data': name})
-                    self.sent.config(text=f'요청: 지도 {name} 로 갈아끼움 (/cmd/map_name → state_manager → RTAB-Map 위치추정)')
+                    self.sent.config(text=f'요청: 지도 {name} 로 갈아끼움 (/cmd/map_name → state_manager → 지도 재시작·위치추정)')
             self.redraw_map()
         self.scan_choice.trace_add('write', _pick_scan)
         robotbox = tk.LabelFrame(mapbox, text='로봇')
@@ -1856,7 +1856,7 @@ class App:
         mode = (read_msg('state/map_mode')[0] or {}).get('data')
         if mode == 'COURSE':
             self.restart_ros('map:=slam', '지금은 코스 지도(COURSE)라 탐사할 수 없습니다 (매핑 중에만).\n'
-                                          'RTAB-Map 매핑 모드(map:=slam)로 다시 띄운 뒤 [자동 탐사]를 다시 누르세요. 다시 띄울까요?')
+                                          'SLAM 매핑 모드(map:=slam)로 다시 띄운 뒤 [자동 탐사]를 다시 누르세요. 다시 띄울까요?')
             return
         if mode != 'MAPPING':
             self.sent.config(text=f'자동 탐사는 매핑 중에만 — 지금 지도 모드 {mode}. 먼저 [스캔 시작]')
@@ -1869,11 +1869,11 @@ class App:
         self.sent.config(text='요청: 탐사 멈춤 (/cmd/operation_mode AUTO)')
 
     def map_mode_request(self, mode):
-        # COURSE(코스 지도, RTAB-Map 없음)면 모드를 바꿀 대상이 없음 → RTAB-Map 모드로 ROS 재시작을 물어봄
+        # COURSE(코스 지도, SLAM 없음)면 모드를 바꿀 대상이 없음 → SLAM 모드로 ROS 재시작을 물어봄
         if (read_msg('state/map_mode')[0] or {}).get('data') == 'COURSE':
             if mode == 'MAPPING':
                 self.restart_ros('map:=slam', '지금은 코스 지도(COURSE)라 스캔할 수 없습니다.\n'
-                                              'RTAB-Map 매핑 모드(map:=slam, 새 지도 폴더)로 ROS를 다시 띄울까요?')
+                                              'SLAM 매핑 모드(map:=slam, 새 지도 폴더)로 ROS를 다시 띄울까요?')
             elif self.view.scan_choices():
                 self.restart_ros('map:=saved', '지금은 코스 지도(COURSE)입니다.\n'
                                                '기본 지도(default 폴더, 없으면 가장 최근)로 위치추정 모드(map:=saved)로 ROS를 다시 띄울까요?')
@@ -1894,7 +1894,7 @@ class App:
         self.restart_ros('map:=slam', f'지금 지도 {name} 는 그대로 두고, 새 지도 폴더(날짜_시각)로 ROS를 다시 띄워 스캔합니다.')
 
     def save_map(self):
-        name, _ = read_msg('state/map_name')  # state_manager 발행 — launch가 정한 RTAB-Map DB 폴더
+        name, _ = read_msg('state/map_name')  # state_manager 발행 — launch가 정한 지도 폴더
         name = (name or {}).get('data')
         if not name:
             self.sent.config(text='지도 저장 불가: 지도 폴더 없음 (컨테이너를 map:=slam · saved 로 띄울 것)')
@@ -1947,11 +1947,11 @@ class App:
         mode, _ = read_msg('state/map_mode')
         mode = (mode or {}).get('data') if mode else None
         names = {'MAPPING': '스캔 중 (지도 작성)', 'LOCALIZATION': '위치추정 (지도 고정)',
-                 'COURSE': '코스 지도 (RTAB-Map 없음 — 바꿀 수 없음)'}
+                 'COURSE': '코스 지도 (SLAM 없음 — 바꿀 수 없음)'}
         line = '지도 모드: ' + (names.get(mode, mode) if mode is not None else '연결 안 됨')
         _, meta, age = read_grid('map')
         line += (f"\nNav2 지도 /map {meta['width']}×{meta['height']}칸 · {age:.0f}s 전 바뀜" if meta and this_run(age)
-                 else "\nNav2 지도 /map: 이번 실행에서 아직 안 옴 (RTAB-Map은 카메라가 들어와야 지도를 냄)")
+                 else "\nNav2 지도 /map: 이번 실행에서 아직 안 옴 (SLAM은 카메라가 들어와야 지도를 냄)")
         return line + (' · 저장 응답 대기…' if self.save_pending else '')
 
     def mission_text(self):
@@ -2111,14 +2111,14 @@ class App:
                          command=lambda: self.navigate_to(x, y))
         if self.nav_goal_id:
             menu.add_command(label='이동 취소', command=self.cancel_navigation)
-        # 초기 위치 — 위치추정(RTAB-Map)이 위치를 잃었을 때 "로봇은 여기"라고 알려 줌 (/initialpose → RTAB-Map, RViz 2D Pose Estimate와 같음)
+        # 초기 위치 — 위치추정(SLAM)이 위치를 잃었을 때 "로봇은 여기"라고 알려 줌 (/initialpose → SLAM, RViz 2D Pose Estimate와 같음)
         menu.add_command(label='여기가 로봇 위치 (초기 위치 지정 /initialpose)' + ('' if mode == 'LOCALIZATION' else f' — 지도 모드 {mode} (위치추정에서)'),
                          state=tk.NORMAL if mode == 'LOCALIZATION' else tk.DISABLED,
                          command=lambda: self.set_initial_pose(x, y))
         menu.tk_popup(e.x_root, e.y_root)
 
     def to_map(self, x, y):
-        """미로(시뮬레이터 지도) 좌표 → map 좌표 + 회전각 (RTAB-Map map→odom 보정 반영 — map_to_world의 역변환)"""
+        """미로(시뮬레이터 지도) 좌표 → map 좌표 + 회전각 (SLAM map→odom 보정 반영 — map_to_world의 역변환)"""
         tx, ty, th = self.view.map_to_world()
         dx, dy = x - tx, y - ty
         return math.cos(th) * dx + math.sin(th) * dy, -math.sin(th) * dx + math.cos(th) * dy, th
@@ -2140,13 +2140,13 @@ class App:
             'pose': {'pose': {'position': {'x': round(mx, 3), 'y': round(my, 3), 'z': 0.0},
                               'orientation': {'x': 0.0, 'y': 0.0, 'z': math.sin(yaw / 2), 'w': math.cos(yaw / 2)}},
                      'covariance': cov}})
-        self.sent.config(text=f'요청: 초기 위치 (map {mx:+.2f}, {my:+.2f}, {math.degrees(yaw):+.0f}°) — /initialpose → RTAB-Map')
+        self.sent.config(text=f'요청: 초기 위치 (map {mx:+.2f}, {my:+.2f}, {math.degrees(yaw):+.0f}°) — /initialpose (받는 SLAM 구성에서)')
 
     def snap_to_real_pose(self):
-        """[실제 위치로 맞추기] — 시뮬레이터는 진짜 위치를 앎(fake_opencr) → 그대로 /initialpose. 위치추정 모드에서만 (RTAB-Map이 그때만 받음)"""
+        """[실제 위치로 맞추기] — 시뮬레이터는 진짜 위치를 앎(fake_opencr) → 그대로 /initialpose. 위치추정 모드에서만 (받는 SLAM 구성에서만)"""
         mode = (read_msg('state/map_mode')[0] or {}).get('data')
         if mode != 'LOCALIZATION':
-            self.sent.config(text=f'실제 위치로 맞추기: 위치추정 모드에서만 (지금 {mode}) — RTAB-Map이 매핑 중엔 초기 위치를 무시함. '
+            self.sent.config(text=f'실제 위치로 맞추기: 위치추정 모드에서만 (지금 {mode}) — 받는 SLAM 구성에서만. '
                                   '[위치추정으로] 뒤에 다시')
             return
         x, y, yaw, _ = self.sim.robot_xy_yaw()
@@ -2179,7 +2179,7 @@ class App:
         from tkinter import messagebox
         if not messagebox.askyesno('ROS 재시작', (why + '\n\n' if why else '') +
                                    f'컨테이너의 ROS를 전부 껐다가 다시 띄웁니다 (1~2분){" — " + args if args else ""}.\n'
-                                   '진행 중 작업·매핑은 끊깁니다 (RTAB-Map 지도는 정상 종료로 저장). 진행할까요?'):
+                                   '진행 중 작업·매핑은 끊깁니다 (nvblox 지도는 정상 종료로 저장). 진행할까요?'):
             return False
         send('/cmd/restart', 'std_msgs/msg/String', {'data': ('all ' + args).strip()})
         self.sent.config(text=f'요청: ROS 재시작{" " + args if args else ""} (/cmd/restart all → state_manager) — 1~2분 뒤 다시 연결')

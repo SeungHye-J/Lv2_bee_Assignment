@@ -1,5 +1,5 @@
 <?xml version='1.0'?>
-<!-- tools/build_walls.py로 생성 — 손으로 고치지 말 것. 원본: original/ -->
+<!-- tools/course/build_walls.py로 생성 — 손으로 고치지 말 것. 원본: original/ -->
 <sdf version="1.8"><model name="twin_closed_maze"><static>true</static><link name="maze">
 <collision name="post_0"><pose>-2.202 3.152 0.195 0 0 0</pose><geometry><box><size>0.06 0.06 0.39</size></box></geometry></collision><visual name="post_0_v"><pose>-2.202 3.152 0.195 0 0 0</pose><geometry><box><size>0.06 0.06 0.39</size></box></geometry><material><ambient>0.65 0.72 0.8 1</ambient><diffuse>0.65 0.72 0.8 1</diffuse></material></visual>
 <collision name="post_1"><pose>-2.202 2.758 0.195 0 0 0</pose><geometry><box><size>0.06 0.06 0.39</size></box></geometry></collision><visual name="post_1_v"><pose>-2.202 2.758 0.195 0 0 0</pose><geometry><box><size>0.06 0.06 0.39</size></box></geometry><material><ambient>0.65 0.72 0.8 1</ambient><diffuse>0.65 0.72 0.8 1</diffuse></material></visual>

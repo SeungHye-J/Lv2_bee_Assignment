@@ -92,9 +92,9 @@ install(TARGETS rl_arm_correction LIBRARY DESTINATION lib)
 
 # 파라미터 (bringup이 share/ml/config/ml.yaml을 노드에 넘긴다)
 install(DIRECTORY config DESTINATION share/${PROJECT_NAME})
-# 학습 모델 — ros2_ws/model/<노드>/* → share/ml/model/<노드>/ (기본 model_path=rl_nav_controller/policy.onnx)
+# 학습 모델 — lv2_module6/models/<노드>/* → share/ml/model/<노드>/ (기본 model_path=rl_nav_controller/policy.onnx)
 #   노드별 폴더로 겹치지 않게 (rl_nav_controller · grasp_scorer …)
-set(MODEL_DIR "${CMAKE_CURRENT_SOURCE_DIR}/../../model")
+set(MODEL_DIR "${CMAKE_CURRENT_SOURCE_DIR}/../../../models")
 if(IS_DIRECTORY "${MODEL_DIR}")
   # yolo는 perception이 share/perception/model에 설치 — ml에서 중복 설치 안 함
   install(DIRECTORY "${MODEL_DIR}/" DESTINATION share/${PROJECT_NAME}/model

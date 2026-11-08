@@ -1,7 +1,7 @@
 // skill_load — /skills/load: 손에 든 퍽을 적재함 칸에 넣기 (goal.slot = 칸 · goal.shape = 퍽 모양 box|cyl — 칸 고르기·장부는 coordinator)
 //   sim: carry → 칸 위(q_over, MoveIt) → 닿는 구간 (load_slot 정책: q_over → q_low → 벌림 → q_over) → stow
 //   moveit: carry → q_over → q_low → 벌림 → q_lift → stow (예전)
-//   정책: model/skills/load_slot/ (slot_env.LoadEnv — 손 카메라 대신 적재함 칸 − 손 안 퍽, hand_relative slot)
+//   정책: models/skills/load_slot/ (slot_env.LoadEnv — 손 카메라 대신 적재함 칸 − 손 안 퍽, hand_relative slot)
 #include "rclcpp_components/register_node_macro.hpp"
 #include "skills/arm_io.hpp"
 #include "skills/basket_table.hpp"

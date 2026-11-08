@@ -3,7 +3,7 @@
 #   (적힌 것만 덮어씀 — 나머지는 nvblox 기본값). 값을 바꾸면 실기에서 /map · ~/mesh(RViz)로 확인
 nvblox_node:
   ros__parameters:
-    # 지도 프레임 = map (cuVSLAM이 map→odom). 원점 = 출발 자리 base_footprint (RTAB-Map과 같음 → mission_manager 좌표 그대로)
+    # 지도 프레임 = map (cuVSLAM이 map→odom). 원점 = 출발 자리 base_footprint (기존 SLAM과 같음 → mission_manager 좌표 그대로)
     #   ponytail: cuVSLAM 루프 클로저로 map→odom이 튀면 이미 쌓은 복셀은 안 옮겨짐 — 튐이 크면 global_frame odom + 격자만 map으로 옮기는 방식 검토
     global_frame: map
     use_tf_transforms: true
@@ -28,7 +28,7 @@ nvblox_node:
     esdf_slice_bounds_visualization_attachment_frame_id: "base_footprint"
     workspace_height_bounds_visualization_attachment_frame_id: "base_footprint"
     static_mapper:
-      # 2D 격자로 자르는 높이 (map z = 바닥) — Nav2 costmap(min 0.03 · max 0.6) · RTAB-Map Grid(0.03~0.6)와 같은 기준
+      # 2D 격자로 자르는 높이 (map z = 바닥) — Nav2 costmap(min 0.03 · max 0.6) · 기존 SLAM Grid(0.03~0.6)와 같은 기준
       esdf_slice_height: 0.1
       esdf_slice_min_height: 0.03
       esdf_slice_max_height: 0.3
