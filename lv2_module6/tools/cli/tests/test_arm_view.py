@@ -10,8 +10,8 @@ sys.path.insert(0, str(HERE.parent))   # tools/cli
 from ros.fake.FakeRos import FakeRos  # noqa: E402
 
 FakeRos.install()
-from op.arm_view import ArmView  # noqa: E402
-from op.arm_view.arm_view import FINE, STEP  # noqa: E402
+from op.views.arm import ArmView  # noqa: E402
+from op.views.arm.arm_view import FINE, STEP  # noqa: E402
 from op.consts import ARM_JOINTS, ARM_LIMITS  # noqa: E402
 
 cur = {n: 0.0 for n in ARM_JOINTS}

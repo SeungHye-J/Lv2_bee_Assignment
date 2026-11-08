@@ -19,8 +19,8 @@ import time
 from ..defs import BACK, MAIN, MENU_REFRESH_S, QUIT, STAY, TIMEOUT
 from ..keys import KeyReader
 from ..terminal import BOLD, RESET
-from ..menu_bar import ChoiceItem, LeftSideMenuBar
-from ..state_bar import TopStateBar
+from ..bars.menu import ChoiceItem, LeftSideMenuBar
+from ..bars.state import TopStateBar
 
 
 class Window:
@@ -149,8 +149,9 @@ class Window:
                         continue
                     order = [self.menu_bar] + ([self.center_comp] if self.center_comp is not None else []) \
                         + ([self.top_bar] if self.top_bar.focusable else [])
-                    if k == 'tab' and len(order) > 1:   # Tab = 다음 부품으로 포커스 (메뉴 → 중앙 → 상태바 → 메뉴)
-                        self.focus = order[(order.index(self.focus) + 1) % len(order)]
+                    if k in ('tab', 'shift+tab') and len(order) > 1:   # Tab/Shift+Tab = 부품 포커스 순환
+                        step = -1 if k == 'shift+tab' else 1
+                        self.focus = order[(order.index(self.focus) + step) % len(order)]
                         if keys.pending():
                             continue   # 눌린 키가 더 있으면 그리지 말고 먼저 처리 (꾹 누를 때 밀리지 않게)
                         break
@@ -215,14 +216,14 @@ class Window:
     def hints_line(self) -> str:
         """하단 고정 키 안내 — 포커스된 막대에 맞춰 (최상위면 뒤로·메인 없음)."""
         if self.focus is self.top_bar:
-            return '  ' + ' · '.join(['←→ 칸 이동', 'Enter 열기', 'Tab/Esc 메뉴로', 'q 종료'])
+            return '  ' + ' · '.join(['←→ 칸 이동', 'Enter 열기', 'Tab/Shift+Tab · Esc 메뉴로', 'q 종료'])
         if self.center_comp is not None and self.focus is self.center_comp:
             return '  ' + (self.center_comp.hints or '') + ' · Tab/Esc 메뉴로 · q 종료'
         hints = ['↑↓ 이동', 'Enter 실행', '번호 포커스']
         if self.center_comp is not None:
-            hints.append('Tab 중앙')
+            hints.append('Tab 중앙 · Shift+Tab 역방향')
         if self.top_bar.focusable:
-            hints.append('Tab 상태바')
+            hints.append('Tab 상태바 · Shift+Tab 역방향')
         if self.back:
             hints.append('Esc/◀ 뒤로')
         if self.main:

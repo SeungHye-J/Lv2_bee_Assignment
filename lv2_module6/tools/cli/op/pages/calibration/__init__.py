@@ -5,7 +5,7 @@ import argparse
 from pathlib import Path
 
 from ...defs import STAY
-from ..base import GoMenu, Menu, MenuItem
+from ...menus import GoMenu, Menu, MenuItem
 from .core import load_plan
 
 DEFAULT_PLAN = Path(__file__).resolve().parent / 'wheel' / 'command.json'   # op/pages/calibration/wheel/ — sim과 같은 네모 54 s

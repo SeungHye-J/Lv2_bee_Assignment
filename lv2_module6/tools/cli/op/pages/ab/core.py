@@ -1,6 +1,6 @@
 """RlNavController 정책 ON/OFF A/B — 상태·ON/OFF·rosbag 기록·리포트.
 
-사용자 진입점은 `run-cli ab <노드> <동작>` / 메뉴 14 하나다. 이 파일은 UI 없이 동작만 담당한다.
+사용자 진입점은 `run-cli ab <노드> <동작>` / 메뉴 13 하나다. 이 파일은 UI 없이 동작만 담당한다.
   - ON/OFF: /controller_server/FollowPath/toggle (std_srvs/SetBool), 안 되면 파라미터 FollowPath.enable로 대체
   - 기록: ros2 bag record를 백그라운드로 띄우고 ~/.cache/beebot/ab.json에 pid·bag 경로를 남긴다
   - 리포트: pages/ab/rl_nav_controller/report.py (rosbag2 → report.png)
@@ -15,6 +15,7 @@ import json
 import math
 import os
 import re
+import shlex
 import signal
 import subprocess
 import sys
@@ -35,7 +36,7 @@ PARAM_NODE = 'controller_server'  # 플러그인이라 파라미터는 controlle
 TOGGLE = '/controller_server/FollowPath/toggle'
 STATUS = '/controller_server/FollowPath/status'  # [rl_active, reason, …] — 컨트롤러가 한 번 돌 때마다 (rl_nav_controller.hpp)
 REASONS = {0: '정책', 1: '모델 없음', 2: 'enable=false(DWB)', 3: '센서 없음/stale', 4: '추론 실패'}
-# guide 전에 active여야 하는 Nav2 수명주기 노드 (map_server는 코스 지도로 돌 때만 — 그래프에 있으면 본다)
+# guide 전에 active여야 하는 Nav2 수명주기 노드 (map_server는 저장 지도용 — 테스트베드 fake SLAM은 fake_nvblox가 /map)
 LIFECYCLE_NODES = ('planner_server', 'controller_server', 'bt_navigator', 'behavior_server',
                    'velocity_smoother', 'collision_monitor')
 MIN_GOAL_GAP_M = 0.3  # 출발·goal 사이 최소 거리 — goal_checker 허용(0.10)보다 넉넉히
@@ -203,18 +204,65 @@ class AbTest:
         return self._current_map_pose(frame_id)
 
     def set_robot_pose(self, x: float, y: float, yaw_deg: float, frame_id: str = 'map') -> None:
-        """로봇 위치를 지도 위 (x, y, yaw)로 — faker(시뮬레이터)의 set_pose 텔레포트. 실제 로봇은 RuntimeError."""
-        if not self._is_sim():
-            raise RuntimeError('실제 로봇은 위치 지정을 지원하지 않음 — 시뮬레이터(faker)가 떠 있을 때만 (/cmd/fake_opencr/set_pose)')
-        self._reset_sim_pose({'x': x, 'y': y, 'yaw_deg': yaw_deg}, frame_id)
+        """로봇 위치를 지도 위 (x, y, yaw)로.
+        faker는 /cmd/fake_opencr/set_pose 텔레포트, 실기는 /initialpose (cuVSLAM 등 위치추정 노드가 받는다)."""
+        if self._is_sim():
+            self._reset_sim_pose({'x': x, 'y': y, 'yaw_deg': yaw_deg}, frame_id)
+        else:
+            self._publish_initialpose(x, y, yaw_deg, frame_id)
+
+    def _publish_initialpose(self, x: float, y: float, yaw_deg: float, frame_id: str) -> None:
+        from geometry_msgs.msg import PoseWithCovarianceStamped
+        yaw = math.radians(float(yaw_deg))
+        msg = PoseWithCovarianceStamped()
+        msg.header.frame_id = frame_id
+        msg.header.stamp = self.node.get_clock().now().to_msg()
+        msg.pose.pose.position.x = float(x)
+        msg.pose.pose.position.y = float(y)
+        msg.pose.pose.orientation.z = math.sin(yaw / 2.0)
+        msg.pose.pose.orientation.w = math.cos(yaw / 2.0)
+        msg.pose.covariance[0] = msg.pose.covariance[7] = 0.25
+        msg.pose.covariance[35] = 0.0685
+        pub = self.node.create_publisher(PoseWithCovarianceStamped, '/initialpose', 10)
+        try:
+            for _ in range(3):
+                pub.publish(msg)
+                self.bus._poll(0.2)
+            if pub.get_subscription_count() == 0:
+                raise RuntimeError('/initialpose 구독자 없음 — cuVSLAM initialpose 지원(재시작) 확인')
+        finally:
+            self.node.destroy_publisher(pub)
+        print(f'[initialpose] map ({x:+.2f}, {y:+.2f}, {yaw_deg:+.1f}°)')
 
     def robot_pose(self, frame_id: str = 'map') -> dict | None:
-        """지금 로봇 자세 — 기다리지 않음 (지도 화면이 0.3초마다 부른다). TF가 아직 없으면 None."""
+        """지금 로봇 자세 — 기다리지 않음 (지도 화면이 0.3초마다 부른다).
+        docker는 호스트에 tf2_ros가 없으므로 fake_opencr의 map 프레임 ground_truth를 쓴다 (odom 아님)."""
+        if os.environ.get('CLI_SOURCE') == 'docker' and frame_id == 'map':
+            truth = self._docker_ground_truth()
+            if truth is not None:
+                return truth
         try:
             x, y, yaw = self._lookup_pose(frame_id)
         except Exception:
             return None
         return {'x': round(x, 3), 'y': round(y, 3), 'yaw_deg': round(math.degrees(yaw), 1)}
+
+    def _docker_ground_truth(self) -> dict | None:
+        debug = getattr(self.node, 'debug_dir', None)
+        if not debug:
+            return None
+        try:
+            doc = json.loads((Path(debug) / 'output' / 'topic' / 'fake_opencr' / 'ground_truth' / 'message').read_text())
+            pose = (doc.get('data') or {}).get('pose') or {}
+            pos, q = pose.get('position') or {}, pose.get('orientation') or {}
+            x, y = float(pos['x']), float(pos['y'])
+            qx, qy, qz, qw = (float(q.get(k, 0.0)) for k in ('x', 'y', 'z', 'w'))
+            if qw == 0.0 and qz == 0.0:
+                qw = 1.0
+            yaw = math.atan2(2.0 * (qw * qz + qx * qy), 1.0 - 2.0 * (qy * qy + qz * qz))
+            return {'x': round(x, 3), 'y': round(y, 3), 'yaw_deg': round(math.degrees(yaw), 1)}
+        except (OSError, ValueError, KeyError, TypeError):
+            return None
 
     def _load_plan_file(self, path: str | None = None) -> dict:
         plan_path = Path(path).expanduser() if path else PLAN
@@ -275,6 +323,14 @@ class AbTest:
         at, enabled, model = self._param_cache
         if not force and now - at < 1.0:
             return enabled, model
+        # 실제 적용 상태는 플러그인 진단이 정확하다 (toggle 서비스는 ROS 파라미터를 안 바꾼다).
+        diag = next((dict(v) for n, v in self.bus.state.diag_values.items()
+                     if 'controller_server' in n), None)
+        if diag and 'enable' in diag:
+            enabled = diag.get('enable') == 'true'
+            model = diag.get('model') or model
+            self._param_cache = (now, enabled, model)
+            return enabled, model
         enabled = model = None
         cli = self.bus.param_client(PARAM_NODE, '/')
         if cli is not None and cli.wait_for_services(timeout_sec=1.5):
@@ -310,6 +366,14 @@ class AbTest:
         lines = [f'[{NODE}] 정책 {on}']
         if st['model']:
             lines.append(f' 모델: {st["model"]}')
+        for diag_name, values in self.bus.state.diag_values.items():
+            if 'controller_server' in diag_name:
+                d = dict(values)
+                lines.append(
+                    f' device {d.get("device", "?")} · {d.get("provider", "?")}'
+                    f' · enable {d.get("enable", "?")} · active {d.get("active", "?")}'
+                    f' · mode {d.get("mode", "?")} · fallback {d.get("inner", "?")}')
+                break
         diags = [(n, lv, msg) for n, lv, msg in self.bus.diag_entries() if 'controller_server' in n]
         for n, lv, msg in diags[:4]:
             mark = 'OK' if lv == 0 else 'WARN' if lv == 1 else 'ERR' if lv == 2 else '?'
@@ -589,6 +653,72 @@ class AbTest:
         except Exception as exc:
             print(f'WARN: plan.csv 기록 실패: {exc}', file=sys.stderr)
 
+    def send_nav_goal(self, pose: dict, frame_id: str = 'map') -> None:
+        """Nav2 NavigateToPose 한 점을 보내고 바로 돌아온다 — 지도 화면 goal 찍기용 (진행은 로봇이 한다).
+        docker 소스는 가짜 rclpy에 nav2_msgs.action이 없으므로 컨테이너의 ros2 CLI로 보낸다."""
+        if os.environ.get('CLI_SOURCE') == 'docker':
+            self._send_nav_goal_docker(pose, frame_id)
+            return
+        from geometry_msgs.msg import PoseStamped
+        from nav2_msgs.action import NavigateToPose
+
+        cli = self._nav_client()
+        if not cli.wait_for_server(timeout_sec=5.0):
+            raise RuntimeError('/navigate_to_pose 액션 서버 없음 — 지도/로컬라이제이션/Nav2 확인')
+        goal = NavigateToPose.Goal()
+        goal.pose = PoseStamped()
+        goal.pose.header.frame_id = frame_id
+        goal.pose.header.stamp = self.node.get_clock().now().to_msg()
+        goal.pose.pose.position.x = float(pose['x'])
+        goal.pose.pose.position.y = float(pose['y'])
+        yaw = math.radians(float(pose.get('yaw_deg', 0.0)))
+        goal.pose.pose.orientation.z = math.sin(yaw / 2.0)
+        goal.pose.pose.orientation.w = math.cos(yaw / 2.0)
+        send = cli.send_goal_async(goal)
+        rclpy.spin_until_future_complete(self.node, send, timeout_sec=5.0)
+        if not send.done():
+            raise RuntimeError('이동 목표: goal 전송 timeout')
+        handle = send.result()
+        if handle is None or not handle.accepted:
+            raise RuntimeError('이동 목표: goal 거부됨')
+
+    def _send_nav_goal_docker(self, pose: dict, frame_id: str) -> None:
+        """docker: debug/input/action/navigate_to_pose/goal 파일 브리지 → 컨테이너 service_action_bag_input → 진짜 Nav2.
+        (rclpy action을 호스트에 흉내내지 않는다 — 컨테이너가 이미 액션을 받아 준다.)"""
+        debug = getattr(self.node, 'debug_dir', None) or os.environ.get('CLI_DEBUG_DIR')
+        if not debug:
+            raise RuntimeError('docker debug 경로를 모름 — --debug-dir 확인')
+        debug = Path(debug)
+        name = 'navigate_to_pose'
+        folder = debug / 'input' / 'action' / name
+        folder.mkdir(parents=True, exist_ok=True)
+        goal_id = f'cli-{os.getpid()}-{int(time.time() * 1000)}'
+        yaw = math.radians(float(pose.get('yaw_deg', 0.0)))
+        payload = {'goal_id': goal_id, 'data': {'pose': {
+            'position': {'x': float(pose['x']), 'y': float(pose['y']), 'z': 0.0},
+            'orientation': {'x': 0.0, 'y': 0.0,
+                            'z': math.sin(yaw / 2.0), 'w': math.cos(yaw / 2.0)},
+        }}}
+        goal = folder / 'goal'
+        tmp = folder / f'.goal-{os.getpid()}-{int(time.time() * 1000)}'
+        tmp.write_text(json.dumps(payload, ensure_ascii=False))
+        os.replace(tmp, goal)
+        accept_path = debug / 'output' / 'action' / name / 'accept'
+        end = time.monotonic() + 5.0
+        while time.monotonic() < end and rclpy.ok():
+            try:
+                doc = json.loads(accept_path.read_text())
+            except (OSError, ValueError):
+                time.sleep(0.1)
+                continue
+            if str(doc.get('goal_id', '')) == goal_id:
+                if not doc.get('accepted'):
+                    raise RuntimeError(f'goal 거부: {doc.get("error") or "이유 없음"}')
+                print(f'[docker] Nav2 goal 전송 → ({pose["x"]:.2f}, {pose["y"]:.2f}, {pose.get("yaw_deg", 0):.0f}°)')
+                return
+            time.sleep(0.1)
+        raise RuntimeError('action 브리지 응답 없음 — service_action_bag_input/Nav2 확인')
+
     def nav_goal(self, pose: dict, frame_id: str, timeout: float, what: str) -> None:
         """Nav2 NavigateToPose 한 점 — 도착/성공까지 기다린다. 실패는 RuntimeError.
         TUI에서 기다리는 동안 s = LegStopped(이 leg만) · q = AbortAll(전체) — goal을 취소하고 올린다."""
@@ -735,7 +865,7 @@ class AbTest:
             raise RuntimeError('active가 아닌 Nav2 노드: ' + ', '.join(bad) +
                                ' — `run-cli node activate <이름>` 후 다시 (기동 중 응답 시간 초과로 멈춘 경우)')
         if not self._wait_map(5.0):
-            raise RuntimeError('/map 없음 — 코스 지도(map_server) 또는 SLAM 확인')
+            raise RuntimeError('/map 없음 — fake_nvblox(SLAM) 또는 저장 지도 확인')
         prev = start
         for i, goal in enumerate(plan['route'], 1):
             gap = math.hypot(goal['x'] - prev['x'], goal['y'] - prev['y'])
@@ -755,7 +885,12 @@ class AbTest:
     def _is_sim(self) -> bool:
         """테스트베드(faker)인가 — fake_opencr가 /cmd/fake_opencr/set_pose를 듣고 있으면 텔레포트가 된다."""
         try:
-            return self.node.count_subscribers('/cmd/fake_opencr/set_pose') > 0
+            if self.node.count_subscribers('/cmd/fake_opencr/set_pose') > 0:
+                return True
+        except Exception:
+            pass
+        try:
+            return any(n == 'fake_opencr' for n, _ in self.node.get_node_names_and_namespaces())
         except Exception:
             return False
 

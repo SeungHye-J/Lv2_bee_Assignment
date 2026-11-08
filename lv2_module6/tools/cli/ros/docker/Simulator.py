@@ -20,9 +20,9 @@ from pathlib import Path
 
 CLI = Path(__file__).resolve().parents[2]      # tools/cli
 ROOT = CLI.parents[1]                          # lv2_module6
-SIM_DIR = ROOT / 'simulators' / 'vazebo'
+SIM_DIR = Path(__file__).resolve().parent / 'vazebo'
 SIM_MAIN = SIM_DIR / 'simple.py'   # 없으면 main.py로 폴백
-SIM_PY = ROOT / 'simulators' / '.venv' / 'bin' / 'python'
+SIM_PY = Path(__file__).resolve().parent / '.venv' / 'bin' / 'python'
 LOG = Path.home() / '.cache' / 'beebot' / 'simulator.log'
 PID_ENV = 'BEEBOT_SIM_PID'
 ASSETS = Path(__file__).resolve().parent / 'assets'

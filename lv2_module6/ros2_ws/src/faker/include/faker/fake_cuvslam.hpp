@@ -1,6 +1,6 @@
 #pragma once
 
-// fake_cuvslam (faker 대역) — 실기에서 cuVSLAM이 하는 map → odom 보정을 시뮬레이터 진짜 위치로 대신한다 (map:=course · fake_opencr)
+// fake_cuvslam (faker 대역) — 실기에서 cuVSLAM이 하는 map → odom 보정을 시뮬레이터 진짜 위치로 대신한다 (map:=slam|saved · fake_opencr)
 //   입력: ✉️ /fake_opencr/ground_truth (PoseStamped, map — 미끄럼·충돌까지 반영된 진짜 위치) · TF odom → base_footprint (EKF)
 //   출력: TF map → odom = 진짜 위치 × (odom 위치)⁻¹ — 바퀴가 헛돌거나 벽·박스에 걸려 odom이 틀어져도 로봇이 아는 map 위치는 진짜
 //   (예전 map → odom 항등이면 한 번 걸린 뒤 위치가 2 m 넘게 틀어져 Nav2가 출발점부터 못 찾았음 — 2026-10-28 주사위 맵 시험)

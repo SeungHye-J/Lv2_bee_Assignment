@@ -132,9 +132,9 @@ def _seed(app: 'ot.OperatorTool'):
     """가짜 bringup 상태 — status/menu가 볼 화면용."""
     st = app.state
     st.values.update({
-        'operation_mode': 'AUTO',
-        'map_mode': 'COURSE',
-        'map_name': 'default',
+        'operation_mode': 'MANUAL',
+        'map_mode': 'NONE',
+        'map_name': '',
         'map_list': 'default\n20261017_223015',
         'devices': 'pole_front_cam, gripper_cam, opencr, imu, wheels, arm, gripper',
         'topics': '/joint_states · /odom · /tracked_objects (42개)',
@@ -195,7 +195,10 @@ if __name__ == '__main__':
         code = ot.main()
     finally:
         if viewer is not None:
-            viewer.stop()
+            try:
+                viewer.stop()
+            except KeyboardInterrupt:
+                pass  # Ctrl+C로 CLI를 끌 때 종료 중에 한 번 더 들어오는 경우 — 스택은 그대로 둔다
     node = _APPS.get('node')
     if node is not None:
         _save(node.state)

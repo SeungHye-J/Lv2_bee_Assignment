@@ -220,44 +220,26 @@ class OperatorTool(Node):
             from op.pages import DevicesMenu
             return DevicesMenu(self)
         if name == '3':
-            from op.pages import ModeMenu
-            return ModeMenu(self)
+            from op.pages import ControlMenu
+            return ControlMenu(self)
         if name == '4':
-            from op.pages import ManualMenu
-            return ManualMenu(self)
-        if name == '5':
-            from op.pages import ArmMenu
-            return ArmMenu(self)
-        if name == '6':
-            from op.pages import GripperMenu
-            return GripperMenu(self)
-        if name == '7':
             from op.pages import MapMenu
             return MapMenu(self)
-        if name == '8':
-            from op.pages import WheelMenu
-            return WheelMenu(self)
-        if name == '9':
-            from op.pages import EstopMenu
-            return EstopMenu(self)
-        if name == '10':
+        if name == '5':
             from op.pages import NodesMenu
             return NodesMenu(self)
-        if name == '11':
+        if name == '6':
             from op.pages import RvizPage
             return RvizPage(self)
-        if name == '12':
-            from op.pages import ParamMenu
-            return ParamMenu(self)
-        if name == '13':
+        if name == '7':
             from op.pages import CalibrateMenu
             return CalibrateMenu(self)
-        if name == '14':
+        if name == '8':
             from op.pages import AbMenu
             return AbMenu(self)
-        if name == '0':
-            from op.pages import BeepMenu
-            return BeepMenu(self)
+        if name == '9':
+            from op.pages import TopicBagMenu
+            return TopicBagMenu(self)
         if name == 'diagnostics':
             from op.pages import DiagnosticsMenu
             return DiagnosticsMenu(self)

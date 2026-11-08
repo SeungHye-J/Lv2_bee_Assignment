@@ -2,17 +2,17 @@
 
 ros/msgs.py의 메시지 스텁을 쓰되 Node를 파일 브리지로 바꾼다.
 호스트에서 진짜 operator_tool 코드를 그대로 돌리면서, 컨테이너의 ROS 스택과는
-DDS가 아니라 monitor_manager·input_manager·service_action_input이 만드는 파일로 주고받는다.
+DDS가 아니라 monitor_manager·input_manager·service_action_bag_input이 만드는 파일로 주고받는다.
 
   구독   output/topic/<토픽>/message  {"type", "data"} JSON   ← monitor_manager
          output/topic/map/data        헤더 JSON + OccupancyGrid int8 (지도는 이쪽이 가볍다)
   발행   input/topic/<토픽>/message   {"type", "data"} JSON   → input_manager
-  서비스 input/service/<이름>/message {"request_id", "data"}   → service_action_input
+  서비스 input/service/<이름>/message {"request_id", "data"}   → service_action_bag_input
          output/service/<이름>/message {"request_id", "ok", "data"|"error"}
   파라미터 debug/node/<노드>/params   "이름: 값" 텍스트 (읽기 전용 — monitor_manager)
   그래프 debug/node/list · debug/topic/<토픽>/info
 
-서비스는 faker의 service_action_input 화이트리스트만 실제로 호출된다
+서비스는 faker의 service_action_bag_input 화이트리스트만 실제로 호출된다
 (map_saver/save_map · score_grasps · clear_octomap · reset · apply_planning_scene 등).
 파라미터 변경·lifecycle·컨트롤러 토글은 아직 faker에 입력 통로가 없어 실패로 답한다.
 """
@@ -37,6 +37,7 @@ _MSG_TYPES = {
     'Int32MultiArray': 'std_msgs/msg/Int32MultiArray',
     'Float32MultiArray': 'std_msgs/msg/Float32MultiArray',
     'TwistStamped': 'geometry_msgs/msg/TwistStamped',
+    'PoseStamped': 'geometry_msgs/msg/PoseStamped',
     'Twist': 'geometry_msgs/msg/Twist',
     'JointState': 'sensor_msgs/msg/JointState',
     'Odometry': 'nav_msgs/msg/Odometry',
@@ -124,7 +125,7 @@ class _FileSub(RosSubscription):
     def poll(self) -> None:
         if self.destroyed:
             return
-        use_grid = self.topic == '/map' and self._grid_path().is_file()
+        use_grid = (self.topic == '/map' or self.topic.endswith('/costmap')) and self._grid_path().is_file()
         path = self._grid_path() if use_grid else self._message_path()
         try:
             st = path.stat()
@@ -210,6 +211,8 @@ class _ServiceFuture:
         self.name = name
         self._done = False
         self._result = None
+        self.ok = True
+        self.error = ''
 
     def _poll(self) -> None:
         if self._done:
@@ -221,9 +224,12 @@ class _ServiceFuture:
         if doc.get('request_id') != self.request_id:
             return  # 다른 요청의 늦은 응답
         if doc.get('ok'):
+            self.ok = True
             self._result = _obj(doc.get('data') or {})
         else:
             err = doc.get('error') or '알 수 없음'
+            self.ok = False
+            self.error = err
             print(f'[bridge] 서비스 {self.name} 실패: {err}', file=sys.stderr)
             self._result = _Msg(result=False, ok=False, error=err)
         self._done = True
@@ -366,14 +372,90 @@ class AsyncParameterClient:
                                        dynamic_typing=False))
         return DoneFuture(_Msg(descriptors=descs))
 
+    @staticmethod
+    def _json_param_value(value):
+        """Python 값 → rcl_interfaces/ParameterValue JSON."""
+        if isinstance(value, bool):
+            return {'type': 1, 'bool_value': value}
+        if isinstance(value, int):
+            return {'type': 2, 'integer_value': value}
+        if isinstance(value, float):
+            return {'type': 3, 'double_value': value}
+        if isinstance(value, str):
+            return {'type': 4, 'string_value': value}
+        if isinstance(value, (list, tuple)):
+            vals = list(value)
+            if all(isinstance(v, bool) for v in vals):
+                return {'type': 6, 'bool_array_value': vals}
+            if all(isinstance(v, int) for v in vals):
+                return {'type': 7, 'integer_array_value': vals}
+            if all(isinstance(v, (int, float)) for v in vals):
+                return {'type': 8, 'double_array_value': [float(v) for v in vals]}
+            if all(isinstance(v, str) for v in vals):
+                return {'type': 9, 'string_array_value': vals}
+        return {'type': 0}
+
+    def _set_params(self, params, atomic: bool):
+        """debug/input/service/set_parameters → service_action_bag_input이 대상 노드의 set_parameters 호출."""
+        debug = self.node.debug_dir
+        name = 'set_parameters'
+        req_path = debug / 'input' / 'service' / name / 'message'
+        out_path = debug / 'output' / 'service' / name / 'message'
+        req_id = f'cli-{os.getpid()}-{int(time.time() * 1000)}'
+        values = []
+        for p in params:
+            pname = str(getattr(p, 'name', '') or '')
+            pvalue = getattr(p, 'value', None)
+            values.append({'name': pname, 'value': self._json_param_value(pvalue)})
+        payload = {'request_id': req_id,
+                   'data': {'node': self.fqn, 'parameters': values, 'atomic': bool(atomic)}}
+        req_path.parent.mkdir(parents=True, exist_ok=True)
+        tmp = req_path.with_name(f'.{name}-{os.getpid()}-{_tmp_seq}')
+        tmp.write_text(json.dumps(payload, ensure_ascii=False))
+        os.replace(tmp, req_path)
+        end = time.monotonic() + 5.0
+        while time.monotonic() < end:
+            try:
+                doc = json.loads(out_path.read_text())
+            except (OSError, ValueError):
+                time.sleep(0.05)
+                continue
+            if str(doc.get('request_id', '')) != req_id:
+                time.sleep(0.05)
+                continue
+            if not doc.get('ok'):
+                reason = str(doc.get('error') or 'set_parameters 실패')
+                return [_Msg(successful=False, reason=reason) for _ in params]
+            data = doc.get('data') or {}
+            results = data.get('results') or []
+            out = []
+            for i in range(len(params)):
+                r = results[i] if i < len(results) and isinstance(results[i], dict) else {}
+                out.append(_Msg(successful=bool(r.get('successful')),
+                                reason=str(r.get('reason') or '')))
+            if any(r.successful for r in out):
+                try:  # monitor_manager 스냅샷도 새 값으로 — 다음 발견 때 덮어써도 값은 같다
+                    entries = self._entries()
+                    for p in params:
+                        name = str(getattr(p, 'name', '') or '')
+                        if name:
+                            entries[name] = str(getattr(p, 'value', None))
+                    self.path.parent.mkdir(parents=True, exist_ok=True)
+                    self.path.write_text('\n'.join(f'{k}: {v}' for k, v in entries.items()) + '\n')
+                except OSError:
+                    pass
+            return out
+        return [_Msg(successful=False, reason='set_parameters 응답 없음 (서비스 브리지 확인)')
+                for _ in params]
+
     def set_parameters(self, params):
-        reason = 'docker 파일 브리지에서는 파라미터 변경 미지원 (faker에 input 경로 없음)'
-        return DoneFuture(
-            _Msg(results=[_Msg(successful=False, reason=reason) for _ in params]))
+        return DoneFuture(_Msg(results=self._set_params(params, atomic=False)))
 
     def set_parameters_atomically(self, params):
-        reason = 'docker 파일 브리지에서는 파라미터 변경 미지원 (faker에 input 경로 없음)'
-        return DoneFuture(_Msg(successful=False, reason=reason))
+        results = self._set_params(params, atomic=True)
+        ok = bool(results) and all(r.successful for r in results)
+        reason = '' if ok else next((r.reason for r in results if not r.successful), '실패')
+        return DoneFuture(_Msg(successful=ok, reason=reason))
 
 
 # ---------------------------------------------------------------- 노드
@@ -390,6 +472,8 @@ class DockerRos(RosNode):
         self._req_t = 0.0
         self._file_subs: list[_FileSub] = []
         self._file_clients: list[_FileClient] = []
+        self._svc_list: dict = {}
+        self._svc_list_key = None
 
     def _write_requests(self, force: bool = False) -> None:
         """호스트가 지금 구독 중인 토픽 → input/monitor/*.topics (monitor가 동적으로 구독)."""
@@ -461,6 +545,76 @@ class DockerRos(RosNode):
             return (self.debug_dir / 'topic' / topic.lstrip('/') / 'info').read_text()
         except OSError:
             return ''
+
+    def count_subscribers(self, topic: str) -> int:
+        """debug/topic/<토픽>/info의 Subscription count — rclpy Node API 호환 (docker 그래프에는 실시간 API가 없다)."""
+        text = self._topic_info(topic)
+        m = re.search(r'^Subscription count:\s*(\d+)', text, re.M)
+        return int(m.group(1)) if m else 0
+
+    def count_publishers(self, topic: str) -> int:
+        text = self._topic_info(topic)
+        m = re.search(r'^Publisher count:\s*(\d+)', text, re.M)
+        return int(m.group(1)) if m else 0
+
+    # ------------------------------------------------ 서비스 (service_action_bag_input 목록·파일 브리지)
+    def _service_list(self) -> dict:
+        path = self.debug_dir / 'output' / 'service' / 'list.json'
+        try:
+            st = path.stat()
+            key = (st.st_mtime_ns, st.st_size)
+            if self._svc_list_key == key:
+                return self._svc_list
+            doc = _read_json(path)
+            self._svc_list = doc if isinstance(doc, dict) else {}
+            self._svc_list_key = key
+            return self._svc_list
+        except (OSError, ValueError):
+            return self._svc_list or {}
+
+    def get_service_names_and_types(self):
+        doc = self._service_list()
+        return [(s.get('name', ''), list(s.get('types') or []))
+                for s in doc.get('services', [])
+                if isinstance(s, dict) and s.get('name')]
+
+    def service_callable(self, name: str) -> bool:
+        """service_action_bag_input이 타입을 고정해 실제 호출할 수 있는 서비스인지."""
+        for s in self._service_list().get('services', []):
+            if isinstance(s, dict) and s.get('name') == name:
+                return bool(s.get('callable', True))
+        return False
+
+    def get_service_names_and_types_by_node(self, node_name, namespace='/'):
+        doc = self._service_list()
+        key = f'/{namespace.strip("/")}/{node_name}' if namespace not in ('/', '') else f'/{node_name}'
+        names = doc.get('nodes', {}).get(key) or []
+        types = {s.get('name'): list(s.get('types') or [])
+                 for s in doc.get('services', []) if isinstance(s, dict)}
+        return [(n, types.get(n, [])) for n in names]
+
+    def call_service(self, service: str, type_name: str, request: dict):
+        """기존 service_action_bag_input 파일 브리지로 서비스 요청 — (ok, data|error).
+
+        타입은 service_action_bag_input이 서비스별로 고정해 둔 것만 실제 호출된다.
+        목록에 없는 서비스는 '지원 안 함' 에러로 답한다.
+        """
+        cli = self.create_client(None, service)
+        try:
+            if not cli.wait_for_service(timeout_sec=1.0):
+                return False, f'서비스 요청 폴더 없음: {service} (faker 서비스 브리지 확인)'
+            fut = cli.call_async(request or {})
+            end = time.monotonic() + 12.0
+            while time.monotonic() < end and not fut.done():
+                time.sleep(0.05)
+            if not fut.done():
+                return False, '응답 시간 초과 (12초)'
+            if not getattr(fut, 'ok', True):
+                return False, str(getattr(fut, 'error', '실패'))
+            res = fut.result()
+            return True, _plain(res) if hasattr(res, '__dict__') else (res or {})
+        finally:
+            self.destroy_client(cli)
 
     def get_publishers_info_by_topic(self, topic):
         text = self._topic_info(topic)

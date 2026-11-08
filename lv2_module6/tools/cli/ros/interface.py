@@ -179,7 +179,9 @@ def install_modules(node_cls, *, parameter_client_cls, spin_once=None,
                               Empty=msgs.Empty, Int32MultiArray=msgs.Int32MultiArray,
                               Float32MultiArray=msgs.Float32MultiArray))
     _mod('geometry_msgs', msg=_mod('geometry_msgs.msg', TwistStamped=msgs.TwistStamped,
-                                  Twist=msgs.Twist, Vector3=msgs.Vector3))
+                                  Twist=msgs.Twist, Vector3=msgs.Vector3,
+                                  Point=msgs.Point, Quaternion=msgs.Quaternion,
+                                  Pose=msgs.Pose, PoseStamped=msgs.PoseStamped))
     _mod('sensor_msgs', msg=_mod('sensor_msgs.msg', JointState=msgs.JointState,
                                  Header=msgs.Header, Imu=msgs.Imu, CameraInfo=msgs.CameraInfo))
     _mod('nav_msgs', msg=_mod('nav_msgs.msg', Odometry=msgs.Odometry,

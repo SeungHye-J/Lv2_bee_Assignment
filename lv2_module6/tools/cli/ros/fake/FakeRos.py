@@ -167,11 +167,17 @@ class FakeRos(RosNode):
             state.emergency = data
         # 진짜 state_manager처럼 지도 모드·지도 바꾸기 = launch 재시작 (/state/restart로 응답, 다시 뜬 뒤 새 값).
         #   거절 이유(지도 없음 등)는 진단에만 남고 /state/restart엔 아무것도 안 옴 — 그것도 같게
-        elif topic == '/cmd/map_mode' and isinstance(data, str) and vals.get('map_mode') != 'COURSE':
-            arg = 'map:=slam' if data == 'MAPPING' else f'map:=saved map_name:={vals.get("map_name")}'
+        elif topic == '/cmd/map_mode' and isinstance(data, str):
+            if data == 'NONE':
+                arg = 'map:=none'
+                vals['map_name'] = ''
+            elif data == 'MAPPING':
+                arg = 'map:=slam'
+            else:
+                arg = f'map:=saved map_name:={vals.get("map_name")}'
             vals['restart'] = f'all: 재시작 중 — launch pid 4242 · 바꾼 인자 {arg} (가짜)'
             vals['map_mode'] = data
-        elif topic == '/cmd/map_name' and isinstance(data, str) and vals.get('map_mode') != 'COURSE':
+        elif topic == '/cmd/map_name' and isinstance(data, str):
             if data in (vals.get('map_list') or '').splitlines():
                 vals['restart'] = f'all: 재시작 중 — launch pid 4242 · 바꾼 인자 map:=saved map_name:={data} (가짜)'
                 vals['map_mode'], vals['map_name'] = 'LOCALIZATION', data

@@ -12,7 +12,6 @@
 #     real    진짜 rclpy (bringup·실기)
 #     fake    프로세스 안 가짜 ROS (ROS·도커 없이 화면 시험)
 #     docker  도커 test-faker가 /debug에 쓰는 파일 브리지 (--debug-dir로 경로 지정)
-#             메뉴면 호스트 SIL 뷰어(지도 + 카메라 보내기 전/후)도 자동으로 뜬다 — --no-sim으로 끔
 #   start/stop/restart/build는 real 전용이다.
 set -eo pipefail
 

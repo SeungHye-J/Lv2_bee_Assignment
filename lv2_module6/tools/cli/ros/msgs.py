@@ -63,6 +63,33 @@ class Twist(_Msg):
         super().__init__(**kw)
 
 
+class Point(_Msg):
+    def __init__(self, **kw):
+        self.x = self.y = self.z = 0.0
+        super().__init__(**kw)
+
+
+class Quaternion(_Msg):
+    def __init__(self, **kw):
+        self.x = self.y = self.z = 0.0
+        self.w = 1.0
+        super().__init__(**kw)
+
+
+class Pose(_Msg):
+    def __init__(self, **kw):
+        self.position = Point()
+        self.orientation = Quaternion()
+        super().__init__(**kw)
+
+
+class PoseStamped(_Msg):
+    def __init__(self, **kw):
+        self.header = Header()
+        self.pose = Pose()
+        super().__init__(**kw)
+
+
 class TwistStamped(_Msg):
     def __init__(self, **kw):
         self.header = Header()

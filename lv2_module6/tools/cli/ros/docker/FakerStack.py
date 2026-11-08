@@ -10,6 +10,7 @@
 """
 from __future__ import annotations
 
+import json
 import os
 import subprocess
 import time
@@ -84,11 +85,29 @@ class FakerStack:
         r = self._docker('exec', self.container, 'bash', '-lc', 'tail -n 10 /tmp/faker.log')
         return r.stdout.strip()
 
+    def _state_value(self, key: str) -> str:
+        try:
+            msg = json.loads((self.debug_dir / 'output' / 'topic' / 'state' / key / 'message').read_text())
+            return str(msg.get('data', {}).get('data') or '')
+        except (OSError, ValueError, AttributeError):
+            return ''
+
+    def _start_args(self) -> list[str]:
+        """마지막 지도 모드로 다시 띄운다 — MAPPING이면 새 지도, LOCALIZATION이면 그 지도."""
+        mode = self._state_value('map_mode')
+        name = self._state_value('map_name')
+        if mode == 'LOCALIZATION' and name:
+            return ['map:=saved', f'map_name:={name}']
+        if mode == 'MAPPING':
+            return ['map:=slam']
+        return ['map:=none']  # NONE 또는 상태 없음 — 첫 부팅은 지도 없음에서 시작
+
     def _start_faker(self) -> bool:
-        print(f'[docker] test-faker 0 시작 (컨테이너 {self.container}) — 빌드 때문에 1분쯤 걸린다',
-              flush=True)
+        args = self._start_args()
+        print(f'[docker] test-faker 0 {" ".join(args)} 시작 (컨테이너 {self.container}) — '
+              '빌드 때문에 1분쯤 걸린다', flush=True)
         r = self._docker('exec', '-d', self.container, 'bash', '-lc',
-                         'source /opt/ros/lyrical/setup.bash; exec test-faker 0')
+                         'source /opt/ros/lyrical/setup.bash; exec test-faker 0 ' + ' '.join(args))
         if r.returncode != 0:
             print(f'[docker] test-faker 시작 실패: {r.stderr.strip()}', flush=True)
             return False

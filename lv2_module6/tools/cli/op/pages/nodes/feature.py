@@ -12,7 +12,7 @@ class NodeFeature:
     - `node`: 노드 이름 (네임스페이스가 있으면 마지막 조각으로 매칭)
     - `wire(tool)`: OperatorTool이 뜰 때 구독·클라이언트 생성
     - `status_lines(bus, name, summary)`: `node status`와 노드 메뉴에 붙일 줄
-    - `actions(bus, name)`: 노드 메뉴에 추가할 MenuItem (필요할 때)
+    - `actions(app, bus, name)`: 노드 메뉴에 추가할 MenuItem (필요할 때)
     """
 
     node = ''
@@ -23,5 +23,5 @@ class NodeFeature:
     def status_lines(self, bus, name: str, summary: bool = False) -> list[str]:
         return []
 
-    def actions(self, bus, name: str) -> list:
+    def actions(self, app, bus, name: str) -> list:
         return []

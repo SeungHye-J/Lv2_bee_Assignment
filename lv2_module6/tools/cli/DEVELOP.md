@@ -16,24 +16,30 @@ cli/
 │   ├── interface.py   # RosInterface·RosNode·install_modules (fake/docker 공통)
 │   ├── msgs.py        # 공유 메시지 클래스
 │   ├── fake/          # FakeRos.py (프로세스 안 가짜 ROS) + map/
-│   └── docker/        # DockerRos.py(파일 브리지) · FakerStack.py(test-faker 자동 시작) · Simulator.py(SIL 뷰어) · assets/
-├── tests/             # pty 시나리오 · map_view/arm_view/DockerRos 단위 시험
+│   └── docker/        # DockerRos.py(파일 브리지) · FakerStack.py(test-faker 자동 시작)
+├── tests/             # pty 시나리오 · views/map·views/arm·DockerRos 단위 시험
 └── op/
     ├── terminal.py    # Terminal — 크기 · 색 · 표시 너비(fit). ROS·메뉴를 모름
     ├── keys.py        # KeyReader(키 읽기) · set_cbreak — 창·메뉴·poll_key 공용
     ├── component.py   # Component — 화면 부품 최상위 부모 (focusable · on_key · activate)
     ├── window/        # 화면 틀 — Window(조합·그리기·키 루프·신호) · 키 규약
-    ├── menu_bar/      # 메뉴 막대 — MenuBar → LeftSideMenuBar · ChoiceItem (한 파일에 한 클래스)
+    ├── bars/          # 화면 막대
+    │   ├── bar.py     # Bar(Component) — MenuBar·StateBar 공통 부모
+    │   ├── menu/      # 메뉴 막대 — MenuBar → LeftSideMenuBar · ChoiceItem
+    │   └── state/     # 상단 상태바 — State(칸) 하위 클래스들 + StateBar + TopStateBar
     ├── dialog/        # 창 — Dialog(dialog.py) 최상위 부모 + 하위 클래스 한 파일에 하나 (Input·Key·Pager·Busy·Teleop·RouteRviz)
-    ├── arm_view/      # 팔 관절 막대 — ArmView(포커스 가능 Component: 한계 범위 막대 + 현재 ● 목표 ◆)
-    ├── map_view/      # 터미널 지도 — MapGrid(벽 우선 피라미드) · Viewport(중심·확대) · MapView(포커스 가능 Component)
-    ├── state_bar/     # 상단 상태바 — State(칸) 하위 클래스들 + StateBar(줄로 그림) + TopStateBar(기본 구성)
+    ├── views/         # 화면 부품
+    │   ├── view.py    # View(Component) — MapView·ArmView 공통 부모
+    │   ├── map/       # 터미널 지도 — MapGrid(벽 우선 피라미드) · Viewport(중심·확대) · MapView
+    │   └── arm/       # 팔 관절 막대 — ArmView(한계 범위 막대 + 현재 ● 목표 ◆)
     ├── ui.py          # Ui — 터미널 모드 · print 가로채기 · confirm/modal_input/pager/select 진입점 · ui.window
     ├── state.py       # StateStore — 구독한 ROS 상태 보관 (화면은 여기만 읽음)
     ├── bus.py         # Bus — 발행·대기·모드 게이트 · cmd_* (한 번 실행 명령과 메뉴가 같이 씀)
     ├── defs.py        # BACK/MAIN/QUIT/STAY/TIMEOUT · MENU_REFRESH_S
     ├── consts.py      # 관절 이름 · 파라미터 변환
     └── pages/         # Page → Menu → 각 화면 (MenuItem 객체)
+        ├── page.py    # Page 베이스만
+        ├── mainmenu/ status/ mode/ manual/ arm/ map/ mapmenu/ params/ devices/ topics/  # 화면별 package
         ├── nodes/     # 노드별 추가 상태 (feature.py + <node>.py)
         ├── ab/        # A/B 화면 + core.py + <node>/command.json
         └── calibration/  # 칼리브레이션 화면 + core.py + wheel/
@@ -114,29 +120,29 @@ Dialog (op/dialog/dialog.py — 하위 클래스는 op/dialog/<이름>_dialog.py
 #### 상단 상태바도 칸(State)을 상속해서 더한다
 
 ```text
-State (op/state_bar/state.py)  — text()만 정함 (빈 문자열 = 그 칸 안 보임)
+State (op/bars/state/state.py)  — text()만 정함 (빈 문자열 = 그 칸 안 보임)
  ├─ OperationState · MapState · EstopState · DeviceState · ConnectionState     (줄 1)
  ├─ PerceptionState · TaskState · DiagState · SayState                        (줄 2)
  ├─ TopicRateState (키·라벨·기준 Hz를 받아 joint·odom·imu·카메라·인지 6개)  (줄 3)
  ├─ RobotState                                                               (줄 4)
  └─ NoDataState  (상태를 하나도 못 받았을 때만)
-StateBar (state_bar.py)  — State를 줄(row)로 받아 ' | '로 이어 그림 · add(state, row)로 칸·줄 추가
- └─ TopStateBar (top_state_bar.py) — 위 구성. Window.top_bar, Window.top_lines()가 그린다
+StateBar (bars/state/state_bar.py)  — State를 줄(row)로 받아 ' | '로 이어 그림 · add(state, row)로 칸·줄 추가
+ └─ TopStateBar (bars/state/top_state_bar.py) — 위 구성. Window.top_bar, Window.top_lines()가 그린다
 ```
 
-새 칸: `op/state_bar/<이름>_state.py`에 `State`를 상속해 `text()`를 만들고 `TopStateBar` 구성에 넣거나 `ui.window.top_bar.add(XxxState(ui), row=1)`.
+새 칸: `op/bars/state/<이름>_state.py`에 `State`를 상속해 `text()`를 만들고 `TopStateBar` 구성에 넣거나 `ui.window.top_bar.add(XxxState(ui), row=1)`.
 고를 수 있는 칸으로 만들려면 `focusable = True` + `activate()` (예: `DiagState.activate()` → `self.ui.window.navigate('diagnostics')`).
 
 #### 화면 틀 — Window가 Component들을 조합한다
 
 ```text
 Component (op/component.py)  — focusable · on_key(k) → 처리했으면 True · activate() → STAY/BACK/MAIN/QUIT 또는 값
- ├─ MenuItem (pages/base.py)    activate() = window.perform(label, run) — '처리 중' 창 · print 가로채 결과창 · run()
- │   └─ ChoiceItem (menu_bar/choice_item.py)  (key, label) 고르기 — activate()가 key를 돌려줌 (ui.select)
- ├─ State (state_bar/state.py)  focusable 기본 False — DiagState는 True (Enter → 진단 화면)
+ ├─ MenuItem (op/menus/item.py)    activate() = window.perform(label, run) — '처리 중' 창 · print 가로채 결과창 · run()
+ │   └─ ChoiceItem (bars/menu/choice_item.py)  (key, label) 고르기 — activate()가 key를 돌려줌 (ui.select)
+ ├─ State (bars/state/state.py)  focusable 기본 False — DiagState는 True (Enter → 진단 화면)
  ├─ StateBar → TopStateBar      focusable 칸이 있으면 포커스 가능 · ←→ 칸 이동 · activate() = 그 칸의 activate()
- └─ MenuBar (menu_bar/menu_bar.py)  MenuItem들을 세로로 · ↑↓/숫자/글자 포커스
-     └─ LeftSideMenuBar (menu_bar/left_side_menu_bar.py)  왼쪽 열 (폭 = 라벨에 맞춤, 최소 24 · 최대 화면 절반)
+ └─ MenuBar (bars/menu/menu_bar.py)  MenuItem들을 세로로 · ↑↓/숫자/글자 포커스
+     └─ LeftSideMenuBar (bars/menu/left_side_menu_bar.py)  왼쪽 열 (폭 = 라벨에 맞춤, 최소 24 · 최대 화면 절반)
 
 Window (op/window/window.py) — ui.window
   top_bar(TopStateBar) + menu_bar(LeftSideMenuBar) + 중앙(center_fn) + 힌트 줄을 조합해 draw()
@@ -208,7 +214,7 @@ Esc 단독과 방향키가 둘 다 `\x1b`로 시작하므로, `\x1b`를 받으�
 메뉴 막대는 **현재 위치 `idx` 하나**만 들고 있습니다.
 
 ```python
-# op/menu_bar/menu_bar.py MenuBar.on_key()
+# op/bars/menu/menu_bar.py MenuBar.on_key()
 if k == 'up':    self.idx = (self.idx - 1) % len(self.items)   # 맨 위에서 ↑ → 맨 아래
 if k == 'down':  self.idx = (self.idx + 1) % len(self.items)
 # Enter는 Window가: menu_bar.focused_item.activate()
@@ -221,7 +227,7 @@ if k == 'down':  self.idx = (self.idx + 1) % len(self.items)
 
 ## 3. 화면 흐름 규약
 
-키 규약은 `op/window/window.py`·`op/dialog/dialog.py` 맨 위, 흐름 규약은 `op/pages/base.py` 맨 위에 있습니다. 새 화면도 이걸 지킵니다.
+키 규약은 `op/window/window.py`·`op/dialog/dialog.py` 맨 위, 흐름 규약은 `op/menus/menu.py` 맨 위에 있습니다. 새 화면도 이걸 지킵니다.
 
 - `MenuItem.run()`은 `BACK/MAIN/QUIT/STAY`만 돌려줍니다. 화면 이동은 반환값으로만.
   - 하위 화면이 돌려준 `BACK`은 "그 화면이 닫힘"이라 부모는 남습니다 (두 단계 뒤로 가지 않음). `MAIN`·`QUIT`만 위로 전파.
@@ -279,7 +285,6 @@ python3 cli/tests/scenarios.py teleop-hud
 - 실패하면 화면 출력이 `cli/tests/.scenario-<이름>.bin`에 남습니다. 색 코드를 빼고 보기:
   `python3 -c "import re,sys;print(re.sub(r'\x1b\[[0-9;?]*[A-Za-z]','',open(sys.argv[1],'rb').read().decode('utf-8','replace')))" cli/tests/.scenario-이름.bin`
 - 가짜 ROS(`ros/fake/FakeRos.py`)의 파라미터 클라이언트는 항상 무응답이라 파라미터 화면은 거부 경로만 시험됩니다. docker 모드는 `debug/node/<노드>/params`를 읽어 표시하지만, 변경은 아직 faker에 입력 통로가 없습니다. 진짜 동작은 로봇에서 `./run-cli`로 확인합니다.
-- docker 메뉴는 호스트 SIL 뷰어(`simulators/vazebo/simple.py`)를 자동으로 띄웁니다. 창 없이 확인하려면 `BEEBOT_SIM_HEADLESS=1 ./run-cli --source docker menu` (또는 `--no-sim`).
 
 ## 5. 직접 만든 것의 한계
 
@@ -293,7 +298,7 @@ python3 cli/tests/scenarios.py teleop-hud
 
 ## 5. 지도 화면 (MapPage) — 파라미터로 쓰임이 바뀌는 화면
 
-`pages/map_page.py` 하나가 **보기 · A/B 경로 goal 찍기 · 로봇 위치 지정**을 다 한다. 웹 페이지처럼 이름과 파라미터로 연다:
+`pages/map/` 하나가 **보기 · A/B 경로 goal 찍기 · 로봇 위치 지정**을 다 한다. 웹 페이지처럼 이름과 파라미터로 연다:
 
 ```python
 self.ui.window.navigate('map', mode='view')                                   # 지금 /map 보기 (로봇 ● 표시)
@@ -308,7 +313,7 @@ self.ui.window.navigate('map', mode='pose', on_pose=fn)                       # 
 
 ## 6. 팔 조작 화면 (ArmControlPage) — 숫자 없이, 확인 뒤에만 움직임
 
-`pages/arm_page.py`(`window.navigate('arm')`, 팔 메뉴 `0)`). 중앙 = `ArmView`, 왼쪽 = 동작 메뉴. 관절마다 한계 범위 막대 위에 현재(●)와 목표(◆).
+`pages/arm/`(`window.navigate('arm')`, 팔 메뉴 `0)`). 중앙 = `ArmView`, 왼쪽 = 동작 메뉴. 관절마다 한계 범위 막대 위에 현재(●)와 목표(◆).
 
 - `↑↓` 관절 · `←→` 목표 ∓2° · `,` `.` ∓1° · `z` 목표를 현재값으로. **목표만 바뀐다 — 팔은 안 움직인다.**
 - `Enter`(또는 왼쪽 '적용') → 바꾼 관절의 이동량 `현재° → 목표° (Δ)`를 보여 주는 확인창(**기본 아니오**, 30° 넘게 움직이면 경고) → 예일 때만 `Bus.cmd_arm(set)`으로 전송.

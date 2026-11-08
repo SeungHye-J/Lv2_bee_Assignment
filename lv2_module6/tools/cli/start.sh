@@ -16,7 +16,6 @@ ROS_SETUP="/opt/ros/${ROS_DISTRO_NAME:-lyrical}/setup.bash"
 # --source/--debug-dir가 잘못된 경우도 ROS 없이 Python(__main__.py)이 에러를 내게 넘긴다.
 SOURCE_ARG=real
 HAS_DEBUG=0
-HAS_SIM=0
 prev=
 for arg in "$@"; do
   if [ "$prev" = "--source" ]; then SOURCE_ARG="$arg"; fi
@@ -24,11 +23,10 @@ for arg in "$@"; do
     --source) SOURCE_ARG= ;;                 # 값은 다음 인자에서 (없으면 빈 값 → Python이 에러)
     --source=*) SOURCE_ARG="${arg#*=}" ;;
     --debug-dir|--debug-dir=*) HAS_DEBUG=1 ;;
-    --sim) HAS_SIM=1 ;;                     # --sim은 도커 전용 — Python이 검증하게 ROS 없이 넘긴다
   esac
   prev="$arg"
 done
-if [ "$SOURCE_ARG" = real ] && [ "$HAS_DEBUG" = 0 ] && [ "$HAS_SIM" = 0 ]; then
+if [ "$SOURCE_ARG" = real ] && [ "$HAS_DEBUG" = 0 ]; then
   NEED_ROS=1
 else
   NEED_ROS=0

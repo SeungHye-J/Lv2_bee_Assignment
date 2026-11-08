@@ -8,7 +8,7 @@ sys.path.insert(0, str(HERE.parent))   # tools/cli
 from ros.fake.FakeRos import FakeRos  # noqa: E402
 
 FakeRos.install()
-from op.map_view import FREE, OCC, OUT, MapGrid, MapView, Viewport  # noqa: E402
+from op.views.map import FREE, OCC, OUT, MapGrid, MapView, Viewport  # noqa: E402
 
 # 8×8 빈 지도에 벽 한 칸 — 아무리 축소해도 벽이 안 사라져야 한다 (벽 우선 피라미드)
 data = [0] * 64

@@ -14,13 +14,16 @@
 
 #include <algorithm>
 #include <cctype>
+#include <chrono>
 #include <cmath>
+#include <cstdio>
 #include <filesystem>
 #include <limits>
 
 #include "ament_index_cpp/get_package_share_directory.hpp"
 #include "nav2_ros_common/node_utils.hpp"
 #include "pluginlib/class_list_macros.hpp"
+#include "rcl_interfaces/msg/set_parameters_result.hpp"
 #include "sensor_msgs/point_cloud2_iterator.hpp"
 #include "tf2/utils.hpp"
 #include "tf2_geometry_msgs/tf2_geometry_msgs.hpp"
@@ -103,6 +106,34 @@ void RlNavController::configure(
   inner_ = loader_.createSharedInstance(inner);
   inner_->configure(parent, name + ".inner", tf, costmap_ros);
   load_model(model);
+  // CLI/파라미터 페이지에서 FollowPath.enable을 바꾸면 toggle 서비스 없이도 즉시 적용한다.
+  param_cb_ = node->add_on_set_parameters_callback(
+    [this](const std::vector<rclcpp::Parameter> & params) {
+      rcl_interfaces::msg::SetParametersResult r;
+      r.successful = true;
+      for (const auto & p : params) {
+        if (p.get_name() != name_ + ".enable") continue;
+        if (p.get_type() != rclcpp::ParameterType::PARAMETER_BOOL) {
+          r.successful = false;
+          r.reason = name_ + ".enable은 bool이어야 함";
+          continue;
+        }
+        const bool on = p.as_bool();
+        std::lock_guard<std::mutex> lk(mtx_);
+        if (on && !policy_.loaded()) {
+          r.successful = false;
+          r.reason = "정책 없음 (model_path) — 바이패스 유지";
+          continue;
+        }
+        enable_requested_ = on;
+        if (enable_ && !on) inner_->reset();
+        enable_ = on;
+        prev_a_[0] = prev_a_[1] = 0.0f;
+        RCLCPP_INFO(logger_, "[%s] %s.enable=%s (파라미터 즉시 적용)",
+                    name_.c_str(), name_.c_str(), on ? "true" : "false");
+      }
+      return r;
+    });
   use_scan_ = (scan_source == "scan");
   if (enable_ && !policy_.loaded()) {
     RCLCPP_WARN(logger_, "[%s] enable인데 정책 없음 — 바이패스(%s)", name_.c_str(), inner.c_str());
@@ -128,6 +159,8 @@ void RlNavController::configure(
     }, nav2::qos::SensorDataQoS());
   debug_pub_ = node->create_publisher<std_msgs::msg::Float32MultiArray>("~/" + name + "/debug", 10);
   status_pub_ = node->create_publisher<std_msgs::msg::Float32MultiArray>("~/" + name + "/status", 10);
+  diag_pub_ = node->create_publisher<diagnostic_msgs::msg::DiagnosticArray>("/diagnostics", 10);
+  diag_timer_ = node->create_wall_timer(std::chrono::seconds(1), [this]() { publish_diagnostics(); });
   toggle_srv_ = node->create_service<std_srvs::srv::SetBool>(
     "~/" + name + "/toggle",
     [this](const std::shared_ptr<rmw_request_id_t>, const std::shared_ptr<std_srvs::srv::SetBool::Request> req,
@@ -144,13 +177,15 @@ void RlNavController::configure(
       prev_a_[0] = prev_a_[1] = 0.0f;
       res->success = true;
       res->message = std::string("enable=") + (enable_ ? "true (정책)" : "false (바이패스)") +
-                     " · model=" + (policy_.loaded() ? "loaded" : "none");
+                     " · model=" + (policy_.loaded() ? "loaded" : "none") +
+                     " · device=" + policy_.device();
       RCLCPP_INFO(logger_, "[%s] toggle: %s", name_.c_str(), res->message.c_str());
     });
-  RCLCPP_INFO(logger_, "[%s] RlNavController: inner=%s · model=%s · enable=%s · scan=%s · toggle=~/%s/toggle · status=~/%s/status",
+  RCLCPP_INFO(logger_, "[%s] RlNavController: inner=%s · model=%s · device=%s · enable=%s · scan=%s "
+              "· toggle=~/%s/toggle · status=~/%s/status · diagnostics=/diagnostics",
               name_.c_str(), inner.c_str(), policy_.loaded() ? model.c_str() : "(없음)",
-              enable_ ? "true" : "false", use_scan_ ? "scan" : points_topic.c_str(),
-              name_.c_str(), name_.c_str());
+              policy_.device().c_str(), enable_ ? "true" : "false",
+              use_scan_ ? "scan" : points_topic.c_str(), name_.c_str(), name_.c_str());
 }
 
 void RlNavController::load_model(const std::string & path) {
@@ -177,8 +212,11 @@ void RlNavController::load_model(const std::string & path) {
       return;
     }
     policy_ = std::move(m);
-    RCLCPP_INFO(logger_, "ONNX loaded: %s (obs %ld → %ld)", resolved.c_str(),
-                long(m.inputs()), long(m.outputs()));
+    if (!policy_.device_note().empty()) {
+      RCLCPP_WARN(logger_, "ONNX CUDA EP 실패 — CPU로 폴백: %s", policy_.device_note().c_str());
+    }
+    RCLCPP_INFO(logger_, "ONNX loaded: %s (obs %ld → %ld · device=%s)", resolved.c_str(),
+                long(policy_.inputs()), long(policy_.outputs()), policy_.device().c_str());
   } catch (const std::exception & e) {
     RCLCPP_WARN(logger_, "%s — 바이패스", e.what());
   }
@@ -261,12 +299,136 @@ void RlNavController::publish_status(
     } else {
       for (float r : ranges_) scan_min = std::min(scan_min, r);
     }
+    last_rl_active_ = rl_active;
+    last_reason_ = reason;
+    last_v_ = float(cmd.twist.linear.x);
+    last_w_ = float(cmd.twist.angular.z);
+    has_cmd_ = true;
+    if (auto node = node_.lock()) last_cmd_stamp_ = node->now();
   }
   std_msgs::msg::Float32MultiArray s;
   s.data = {float(rl_active), float(reason), policy_.loaded() ? 1.0f : 0.0f,
             enable ? 1.0f : 0.0f, cloud_ok ? 1.0f : 0.0f, cloud_age, scan_min,
             float(cmd.twist.linear.x), float(cmd.twist.angular.z), float(inner_kind_)};
   status_pub_->publish(s);
+}
+
+void RlNavController::publish_diagnostics() {
+  if (!diag_pub_) return;
+  const auto node = node_.lock();
+  if (!node) return;
+
+  bool enable = false, requested = false, use_scan = false, has_cmd = false, sensor_ok = false;
+  int reason = 2, rl_active = 0, inner_kind = 0;
+  float v = 0.0f, w = 0.0f, scan_min = float(lidar_max_);
+  double cloud_age = -1.0;
+  rclcpp::Time last_cmd{0, 0, RCL_ROS_TIME};
+  {
+    std::lock_guard<std::mutex> lk(mtx_);
+    enable = enable_;
+    requested = enable_requested_;
+    use_scan = use_scan_;
+    has_cmd = has_cmd_;
+    last_cmd = last_cmd_stamp_;
+    reason = last_reason_;
+    rl_active = last_rl_active_;
+    inner_kind = inner_kind_;
+    v = last_v_;
+    w = last_w_;
+    if (use_scan) {
+      if (scan_) {
+        sensor_ok = true;
+        if (scan_->header.stamp.sec != 0 || scan_->header.stamp.nanosec != 0) {
+          cloud_age = (node->now() - rclcpp::Time(scan_->header.stamp)).seconds();
+        }
+        for (float r : scan_->ranges) {
+          if (std::isfinite(r) && r >= scan_->range_min && r <= scan_->range_max) {
+            scan_min = std::min(scan_min, r);
+          }
+        }
+      }
+    } else {
+      sensor_ok = cloud_ok_;
+      if (cloud_stamp_.nanoseconds() != 0) {
+        cloud_age = (node->now() - cloud_stamp_).seconds();
+      }
+      for (float r : ranges_) scan_min = std::min(scan_min, r);
+    }
+  }
+  if (sensor_ok && cloud_age > cloud_timeout_) sensor_ok = false;
+  const bool recent = has_cmd && last_cmd.nanoseconds() != 0 &&
+                      (node->now() - last_cmd).seconds() <= 1.0;
+
+  const bool loaded = policy_.loaded();
+  const bool active = recent && rl_active >= 0.5;
+  const char * inner = "기본 제어기";
+  if (inner_kind == 1) inner = "DWB";
+  else if (inner_kind == 2) inner = "MPPI";
+  else if (inner_kind == 3) inner = "RPP";
+  else if (inner_kind == 4) inner = "RotationShim";
+  const char * why = !recent ? "idle" : "RL";
+  if (recent && reason == 1) why = "모델 없음/로드 실패";
+  else if (recent && reason == 2) why = "enable=false";
+  else if (recent && reason == 3) why = "센서 없음/stale";
+  else if (recent && reason == 4) why = "추론 실패";
+
+  diagnostic_msgs::msg::DiagnosticStatus st;
+  st.name = "controller_server: FollowPath";
+  st.hardware_id = "onnxruntime";
+  st.level = diagnostic_msgs::msg::DiagnosticStatus::OK;
+  if (requested && !loaded) st.level = diagnostic_msgs::msg::DiagnosticStatus::WARN;
+  else if (recent && requested && enable && !sensor_ok) st.level = diagnostic_msgs::msg::DiagnosticStatus::WARN;
+  else if (recent && reason == 4) st.level = diagnostic_msgs::msg::DiagnosticStatus::WARN;
+
+  const std::string en = requested ? "enable=on" : "enable=off";
+  if (requested && !loaded) {
+    st.message = std::string("policy missing — ") + inner + " 바이패스 · " + en;
+  } else if (!recent) {
+    st.message = loaded ? ("idle · " + en + " · " + policy_.device() +
+                           " · ONNX Runtime " + OnnxPolicy::runtime_version() +
+                           " · fallback=" + inner)
+                        : ("idle · " + en + " · policy none · fallback=" + inner);
+  } else if (active) {
+    st.message = "RL active · " + en + " · " + policy_.device() +
+                 " · ONNX Runtime " + OnnxPolicy::runtime_version() +
+                 " · fallback=" + inner;
+  } else if (enable && !sensor_ok) {
+    st.message = std::string(inner) + " 바이패스 · " + en + " · 센서 없음/stale";
+  } else {
+    st.message = std::string(inner) + " 바이패스 · " + en + " · policy " +
+                 (loaded ? "loaded" : "none") + " · " + policy_.device();
+  }
+
+  auto kv = [&st](const std::string & key, const std::string & value) {
+    diagnostic_msgs::msg::KeyValue e;
+    e.key = key;
+    e.value = value;
+    st.values.push_back(e);
+  };
+  char buf[96];
+  kv("policy", loaded ? "loaded" : "none");
+  kv("enable", requested ? "true" : "false");
+  kv("active", active ? "true" : "false");
+  kv("mode", !recent ? "idle" : (active ? "RL" : inner));
+  kv("device", policy_.device());
+  kv("provider", policy_.provider());
+  kv("runtime", loaded ? "ONNX Runtime " + OnnxPolicy::runtime_version() : "none");
+  kv("model", policy_.path());
+  kv("inner", inner);
+  kv("sensor", sensor_ok ? "ok" : "none");
+  snprintf(buf, sizeof(buf), "%.2f", cloud_age);
+  kv("sensor_age", cloud_age >= 0.0 ? buf : "n/a");
+  snprintf(buf, sizeof(buf), "%.2f", scan_min);
+  kv("scan_min", buf);
+  kv("reason", why);
+  snprintf(buf, sizeof(buf), "v=%.2f w=%.2f", v, w);
+  kv("cmd", buf);
+  if (!policy_.device_note().empty()) kv("device_note", policy_.device_note());
+
+  diagnostic_msgs::msg::DiagnosticArray arr;
+  arr.header.stamp = node->now();
+  arr.status.push_back(st);
+  diag_pub_->publish(arr);
 }
 
 std::vector<float> RlNavController::waypoints(
@@ -413,6 +575,10 @@ geometry_msgs::msg::TwistStamped RlNavController::computeVelocityCommands(
 }
 
 void RlNavController::cleanup() {
+  if (auto node = node_.lock(); node && param_cb_) {
+    node->remove_on_set_parameters_callback(param_cb_.get());
+  }
+  param_cb_.reset();
   inner_->cleanup();
   cloud_sub_.reset();
   scan_sub_.reset();
@@ -420,6 +586,8 @@ void RlNavController::cleanup() {
   toggle_srv_.reset();
   debug_pub_.reset();
   status_pub_.reset();
+  diag_timer_.reset();
+  diag_pub_.reset();
 }
 void RlNavController::activate() { inner_->activate(); }
 void RlNavController::deactivate() { inner_->deactivate(); }
