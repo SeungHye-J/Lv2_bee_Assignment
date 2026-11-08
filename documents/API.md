@@ -461,7 +461,7 @@ string message
 ### skill 노드 (`plan/action/Skill`, 2026-11-04)
 
 coordinator가 계획 단계마다 skill 노드 하나에 맡김 — 한 노드에 한 번에 goal 하나. 결과 `success` · `reason`(실패 이유 → `/task/status` reason 그대로) · 피드백 `stage`.
-학습 정책은 skill 노드가 갖고 관리: `lv2_module6/ros2_ws/model/skills/<skill>/` (`<skill>.policy` 로봇용 · `<skill>.onnx` 원본 · `meta.yaml` 쓸지·시뮬 성공률·출처).
+학습 정책은 skill 노드가 갖고 관리: `lv2_module6/models/skills/<skill>/` (`<skill>.policy` 로봇용 · `<skill>.onnx` 원본 · `meta.yaml` 쓸지·시뮬 성공률·출처).
 
 | 액션 | 노드 (컨테이너) | 쓰는 goal 칸 | 하는 일 · 정책 |
 | --- | --- | --- | --- |

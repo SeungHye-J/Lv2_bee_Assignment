@@ -13,7 +13,8 @@ import time
 from pathlib import Path
 
 HERE = Path(__file__).resolve().parent
-DEBUG = HERE.parents[1] / 'debug'  # lv2_module6/debug (컨테이너 /debug 바인드) — vazebo가 simulator/ 아래로 옮겨진 뒤 경로가 어긋났었음
+# 기본 = lv2_module6/debug (컨테이너 /debug 바인드). CLI가 --debug-dir를 주면 BEEBOT_DEBUG_DIR로 덮는다.
+DEBUG = Path(os.environ.get('BEEBOT_DEBUG_DIR') or (HERE.parents[1] / 'debug')).resolve()
 TOPIC_DIR = DEBUG / 'output' / 'topic'
 INPUT_DIR = DEBUG / 'input' / 'topic'
 LIVE_DIR = DEBUG / 'input' / 'hardware' / 'camera'

@@ -326,13 +326,14 @@ void StateManager::publish_devices() {
   add_joints("gripper", {"gripper_left_joint"});
 
   // 1) 이름 목록 — std_msgs/String 하나에 쉼표로 구분해 넣는다.
+  //    2초마다 같은 값도 다시 발행한다 — CLI는 마지막 /state/* 수신 시각으로 연결을 판단하므로
+  //    값이 바뀔 때만 내면 한가할 때 '끊김'으로 보이고 12초마다 재연결 exec를 한다 (실측).
+  //    작은 문자열 0.5Hz라 부하는 무시할 수준.
   std::string list;
   for (size_t i = 0; i < names.size(); ++i) list += (i ? "," : "") + names[i];
-  if (!devices_published_ || list != devices_) {
-    publish(devices_pub_, list);
-    devices_ = list;
-    devices_published_ = true;
-  }
+  publish(devices_pub_, list);
+  devices_ = list;
+  devices_published_ = true;
 
   // 2) 장치별 상태 상세 — 활성 여부·세부 토픽/관절
   const auto qos = rclcpp::QoS(1).reliable().transient_local();

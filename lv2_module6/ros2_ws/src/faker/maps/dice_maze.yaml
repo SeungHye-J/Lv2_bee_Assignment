@@ -1,4 +1,4 @@
-# course/tools/build_map.py 가 walls.json에서 만든 지도 — 원점 = 출발 칸 (map = odom 원점)
+# tools/course/build_map.py 가 walls.json에서 만든 지도 — 원점 = 출발 칸 (map = odom 원점)
 image: dice_maze.pgm
 mode: trinary
 resolution: 0.01

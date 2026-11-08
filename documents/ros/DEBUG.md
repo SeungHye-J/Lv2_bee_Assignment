@@ -226,8 +226,8 @@ ros2 lifecycle get /bt_navigator
 ```bash
 ros2 topic echo /diagnostics_agg --once
 # 같은 내용을 CLI로 — 요약 / 항목 하나의 값 전부
-~/Lv2_bee_Assignment/lv2_module6/tool/run-cli status --diagnostics
-~/Lv2_bee_Assignment/lv2_module6/tool/run-cli status --diagnostics signal_decoder
+~/Lv2_bee_Assignment/lv2_module6/tools/run-cli status --diagnostics
+~/Lv2_bee_Assignment/lv2_module6/tools/run-cli status --diagnostics signal_decoder
 ```
 
 진단(`/diagnostics`)은 사람이 보는 것이다. 노드끼리는 아래 전용 토픽을 쓴다 — 진단 문자열과 토픽 값이 다르면 토픽이 맞다.
@@ -244,8 +244,8 @@ ros2 topic echo /state/devices/arm --once --qos-durability transient_local --fie
 과부하·과열은 모터가 토크를 끄고 **재부팅으로만** 풀린다. 원인(걸림·무게)을 없앤 뒤 수동 모드에서:
 
 ```bash
-~/Lv2_bee_Assignment/lv2_module6/tool/run-cli mode manual
-~/Lv2_bee_Assignment/lv2_module6/tool/run-cli arm reboot        # = ros2 topic pub --once /cmd/manual/reboot_motors std_msgs/msg/Empty {}
+~/Lv2_bee_Assignment/lv2_module6/tools/run-cli mode manual
+~/Lv2_bee_Assignment/lv2_module6/tools/run-cli arm reboot        # = ros2 topic pub --once /cmd/manual/reboot_motors std_msgs/msg/Empty {}
 ```
 
 12V가 꺼졌다 켜진 경우(토크 꺼짐)는 펌웨어가 0.5초마다 확인해 천천히 다시 켠다 — [firmware/README.md](../../lv2_module6/firmware/README.md).
@@ -261,7 +261,7 @@ ros2 topic echo /mission/signal_status
 ros2 topic echo /task/sub_goals --once --qos-durability transient_local
 ros2 topic echo /task/status --qos-durability transient_local
 # planner 판단 이유 — "신호등 미션"(carry·inspect·wait·fail) · "수납 확인"(look·ok·recarry·missing)
-~/Lv2_bee_Assignment/lv2_module6/tool/run-cli status --diagnostics vlm_task_planner
+~/Lv2_bee_Assignment/lv2_module6/tools/run-cli status --diagnostics vlm_task_planner
 ```
 
 - 신호가 안 잡힘: `/tracked_objects`에 `traffic_light`가 있고 `color`가 바뀌는지. 점멸이 쪼개지거나 합쳐지면 `ros2 topic hz /perception/pole_front_cam/detections`(추론 주기, 목표 4Hz)와 `perception.yaml` `signal_decoder`(`min_off_s` · `gap_s`).

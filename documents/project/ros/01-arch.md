@@ -9,7 +9,7 @@
 ```mermaid
 flowchart TB
     U(((사람)))
-    CLI["🛠️ operator_tool<br/>운영자 CLI (tool/run-cli)"]
+    CLI["🛠️ operator_tool<br/>운영자 CLI (tools/run-cli)"]
     subgraph EXT["외부 서비스 (ROS 바깥)"]
         SIM["🖥️ simulator (SIL)<br/>장면 렌더·플랜트"]
         AIS["🖥️ ai-service<br/>호스트 VLM 서버"]
@@ -242,7 +242,7 @@ flowchart TB
 - **모든 🛠 노드는 /diagnostics로 자기 상태를 낸다.** diagnostic_updater(OK·WARN·ERROR + 값)를 bringup의 diagnostic_aggregator가 계층별로 묶어 /diagnostics_agg로 — 운영자 CLI·시뮬레이터 상태 패널이 본다 (사람용, 노드는 의존하지 않음).
 - **도식에 bringup이 띄우는 노드가 전부 있다.** ros_system 묶음(robot_state_publisher · controller_manager + spawner 1회 · move_group · twist_mux · RealSense ×2 · ekf_filter_node · SLAM 묶음 cuvslam_slam · pole/gripper_depth_gate · nvblox_node · nvblox_map · Nav2 서버 6개 + lifecycle 관리자 둘)과 bringup 직접(🛠 노드들 · map_saver + lifecycle_manager_map_saver · diagnostic_aggregator). lifecycle 관리자를 둘로 나눈 이유: 바퀴 명령 체인(base)은 odom만 있으면 뜨게 — 하나로 묶으면 지도가 없을 때 global_costmap 실패로 수동 조작까지 막혔음.
 - **물리 하드웨어는 노란 영역, 토픽은 내지 않는다.** 장치(육각형)는 신호가 오가는 곳 가까이에 두고 같은 노란 "물리 하드웨어" 영역으로 표시했다 — 센서 쪽(카메라)과 구동 쪽(OpenCR·모터·IMU). RealSense 카메라 2대는 🔌 USB 3로 realsense2_camera 드라이버 노드에 붙고, 토픽은 드라이버 노드가 발행한다. 모터·IMU는 OpenCR → hardware interface(controller_manager) 경로로 같은 원칙을 따른다.
-- **주행 컨트롤러도 학습 정책이다.** Nav2 `FollowPath`는 `ml::RlNavController` — 관측 51(경로 웨이포인트 5 + 가상 스캔 36 + v/w/gyro + 이전 행동 2)을 ONNX에 넣어 v·ω를 직접 낸다. LiDAR가 없어 `/pole_front_cam/depth/color/points_filtered`를 base_footprint로 옮겨 36방향 최소거리(가상 스캔)를 만든다. `enable=false`(기본)이거나 모델·점구름이 없으면 inner DWB가 그대로 주행한다 (`~/FollowPath/toggle`).
+- **주행 컨트롤러도 학습 정책이다.** Nav2 `FollowPath`는 `ml::RlNavController` — 관측 375(경로 웨이포인트 5×2 + 가상 스캔 360 + v/w/gyro + 이전 행동 2)을 ONNX에 넣어 v·ω를 직접 낸다. LiDAR가 없어 nvblox 2D ESDF height slice(`/nvblox_node/combined_esdf_pointcloud`)를 base_footprint로 옮겨 360방향 최소거리(가상 스캔)를 만든다. `enable=false`이거나 정책·점구름이 없으면 inner DWB가 그대로 주행한다 (`~/FollowPath/toggle`).
 - **학습 노드는 입력을 보고 판단한다.** grasp_scorer는 `/tracked_objects`로 대상 퍽을 찾고 gripper_cam 점구름으로 후보를 매긴다.
 - **rl_arm_correction은 ROS 노드가 아니다.** controller_manager 안에서 JTC 바로 뒤에 체인으로 붙는 컨트롤러 플러그인이다 (컨트롤러 탭 참고).
 - **controller_manager 한 주기(100Hz)는 read → update → write.** move_group의 팔 궤적과 collision_monitor의 `/cmd_vel`은 언제든 도착해 다음 update에서 쓰인다. update에서 `/joint_states`(→ arm_safety_monitor)와 `/odom`·`/imu`(→ EKF)를 발행하고, JTC 목표에 rl_arm_correction의 Δ를 더해 write로 보낸다. arm_safety_monitor의 궤적 취소만 주기와 무관한 비동기 호출이다. 단계별로는 **흐름 따라가기 → "팔 한 주기"**에서 볼 수 있다.

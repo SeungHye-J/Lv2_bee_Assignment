@@ -6,7 +6,7 @@
         /perception/<cam>/detections (같은 타입) — 융합 전 카메라별 한 프레임 검출 (id = 붙은 트랙 id, covariance = 관측 공분산)
           → 시뮬레이터가 카메라별 검출과 융합 결과를 나란히 그림 (디버그용 — 소비 노드 없음)
 
-  추적은 odom 기준(track_frame), 발행만 map 기준 — RTAB-Map이 map→odom을 고칠 때마다(잘못 고쳐도) map에 저장해 둔 물체가
+  추적은 odom 기준(track_frame), 발행만 map 기준 — SLAM이 map→odom을 고칠 때마다(잘못 고쳐도) map에 저장해 둔 물체가
   옛 보정에 남아 로봇 기준으로 엉뚱한 곳에 보였고, 보정 전후 관측이 다른 기준으로 섞여 합쳐졌음 (실측: 제자리 여러 바퀴 뒤 puck이 수십 cm 밀림).
   odom은 끊김 없이 이어짐 → 추적·융합은 거기서, /tracked_objects는 발행 순간의 map→odom으로 바꿔 냄 (로봇과 같은 보정으로 같이 움직임).
   컬러·정렬 depth를 시각 동기화(ApproximateTime)해 한 쌍으로 받고, camera_info 내부 파라미터로 3D 역투영
@@ -276,7 +276,7 @@ def classify_color(cls, roi):
 def resolve_model_path(model_path, model_dir):
     """model_path 파라미터 → 실제 가중치 파일 경로 ('' = 모델 없음 — 빈 목록 발행)
       ''              → model_dir/model.pt (팀 기본 — 있으면)
-      파일 이름만     → model_dir/<이름> (예: bee_yolo11n_v1.pt — ros2_ws/model/yolo/*.pt가 share/perception/model에 설치됨)
+      파일 이름만     → model_dir/<이름> (예: bee_yolo11n_v1.pt — models/yolo/*.pt가 share/perception/model에 설치됨)
       그 밖(경로)     → 그대로 (전체 경로를 준 경우 · 없으면 YOLO 로드 실패 경고)"""
     if not model_path:
         cand = os.path.join(model_dir, "model.pt") if model_dir else ""
@@ -1468,13 +1468,13 @@ class PerceptionNode(Node):
         return base[1], chain
 
     def to_map(self, tr):
-        """추적 좌표(odom) 트랙·검출 dict → map 기준 사본 (위치·공분산 회전) — 지금의 map ← odom (RTAB-Map 보정 최신값)"""
+        """추적 좌표(odom) 트랙·검출 dict → map 기준 사본 (위치·공분산 회전) — 지금의 map ← odom (SLAM 보정 최신값)"""
         try:
             t = self.tf.lookup_transform("map", self.track_frame, rclpy.time.Time())
             tt = t.transform.translation
             self._out_tf = (quat_to_rot(t.transform.rotation), np.array([tt.x, tt.y, tt.z]))
         except Exception as e:  # noqa: BLE001
-            if self._out_tf is None:  # 아직 map이 없음 (RTAB-Map 기동 전) — odom 그대로 (map 원점 = odom 원점으로 시작)
+            if self._out_tf is None:  # 아직 map이 없음 (SLAM 기동 전) — odom 그대로 (map 원점 = odom 원점으로 시작)
                 self.get_logger().warning(f"map ← {self.track_frame} TF 없음 — 그대로 발행: {e}", throttle_duration_sec=5.0)
                 return tr
         rot, trans = self._out_tf

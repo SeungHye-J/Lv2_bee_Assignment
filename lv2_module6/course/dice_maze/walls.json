@@ -13,7 +13,7 @@
   2202,
   3152
  ],
- "source": "documents/mission/dice-map.png via course/tools/build_dice.py",
+ "source": "documents/mission/dice-map.png via tools/course/build_dice.py",
  "boxes": [
   {
    "name": "panel_0",

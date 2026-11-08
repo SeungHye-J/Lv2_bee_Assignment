@@ -17,7 +17,7 @@
   robot_state_publisher(URDF) · controller_manager + control/BeebotSystemHardware(가상 시리얼 ↔ fake_opencr) + 컨트롤러 · robot_localization EKF
   · 진짜 Nav2 (planner · controller · behavior · bt_navigator · velocity_smoother · collision_monitor)
 map:=course일 때만 — 실기에서 SLAM(cuVSLAM + nvblox)이 하는 일의 대신 (시뮬레이터 = 코스를 알고 있음):
-  map_server       코스 지도 /map (maps/<course>.yaml — course/tools/build_map.py · build_dice.py · build_map_usd.py(Isaac 미로 isaac_maze), 원점 = 출발 칸)
+  map_server       코스 지도 /map (maps/<course>.yaml — tools/course/build_map.py · build_dice.py · build_map_usd.py(Isaac 미로 isaac_maze), 원점 = 출발 칸)
   map→odom         fake_cuvslam: 진짜 위치(fake_opencr ground_truth)로 보정 · mock_hardware:=true면 입력이 없어 idle이라 항등 TF가 대신 (SLAM 몫의 대신)
   fake_nvblox      ESDF slice (/nvblox_node/combined_esdf_pointcloud) — /map 코스 지도로 계산한 장애물까지 거리 (로봇 근처, frame map)
 대역 (도커 이미지에 없는 📦 · GPU·모델이 없는 ML):
@@ -136,7 +136,7 @@ def generate_launch_description():
         *[fake(f'fake_{n}', n, condition=IfCondition(PythonExpression(["'", LaunchConfiguration(n), "' == 'fake'"])))
           for n in ML_NODES],
         # map:=course일 때만: 코스 지도 + map→odom 항등 (외운 지도)
-        # 매핑·저장 지도면 RTAB-Map이 지도·map→odom을 발행 — 여기는 끈다
+        # 매핑·저장 지도면 SLAM이 지도·map→odom을 발행 — 여기는 끈다
         Node(package='nav2_map_server', executable='map_server', name='map_server', output='screen',
              condition=IfCondition(COURSE_MAP),
              parameters=[{'yaml_filename': PathJoinSubstitution([FindPackageShare('faker'), 'maps', [LaunchConfiguration('course'), '.yaml']])}]),

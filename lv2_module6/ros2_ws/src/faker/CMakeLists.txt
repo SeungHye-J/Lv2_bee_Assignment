@@ -61,12 +61,12 @@ target_link_libraries(fake_rl_arm_correction controller_interface::controller_in
 pluginlib_export_plugin_description_file(controller_interface faker_plugins.xml)
 install(TARGETS fake_rl_arm_correction LIBRARY DESTINATION lib)
 
-# maps: 코스 지도 (lv2_module6/course/tools/build_map.py가 만듦) — 진짜 Nav2용 map_server
+# maps: 코스 지도 (lv2_module6/tools/course/build_map.py가 만듦) — 진짜 Nav2용 map_server
 install(DIRECTORY launch config maps DESTINATION share/${PROJECT_NAME})
 
 # --- 테스트: colcon test --packages-select faker
 if(BUILD_TESTING)
-  # launch 파일이 문법·인자 선언 오류 없이 읽히는지 (노드는 띄우지 않음 — 실행 흐름은 docker/test-faker)
+  # launch 파일이 문법·인자 선언 오류 없이 읽히는지 (노드는 띄우지 않음 — 실행 흐름은 docker/lv2_module6/test-faker)
   ament_add_test(test_launch GENERATE_RESULT_FOR_RETURN_CODE_ZERO
     COMMAND ros2 launch "${CMAKE_CURRENT_SOURCE_DIR}/launch/faker.launch.py" --show-args
     TIMEOUT 60)

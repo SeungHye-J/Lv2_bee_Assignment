@@ -9,7 +9,7 @@
 
 코드 구조: 노드마다 `include/<패키지>/<노드>.hpp`(선언) · `src/<노드>.cpp`(구현) · `src/<노드>_main.cpp`(main), 클래스는 `namespace <패키지>`.
 
-지금은 **골격**이다. 🛠 노드들이 설계대로 토픽·서비스·액션을 주고받고, 각 노드의 실제 내용(인지 모델·계획·학습 정책)은 `TODO(담당자)` 자리에 담당자가 채운다.
+인지(YOLO) · 계획(VLM/규칙) · 학습 정책(ONNX) · MoveIt/Nav2까지 붙어 있다. 남은 것은 실기 튜닝(URDF 실측 · 펌웨어 영점 · 주행/팔 파라미터)과 MTC 태스크 구성, 현장 데이터 보강이다.
 
 ## 미션 · 코스 · 로봇
 
@@ -59,7 +59,7 @@ flowchart TB
     subgraph S4["④ 확정 실행 — ros_system"]
         NAV["📦 Nav2"]
         MTC["📦 MoveIt 2 + MTC"]
-        SLAM["📦 RTAB-Map · EKF"]
+        SLAM["📦 cuVSLAM · nvblox · EKF"]
     end
     subgraph S5["⑤ 실행 보정 — ml"]
         RLA["🛠 rl_arm_correction<br/>chainable controller"]
@@ -146,7 +146,7 @@ sequenceDiagram
 | --- | --- | --- |
 | 자동 탐사 | `/cmd/operation_mode` EXPLORE (지도 모드 MAPPING일 때만) | state_manager → `/state/operation_mode` EXPLORE → explorer가 프론티어로 Nav2 목표 · coordinator 멈춤 → 끝나면 `/explore/result` → AUTO |
 | 수동 모드 켜기·끄기 | `/cmd/operation_mode` (std_msgs/String MANUAL·AUTO) | state_manager → `/state/operation_mode` "MANUAL"·"AUTO" → manual_control 수동 명령 통과 · coordinator 자동 실행 멈춤·재개 |
-| 지도 모드 (스캔 ↔ 위치추정) | `/cmd/map_mode` (std_msgs/String MAPPING·LOCALIZATION) | state_manager → RTAB-Map 모드 전환 → `/state/map_mode` |
+| 지도 모드 (스캔 ↔ 위치추정) | `/cmd/map_mode` (std_msgs/String MAPPING·LOCALIZATION) | state_manager → launch를 지도 모드 인자로 재시작 → `/state/map_mode` |
 | 원격 조종 | `/cmd/manual/cmd_vel` (TwistStamped) | manual_control → `/cmd_vel_manual` → twist_mux(자동보다 우선) → 안전 체인 → 바퀴 |
 | 팔·그리퍼 | `/cmd/manual/arm` (JointState: joint1~5 rad · gripper_left_joint m) | manual_control → JTC `/arm_controller/joint_trajectory` · 그리퍼 액션 |
 | 모터 재부팅 | `/cmd/manual/reboot_motors` (Empty) — 과부하 등 Hardware Error 풀기 | manual_control → 📞 `/beebotsystem/reboot_motors` → 펌웨어 `R` (에러 난 모터만) |
@@ -212,20 +212,21 @@ CI(`.github/workflows/ci.yml`): x86_64 · aarch64 각각 `test-all` → 배포 �
 lv2_module6/
 ├── develop/                  개발 가이드(DEVELOP.md) + 단축 스크립트(faker·rviz·gazebo)
 ├── course/                   대회 코스 (미로 — 원본 + 세로 벽 보강한 상자 모델 · Gazebo 월드)
+├── models/                   학습 모델 (yolo · rl_nav_controller · skills · plan) — CMake가 패키지 share로 설치
 ├── urdf/<이름>/urdf.xacro    로봇 모델 (폴더 하나 = 모델 하나, launch urdf:= · 기본 beebot_mesh) (더미 치수 — 팔은 ROBOTIS OM-X 원본 값 + 손목 roll)
 ├── firmware/beebot_opencr/   OpenCR 펌웨어 (호스트 BeebotSystemHardware와 같은 시리얼 프로토콜)
 ├── isaac/                    Isaac Sim 장면·로봇 USD(usda/) + Isaac Lab 학습(rl/bee_isaac/tasks/) — isaac/docs/README.md
 ├── simulator/                SIL 시뮬레이터 (main.py · 수동 조작 창 manual_window.py · opencr.py = fake_opencr 연결, 읽기·요청만)
-├── tool/                     운영 도구 (cli/ 수동 조작 CLI · run-rviz · rviz/)
+├── tools/                    운영 도구 (cli/ 수동 조작 CLI · run-rviz · rviz/ · course/ 코스 변환기)
 ├── ros2_ws/
-│   ├── start.sh · firmware-upload.sh · download-artifact.sh · monitor.sh   실기·배포 패키지용 스크립트
+│   ├── start.sh · firmware-upload.sh · download-artifact.sh   실기·배포 패키지용 스크립트
 │   └── src/
 │       ├── perception/   🛠 perception · body_filter · signal_decoder          + msg TrackedObject(Array) · MissionSignal
 │       ├── control/      🛠 arm_safety_monitor · manual_control · BeebotSystemHardware(ros2_control)  + msg ArmSafetyEvent · MotorStatus
 │       ├── manager/      🛠 state_manager (상태의 주인 — /state/operation_mode · /state/map_mode · /state/map_name · /state/emergency · /state/devices(모터 에러 포함))
 │       ├── ml/           🛠 grasp_scorer · rl_nav_controller(Nav2 플러그인) · rl_arm_correction  + srv ScoreGrasps
 │       ├── plan/         🛠 user_input · vlm_task_planner · explorer · coordinator  + msg SubGoal(Array) · TaskStatus
-│       ├── ros_system/   🛠 scan_cam_gate · 📦 robot_state_publisher · controller_manager · twist_mux · RealSense ×2 · EKF · RTAB-Map · Nav2
+│       ├── ros_system/   🛠 scan_cam_gate · 📦 robot_state_publisher · controller_manager · twist_mux · RealSense ×2 · EKF · cuVSLAM · nvblox · Nav2
 │       ├── bringup/      전체 실행 = ros_system + 🛠 노드 전부 + diagnostic_aggregator
 │       └── faker/        도커에 없는 📦·ML(GPU) 대역 + 호스트 파일 연동
 └── debug/                (gitignore) 테스트베드·시뮬레이터가 주고받는 파일
@@ -235,7 +236,7 @@ lv2_module6/
 
 ```bash
 # 테스트베드 (저장소 루트에서) — 자세한 건 develop/DEVELOP.md
-cd docker && docker compose build && docker compose up -d && docker compose exec lyrical bash
+cd docker/lv2_module6 && docker compose build && docker compose up -d && docker compose exec lyrical bash
 test-all                                  # push 전 필수 (CI와 같은 검사)
 test-faker 0                              # 띄워 두기 (fake_opencr가 OpenCR — 미끄럼·충돌·통신 끊김) → 호스트에서 simulator/vazebo/main.py
 test-faker 0 mock_hardware:=true          # OpenCR 없이 mock (물리 없음)
@@ -244,17 +245,17 @@ test-faker 0 mock_hardware:=true          # OpenCR 없이 mock (물리 없음)
 ./ros2_ws/firmware-upload.sh              # OpenCR 펌웨어 올리기 (내부에서 firmware/ 스크립트 호출)
 ./ros2_ws/start.sh                        # 장치 확인 → bringup
 ./ros2_ws/start.sh mock_hardware:=true    # OpenCR 없이
-./tool/run-cli                      # 대화형 운영 메뉴
-./tool/run-cli status             # 상태만 한 번 출력
-./tool/run-rviz                       # 카메라·지도 RViz (Best Effort QoS)
+./tools/run-cli                  # 대화형 운영 메뉴
+./tools/run-cli status           # 상태만 한 번 출력
+./tools/run-rviz                 # 카메라·지도 RViz (Best Effort QoS)
 ./ros2_ws/stop.sh                         # 떠 있는 ROS 전부 끄기
 ```
 
 ## 아직 없는 것
 
-- 노드 내용: 인지 모델(퍽·목표 구역·장애물 검출 — 지금은 고정 더미), VLM 호출, 학습 정책, MTC 태스크 구성 (담당자 `TODO`)
+- MTC 태스크 구성 — pick/place는 move_group + pick_ik로 동작하지만 MTC capability는 아직
 - Gazebo 물리 시뮬레이션 — 코스 모델(`course/twin_closed_maze/model.sdf`)은 준비됨, 로봇 쪽 gz_ros2_control·센서 플러그인은 아직
 - URDF 실측 치수·메시, 펌웨어 관절 부호·영점·그리퍼 변환 실측, SyncRead/SyncWrite로 주기 올리기
-- MoveIt 설정 패키지 · `nav2_params.yaml` (velocity_smoother 입력 = `/cmd_vel_mux`) — move_group은 launch에 TODO, Nav2는 기본 꺼짐
-- 테스트베드는 GPU·모델이 없어 ML은 faker 대역(`ml:=fake` 기본, 진짜는 `ml:=real`)
-- 테스트베드 이미지에는 MoveIt · RTAB-Map · RealSense 본체가 없다 — 그 부분은 faker 대역. **Nav2는 진짜**를 ros_system이 띄운다 (지도·map→odom은 RTAB-Map 대신 faker의 map_server + 항등 TF, 카메라는 시뮬레이터 렌더)
+- 실기 주행·팔 파라미터 튜닝 — Nav2·MoveIt 설정은 있고 bringup이 기본 기동한다 (`use_nav2`·`use_moveit` true)
+- 테스트베드는 CPU로 ML(ONNX 정책·YOLO)을 실제 노드로 돌린다 — 모델은 `models/`에 커밋
+- 테스트베드에는 RealSense 본체·GPU가 없다 — 카메라는 시뮬레이터 렌더, cuVSLAM·nvblox는 faker, 지도·map→odom은 faker map_server + 항등 TF. MoveIt·Nav2·ML은 실제 노드를 쓴다

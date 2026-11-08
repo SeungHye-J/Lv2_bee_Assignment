@@ -111,7 +111,7 @@ sudo rm -f /swapfile
 ```
 
 > swap을 켠 뒤에도 mapping이 또 멈추면 OOM인지 먼저 확인한다:
-> `journalctl -k -b -1 | grep -i -E 'oom|killed process'` · `tail -n 120 lv2_module6/tool/bringup.log`
+> `journalctl -k -b -1 | grep -i -E 'oom|killed process'` · `tail -n 120 lv2_module6/tools/bringup.log`
 
 
 # ros setting
