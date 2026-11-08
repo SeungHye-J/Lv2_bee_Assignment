@@ -9,7 +9,7 @@
 
 신호 (connect/emit) — Window는 ROS·화면 목록을 모른다, 앱(OperatorTool)이 연결한다:
   'tick'      (seconds)  ROS 콜백 돌리기 + 재연결 판단 — 메뉴 대기 중·창이 떠 있는 동안 계속
-  'navigate'  (name)     이름으로 화면 열기 → page.show() 결과 (예: DiagState → 'diagnostics')
+  'navigate'  (name, params)  이름으로 화면 열기 → page.show() 결과 (예: DiagState → 'diagnostics', 지도 → 'map' + 파라미터)
 """
 from __future__ import annotations
 
@@ -30,7 +30,8 @@ class Window:
         self.console = ui.console
         self.top_bar = TopStateBar(ui)
         self.menu_bar = LeftSideMenuBar()
-        self.focus = self.menu_bar          # 지금 키를 받는 부품 (menu_bar | top_bar)
+        self.focus = self.menu_bar          # 지금 키를 받는 부품 (menu_bar | center_comp | top_bar)
+        self.center_comp = None             # 중앙에 올린 포커스 가능한 부품 (예: 지도) — center_fn이 그 부품을 그림
         self._signals: dict[str, list] = {}
         self.title: str | None = None
         self.center_fn = None               # 창이 떠 있는 동안 중앙 실시간 갱신용
@@ -46,12 +47,12 @@ class Window:
     def emit(self, signal: str, *args) -> list:
         return [fn(*args) for fn in self._signals.get(signal, [])]
 
-    def navigate(self, name: str):
-        """화면 이동 신호 — 받은 쪽의 첫 결과(page.show() 반환), 받을 쪽이 없으면 STAY."""
-        res = self.emit('navigate', name)
+    def navigate(self, name: str, **params):
+        """이름으로 화면 열기 — 웹 페이지 이동처럼 파라미터를 넘긴다 (예: navigate('map', mode='view', source=경로)).
+        받은 쪽(앱)의 첫 결과(page.show() 반환), 받을 쪽이 없으면 STAY."""
+        res = self.emit('navigate', name, params)
         return res[0] if res else STAY
 
-    # ------------------------------------------------------------- 실행
     def perform(self, label: str, fn, busy: bool = True):
         """고른 동작 하나 실행 — 누르면 바로 '처리 중' 창 · 실행 중 print는 결과창(pager)으로.
         실행 뒤 이 Window의 메뉴 막대·중앙·포커스를 되돌린다 (하위 화면이 바꿔 놓으므로)."""
@@ -70,23 +71,26 @@ class Window:
         return result
 
     def _save(self) -> tuple:
-        return self.menu_bar, self.center_fn, self.focus, self.back, self.main, self.title
+        return self.menu_bar, self.center_fn, self.focus, self.back, self.main, self.title, self.center_comp
 
     def _restore(self, saved: tuple) -> None:
-        self.menu_bar, self.center_fn, self.focus, self.back, self.main, self.title = saved
+        self.menu_bar, self.center_fn, self.focus, self.back, self.main, self.title, self.center_comp = saved
 
     def run(self, title: str, items_fn, center_fn, back: bool = True, main: bool = True,
-            timeout: float | None = None, once: bool = False):
+            timeout: float | None = None, once: bool = False, center_comp=None, focus_center: bool = False):
         """화면 하나의 키 루프. items_fn() = Component(key·label()·activate()) 목록 (보이는 것만), center_fn() = 중앙 줄.
 
         once=False (Menu): 고른 항목을 activate하고 계속 · MAIN/QUIT/BACK(뒤로 키)만 돌려준다.
         once=True (select): 고른 항목의 activate() 값을 그대로 돌려준다 · 갱신 시간이 지나면 TIMEOUT.
+        center_comp: 중앙에 올린 포커스 가능한 부품 (center_fn이 그 부품을 그림) — Tab으로 메뉴 막대와 오가고,
+        focus_center=True면 처음부터 그쪽이 키를 받는다. 부품이 처리 못 한 키 중 q·Esc는 Window가 받는다.
         """
         timeout = MENU_REFRESH_S if timeout is None else timeout
         bar = LeftSideMenuBar()
         if once:
             bar.idx = self._once_idx.get(title, 0)
-        self.menu_bar, self.focus, self.center_fn = bar, bar, center_fn
+        self.menu_bar, self.center_fn, self.center_comp = bar, center_fn, center_comp
+        self.focus = center_comp if (center_comp is not None and focus_center) else bar
         self.back, self.main = back, main
         tty = sys.stdin.isatty()
         while True:
@@ -129,12 +133,11 @@ class Window:
     def _wait_key(self, title: str, center_fn, timeout: float):
         """그리기 → 키 대기. 포커스 이동 키는 여기서 처리하고 다시 그린다.
         반환: 처리 못 한 키(enter·q·b·m·r…) | None(timeout 동안 아무것도 안 눌림)."""
-        center = center_fn()
         with KeyReader(self.term, flush=False) as keys:
             while True:
                 # 키를 하나 처리할 때마다 갱신 시계를 새로 시작 — 리드로우 직후 키가 씹히는 느낌을 막는다.
                 end = time.monotonic() + timeout
-                self.draw(title, center)
+                self.draw(title, center_fn())   # 그릴 때마다 다시 계산 — 지도처럼 키로 바뀌는 중앙도 바로 반영
                 while True:
                     remain = end - time.monotonic()
                     if remain <= 0:
@@ -143,9 +146,20 @@ class Window:
                     self.emit('tick', 0.02)
                     if k is None:
                         continue
-                    if k == 'tab' and self.top_bar.focusable:
-                        self.focus = self.top_bar if self.focus is self.menu_bar else self.menu_bar
+                    order = [self.menu_bar] + ([self.center_comp] if self.center_comp is not None else []) \
+                        + ([self.top_bar] if self.top_bar.focusable else [])
+                    if k == 'tab' and len(order) > 1:   # Tab = 다음 부품으로 포커스 (메뉴 → 중앙 → 상태바 → 메뉴)
+                        self.focus = order[(order.index(self.focus) + 1) % len(order)]
                         break
+                    if self.focus is self.center_comp and self.center_comp is not None:
+                        if k == 'esc':
+                            self.focus = self.menu_bar
+                            break
+                        if self.center_comp.on_key(k):
+                            break
+                        if k in ('q', 'Q', 'eof'):
+                            return k
+                        continue   # 중앙 부품이 못 받은 키는 무시
                     if self.focus is self.top_bar:
                         if k == 'esc':
                             self.focus = self.menu_bar
@@ -189,7 +203,11 @@ class Window:
         """하단 고정 키 안내 — 포커스된 막대에 맞춰 (최상위면 뒤로·메인 없음)."""
         if self.focus is self.top_bar:
             return '  ' + ' · '.join(['←→ 칸 이동', 'Enter 열기', 'Tab/Esc 메뉴로', 'q 종료'])
+        if self.center_comp is not None and self.focus is self.center_comp:
+            return '  ' + (self.center_comp.hints or '') + ' · Tab/Esc 메뉴로 · q 종료'
         hints = ['↑↓ 이동', 'Enter 실행', '번호 포커스']
+        if self.center_comp is not None:
+            hints.append('Tab 중앙')
         if self.top_bar.focusable:
             hints.append('Tab 상태바')
         if self.back:
@@ -201,6 +219,15 @@ class Window:
 
     def _left_width(self, cols: int, left: list[str]) -> int:
         return self.menu_bar.width(cols, self.term, left)
+
+    def center_size(self) -> tuple[int, int]:
+        """지금 터미널에서 중앙 칸의 (폭, 높이) — center_fn이 부품(지도)을 이 크기로 그리려고 묻는다."""
+        cols, rows = self.term.size()
+        if self.narrow(cols, rows):
+            return max(20, cols - 2), max(4, rows - 12)
+        top_n = len(self.top_lines(self.title or '', cols))
+        lw = self._left_width(cols, self.menu_bar.lines())
+        return cols - lw - 4, max(1, rows - 1 - top_n - 2)
 
     def draw(self, title: str, center: list[str]) -> None:
         """4분할 화면: 상단 타이틀+상태바 고정 · 왼쪽 메뉴 막대 · 중앙 내용 · 하단 힌트.

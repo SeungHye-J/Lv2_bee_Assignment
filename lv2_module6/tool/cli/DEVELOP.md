@@ -18,6 +18,7 @@ cli/
     ├── window/        # 화면 틀 — Window(조합·그리기·키 루프·신호) · 키 규약
     ├── menu_bar/      # 메뉴 막대 — MenuBar → LeftSideMenuBar · ChoiceItem (한 파일에 한 클래스)
     ├── dialog/        # 창 — Dialog(dialog.py) 최상위 부모 + 하위 클래스 한 파일에 하나 (Input·Key·Pager·Busy·Teleop·RouteRviz)
+    ├── map_view/      # 터미널 지도 — MapGrid(벽 우선 피라미드) · Viewport(중심·확대) · MapView(포커스 가능 Component)
     ├── state_bar/     # 상단 상태바 — State(칸) 하위 클래스들 + StateBar(줄로 그림) + TopStateBar(기본 구성)
     ├── ui.py          # Ui — 터미널 모드 · print 가로채기 · confirm/modal_input/pager/select 진입점 · ui.window
     ├── state.py       # StateStore — 구독한 ROS 상태 보관 (화면은 여기만 읽음)
@@ -131,13 +132,15 @@ Component (op/component.py)  — focusable · on_key(k) → 처리했으면 True
 
 Window (op/window/window.py) — ui.window
   top_bar(TopStateBar) + menu_bar(LeftSideMenuBar) + 중앙(center_fn) + 힌트 줄을 조합해 draw()
+  navigate(name, **params)                     이름으로 화면 열기 — 웹 페이지 이동처럼 파라미터를 넘김 (앱의 screen(name, **params)가 받음)
   run(title, items_fn, center_fn, back, main)  화면 하나의 키 루프 (Menu.show가 부름)
      Tab = 메뉴 막대 ↔ 상태바 포커스 · Enter = 포커스된 부품 activate() · Esc/b/m/q = 이동
+  run(…, center_comp=지도, focus_center=True)  중앙에 포커스 가능한 부품을 올림 — Tab으로 메뉴 막대와 오감 (예: MapPage의 MapView)
   select(title, [(key, label)], center)        한 번 고르기 (ChoiceItem으로 run(once=True))
   perform(label, fn, busy)                     실행 + 끝나면 이 화면의 메뉴 막대·중앙·포커스 복원
   신호 connect/emit — OperatorTool이 연결:
      'tick'(seconds)  ROS 폴링 + 재연결 판단 (메뉴 대기 · 창이 떠 있는 동안)
-     'navigate'(name) screen(name).show() — 상태 칸 등 메뉴 밖에서 화면 열기
+     'navigate'(name, params) screen(name, **params).show() — 상태 칸·다른 화면에서 화면 열기 (파라미터 전달)
 ```
 
 소스에서 직접 실행하려면 Enter와 같은 길로 `item.activate()` / `state.activate()`를 부른다.
@@ -277,3 +280,18 @@ python3 cli-test/scenarios.py teleop-hud
 | Esc 판정 | 40ms 기다림 — 아주 느린 연결에서 방향키가 Esc로 잘못 읽힐 수 있음 | 대기 시간 늘리기 |
 | 터미널 종류 | xterm 계열 escape code 가정 (macOS Terminal·iTerm·리눅스 기본 터미널·ssh OK) | `curses`(terminfo) |
 | 입력창 | 커서 이동·붙여넣기 편집 없음 (Backspace·Ctrl+U만) | `prompt_toolkit` |
+
+## 5. 지도 화면 (MapPage) — 파라미터로 쓰임이 바뀌는 화면
+
+`pages/map_page.py` 하나가 **보기 · A/B 경로 goal 찍기 · 로봇 위치 지정**을 다 한다. 웹 페이지처럼 이름과 파라미터로 연다:
+
+```python
+self.ui.window.navigate('map', mode='view')                                   # 지금 /map 보기 (로봇 ● 표시)
+self.ui.window.navigate('map', mode='view', source=map_yaml)                  # 저장된 지도 파일 보기
+self.ui.window.navigate('map', mode='goals', start=…, goals=…, on_save=cb)    # A/B 경로 — 저장하면 cb(goals)
+self.ui.window.navigate('map', mode='pose', on_pose=fn)                       # 위치 지정 — Enter → fn(x, y, yaw_deg)
+```
+
+- 중앙 = `MapView`(포커스 가능 Component), 왼쪽 = 같은 동작 메뉴. Tab/Esc로 오간다. 화면 한가운데 십자선(+)이 찍을 자리, 로봇은 빨간 점(●), 찍는 모드는 십자선에서 방향선이 나간다 (`[` `]` 15° · `{` `}` 1°).
+- 로봇 따라가기(기본): 중심이 로봇을 따라간다. 지도가 한 화면에 다 보이면 지도는 고정되고 로봇 점이 움직인다. 방향키로 지도를 밀면 풀리고 `r`로 다시 켠다.
+- 새 쓰임은 mode를 늘리지 말고, 먼저 파라미터(`on_pose` 같은 콜백)로 되는지 본다.
