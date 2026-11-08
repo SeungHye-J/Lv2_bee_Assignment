@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """YOLO nano 학습 (호스트, MPS/GPU) — export_dataset.py 산출물로 학습.
 
-  cd lv2_module6/simulator && .venv/bin/python train_yolo.py [--epochs 100] [--model yolo11n.pt]
+  cd lv2_module6/simulators && .venv/bin/python train_yolo.py [--epochs 100] [--model yolo11n.pt]
 
 산출물 runs/yolo11n-beebot/weights/best.pt(ultralytics 이름) → lv2_module6/models/yolo/model.pt(perception 기본 모델) 로 복사 후 커밋.
 """

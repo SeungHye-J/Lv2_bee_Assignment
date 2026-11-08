@@ -1,7 +1,7 @@
 # cuVSLAM + nvblox (NVIDIA GPU SLAM) — 설치·실행·시험 기록
 
 SLAM은 **cuVSLAM(위치) + nvblox(지도)** 하나다 (RTAB-Map은 브랜치 `feature/cuvslam-nvblox`에서 뺐다). 둘 다 Jetson GPU를 쓴다.
-GPU 없는 테스트베드(faker)는 `map:=course`(map_server + 정지 map→odom)만 되고, `map:=slam|saved`는 시작할 때 이유를 알리고 멈춘다.
+GPU 없는 테스트베드(faker)는 `fake_slam`(기본)으로 `map:=course|slam|saved`가 모두 된다 — 코스 map_server + fake_cuvslam + fake_nvblox + `nvblox.nvblx` 자리 파일. 진짜 cuVSLAM·nvblox는 `fake_slam:=false` + GPU에서만.
 
 - 노드: [`ros_system/scripts/cuvslam_slam.py`](../../lv2_module6/ros2_ws/src/ros_system/scripts/cuvslam_slam.py) (위치) ·
   [`nvblox_map.py`](../../lv2_module6/ros2_ws/src/ros_system/scripts/nvblox_map.py) (nvblox 격자 → /map) ·

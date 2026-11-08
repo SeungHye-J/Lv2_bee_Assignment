@@ -7,7 +7,7 @@ pole_front_cam(멀리 1~3m · 가까이 0.4~1m)과 gripper_cam(집기 직전 자
 클래스: 0 puck(서 있음) · 1 puck_lying(누움) · 2 goal_zone(B 지역) · 3 station_zone(미션 지역 판) · 4 qr_board · 5 obstacle · 6 person · 7 traffic_light
 퍽 색 · 신호등 상태(빨강·노랑·초록·꺼짐)는 클래스로 나누지 않는다 — perception이 박스 안 HSV로 판별.
 
-  cd lv2_module6/simulator && .venv/bin/python export_dataset.py --out dataset --n 1000 --views 3
+  cd lv2_module6/simulators && .venv/bin/python export_dataset.py --out dataset --n 1000 --views 3
   → dataset/{train,val}/{images,labels}/ + dataset/data.yaml (ultralytics용)
 
 URDF: 테스트베드가 떠 있으면 /robot_description, 아니면 lv2_module6/urdf/beebot_mesh/urdf.xacro를 xacro로 펼침 (기본 모델).

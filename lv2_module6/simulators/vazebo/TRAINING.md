@@ -5,8 +5,8 @@
 ## 0. 준비 (최초 1회)
 
 ```bash
-cd lv2_module6/simulator
-python3 -m venv .venv && .venv/bin/pip install -r requirements.txt
+cd lv2_module6/simulators
+./setting-venv.sh
 ```
 
 ## 1. 데이터셋 생성 (`export_dataset.py`)
@@ -18,7 +18,7 @@ test-faker 기동 상태에서 실행 — 시뮬 렌더를 `pole_cam`에 투영�
 cd docker/lv2_module6 && docker compose up -d && docker compose exec lyrical bash
 test-faker 0   # 끄지 말 것 — 데이터셋 뽑는 동안 유지
 # 호스트 (새 터미널)
-cd lv2_module6/simulator
+cd lv2_module6/simulators
 .venv/bin/python export_dataset.py
 ```
 
@@ -28,11 +28,11 @@ cd lv2_module6/simulator
 ## 2. 학습 (`train_yolo.py`)
 
 ```bash
-cd lv2_module6/simulator
+cd lv2_module6/simulators
 .venv/bin/python train_yolo.py [--epochs 100] [--model yolo11n.pt] [--imgsz 640] [--device mps]
 ```
 
-- 출력 고정: `simulator/runs/<name>/weights/best.pt`
+- 출력 고정: `simulators/runs/<name>/weights/best.pt`
   (`train_yolo.py:34`에서 `project=HERE/runs` 절대경로 고정 — cwd가 어디든 여기로 간다)
 - 끝나면 스크립트가 자동으로 `../../models/yolo/model.pt`에 복사한다 (`train_yolo.py:35-39`)
 - MPS(Mac GPU) 기준 100에폭 약 1.5시간. 로그는 nohup으로: `nohup ./.venv/bin/python train_yolo.py --epochs 100 > /tmp/train.log 2>&1 &`
@@ -86,7 +86,7 @@ timeout 15 ros2 topic echo --once /tracked_objects perception/msg/TrackedObjectA
   cwd=`.../source/llm`에서 돌려서 ultralytics 기본값(`cwd/runs`)으로 빠진 것.
   로그 증거: `args.yaml:14-16` (`project: null`), `save_dir=.../llm/runs/...`.
   현 스크립트는 절대경로 고정이라 재발 안 함. llm 쪽 `best.pt`는 같은 데이터셋 산출물이므로
-  임시 가중치로만 쓰고, 정식 학습 끝나면 `simulator/runs` 산출물로 교체할 것.
+  임시 가중치로만 쓰고, 정식 학습 끝나면 `simulators/runs` 산출물로 교체할 것.
 - **빌드했는데 모델이 share에 없음**: `file(GLOB)` 탓. `--cmake-force-configure` 없이 빌드하면
   빈 모델 목록이 캐시된다. 증상: `ls /ws/install/perception/share/perception/model/` 비어 있음.
 - **perception이 뜨자마자 죽음**: `AttributeError: ... 'warn'` — `get_logger().warn`은 없음.

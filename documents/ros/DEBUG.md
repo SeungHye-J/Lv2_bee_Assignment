@@ -3,7 +3,7 @@
 Jetson에서 `start.sh`가 안 뜨거나, 뜨다가 죽거나, 센서가 안 잡힐 때 보는 절차.
 
 - 설치: [`SETTING.md`](../jetson-orin-nano/SETTING.md) · SLAM(cuVSLAM + nvblox) 설치·실기 시험: [`CUVSLAM.md`](../jetson-orin-nano/CUVSLAM.md)
-- 전체 개발·도커 테스트: [`../../lv2_module6/simulator/gazebo`](../../lv2_module6/simulator/gazebo/DEVELOP.md)
+- 전체 개발·도커 테스트: [`../../lv2_module6/simulators/gazebo`](../../lv2_module6/simulators/gazebo/DEVELOP.md)
 
 ## 1. 먼저 구분할 것
 
@@ -55,7 +55,7 @@ less ~/beebot-start.log
 
 ### Gazebo / 센서 스택
 
-`../../lv2_module6/simulator/gazebo`가 띄운 경우:
+`../../lv2_module6/simulators/gazebo`가 띄운 경우:
 
 ```bash
 tail -100 /tmp/gz.log
@@ -292,7 +292,7 @@ ls ~/isaac_ros_ws/install/setup.bash                         # start.sh가 자�
 
 - `cuvslam`이 없음 → PyCuVSLAM 소스 빌드 (CUVSLAM.md 2절).
 - `nvblox_ros`가 없음 → Jetson(arm64)은 Lyrical apt 패키지가 없어 `~/isaac_ros_ws` 소스 빌드 또는 Isaac ROS 컨테이너 (CUVSLAM.md 2-1절).
-- SLAM 없이 나머지만 띄우려면 `use_slam:=false`. 테스트베드(GPU 없음)는 `map:=course`만 된다.
+- SLAM 없이 나머지만 띄우려면 `use_slam:=false`. 테스트베드(GPU 없음)는 faker `fake_slam:=true`(기본)로 `map:=course|slam|saved` 모두 된다.
 
 ### `import cuvslam`에서 `Illegal instruction (core dumped)`
 

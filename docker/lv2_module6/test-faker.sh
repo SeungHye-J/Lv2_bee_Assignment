@@ -144,7 +144,7 @@ if [ "$CAM_OK" = 1 ]; then
   grep -q '🔊' /tmp/faker.log || { echo "FAIL: /robot_say 없음"; exit 1; }
   echo "PASS: faker 흐름 (시뮬레이터 카메라 → 인지 → vlm → coordinator → Nav2·grasp·move_group → task_status SUCCEEDED)"
 else
-  echo "건너뜀: 작업 흐름 — 시뮬레이터 꺼짐 ($META 갱신 없음). 흐름까지 보려면 호스트에서 시뮬레이터를 켜고 다시: cd lv2_module6/simulator && .venv/bin/python main.py"
+  echo "건너뜀: 작업 흐름 — 시뮬레이터 꺼짐 ($META 갱신 없음). 흐름까지 보려면 호스트에서 시뮬레이터를 켜고 다시: cd lv2_module6/simulators && .venv/bin/python vazebo/main.py"
 fi
 if [ "$MONITOR" = 1 ]; then
   echo "PASS: faker 배관 (controller_manager ↔ fake_opencr → /joint_states · EKF /odometry/filtered · Nav2 active · monitor_manager)"

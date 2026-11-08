@@ -23,8 +23,8 @@ ROS 쪽은 실제 노드·컨트롤러가 그대로 돈다.
 
   컨테이너:  test-faker 0                        (fake_opencr가 OpenCR 역할 — 미끄럼·충돌·통신 끊김까지)
              test-faker 0 mock_hardware:=true    (OpenCR 없이 mock — 물리 없음)
-  호스트:    cd lv2_module6/simulator
-             python3 -m venv .venv && .venv/bin/pip install -r vazebo/requirements.txt   # 최초 1회
+  호스트:    cd lv2_module6/simulators
+             ./setting-venv.sh                                              # 최초 1회
              .venv/bin/python vazebo/main.py
              .venv/bin/python vazebo/main.py --snapshot out.png       # 창 없이 화면 한 장 (확인용)
 """

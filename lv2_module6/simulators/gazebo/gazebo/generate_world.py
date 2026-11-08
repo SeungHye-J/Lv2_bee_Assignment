@@ -908,7 +908,7 @@ def sdf_for_zone(obj):
 
 
 # ---------------------------------------------------------------------------
-# 선택형 환경 텍스처 (simulator/images → Gazebo mesh/MTL)
+# 선택형 환경 텍스처 (simulators/images → Gazebo mesh/MTL)
 # ---------------------------------------------------------------------------
 
 def _env_asset(kind, value):

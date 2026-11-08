@@ -271,7 +271,7 @@ cd tools
 - `map mode` · `map switch`는 **launch 전체를 다시 띄웁니다** (cuVSLAM·nvblox는 실행 중 전환이 없음 — state_manager가 `all map:=slam` · `all map:=saved map_name:=<이름>`).
   CLI는 `/state/restart`의 첫 응답(`all: 재시작 중 …` · `거절: …`)만 보여 주고 끝납니다. 다시 뜨는 데 수십 초(nvblox 지도 저장 → SLAM 시작) — 끝났는지는 `map status`.
 - 없는 지도 이름 · 지도 폴더 없이 `localization`은 CLI가 먼저 거절합니다 (state_manager는 거절 이유를 `/diagnostics`에만 남김).
-- COURSE(테스트베드 정지 지도)에서는 확인 뒤 `/cmd/restart`로 갈아탑니다. SLAM은 GPU가 있어야 해서 **GPU 없는 테스트베드에선 시작하다 멈춥니다**.
+- COURSE(테스트베드 정지 지도)에서는 확인 뒤 `/cmd/restart`로 갈아탑니다. 테스트베드(faker)는 fake SLAM(코스 map_server · fake_cuvslam · fake_nvblox)으로 갈아타므로 GPU 없이도 MAPPING/LOCALIZATION이 됩니다.
 - `map save`는 `/map_saver/save_map`(map:=slam·saved일 때만 뜸)을 불러 `.pgm`·`.yaml`을 저장합니다.
   저장할 때 `/nvblox_node/save_map`으로 `nvblox.nvblx`도 명시적으로 저장한 뒤,
   **LOCALIZATION으로 전환할지 물어보고** 위치추정으로 다시 뜹니다.
@@ -384,7 +384,7 @@ export ROS_DOMAIN_ID=42
   발행은 `[PUB ...]`로 찍히고 mode/estop/map 요청은 가짜 state_manager가 받아 상태를 바꿉니다.
 - `docker` — 도커 `test-faker 0`이 쓰는 `lv2_module6/debug` 파일을 폴링합니다. faker가 꺼져 있으면 자동으로 띄우고 준비될 때까지 기다립니다.
   구독은 `output/topic`, 발행은 `input/topic`, 서비스는 `input/service`↔`output/service`.
-  메뉴를 띄우면 호스트 SIL 뷰어(`simulator/vazebo/simple.py`)가 자동으로 같이 뜹니다
+  메뉴를 띄우면 호스트 SIL 뷰어(`simulators/vazebo/simple.py`)가 자동으로 같이 뜹니다
   (왼쪽 실환경 3D — 마우스로 돌려 보는 시점, 오른쪽 카메라 "보내기 전 SIM / fake_camera가 받은 후 ROS" × RGB·DEPTH·POINT). `--no-sim`으로 끄고 `--sim`으로 강제합니다.
   faker의 `service_action_input` 화이트리스트 밖 서비스와 파라미터 변경은 아직 미지원입니다.
 

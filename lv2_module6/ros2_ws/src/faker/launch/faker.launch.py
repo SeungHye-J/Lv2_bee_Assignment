@@ -9,17 +9,18 @@
   지도 map:= (fake_opencr 충돌 판정은 늘 실제 코스 — 월드. 로봇 쪽 지도만 바뀜):
   ros2 launch faker faker.launch.py                         # course (기본): 코스 지도를 외운 상태 (map_server + map→odom 항등)
   지도 한 벌 = 폴더 하나: /ws/map/<map_name>/ nvblox.nvblx (위치추정용 정본) · map.pgm · map.yaml (사람이 보는 미리보기)
-  ros2 launch faker faker.launch.py map:=slam               # ① 매핑 · ② map:=saved 위치추정 — SLAM(cuVSLAM + nvblox)은 GPU가 있어야 함:
-  ros2 launch faker faker.launch.py map:=saved              #    테스트베드 컨테이너엔 GPU가 없어 시작할 때 'SLAM에 필요한 것이 없음'으로 멈춤
-                                                             #    (ros_system check_slam). GPU 컨테이너·Jetson에서만 — 인자 처리는 bringup 그대로
+  ros2 launch faker faker.launch.py map:=slam               # ① 매핑 · ② map:=saved 위치추정 — 테스트베드는 fake_slam(기본):
+  ros2 launch faker faker.launch.py map:=saved              #    코스 map_server(/map) + fake_cuvslam(map→odom) + fake_nvblox(ESDF) + nvblox.nvblx 자리 파일
+                                                             #    GPU 있는 곳에서 진짜 SLAM을 쓰려면 fake_slam:=false (ros_system check_slam)
 
 실제로 띄우는 📦 (ros_system):
   robot_state_publisher(URDF) · controller_manager + control/BeebotSystemHardware(가상 시리얼 ↔ fake_opencr) + 컨트롤러 · robot_localization EKF
   · 진짜 Nav2 (planner · controller · behavior · bt_navigator · velocity_smoother · collision_monitor)
-map:=course일 때만 — 실기에서 SLAM(cuVSLAM + nvblox)이 하는 일의 대신 (시뮬레이터 = 코스를 알고 있음):
+map:=course 또는 fake_slam:=true (기본) — 실기에서 SLAM(cuVSLAM + nvblox)이 하는 일의 대신 (시뮬레이터 = 코스를 알고 있음):
   map_server       코스 지도 /map (maps/<course>.yaml — tools/course/build_map.py · build_dice.py · build_map_usd.py(Isaac 미로 isaac_maze), 원점 = 출발 칸)
   map→odom         fake_cuvslam: 진짜 위치(fake_opencr ground_truth)로 보정 · mock_hardware:=true면 입력이 없어 idle이라 항등 TF가 대신 (SLAM 몫의 대신)
   fake_nvblox      ESDF slice (/nvblox_node/combined_esdf_pointcloud) — /map 코스 지도로 계산한 장애물까지 거리 (로봇 근처, frame map)
+                   매핑 모드(MAPPING)면 <map_dir>/<map_name>/nvblox.nvblx 자리 파일도 쓴다 (state_manager 지도 목록·map:=saved가 이 파일을 봄)
 대역 (도커 이미지에 없는 📦 · GPU·모델이 없는 ML):
   ML 대역 (ml 패키지와 1:1 — 같은 노드 이름·토픽, 하나씩 진짜/대역 선택):
     fake_grasp_scorer       → 노드 grasp_scorer
@@ -42,6 +43,7 @@ from launch.launch_description_sources import PythonLaunchDescriptionSource
 from launch.conditions import IfCondition
 from launch.substitutions import LaunchConfiguration, PathJoinSubstitution, PythonExpression
 from launch_ros.actions import Node
+from launch_ros.parameter_descriptions import ParameterValue
 from launch_ros.substitutions import FindPackageShare
 
 
@@ -68,6 +70,9 @@ def fake(executable, name, overrides=None, respawn=False, condition=None):
 
 # 코스 지도(외운 지도)로 도나 — map:=course
 COURSE_MAP = PythonExpression(["'", LaunchConfiguration('map'), "' == 'course'"])
+# 테스트베드 SLAM 대역 — map:=slam|saved도 코스 map_server + fake_cuvslam + fake_nvblox로 돌린다
+FAKE_MAP = PythonExpression(["'", LaunchConfiguration('map'), "' == 'course' or '",
+                             LaunchConfiguration('fake_slam'), "' == 'true'"])
 
 
 def default_vlm_endpoint():
@@ -94,7 +99,8 @@ def generate_launch_description():
             '호스트 ai-service 주소 (비면 템플릿 고정) — 기본: host.docker.internal이 풀리면(macOS) 그것, 아니면(리눅스 host망) 127.0.0.1'),
         arg('course', 'dice_maze', '코스 = faker/maps/<이 이름>.yaml (fake_opencr 충돌 · map:=course 지도) — 기본 dice_maze · 옛 미로: twin_closed_maze · Isaac 학습 미로: isaac_maze'),
         arg('start_pose', '[0.734, 0.950, 0.0]', 'mission_manager 출발 자세 arena [x, y, yaw] (비면 plan.yaml) — 시뮬레이터는 +X를 보고 켬'),
-        arg('map', 'course', 'course = 코스 지도 외움 · slam = SLAM 매핑(nvblox.nvblx 새로) · saved = 저장한 nvblox.nvblx로 위치추정 (slam·saved는 GPU 필요)'),
+        arg('map', 'course', 'course = 코스 지도 외움 · slam = 매핑(nvblox.nvblx 새로) · saved = 저장한 nvblox.nvblx로 위치추정'),
+        arg('fake_slam', 'true', 'true = 테스트베드 SLAM 대역(코스 map_server · fake_cuvslam · fake_nvblox) · false = 진짜 cuVSLAM·nvblox (GPU)'),
         arg('map_dir', '/ws/map', '지도 폴더 (호스트 ros2_ws/map 바인드) — 지도마다 <map_name>/ nvblox.nvblx · map.pgm · map.yaml'),
         arg('map_name', '', '지도 폴더 이름 — slam: 비우면 날짜_시각으로 새로 · saved: 비우면 default (nvblox.nvblx 없으면 가장 최근 — bringup이 정함)'),
         arg('use_monitor', 'true', 'false = monitor_manager 끔 (호스트 가벼운 실행용 — PASS 판정에서 기록 검사 제외)'),
@@ -111,6 +117,7 @@ def generate_launch_description():
             'learning_enabled': LaunchConfiguration('learning_enabled'),
             'vlm_endpoint': LaunchConfiguration('vlm_endpoint'),
             'map': LaunchConfiguration('map'),
+            'fake_slam': LaunchConfiguration('fake_slam'),
             'map_dir': LaunchConfiguration('map_dir'),
             'map_name': LaunchConfiguration('map_name'),
             'urdf': LaunchConfiguration('urdf'),
@@ -135,22 +142,27 @@ def generate_launch_description():
         }, condition=IfCondition(PythonExpression(["'", LaunchConfiguration('mock_hardware'), "' == 'false'"]))),
         *[fake(f'fake_{n}', n, condition=IfCondition(PythonExpression(["'", LaunchConfiguration(n), "' == 'fake'"])))
           for n in ML_NODES],
-        # map:=course일 때만: 코스 지도 + map→odom 항등 (외운 지도)
-        # 매핑·저장 지도면 SLAM이 지도·map→odom을 발행 — 여기는 끈다
+        # course 또는 fake_slam(기본): 코스 지도 + fake_cuvslam + fake_nvblox (매핑·저장 모드에서도 같은 대역)
+        # 진짜 SLAM(fake_slam:=false)이면 ros_system이 지도·map→odom을 발행 — 여기는 끈다
         Node(package='nav2_map_server', executable='map_server', name='map_server', output='screen',
-             condition=IfCondition(COURSE_MAP),
+             condition=IfCondition(FAKE_MAP),
              parameters=[{'yaml_filename': PathJoinSubstitution([FindPackageShare('faker'), 'maps', [LaunchConfiguration('course'), '.yaml']])}]),
         Node(package='nav2_lifecycle_manager', executable='lifecycle_manager', name='lifecycle_manager_map', output='screen',
-             condition=IfCondition(COURSE_MAP),
+             condition=IfCondition(FAKE_MAP),
              parameters=[{'autostart': True, 'node_names': ['map_server'], 'bond_timeout': 60.0}]),
         # map → odom: fake_opencr가 있으면 진짜 위치로 보정 (fake_cuvslam — 걸리거나 미끄러져도 위치가 안 틀어짐) · mock이면 항등
         Node(package='tf2_ros', executable='static_transform_publisher', name='map_to_odom', output='screen',
-             condition=IfCondition(PythonExpression([COURSE_MAP, " and '", LaunchConfiguration('mock_hardware'), "' == 'true'"])),
+             condition=IfCondition(PythonExpression([FAKE_MAP, " and '", LaunchConfiguration('mock_hardware'), "' == 'true'"])),
              arguments=['--frame-id', 'map', '--child-frame-id', 'odom']),
-        fake('fake_cuvslam', 'fake_cuvslam',
-             condition=IfCondition(COURSE_MAP)),  # mock에선 ground_truth가 없어 idle — map→odom은 아래 항등이 잡음
-        fake('fake_nvblox', 'nvblox_node',
-             condition=IfCondition(COURSE_MAP)),
+        # mock에선 ground_truth가 없어 idle — map→odom은 아래 항등이 잡음
+        fake('fake_cuvslam', 'fake_cuvslam', condition=IfCondition(FAKE_MAP)),
+        # 매핑이면 <map_dir>/<map_name>/nvblox.nvblx 자리 파일을 써서 state_manager 지도 목록·map:=saved가 보게 한다
+        fake('fake_nvblox', 'nvblox_node', {
+            'map_dir': ParameterValue(LaunchConfiguration('map_dir'), value_type=str),
+            'map_name': ParameterValue(LaunchConfiguration('map_name'), value_type=str),  # 20261108_125457 → int로 안 바뀌게
+            'map_mode': ParameterValue(LaunchConfiguration('map_mode'), value_type=str),
+            'course': ParameterValue(LaunchConfiguration('course'), value_type=str),
+        }, condition=IfCondition(FAKE_MAP)),
         fake('monitor_manager', 'monitor_manager', {'debug_dir': LaunchConfiguration('debug_dir')}, respawn=True,  # 죽으면 시뮬레이터가 다 멈춰 보임 → 다시 띄움
              condition=IfCondition(PythonExpression(["'", LaunchConfiguration('use_monitor'), "' == 'true'"]))),
         fake('input_manager', 'input_manager', {'debug_dir': LaunchConfiguration('debug_dir')}),

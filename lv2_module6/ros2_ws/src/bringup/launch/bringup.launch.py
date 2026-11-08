@@ -9,7 +9,8 @@
   ros2 launch bringup bringup.launch.py map:=saved                # 위치추정: 가장 최근 폴더 (기본)
   ros2 launch bringup bringup.launch.py map:=saved map_name:=20261017_163731
   map_dir 기본 ~/.ros/beebot_maps (실기 start.sh는 ros2_ws/map, 테스트베드 faker는 /ws/map)
-  map:=course 는 테스트베드 전용 (SLAM 없이 faker의 코스 지도 map_server — 테스트베드엔 GPU가 없어 cuVSLAM·nvblox를 못 띄움)
+  map:=course 는 테스트베드 전용 (SLAM 없이 faker의 코스 지도 map_server) · faker는 fake_slam:=true로 slam/saved에서도 같은 코스 대역을 쓴다
+  (테스트베드엔 GPU가 없어 진짜 cuVSLAM·nvblox를 못 띄움 — fake_slam:=false면 ros_system check_slam이 멈춤)
   실행 중 바꾸기: 스캔 ↔ 위치추정 /cmd/map_mode · 지도 갈아끼우기 /cmd/map_name — state_manager가 인자만 바꿔 launch 전체를 다시 띄움
 재시작 (state_manager — 이 launch 명령줄 그대로 다시): ros2 topic pub --once /cmd/restart std_msgs/msg/String "{data: 'all'}"
   'all map:=slam' (그 인자만 바꿔) · 'node perception' (그 노드만, 같은 파라미터)
@@ -79,8 +80,12 @@ MAP_FILE = 'nvblox.nvblx'
 def setup_map(context):
     """지도 정하기 (실기·테스트베드 공통): map:=slam → 새 폴더(기본 날짜_시각) 매핑 · saved → 고른 폴더(기본 default, 없으면 가장 최근) 위치추정 ·
     course → SLAM 없음(테스트베드 faker의 코스 지도). ros_system에 넘길 use_slam · localization · nvblox_map과
-    state_manager 시작 값(map_mode · map_name · map_dir)을 정한다. ros_system을 안 띄우면(use_ros_system:=false) 확인만 건너뜀"""
+    state_manager 시작 값(map_mode · map_name · map_dir)을 정한다. ros_system을 안 띄우면(use_ros_system:=false) 확인만 건너뜀
+
+    fake_slam:=true (faker 테스트베드) — 지도 모드·map_saver는 그대로 두고 ros_system의 진짜 SLAM만 끈다.
+    /map은 faker의 코스 map_server, map→odom은 fake_cuvslam, ESDF는 fake_nvblox가 대신한다."""
     mode = LaunchConfiguration('map').perform(context)
+    fake_slam = LaunchConfiguration('fake_slam').perform(context).lower() == 'true'
     map_file = MAP_FILE
     d = os.path.expanduser(LaunchConfiguration('map_dir').perform(context) or '~/.ros/beebot_maps')
     name = LaunchConfiguration('map_name').perform(context)
@@ -111,9 +116,12 @@ def setup_map(context):
     if mode == 'course':
         name = ''
     use_slam = 'false' if mode == 'course' or no_map else 'true'
+    # use_slam = 지도 의미(모드·map_saver가 켜져야 하나) · use_real_slam = ros_system의 cuVSLAM·nvblox를 띄울지
+    use_real_slam = 'false' if fake_slam else use_slam
     return [SetLaunchConfiguration('map_dir', d), SetLaunchConfiguration('map_name', name),
             SetLaunchConfiguration('map_mode', {'course': 'COURSE', 'slam': 'MAPPING', 'saved': 'LOCALIZATION'}[mode]),
             SetLaunchConfiguration('use_slam', use_slam),
+            SetLaunchConfiguration('use_real_slam', use_real_slam),
             SetLaunchConfiguration('localization', 'false' if mode == 'slam' else 'true'),
             SetLaunchConfiguration('nvblox_map', os.path.join(d, name, map_file))]
 
@@ -142,11 +150,13 @@ def generate_launch_description():
         DeclareLaunchArgument('restart_log', default_value='/tmp/bringup.log',
                               description='/cmd/restart all 때 다시 띄운 launch 출력 파일 (state_manager)'),
         DeclareLaunchArgument('map', default_value='saved',
-                              description='slam = 새 폴더에 매핑 · saved = 저장 지도로 위치추정 (테스트베드 course = 코스 지도, SLAM 없음)'),
+                              description='slam = 새 폴더에 매핑 · saved = 저장 지도로 위치추정 (테스트베드 course = 코스 지도 · fake_slam:=true면 slam/saved도 코스 대역)'),
         DeclareLaunchArgument('map_dir', default_value='',
                               description='지도 폴더들이 있는 곳 — <map_dir>/<map_name>/nvblox.nvblx (비면 ~/.ros/beebot_maps)'),
         DeclareLaunchArgument('map_name', default_value='',
                               description='지도 폴더 이름 — slam: 비우면 날짜_시각으로 새로 · saved: 비우면 가장 최근'),
+        DeclareLaunchArgument('fake_slam', default_value='false',
+                              description='true = faker SLAM 대역(코스 map_server · fake_cuvslam · fake_nvblox) — ros_system의 진짜 cuVSLAM·nvblox만 끔'),
         *[DeclareLaunchArgument(k, default_value=v, description=d) for k, (v, d) in ROS_SYSTEM_ARGS.items()],
         OpaqueFunction(function=setup_map),
 
@@ -155,7 +165,7 @@ def generate_launch_description():
             PythonLaunchDescriptionSource(PathJoinSubstitution(
                 [FindPackageShare('ros_system'), 'launch', 'ros_system.launch.py'])),
             launch_arguments={**{k: LaunchConfiguration(k) for k in ROS_SYSTEM_ARGS},
-                              'use_slam': LaunchConfiguration('use_slam'),
+                              'use_slam': LaunchConfiguration('use_real_slam'),
                               'localization': LaunchConfiguration('localization'),
                               'nvblox_map': LaunchConfiguration('nvblox_map')}.items())],
             condition=IfCondition(LaunchConfiguration('use_ros_system'))),

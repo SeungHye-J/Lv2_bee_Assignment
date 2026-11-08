@@ -1,7 +1,7 @@
 #pragma once
 
 // OpenCR 대역: BeebotSystemHardware(mock:=false)가 가상 시리얼로 주고받는 펌웨어 프로토콜(firmware/README.md)을
-// 파일로 흉내낸다. 테스트베드에서 OpenCR 역할은 이것 하나 (시뮬레이터는 시리얼에 쓰지 않음 — simulator/opencr.py가 읽기·요청만).
+// 파일로 흉내낸다. 테스트베드에서 OpenCR 역할은 이것 하나 (시뮬레이터는 시리얼에 쓰지 않음 — simulators/opencr.py가 읽기·요청만).
 //   C 읽기: <serial_out> (debug/output/hardware/serial) — "C,<바퀴L·R rad/s>,<joint1~5 rad>,<그리퍼 m>" 8 필드,
 //     빈 필드(`,,`)는 유지(NaN) — 팔·그리퍼는 명령 생략(현재 유지), 바퀴는 0(정지).
 //     줄마다 엄격 검사 후 적용 (틀린 줄은 버림 — 결과 = 마지막 유효 줄). 예: C,1,,0.4,,,,,

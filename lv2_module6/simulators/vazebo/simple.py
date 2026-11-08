@@ -42,7 +42,7 @@ try:
 except Exception:  # moderngl 없음/컨텍스트 실패 → torch 폴백
     WorldGL = None
 
-# docker 모드는 cli/ros/docker/assets 사본을 쓴다 (원본 isaac/·simulator/ 경로 참조 금지).
+# docker 모드는 cli/ros/docker/assets 사본을 쓴다 (원본 isaac/·simulators/ 경로 참조 금지).
 ASSETS = Path(os.environ['BEEBOT_SIM_ASSETS']).resolve() if os.environ.get('BEEBOT_SIM_ASSETS') else None
 
 TILE = (320, 240)

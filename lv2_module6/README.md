@@ -3,7 +3,7 @@
 **미로 코스 안에서 로봇(beebot)이 스스로 주행하며 코스를 스캔하고, 흩어진 퍽을 찾아 집어 목표 구역으로 옮겨 놓는다.**
 가는 길의 장애물·끼어드는 사람은 피하거나 멈춘다 — 로봇 대회의 "물건 옮기고 위치시키기" 미션.
 
-- 처음이면 **[DEVELOP.md](simulator/gazebo/DEVELOP.md)** — 셋팅 · 도커 · 빌드 · 커스텀 메시지 · 파라미터 · 수동 조작 · 상태 진단 · 테스트 · 펌웨어 · 시뮬레이터 · CI
+- 처음이면 **[DEVELOP.md](simulators/gazebo/DEVELOP.md)** — 셋팅 · 도커 · 빌드 · 커스텀 메시지 · 파라미터 · 수동 조작 · 상태 진단 · 테스트 · 펌웨어 · 시뮬레이터 · CI
 - 설계(노드·토픽 상세): [documents/project/ros](../documents/project/ros/README.md)
 - ROS 2 Lyrical (Ubuntu 26.04) · C++ (ament_cmake) · OpenCR 펌웨어 (Arduino)
 
@@ -28,7 +28,7 @@
 | 이름 | 역할 | 패키지 |
 | --- | --- | --- |
 | 송정혁 | 설계, 학습 | `ml` |
-| 권형중 | 통합 | `plan`, `ros_system`, `bringup`, `faker`, `simulator/`, `course/` |
+| 권형중 | 통합 | `plan`, `ros_system`, `bringup`, `faker`, `simulators/`, `course/` |
 | 전승혜 | 인지 | `perception` |
 | 김현하 | 제어 | `control`, `manager`, `firmware/` |
 
@@ -174,7 +174,7 @@ sequenceDiagram
 ```mermaid
 flowchart LR
     subgraph HOST["호스트 (Mac·PC)"]
-        SIM["simulator/ (main.py)<br/>코스 · 퍽 · 장애물 · 사람 · 두 카메라 렌더<br/>환경 요청(미끄럼·마찰·통신 끊기) · 시리얼 보기(읽기만) · 수동 조작 창(3D) · 진단"]
+        SIM["simulators/ (main.py)<br/>코스 · 퍽 · 장애물 · 사람 · 두 카메라 렌더<br/>환경 요청(미끄럼·마찰·통신 끊기) · 시리얼 보기(읽기만) · 수동 조작 창(3D) · 진단"]
         DBG[("lv2_module6/debug/<br/>output/topic/ · topic/ · node/ · pkg/ · input/ · output/<br/>input/hardware/serial · output/hardware/serial · input/hardware/camera")]
     end
     subgraph DOCKER["도커 테스트베드 (ROS 2 Lyrical)"]
@@ -216,7 +216,7 @@ lv2_module6/
 ├── urdf/<이름>/urdf.xacro    로봇 모델 (폴더 하나 = 모델 하나, launch urdf:= · 기본 beebot_mesh) (더미 치수 — 팔은 ROBOTIS OM-X 원본 값 + 손목 roll)
 ├── firmware/beebot_opencr/   OpenCR 펌웨어 (호스트 BeebotSystemHardware와 같은 시리얼 프로토콜)
 ├── isaac/                    Isaac Sim 장면·로봇 USD(usda/) + Isaac Lab 학습(rl/bee_isaac/tasks/) — isaac/docs/README.md
-├── simulator/                SIL 시뮬레이터 (main.py · 수동 조작 창 manual_window.py · opencr.py = fake_opencr 연결, 읽기·요청만)
+├── simulators/                SIL 시뮬레이터 (main.py · 수동 조작 창 manual_window.py · opencr.py = fake_opencr 연결, 읽기·요청만)
 ├── tools/                    운영 도구 (cli/ 수동 조작 CLI · run-rviz · rviz/ · course/ 코스 변환기)
 ├── ros2_ws/
 │   ├── start.sh · firmware-upload.sh · download-artifact.sh   실기·배포 패키지용 스크립트
@@ -238,7 +238,7 @@ lv2_module6/
 # 테스트베드 (저장소 루트에서) — 자세한 건 develop/DEVELOP.md
 cd docker/lv2_module6 && docker compose build && docker compose up -d && docker compose exec lyrical bash
 test-all                                  # push 전 필수 (CI와 같은 검사)
-test-faker 0                              # 띄워 두기 (fake_opencr가 OpenCR — 미끄럼·충돌·통신 끊김) → 호스트에서 simulator/vazebo/main.py
+test-faker 0                              # 띄워 두기 (fake_opencr가 OpenCR — 미끄럼·충돌·통신 끊김) → 호스트에서 simulators/vazebo/main.py
 test-faker 0 mock_hardware:=true          # OpenCR 없이 mock (물리 없음)
 
 # 실기 (라즈베리파이·PC, CI 배포 패키지 또는 저장소)
@@ -258,4 +258,4 @@ test-faker 0 mock_hardware:=true          # OpenCR 없이 mock (물리 없음)
 - URDF 실측 치수·메시, 펌웨어 관절 부호·영점·그리퍼 변환 실측, SyncRead/SyncWrite로 주기 올리기
 - 실기 주행·팔 파라미터 튜닝 — Nav2·MoveIt 설정은 있고 bringup이 기본 기동한다 (`use_nav2`·`use_moveit` true)
 - 테스트베드는 CPU로 ML(ONNX 정책·YOLO)을 실제 노드로 돌린다 — 모델은 `models/`에 커밋
-- 테스트베드에는 RealSense 본체·GPU가 없다 — 카메라는 시뮬레이터 렌더, cuVSLAM·nvblox는 faker, 지도·map→odom은 faker map_server + 항등 TF. MoveIt·Nav2·ML은 실제 노드를 쓴다
+- 테스트베드에는 RealSense 본체·GPU가 없다 — 카메라는 시뮬레이터 렌더, SLAM은 faker 대역(fake_slam): 코스 map_server + fake_cuvslam(map→odom, ground truth) + fake_nvblox(ESDF) + `nvblox.nvblx` 자리 파일. MoveIt·Nav2·ML은 실제 노드를 쓴다

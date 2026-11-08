@@ -3,7 +3,7 @@
 // RealSense 대역: realsense2_camera(camera_namespace:='', camera_name:=<이름>) 대신 같은 토픽을 발행.
 //   /<이름>/color/image_raw · color/camera_info · depth/camera_info · aligned_depth_to_color/image_raw (best_effort)
 //   /<이름>/depth/color/points (PointCloud2, depth에서 cloud_step 픽셀 간격으로 만든 xyz — optical 프레임)
-// 데이터는 시뮬레이터(lv2_module6/simulator)가 로봇 카메라 시점으로 렌더한 것만 낸다 — 지어내지 않는다.
+// 데이터는 시뮬레이터(lv2_module6/simulators)가 로봇 카메라 시점으로 렌더한 것만 낸다 — 지어내지 않는다.
 //   <live_dir>/<이름>.json   메타 {seq, stamp(촬영 시각, 초), hfov_deg, color, depth} — 마지막에 쓰여 아래 두 파일을 가리킴
 //   <live_dir>/<color>       컬러 PNG
 //   <live_dir>/<depth>        16비트 depth PNG [mm], 0 = 측정 안 됨 (RealSense처럼 — 너무 가깝거나 멀거나 배경)

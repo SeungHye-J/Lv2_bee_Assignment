@@ -4,7 +4,7 @@ ROS 2 Lyrical 실기 워크스페이스 — 로봇 bringup, 지도·주행, 팔�
 
 - 전체 설계: [`../../documents/project/ros/README.md`](../../documents/project/ros/README.md)
 - 미션 설명: [`../../documents/mission/MISSION.md`](../../documents/mission/MISSION.md)
-- 개발·도커·테스트: [`../simulator/gazebo`](../simulator/gazebo/DEVELOP.md)
+- 개발·도커·테스트: [`../simulators/gazebo`](../simulators/gazebo/DEVELOP.md)
 
 ## 1. 빠른 시작
 

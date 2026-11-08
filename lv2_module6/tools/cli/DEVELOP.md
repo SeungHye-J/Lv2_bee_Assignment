@@ -279,7 +279,7 @@ python3 cli/tests/scenarios.py teleop-hud
 - 실패하면 화면 출력이 `cli/tests/.scenario-<이름>.bin`에 남습니다. 색 코드를 빼고 보기:
   `python3 -c "import re,sys;print(re.sub(r'\x1b\[[0-9;?]*[A-Za-z]','',open(sys.argv[1],'rb').read().decode('utf-8','replace')))" cli/tests/.scenario-이름.bin`
 - 가짜 ROS(`ros/fake/FakeRos.py`)의 파라미터 클라이언트는 항상 무응답이라 파라미터 화면은 거부 경로만 시험됩니다. docker 모드는 `debug/node/<노드>/params`를 읽어 표시하지만, 변경은 아직 faker에 입력 통로가 없습니다. 진짜 동작은 로봇에서 `./run-cli`로 확인합니다.
-- docker 메뉴는 호스트 SIL 뷰어(`simulator/vazebo/simple.py`)를 자동으로 띄웁니다. 창 없이 확인하려면 `BEEBOT_SIM_HEADLESS=1 ./run-cli --source docker menu` (또는 `--no-sim`).
+- docker 메뉴는 호스트 SIL 뷰어(`simulators/vazebo/simple.py`)를 자동으로 띄웁니다. 창 없이 확인하려면 `BEEBOT_SIM_HEADLESS=1 ./run-cli --source docker menu` (또는 `--no-sim`).
 
 ## 5. 직접 만든 것의 한계
 

@@ -4,6 +4,8 @@
 #include <algorithm>
 #include <cmath>
 #include <cstring>
+#include <filesystem>
+#include <fstream>
 #include <limits>
 
 namespace faker {
@@ -49,6 +51,11 @@ FakeNvblox::FakeNvblox()
   z_m_ = declare_parameter("z_m", z_m_);
   max_distance_m_ = declare_parameter("max_distance_m", max_distance_m_);
   occupied_thresh_ = static_cast<int>(declare_parameter("occupied_thresh", occupied_thresh_));
+  map_dir_ = declare_parameter("map_dir", map_dir_);
+  map_name_ = declare_parameter("map_name", map_name_);
+  map_mode_ = declare_parameter("map_mode", map_mode_);
+  course_ = declare_parameter("course", course_);
+  write_placeholder();
   tf_buffer_ = std::make_unique<tf2_ros::Buffer>(get_clock());
   tf_listener_ = std::make_shared<tf2_ros::TransformListener>(*tf_buffer_);
   cloud_pub_ = create_publisher<sensor_msgs::msg::PointCloud2>(
@@ -57,6 +64,27 @@ FakeNvblox::FakeNvblox()
     "/map", rclcpp::QoS(1).reliable().transient_local(),
     [this](nav_msgs::msg::OccupancyGrid::ConstSharedPtr m) { on_map(*m); });
   timer_ = create_wall_timer(std::chrono::milliseconds(200), [this]() { on_timer(); });  // nvblox ESDF 갱신 ~5Hz
+}
+
+void FakeNvblox::write_placeholder() {
+  // 진짜 nvblox는 매핑을 끌 때 nvblox.nvblx를 쓴다. 테스트베드는 코스 지도를 그대로 쓰므로,
+  // state_manager 지도 목록(publish_map_list)과 bringup setup_map(map:=saved)이 폴더를 찾을 수 있게
+  // 자리 파일만 쓴다 — 진짜 nvblox가 이 파일을 읽지는 않는다 (fake_slam 전용).
+  if (map_mode_ != "MAPPING" || map_dir_.empty() || map_name_.empty()) return;
+  namespace fs = std::filesystem;
+  std::error_code ec;
+  const fs::path dir = fs::path(map_dir_) / map_name_;
+  fs::create_directories(dir, ec);
+  const fs::path file = dir / "nvblox.nvblx";
+  if (fs::exists(file, ec)) return;
+  std::ofstream out(file);
+  if (!out) {
+    RCLCPP_WARN(get_logger(), "가짜 매핑 — nvblox.nvblx 자리 파일을 못 씀: %s", file.c_str());
+    return;
+  }
+  out << "{\"fake\": true, \"course\": \"" << course_
+      << "\", \"note\": \"faker fake SLAM placeholder — real nvblox does not read this\"}\n";
+  RCLCPP_INFO(get_logger(), "가짜 매핑 — nvblox.nvblx 자리 파일 %s", file.c_str());
 }
 
 void FakeNvblox::on_map(const nav_msgs::msg::OccupancyGrid & map) {

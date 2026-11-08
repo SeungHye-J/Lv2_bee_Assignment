@@ -266,7 +266,7 @@ def check_slam(context):
         missing.append('nvblox_ros (isaac_ros_nvblox — documents/jetson-orin-nano/CUVSLAM.md "nvblox")')
     if missing:
         raise RuntimeError('SLAM(cuVSLAM + nvblox)에 필요한 것이 없음: ' + ', '.join(missing) +
-                           ' — GPU 없는 곳(테스트베드)은 faker map:=course 또는 use_slam:=false로')
+                           ' — GPU 없는 곳(테스트베드)은 faker fake_slam:=true(기본) 또는 use_slam:=false로')
     return []
 
 

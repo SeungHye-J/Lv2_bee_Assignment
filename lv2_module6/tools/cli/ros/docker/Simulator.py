@@ -1,6 +1,6 @@
 """도커 모드에서 호스트 SIL 시뮬레이터 GUI를 같이 띄운다.
 
-시뮬레이터(lv2_module6/simulator/vazebo/simple.py)는 호스트에서 돌며
+시뮬레이터(lv2_module6/simulators/vazebo/simple.py)는 호스트에서 돌며
   - 카메라 장면을 debug/input/hardware/camera/ 에 써서 컨테이너 fake_camera가 토픽으로 발행하고
   - 실환경 3D(로봇 추적 시점)와 카메라 "보내기 전(SIM) / 받은 후(ROS)" × RGB·DEPTH·POINT를 tkinter 창으로 보여 준다.
 컨테이너 쪽 `test-faker 0`은 이미 떠 있어야 한다 (이 런처는 CLI만 관리한다).
@@ -20,9 +20,9 @@ from pathlib import Path
 
 CLI = Path(__file__).resolve().parents[2]      # tools/cli
 ROOT = CLI.parents[1]                          # lv2_module6
-SIM_DIR = ROOT / 'simulator' / 'vazebo'
+SIM_DIR = ROOT / 'simulators' / 'vazebo'
 SIM_MAIN = SIM_DIR / 'simple.py'   # 없으면 main.py로 폴백
-SIM_PY = ROOT / 'simulator' / '.venv' / 'bin' / 'python'
+SIM_PY = ROOT / 'simulators' / '.venv' / 'bin' / 'python'
 LOG = Path.home() / '.cache' / 'beebot' / 'simulator.log'
 PID_ENV = 'BEEBOT_SIM_PID'
 ASSETS = Path(__file__).resolve().parent / 'assets'
@@ -85,8 +85,7 @@ class Simulator:
             return self
         if not SIM_PY.is_file():
             print(f'[sim] 시뮬레이터 venv 없음: {SIM_PY}\n'
-                  '      cd lv2_module6/simulator && python3 -m venv .venv && '
-                  '.venv/bin/pip install -r vazebo/requirements.txt', file=sys.stderr)
+                  '      cd lv2_module6/simulators && ./setting-venv.sh', file=sys.stderr)
             return self
         if sys.platform.startswith('linux') and not (
                 os.environ.get('DISPLAY') or os.environ.get('WAYLAND_DISPLAY')):

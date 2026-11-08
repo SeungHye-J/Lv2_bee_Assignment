@@ -1,5 +1,5 @@
 // fake_opencr 구현 — 설명·선언은 include/faker/fake_opencr.hpp, main은 fake_opencr_main.cpp
-// 물리 상수 — 로봇 외곽(FOOT_*)은 충돌 판정용. simulator/opencr.py ROBOT_R(0.18)은 퍽 밀기 판정에만 씀
+// 물리 상수 — 로봇 외곽(FOOT_*)은 충돌 판정용. simulators/opencr.py ROBOT_R(0.18)은 퍽 밀기 판정에만 씀
 // 로봇 외곽 (base_footprint 기준, URDF base 상자 앞 +0.069 · 뒤 −0.233 · 바퀴 바깥 ±0.153) — 박스 앞 1~2 cm까지 붙는 박스 접근용.
 constexpr double FOOT_FRONT = 0.069, FOOT_REAR = -0.233, FOOT_SIDE = 0.153;
 #include "faker/fake_opencr.hpp"

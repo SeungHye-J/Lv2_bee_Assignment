@@ -193,7 +193,7 @@ QR_DIR = Path(__file__).resolve().parent / 'qr'
 
 
 def load_problems(qr_dir=QR_DIR):
-    """simulator/qr/<코드>/qr.png + info.json → 문제 목록. 폴더 이름 = 문제 코드(지도 표시), qr.png = 판에 입힐 QR 그림,
+    """simulators/qr/<코드>/qr.png + info.json → 문제 목록. 폴더 이름 = 문제 코드(지도 표시), qr.png = 판에 입힐 QR 그림,
     info.json = {"text": QR에 담긴 텍스트, "name": 이름, "pucks": 퍽 수, "colors": 색 수, "lying": [최소, 최대]}
     문제 추가 = 폴더 하나 추가 (대회 QR 그림으로 바꿔 끼워도 됨). qr.png를 해독한 값이 text와 다르면 경고.
     → ({text: (이름, 코드, 퍽 수, 색 수, (누운 최소, 최대))}, {text: qr.png 경로})"""
@@ -231,7 +231,7 @@ def station_zone(x, y, name):
 
 def qr_board(zone, normal, text):
     """QR 판 — 미션 지역 가장자리에 서서 normal 방향(지역 안쪽 · 로봇이 다가오는 쪽)을 봄.
-    렌더는 흰 상자, QR 무늬(simulator/qr/<코드>/qr.png)는 overlay_qr가 카메라 영상에 입힌다."""
+    렌더는 흰 상자, QR 무늬(simulators/qr/<코드>/qr.png)는 overlay_qr가 카메라 영상에 입힌다."""
     nx, ny = normal
     off = zone['sx'] / 2 - QR_BOARD['thick']
     return {'kind': 'qr_board', 'shape': 'box', 'color': (245, 245, 245), 'text': text, 'station': zone['name'],
@@ -277,7 +277,7 @@ def overlay_qr(bgr, depth, T_world_cam, board, _cache={}):
     """QR 판 앞면에 QR 무늬를 원근 투영으로 입힌다 (출력 해상도에서 — 내부 160×120 렌더로는 모듈이 뭉개짐).
     렌더된 깊이가 판 깊이와 맞는 화소만 덮어 앞을 가린 물체는 그대로 둔다."""
     text = board['text']
-    if text not in _cache:  # simulator/qr/<코드>/qr.png 그대로 (여백 포함) — 회색조
+    if text not in _cache:  # simulators/qr/<코드>/qr.png 그대로 (여백 포함) — 회색조
         _cache[text] = cv2.imread(str(QR_IMAGES[text]), cv2.IMREAD_GRAYSCALE)
     qr = _cache[text]
     nx, ny = board['normal']
