@@ -202,6 +202,20 @@ class AbTest:
         """지금 로봇 자세 (TUI '지금 위치를 goal로' 등) — TF가 없으면 RuntimeError."""
         return self._current_map_pose(frame_id)
 
+    def set_robot_pose(self, x: float, y: float, yaw_deg: float, frame_id: str = 'map') -> None:
+        """로봇 위치를 지도 위 (x, y, yaw)로 — faker(시뮬레이터)의 set_pose 텔레포트. 실제 로봇은 RuntimeError."""
+        if not self._is_sim():
+            raise RuntimeError('실제 로봇은 위치 지정을 지원하지 않음 — 시뮬레이터(faker)가 떠 있을 때만 (/cmd/fake_opencr/set_pose)')
+        self._reset_sim_pose({'x': x, 'y': y, 'yaw_deg': yaw_deg}, frame_id)
+
+    def robot_pose(self, frame_id: str = 'map') -> dict | None:
+        """지금 로봇 자세 — 기다리지 않음 (지도 화면이 0.3초마다 부른다). TF가 아직 없으면 None."""
+        try:
+            x, y, yaw = self._lookup_pose(frame_id)
+        except Exception:
+            return None
+        return {'x': round(x, 3), 'y': round(y, 3), 'yaw_deg': round(math.degrees(yaw), 1)}
+
     def _load_plan_file(self, path: str | None = None) -> dict:
         plan_path = Path(path).expanduser() if path else PLAN
         if not plan_path.is_file():

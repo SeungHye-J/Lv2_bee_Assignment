@@ -361,11 +361,23 @@ class ArmPoseCaptureItem(MenuItem):
         return STAY
 
 
+class ArmControlItem(MenuItem):
+    """팔 조작 화면(ArmControlPage) — 숫자 입력 없이 막대와 키로 목표를 고르고, Enter + 확인 뒤에만 움직인다."""
+    shows_busy = False
+    key = '0'
+
+    def label(self):
+        return '팔 조작 화면 (막대 · 키로 조절 · 확인 뒤 이동)'
+
+    def run(self):
+        return self.ui.window.navigate('arm')
+
+
 class ArmMenu(Menu):
     title = '팔'
 
     def items(self):
-        return [ArmShowItem(self.app),
+        return [ArmControlItem(self.app), ArmShowItem(self.app),
                 ArmMoveItem(self.app, '2', False),
                 ArmMoveItem(self.app, '3', True),
                 ArmHomeItem(self.app),

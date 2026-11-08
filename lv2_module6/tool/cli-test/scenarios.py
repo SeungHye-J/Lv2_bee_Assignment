@@ -256,7 +256,7 @@ def _(s):
 def _(s):
     s.step(b'5', wait=0.4)
     s.step(ENTER, '팔')
-    s.step(DOWN, wait=0.4)
+    s.step(b'2', wait=0.4)   # 2) 관절 목표 설정 (번호로 — 메뉴 순서가 바뀌어도 안 깨짐)
     s.step(ENTER, 'MANUAL 모드로 전환할까요?')
     s.step(b'y', '관절 선택')
     s.step(ENTER, '값 입력')
@@ -344,6 +344,73 @@ def _(s):
     s.step(ESC, 'Tab 상태바')               # Esc → 메뉴로 포커스 복귀
     s.step(b'\t', 'Tab/Esc 메뉴로')        # Tab 다시 → 상태바
     s.step(b'\t', 'Tab 상태바')            # Tab → 메뉴
+    s.finish()
+
+
+@scenario('ab-route-map-pick')
+def _(s):
+    ROUTE = HERE.parent / 'artifacts' / 'ab' / 'rl_nav_controller' / 'route.json'   # core.ROUTE (ROS 없이 import 못 해서 경로만)
+    if ROUTE.exists():
+        print('SKIP ab-route-map-pick: 지정한 route.json이 이미 있음 — 지우지 않으려고 건너뜀')
+        return
+    try:
+        s.step(b'1', wait=0.15)
+        s.step(b'4', wait=0.4)                               # 14) A/B
+        s.step(ENTER, 'A/B 테스트 (노드별)')
+        s.step(ENTER, 'A/B 테스트 · rl_nav_controller')
+        s.step(b'1', wait=0.2)
+        s.step(ENTER, 'A/B 경로 편집')
+        s.step(b'1', wait=0.2)                               # 1) 지도에서 찍기
+        s.send(ENTER)
+        s.expect('A/B 경로 — 지도에서 찍기', timeout=20)     # 현재 위치 TF(최대 5초) · /map을 받은 뒤에 열림
+        s.step(b'+', '한 칸 =')                              # 지도가 포커스를 받아 바로 확대 (중앙 = 지도)
+        s.step(ENTER, 'G1 추가')                             # 십자선 위치(지도 가운데)에 goal
+        s.step(RIGHT * 2, '자유이동')                       # 방향키 = 지도를 밂 → 로봇 따라가기가 풀림
+        s.step(b']', wait=0.2)                               # 방향 +15°
+        s.step(ENTER, 'G2 추가')
+        s.step(b'-', wait=0.3)                               # 축소
+        s.step(b'r', '따라가기')                         # 다시 로봇 중심
+        s.step(ESC, 'Tab 중앙')                              # Esc → 왼쪽 메뉴로 (힌트에 'Tab 중앙')
+        s.step(b'9', wait=0.3)
+        s.step(ENTER, '저장:')                               # 9) 저장하고 나가기 → route.json 저장
+        import json
+        goals = json.loads(ROUTE.read_text())['route']
+        assert len(goals) == 2 and goals[1]['yaw_deg'] == 15.0, goals
+    finally:
+        ROUTE.unlink(missing_ok=True)
+
+
+@scenario('map-pose-pick-sim-only')
+def _(s):
+    s.step(b'7', wait=0.3)                    # 7) 지도/위치
+    s.step(ENTER, '·  지도/위치')
+    s.step(b'8', wait=0.2)                    # 8) 위치 지정 (지도에서 찍기)
+    s.send(ENTER)
+    s.expect('로봇 위치 지정', timeout=20)
+    s.step(ENTER, '로봇 위치로 지정할까요?')
+    s.step(b'y', '실제 로봇')                 # 시뮬레이터(faker)가 없으면 거부 — 실제 로봇은 위치 지정 미지원
+    s.step(ESC, 'Tab 중앙')
+    s.step(ESC, '·  지도/위치')
+    s.finish()
+
+
+@scenario('arm-page-confirm')
+def _(s):
+    s.step(b'5', wait=0.3)                        # 5) 팔
+    s.step(ENTER, '·  팔')
+    s.step(b'0', wait=0.2)                        # 0) 팔 조작 화면
+    s.send(ENTER)
+    s.expect('팔 조작', timeout=10)
+    s.step(RIGHT * 2, '바꾼 관절 1개')            # ←→는 목표만 바꿈 — 아직 안 움직임
+    s.step(ENTER, '팔을 움직일까요?')             # Enter → 이동량을 보여 주는 확인창 (기본 아니오)
+    s.step(b'n', '취소 — 보내지 않음')
+    s.absent('팔 목표')                           # 아니오면 아무것도 안 보냄
+    s.step(ENTER, '팔을 움직일까요?')
+    s.step(b'y', 'MANUAL 모드로 전환할까요?')     # cmd_arm의 기존 안전장치 그대로
+    s.step(b'y', '보냈음')
+    s.step(b'z', '현재값으로')                    # z = 목표를 현재값으로
+    s.step(ESC, 'Tab 중앙')                       # Esc → 왼쪽 메뉴 · 한 번 더 → 팔 메뉴
+    s.step(ESC, '·  팔')
     s.finish()
 
 

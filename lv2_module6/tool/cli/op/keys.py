@@ -85,6 +85,15 @@ class KeyReader:
                     b'6': 'pgdn', b'7': 'home', b'8': 'end'}.get(code, 'unknown')
         return 'unknown'
 
+    def pending(self) -> bool:
+        """아직 안 읽은 키가 있나 — 기다리지 않음 (키를 꾹 누를 때 밀린 키를 먼저 처리하려고)."""
+        if self.fd is None:
+            return False
+        try:
+            return bool(select.select([self.fd], [], [], 0)[0])
+        except (OSError, ValueError):
+            return False
+
     def read(self, timeout=0.1):
         """키 하나 → ('enter'|'esc'|'up'|'down'|'left'|'right'|'pgup'|'pgdn'|
         'home'|'end'|'backspace'|'ctrl_u'|'tab'|<문자>) · 없으면 None."""

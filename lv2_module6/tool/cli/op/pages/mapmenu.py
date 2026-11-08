@@ -1,5 +1,7 @@
-"""지도 메뉴 + 전환 + 저장."""
+"""지도/위치 메뉴 — 지도 보기(터미널 지도 화면 MapPage) · 위치 지정 · 목록 · 전환 · 저장."""
 from __future__ import annotations
+
+import sys
 
 from ..defs import STAY
 from .base import InfoItem, Menu, MenuItem, Page
@@ -17,14 +19,59 @@ class MapStatusItem(MenuItem):
 
 
 class MapListItem(MenuItem):
+    shows_busy = False  # 하위 화면을 연다
     key = '2'
 
     def label(self):
-        return '지도 목록'
+        return '지도 목록 → 보기'
 
     def run(self):
-        self.bus.cmd_map(self.bus.map_args('list'))
-        return STAY
+        return MapListMenu(self.app).show()
+
+
+class MapViewItem(MenuItem):
+    """지도 화면(MapPage)을 'view' 모드로 연다 — name이 없으면 지금 /map, 있으면 저장된 지도 파일."""
+    shows_busy = False
+
+    def __init__(self, app, key: str, name: str | None = None):
+        super().__init__(app)
+        self.key, self._name = key, name
+
+    def label(self):
+        return self._name or '지도 보기 (지금 /map · 로봇 위치)'
+
+    def run(self):
+        if self._name is None:
+            return self.ui.window.navigate('map', mode='view')
+        yaml = self.bus.default_map_dir() / self._name / 'map.yaml'
+        if not yaml.is_file():
+            print(f'이 지도는 보기용 map.yaml이 없음: {yaml.parent}', file=sys.stderr)
+            return STAY
+        return self.ui.window.navigate('map', mode='view', source=yaml)
+
+
+class MapPoseItem(MenuItem):
+    """지도 화면(MapPage)을 'pose' 모드로 — 지도 위에서 로봇 위치를 지정한다."""
+    shows_busy = False
+    key = '8'
+
+    def label(self):
+        return '위치 지정 (지도에서 찍기)'
+
+    def run(self):
+        return self.ui.window.navigate('map', mode='pose', on_pose=self.bus.ab.set_robot_pose)
+
+
+class MapListMenu(Menu):
+    title = '지도 목록 → 보기'
+
+    def items(self):
+        maps = self.bus.map_names()
+        return ([MapViewItem(self.app, str(i + 1), n) for i, n in enumerate(maps)]
+                or [InfoItem(self.app, '지도 목록 없음')])
+
+    def center(self):
+        return ['[저장된 지도]', ' Enter = 터미널 지도 화면으로 열기', f' 폴더: {self.bus.default_map_dir()}', ' <이름>/map.yaml + map.pgm 이 있는 지도만 볼 수 있음']
 
 
 class MapModeItem(MenuItem):
@@ -46,18 +93,19 @@ class MapModeItem(MenuItem):
 
 
 class MapMenu(Menu):
-    title = '지도'
+    title = '지도/위치'
 
     def items(self):
         return [MapStatusItem(self.app), MapListItem(self.app),
                 MapModeItem(self.app, '3', 'mapping', 'MAPPING'),
                 MapModeItem(self.app, '4', 'localization', 'LOCALIZATION'),
-                MapSwitchItem(self.app), MapSaveItem(self.app)]
+                MapSwitchItem(self.app), MapSaveItem(self.app),
+                MapViewItem(self.app, '7'), MapPoseItem(self.app)]
 
     def center(self):
         st = self.state
         maps = self.bus.map_names()
-        lines = ['[지도]',
+        lines = ['[지도/위치]',
                  f' 모드: {st.map_mode or "-"}',
                  f' 이름: {st.values.get("map_name") or "-"}',
                  f' 목록: {len(maps)}개']

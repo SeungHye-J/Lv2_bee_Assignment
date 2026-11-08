@@ -104,8 +104,8 @@ class OperatorTool(Node):
         self.poll(seconds)
         self.check_cli_reconnect()
 
-    def _on_navigate(self, name: str):
-        page = self.screen(name)
+    def _on_navigate(self, name: str, params: dict):
+        page = self.screen(name, **params)
         return page.show() if page is not None else STAY
 
     def reconnect_status(self) -> str | None:
@@ -200,8 +200,14 @@ class OperatorTool(Node):
                 lambda detail, n=name: self.state.on_device_detail(n, detail.data),
                 LATCHED)
 
-    def screen(self, name: str):
-        """메뉴 화면 인스턴스 (진단·RViz는 진입 시 생성)."""
+    def screen(self, name: str, **params):
+        """메뉴 화면 인스턴스 (진단·RViz는 진입 시 생성). params = 화면에 넘기는 값 (웹 쿼리처럼 — 예: map 화면의 mode·source)."""
+        if name == 'map':
+            from op.pages import MapPage
+            return MapPage(self, **params)
+        if name == 'arm':
+            from op.pages import ArmControlPage
+            return ArmControlPage(self)
         if name == '1':
             from op.pages import StatusMenu
             return StatusMenu(self)

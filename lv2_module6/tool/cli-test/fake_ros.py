@@ -17,6 +17,14 @@ class _Msg:
             setattr(self, k, v)
 
 
+class OccupancyGrid(_Msg):
+    def __init__(self, **kw):
+        self.header = None
+        self.info = _Msg(width=0, height=0, resolution=0.05, origin=_Msg(position=_Msg(x=0.0, y=0.0, z=0.0)))
+        self.data = []
+        super().__init__(**kw)
+
+
 class Header(_Msg):
     def __init__(self, **kw):
         self.stamp = None
@@ -282,6 +290,46 @@ class _FakeClient:
     def destroy(self):
         pass
 
+# ---------------------------------------------------------------- 가짜 /map (cli-test/map/map.pgm · map.yaml)
+def fake_map():
+    """cli-test/map/의 지도 → OccupancyGrid (trinary: 밝음=빈 곳 0 · 어두움=벽 100 · 가운데=미확인 -1) — 지도에서 찍기 시험용."""
+    from pathlib import Path
+    here = Path(__file__).resolve().parent / 'map'
+    cfg = {}
+    for line in (here / 'map.yaml').read_text().splitlines():
+        if ':' in line and not line.lstrip().startswith('#'):
+            k, v = line.split(':', 1)
+            cfg[k.strip()] = v.strip()
+    raw = (here / 'map.pgm').read_bytes()
+    toks, pos = [], 0
+    while len(toks) < 4:   # P5 · 폭 높이 · 최대값 (# 주석 줄 건너뜀)
+        while raw[pos:pos + 1].isspace():
+            pos += 1
+        if raw[pos:pos + 1] == b'#':
+            pos = raw.index(b'\n', pos) + 1
+            continue
+        end = pos
+        while not raw[end:end + 1].isspace():
+            end += 1
+        toks.append(raw[pos:end])
+        pos = end
+    w, h = int(toks[1]), int(toks[2])
+    pix = raw[pos + 1:pos + 1 + w * h]
+    occ_t, free_t = float(cfg['occupied_thresh']), float(cfg['free_thresh'])
+    neg = cfg.get('negate', '0') == '1'
+    ox, oy = [float(t) for t in cfg['origin'].strip('[]').split(',')[:2]]
+    data = []
+    for y in range(h - 1, -1, -1):   # pgm은 위→아래, OccupancyGrid는 아래→위
+        for x in range(w):
+            v = pix[y * w + x] / 255.0
+            p = v if neg else 1.0 - v
+            data.append(100 if p > occ_t else (0 if p < free_t else -1))
+    m = OccupancyGrid()
+    m.info = _Msg(width=w, height=h, resolution=float(cfg['resolution']),
+                  origin=_Msg(position=_Msg(x=ox, y=oy, z=0.0)))
+    m.data = data
+    return m
+
 
 class Node:
     """operator_tool.OperatorTool의 부모 — 필요한 API만 가짜로."""
@@ -307,12 +355,17 @@ class Node:
     def create_subscription(self, msg_type, topic, callback, qos):
         BUS.setdefault(topic, []).append((self, callback))
         self._fake_subs.append((topic, callback))
+        if topic == '/map':   # transient_local — 구독하면 마지막 지도가 바로 옴
+            callback(fake_map())
 
         class _Sub:
             def destroy(self):
                 pass
 
         return _Sub()
+
+    def destroy_subscription(self, sub):
+        pass
 
     def create_client(self, srv_type, topic):
         return _FakeClient(self, srv_type, topic)
@@ -414,7 +467,7 @@ def install():
     _mod('geometry_msgs', msg=_mod('geometry_msgs.msg', TwistStamped=TwistStamped,
                                   Twist=Twist, Vector3=Vector3))
     _mod('sensor_msgs', msg=_mod('sensor_msgs.msg', JointState=JointState, Header=Header, Imu=Imu, CameraInfo=CameraInfo))
-    _mod('nav_msgs', msg=_mod('nav_msgs.msg', Odometry=Odometry))
+    _mod('nav_msgs', msg=_mod('nav_msgs.msg', Odometry=Odometry, OccupancyGrid=OccupancyGrid))
     _mod('diagnostic_msgs', msg=_mod('diagnostic_msgs.msg', DiagnosticArray=DiagnosticArray,
                                     DiagnosticStatus=DiagnosticStatus, KeyValue=KeyValue))
     _mod('rcl_interfaces',

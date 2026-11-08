@@ -161,8 +161,29 @@ class _RouteItem(MenuItem):
             return None
 
 
-class RouteRvizItem(_RouteItem):
+class RouteMapItem(_RouteItem):
     key = '1'
+    shows_busy = False   # 지도 화면(MapPage)이 자기 화면을 그린다 — busy 창은 run 안에서
+
+    def label(self):
+        return '지도에서 찍기 (터미널 · 확대/축소 · 로봇 중심)'
+
+    def run(self):
+        self.ui.busy('지도 화면 여는 중 … (로봇 위치 확인)')   # 위치 조회가 최대 5초 걸린다
+        here = None
+        try:
+            here = self.bus.ab.current_pose()   # 출발점 (TF 리스너도 이때 켜짐 — 최대 5초)
+        except RuntimeError:
+            pass  # 위치를 모르면 실행할 때의 자세를 출발점으로
+        old_start, route = self._route()
+        start = old_start if route else here   # 이미 있는 경로는 출발점을 그대로
+        self.ui.window.navigate('map', mode='goals', start=start, goals=route,
+                                on_save=lambda goals: goals and self._save(start, goals))
+        return STAY
+
+
+class RouteRvizItem(_RouteItem):
+    key = '2'
 
     def label(self):
         return f'RViz로 지정 (2D Goal Pose → {RVIZ_GOAL_TOPIC})'
@@ -180,7 +201,7 @@ class RouteRvizItem(_RouteItem):
 
 
 class RouteStartHereItem(_RouteItem):
-    key = '2'
+    key = '3'
 
     def label(self):
         return '지금 위치를 출발점으로'
@@ -190,14 +211,14 @@ class RouteStartHereItem(_RouteItem):
         if here is not None:
             _start, route = self._route()
             if not route:
-                print('goal이 아직 없음 — 출발점만 저장할 수 없어 goal을 먼저 추가하세요 (3·4)', file=sys.stderr)
+                print('goal이 아직 없음 — 출발점만 저장할 수 없어 goal을 먼저 추가하세요 (4·5)', file=sys.stderr)
                 return STAY
             self._save(here, route)
         return STAY
 
 
 class RouteAddHereItem(_RouteItem):
-    key = '3'
+    key = '4'
 
     def label(self):
         return '텔레오퍼로 이동하여 goal 추가 (g/Enter = 지금 위치)'
@@ -236,7 +257,7 @@ class RouteAddHereItem(_RouteItem):
 
 
 class RouteAddTypedItem(_RouteItem):
-    key = '4'
+    key = '5'
 
     def label(self):
         return '좌표 입력으로 goal 추가 (x y yaw°)'
@@ -261,7 +282,7 @@ class RouteAddTypedItem(_RouteItem):
 
 
 class RouteUndoItem(_RouteItem):
-    key = '5'
+    key = '6'
 
     def label(self):
         return '마지막 goal 삭제'
@@ -280,7 +301,7 @@ class RouteUndoItem(_RouteItem):
 
 
 class RouteResetItem(_RouteItem):
-    key = '6'
+    key = '7'
 
     def label(self):
         return '경로 지우기 → command.json 기본'
@@ -294,7 +315,7 @@ class RouteResetItem(_RouteItem):
 
 
 class RouteCheckItem(_RouteItem):
-    key = '7'
+    key = '8'
 
     def label(self):
         return '경로 점검 (Nav2 planner로 구간마다 경로 계획)'
@@ -314,7 +335,7 @@ class AbRouteMenu(Menu):
     title = 'A/B 경로 편집 · rl_nav_controller'
 
     def items(self):
-        return [RouteRvizItem(self.app), RouteStartHereItem(self.app), RouteAddHereItem(self.app),
+        return [RouteMapItem(self.app), RouteRvizItem(self.app), RouteStartHereItem(self.app), RouteAddHereItem(self.app),
                 RouteAddTypedItem(self.app), RouteUndoItem(self.app), RouteResetItem(self.app),
                 RouteCheckItem(self.app)]
 
@@ -329,7 +350,7 @@ class AbRouteMenu(Menu):
             lines.append(f' 오류: {exc}')
         lines += ['', f' 저장: {ROUTE}' if ROUTE.is_file() else ' 지정한 경로 없음 — command.json 기본 경로 사용 중',
                   '', ' 여기서는 경로만 정한다 — 주행·녹화는 안 함 (② 자동 A/B 실행이 함)',
-                  ' 실기: 3) 텔레오퍼로 몰고 가며 g로 찍기 · 또는 RViz(RVIZ_CONFIG=ab)에서 1)',
+                  ' 1) 터미널 지도에서 찍기 (+/- 확대·축소) · 실기: 4) 텔레오퍼 g · 또는 RViz(RVIZ_CONFIG=ab) 2)',
                   ' A·B는 같은 경로를 그대로 주행 (공정한 비교)']
         return lines
 
@@ -388,7 +409,7 @@ class RlNavControllerAbMenu(Menu):
         self._at = 0.0
 
     def items(self):
-        return [GoMenu(self.app, '1', '① 경로 정하기 (RViz · 지금 위치 · 좌표)', AbRouteMenu(self.app)),
+        return [GoMenu(self.app, '1', '① 경로 정하기 (지도 · RViz · 텔레오퍼 · 좌표)', AbRouteMenu(self.app)),
                 AbGuideItem(self.app), AbResultItem(self.app),
                 GoMenu(self.app, '4', '수동 (고급) — 상태 · 정책 ON/OFF · 녹화 · 리포트', AbManualMenu(self.app))]
 
