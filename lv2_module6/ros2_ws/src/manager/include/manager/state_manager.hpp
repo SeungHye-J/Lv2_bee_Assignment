@@ -89,7 +89,7 @@ private:
   bool joints_fresh() const;
   bool recent(const std::string & key) const;
 
-  std::string operation_ = "MANUAL", map_mode_, map_name_, map_dir_, map_list_, map_error_, explore_note_;
+  std::string operation_ = "AUTO", map_mode_, map_name_, map_dir_, map_list_, map_error_, explore_note_;
   std::string restart_prepare_, restart_log_, restart_marker_, restart_registry_, restart_note_, restartable_;
   bool restartable_published_ = false;
   // 연결된 장치·토픽 상태 (/state/devices · /state/topics)
