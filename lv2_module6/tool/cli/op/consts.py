@@ -9,6 +9,10 @@ from rcl_interfaces.msg import ParameterType
 
 ARM_JOINTS = ('joint1', 'joint2', 'joint3', 'joint4', 'joint5')
 WHEEL_JOINTS = ('wheel_left_joint', 'wheel_right_joint')
+# 팔 관절 위치 한계 [rad] (lower, upper) — urdf/default/urdf.xacro의 <limit lower upper>와 같아야 함
+# (배포 패키지에 URDF가 없을 수 있어 복사해 둔다 — cli-test/test_arm_view.py가 URDF와 어긋나면 알려 줌)
+ARM_LIMITS = {'joint1': (-3.14159, 3.14159), 'joint2': (-1.919862, 1.919862), 'joint3': (-1.570796, 1.396263),
+              'joint4': (-1.7, 1.97), 'joint5': (-3.141593, 3.141593)}
 GRIPPER_JOINT = 'gripper_left_joint'
 GRIPPER_OPEN = 0.0265
 GRIPPER_CLOSE = 0.0

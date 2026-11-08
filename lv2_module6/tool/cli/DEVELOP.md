@@ -18,6 +18,7 @@ cli/
     ├── window/        # 화면 틀 — Window(조합·그리기·키 루프·신호) · 키 규약
     ├── menu_bar/      # 메뉴 막대 — MenuBar → LeftSideMenuBar · ChoiceItem (한 파일에 한 클래스)
     ├── dialog/        # 창 — Dialog(dialog.py) 최상위 부모 + 하위 클래스 한 파일에 하나 (Input·Key·Pager·Busy·Teleop·RouteRviz)
+    ├── arm_view/      # 팔 관절 막대 — ArmView(포커스 가능 Component: 한계 범위 막대 + 현재 ● 목표 ◆)
     ├── map_view/      # 터미널 지도 — MapGrid(벽 우선 피라미드) · Viewport(중심·확대) · MapView(포커스 가능 Component)
     ├── state_bar/     # 상단 상태바 — State(칸) 하위 클래스들 + StateBar(줄로 그림) + TopStateBar(기본 구성)
     ├── ui.py          # Ui — 터미널 모드 · print 가로채기 · confirm/modal_input/pager/select 진입점 · ui.window
@@ -295,3 +296,13 @@ self.ui.window.navigate('map', mode='pose', on_pose=fn)                       # 
 - 중앙 = `MapView`(포커스 가능 Component), 왼쪽 = 같은 동작 메뉴. Tab/Esc로 오간다. 화면 한가운데 십자선(+)이 찍을 자리, 로봇은 빨간 점(●), 찍는 모드는 십자선에서 방향선이 나간다 (`[` `]` 15° · `{` `}` 1°).
 - 로봇 따라가기(기본): 중심이 로봇을 따라간다. 지도가 한 화면에 다 보이면 지도는 고정되고 로봇 점이 움직인다. 방향키로 지도를 밀면 풀리고 `r`로 다시 켠다.
 - 새 쓰임은 mode를 늘리지 말고, 먼저 파라미터(`on_pose` 같은 콜백)로 되는지 본다.
+
+## 6. 팔 조작 화면 (ArmControlPage) — 숫자 없이, 확인 뒤에만 움직임
+
+`pages/arm_page.py`(`window.navigate('arm')`, 팔 메뉴 `0)`). 중앙 = `ArmView`, 왼쪽 = 동작 메뉴. 관절마다 한계 범위 막대 위에 현재(●)와 목표(◆).
+
+- `↑↓` 관절 · `←→` 목표 ∓2° · `,` `.` ∓1° · `z` 목표를 현재값으로. **목표만 바뀐다 — 팔은 안 움직인다.**
+- `Enter`(또는 왼쪽 '적용') → 바꾼 관절의 이동량 `현재° → 목표° (Δ)`를 보여 주는 확인창(**기본 아니오**, 30° 넘게 움직이면 경고) → 예일 때만 `Bus.cmd_arm(set)`으로 전송.
+- 전송 경로는 기존 `cmd_arm` 그대로라 MANUAL 전환 확인 · MAPPING/E-STOP 거절 · manual_control 쪽 속도 제한이 그대로 적용된다.
+- 목표는 `consts.ARM_LIMITS`(URDF `<limit lower upper>`와 같은 값) 밖으로 못 간다. `cli-test/test_arm_view.py`가 URDF와 어긋나면 알려 준다.
+- 새 관절·그리퍼를 더하려면 `ArmView(joints, limits, current_fn)`에 이름과 한계를 넘긴다.

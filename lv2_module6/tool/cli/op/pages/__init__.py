@@ -5,6 +5,7 @@ from .calibration import CalibrateMenu
 from .devices import DeviceDetailMenu, DevicesMenu
 from .mainmenu import MainMenu
 from .manual import ArmMenu, DriveSettingsMenu, GripperMenu, ManualMenu, WheelMenu
+from .arm_page import ArmControlPage
 from .map_page import MapPage
 from .mapmenu import MapMenu, MapSavePage, MapSwitchMenu
 from .mode import EstopMenu, ModeMenu
@@ -12,7 +13,7 @@ from .nodes import NodeActionMenu, NodesMenu
 from .params import NodeParamMenu, ParamMenu
 from .status import BeepMenu, DiagDetailPage, DiagnosticsMenu, RvizPage, StatusMenu
 
-__all__ = ['MapPage', 'Menu', 'Page', 'MainMenu', 'AbMenu', 'RlNavControllerAbMenu', 'StatusMenu',
+__all__ = ['ArmControlPage', 'MapPage', 'Menu', 'Page', 'MainMenu', 'AbMenu', 'RlNavControllerAbMenu', 'StatusMenu',
            'DiagnosticsMenu', 'DiagDetailPage', 'RvizPage', 'DevicesMenu',
            'DeviceDetailMenu', 'ModeMenu', 'EstopMenu',
            'NodesMenu', 'NodeActionMenu', 'ManualMenu', 'WheelMenu', 'DriveSettingsMenu', 'ArmMenu',

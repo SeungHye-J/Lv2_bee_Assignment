@@ -205,6 +205,9 @@ class OperatorTool(Node):
         if name == 'map':
             from op.pages import MapPage
             return MapPage(self, **params)
+        if name == 'arm':
+            from op.pages import ArmControlPage
+            return ArmControlPage(self)
         if name == '1':
             from op.pages import StatusMenu
             return StatusMenu(self)

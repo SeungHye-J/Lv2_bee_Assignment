@@ -21,27 +21,11 @@ from ..defs import BACK, MAIN, QUIT, STAY
 from ..dialog import fmt_pose
 from ..map_view import FREE, OCC, UNKNOWN, MapGrid, MapView
 from ..terminal import DIM
-from .base import Menu, MenuItem
+from .base import ActionItem, Menu
 
 YAW_STEP = 15.0
 CELL_TXT = {UNKNOWN: '미확인', FREE: '빈 곳', OCC: '벽'}
 TITLES = {'view': '지도 보기', 'goals': 'A/B 경로 — 지도에서 찍기', 'pose': '로봇 위치 지정'}
-
-
-class MapActionItem(MenuItem):
-    """왼쪽 메뉴의 동작 한 줄 — label(문자열 또는 함수) · fn() 실행 (바로 끝나니 '처리 중' 창 없음)."""
-    shows_busy = False
-
-    def __init__(self, app, key: str, label, fn):
-        super().__init__(app)
-        self.key, self._label, self._fn = key, label, fn
-
-    def label(self) -> str:
-        return self._label() if callable(self._label) else self._label
-
-    def run(self) -> str:
-        self._fn()
-        return STAY
 
 
 class MapPage(Menu):
@@ -124,7 +108,7 @@ class MapPage(Menu):
     def items(self):
         if self.saved:   # 저장했으면 보이는 항목이 없다 → Window.run이 끝남 (기존 규약: 항목이 없으면 화면 종료)
             return []
-        v, act = self.view, MapActionItem
+        v, act = self.view, ActionItem
         rows = {'goals': [('goal 추가 — 십자선 위치 (Enter)', self.pick), ('마지막 goal 취소 (Backspace)', self.undo_goal)],
                 'pose': [('로봇 위치로 지정 — 십자선 위치 (Enter)', self.pick)], 'view': []}[self.mode]
         rows += [('확대 (+)', lambda: self.zoom(+1)), ('축소 (-)', lambda: self.zoom(-1)), ('전체 보기 (f)', self.fit),

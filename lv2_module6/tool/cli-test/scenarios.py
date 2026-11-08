@@ -256,7 +256,7 @@ def _(s):
 def _(s):
     s.step(b'5', wait=0.4)
     s.step(ENTER, '팔')
-    s.step(DOWN, wait=0.4)
+    s.step(b'2', wait=0.4)   # 2) 관절 목표 설정 (번호로 — 메뉴 순서가 바뀌어도 안 깨짐)
     s.step(ENTER, 'MANUAL 모드로 전환할까요?')
     s.step(b'y', '관절 선택')
     s.step(ENTER, '값 입력')
@@ -391,6 +391,26 @@ def _(s):
     s.step(b'y', '실제 로봇')                 # 시뮬레이터(faker)가 없으면 거부 — 실제 로봇은 위치 지정 미지원
     s.step(ESC, 'Tab 중앙')
     s.step(ESC, '·  지도/위치')
+    s.finish()
+
+
+@scenario('arm-page-confirm')
+def _(s):
+    s.step(b'5', wait=0.3)                        # 5) 팔
+    s.step(ENTER, '·  팔')
+    s.step(b'0', wait=0.2)                        # 0) 팔 조작 화면
+    s.send(ENTER)
+    s.expect('팔 조작', timeout=10)
+    s.step(RIGHT * 2, '바꾼 관절 1개')            # ←→는 목표만 바꿈 — 아직 안 움직임
+    s.step(ENTER, '팔을 움직일까요?')             # Enter → 이동량을 보여 주는 확인창 (기본 아니오)
+    s.step(b'n', '취소 — 보내지 않음')
+    s.absent('팔 목표')                           # 아니오면 아무것도 안 보냄
+    s.step(ENTER, '팔을 움직일까요?')
+    s.step(b'y', 'MANUAL 모드로 전환할까요?')     # cmd_arm의 기존 안전장치 그대로
+    s.step(b'y', '보냈음')
+    s.step(b'z', '현재값으로')                    # z = 목표를 현재값으로
+    s.step(ESC, 'Tab 중앙')                       # Esc → 왼쪽 메뉴 · 한 번 더 → 팔 메뉴
+    s.step(ESC, '·  팔')
     s.finish()
 
 
