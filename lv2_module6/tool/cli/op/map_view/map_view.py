@@ -164,6 +164,12 @@ class MapView(Component):
         out = []
         for tr in range(rows):
             row = []
+            cur_sgr = None   # 직전에 낸 색 — 같은 색이 이어지면 코드를 다시 안 붙여 출력을 줄인다 (꾹 누를 때 밀리지 않게)
+
+            def put(sgr: str, ch: str):
+                nonlocal cur_sgr
+                row.append(ch if sgr == cur_sgr else sgr + ch)
+                cur_sgr = sgr
             for c in range(cols):
                 top, bot = codes[2 * tr][c], codes[2 * tr + 1][c]
                 lab = labels.get((c, tr))
@@ -175,16 +181,16 @@ class MapView(Component):
                         f = lab[1]
                         if (c, tr) == cur:   # 십자선 = 분홍 바탕에 흰 +  (로봇과 같은 칸이면 빨간 바탕)
                             bg, f = (ROBOT_RGB if (c, tr) == robot_cell else CURSOR_RGB), (255, 255, 255)
-                        row.append(f'\033[1;38;2;{f[0]};{f[1]};{f[2]}m\033[48;2;{bg[0]};{bg[1]};{bg[2]}m{lab[0]}')
+                        put(f'\033[1;38;2;{f[0]};{f[1]};{f[2]}m\033[48;2;{bg[0]};{bg[1]};{bg[2]}m', lab[0])
                     elif (c, tr) in braille:   # 방향선 — 지도 바탕 위에 분홍 점자
                         bg = bc or tc or (0, 0, 0)
-                        row.append(f'\033[1;38;2;{CURSOR_RGB[0]};{CURSOR_RGB[1]};{CURSOR_RGB[2]}m'
-                                   f'\033[48;2;{bg[0]};{bg[1]};{bg[2]}m{chr(0x2800 + braille[(c, tr)])}')
+                        put(f'\033[1;38;2;{CURSOR_RGB[0]};{CURSOR_RGB[1]};{CURSOR_RGB[2]}m'
+                            f'\033[48;2;{bg[0]};{bg[1]};{bg[2]}m', chr(0x2800 + braille[(c, tr)]))
                     elif tc is None and bc is None:
-                        row.append('\033[0m ')
+                        put('\033[0m', ' ')
                     else:
                         t, b = tc or (0, 0, 0), bc or (0, 0, 0)
-                        row.append(f'\033[38;2;{t[0]};{t[1]};{t[2]}m\033[48;2;{b[0]};{b[1]};{b[2]}m▀')
+                        put(f'\033[22;38;2;{t[0]};{t[1]};{t[2]}m\033[48;2;{b[0]};{b[1]};{b[2]}m', '▀')
                 else:
                     code = max(top, bot) if OUT not in (top, bot) else min(top, bot)
                     on_path = (c, 2 * tr) in dots or (c, 2 * tr + 1) in dots or (c, tr) in braille

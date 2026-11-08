@@ -143,19 +143,26 @@ class Window:
                     if remain <= 0:
                         return None
                     k = keys.read(min(0.1, remain))
-                    self.emit('tick', 0.02)
+                    if k is None or not keys.pending():   # 키가 밀려 있으면 ROS 폴링은 건너뜀
+                        self.emit('tick', 0.02)
                     if k is None:
                         continue
                     order = [self.menu_bar] + ([self.center_comp] if self.center_comp is not None else []) \
                         + ([self.top_bar] if self.top_bar.focusable else [])
                     if k == 'tab' and len(order) > 1:   # Tab = 다음 부품으로 포커스 (메뉴 → 중앙 → 상태바 → 메뉴)
                         self.focus = order[(order.index(self.focus) + 1) % len(order)]
+                        if keys.pending():
+                            continue   # 눌린 키가 더 있으면 그리지 말고 먼저 처리 (꾹 누를 때 밀리지 않게)
                         break
                     if self.focus is self.center_comp and self.center_comp is not None:
                         if k == 'esc':
                             self.focus = self.menu_bar
+                            if keys.pending():
+                                continue   # 눌린 키가 더 있으면 그리지 말고 먼저 처리 (꾹 누를 때 밀리지 않게)
                             break
                         if self.center_comp.on_key(k):
+                            if keys.pending():
+                                continue   # 눌린 키가 더 있으면 그리지 말고 먼저 처리 (꾹 누를 때 밀리지 않게)
                             break
                         if k in ('q', 'Q', 'eof'):
                             return k
@@ -163,13 +170,19 @@ class Window:
                     if self.focus is self.top_bar:
                         if k == 'esc':
                             self.focus = self.menu_bar
+                            if keys.pending():
+                                continue   # 눌린 키가 더 있으면 그리지 말고 먼저 처리 (꾹 누를 때 밀리지 않게)
                             break
                         if self.top_bar.on_key(k):
+                            if keys.pending():
+                                continue   # 눌린 키가 더 있으면 그리지 말고 먼저 처리 (꾹 누를 때 밀리지 않게)
                             break
                         if k in ('enter', 'q', 'Q', 'eof'):
                             return k
                         continue   # 상태바 포커스 중 다른 키는 무시 (뒤로·메인은 Tab/Esc로 메뉴 돌아간 뒤)
                     if self.menu_bar.on_key(k):
+                        if keys.pending():
+                            continue   # 눌린 키가 더 있으면 그리지 말고 먼저 처리 (꾹 누를 때 밀리지 않게)
                         break
                     if k in ('enter', 'q', 'Q', 'eof', 'b', 'B', 'esc', 'left', 'm', 'M', 'r', 'R'):
                         return k
