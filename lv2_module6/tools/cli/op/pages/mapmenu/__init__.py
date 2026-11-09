@@ -138,6 +138,19 @@ class MapModeItem(MenuItem):
         return STAY
 
 
+class MapRvizItem(MenuItem):
+    """매핑 전용 RViz(mapping.rviz) — 지도·/scan·TF·로봇을 위에서 내려다본다."""
+    shows_busy = False
+    key = '9'
+
+    def label(self):
+        return '매핑 전용 RViz 열기 (mapping.rviz)'
+
+    def run(self):
+        from ..status import MappingRvizPage
+        return MappingRvizPage(self.app).show()
+
+
 class MapMenu(Menu):
     title = '지도/위치'
 
@@ -147,7 +160,8 @@ class MapMenu(Menu):
                 MapModeItem(self.app, '3', 'mapping', 'MAPPING'),
                 MapModeItem(self.app, '4', 'localization', 'LOCALIZATION'),
                 MapSwitchItem(self.app), MapSaveItem(self.app),
-                MapViewItem(self.app, '7'), MapPoseMenuItem(self.app)]
+                MapViewItem(self.app, '7'), MapPoseMenuItem(self.app),
+                MapRvizItem(self.app)]
 
     def center(self):
         st = self.state
