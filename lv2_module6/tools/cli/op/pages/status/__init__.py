@@ -170,6 +170,11 @@ class MappingRvizPage(RvizPage):
     config = 'mapping'
 
 
+class NavRvizPage(RvizPage):
+    title = '목표 이동 전용 RViz'
+    config = 'nav'
+
+
 class BeepNowItem(MenuItem):
     key = '1'
 

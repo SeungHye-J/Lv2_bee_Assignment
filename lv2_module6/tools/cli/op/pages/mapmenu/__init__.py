@@ -159,6 +159,19 @@ class MapRvizItem(MenuItem):
         return MappingRvizPage(self.app).show()
 
 
+class NavRvizItem(MenuItem):
+    """목표 이동(Nav2) 전용 RViz(nav.rviz) — 코스트맵·경로·footprint 위에서 2D Goal Pose로 목표를 준다."""
+    shows_busy = False
+    key = 'c'
+
+    def label(self):
+        return '목표 이동 전용 RViz 열기 (nav.rviz — 2D Goal Pose)'
+
+    def run(self):
+        from ..status import NavRvizPage
+        return NavRvizPage(self.app).show()
+
+
 class MapMenu(Menu):
     title = '지도/위치'
 
@@ -170,6 +183,7 @@ class MapMenu(Menu):
                 MapSwitchItem(self.app), MapSaveItem(self.app),
                 MapViewItem(self.app, '7'), MapPoseMenuItem(self.app),
                 MapRvizItem(self.app),
+                NavRvizItem(self.app),
                 _teleop_item(self.app, 'a'),
                 GoMenu(self.app, 'b', '수동 주행 메뉴 (전진·후진·회전·속도 설정)', ManualMenu(self.app))]
 
