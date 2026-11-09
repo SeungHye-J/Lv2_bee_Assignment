@@ -5,8 +5,16 @@ import argparse
 import sys
 
 from ...defs import STAY
-from ...menus import InfoItem, Menu, MenuItem
+from ...menus import GoMenu, InfoItem, Menu, MenuItem
+from ..manual import ManualMenu, TeleopItem
 from ..page import Page
+
+
+def _teleop_item(app, key: str):
+    """매핑하며 직접 몰 때 쓰는 텔레오퍼 — 수동 주행 메뉴의 항목을 키만 바꿔 재사용."""
+    item = TeleopItem(app)
+    item.key = key
+    return item
 
 
 class MapStatusItem(MenuItem):
@@ -161,7 +169,9 @@ class MapMenu(Menu):
                 MapModeItem(self.app, '4', 'localization', 'LOCALIZATION'),
                 MapSwitchItem(self.app), MapSaveItem(self.app),
                 MapViewItem(self.app, '7'), MapPoseMenuItem(self.app),
-                MapRvizItem(self.app)]
+                MapRvizItem(self.app),
+                _teleop_item(self.app, 'a'),
+                GoMenu(self.app, 'b', '수동 주행 메뉴 (전진·후진·회전·속도 설정)', ManualMenu(self.app))]
 
     def center(self):
         st = self.state
