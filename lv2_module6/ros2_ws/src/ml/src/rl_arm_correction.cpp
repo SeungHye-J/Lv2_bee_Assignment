@@ -162,9 +162,10 @@ std::shared_ptr<const RlArmCorrection::Skill> RlArmCorrection::policy_for(const 
   if (!arm_layout_from(m.layout, s->layout)) {
     RCLCPP_WARN(log, "%s: 입력 모양 '%s' 모름 — 보정 없음", m.skill.c_str(), m.layout.c_str());
     s = nullptr;
-  } else if (!s->policy.load(m.policy, why) || s->policy.obs_dim() != arm_obs_size(s->layout) || s->policy.act_dim() != 5) {
-    RCLCPP_ERROR(log, "%s: 정책을 못 씀 %s — %s (입력 %zu, 필요 %zu)", m.skill.c_str(), m.policy.c_str(), why.c_str(),
-                 s->policy.obs_dim(), arm_obs_size(s->layout));
+  } else if (!s->policy.load(m.policy, why) || size_t(s->policy.inputs()) != arm_obs_size(s->layout) ||
+             s->policy.outputs() != 5) {
+    RCLCPP_ERROR(log, "%s: 정책을 못 씀 %s — %s (입력 %ld, 필요 %zu)", m.skill.c_str(), m.policy.c_str(), why.c_str(),
+                 long(s->policy.inputs()), arm_obs_size(s->layout));
     s = nullptr;
   } else {
     RCLCPP_INFO(log, "%s: 정책 %s (%s 모양)", m.skill.c_str(), m.policy.c_str(), m.layout.c_str());
@@ -254,7 +255,11 @@ return_type RlArmCorrection::update_and_write_commands(const rclcpp::Time & time
       in.face_yaw = hand_.face_yaw;
       in.is_box = hand_.is_box;
       arm_obs(it->layout, in, obs_.data());
-      it->policy.act_into(obs_.data(), act_.data());
+      try {
+        it->policy.act_into(obs_.data(), act_.data());
+      } catch (const std::exception &) {  // 추론 실패 → 이번 주기 보정 없음 (기준 동작만)
+        act_.assign(5, 0.0);
+      }
       for (int i = 0; i < 5; ++i) {
         const double a = std::clamp(act_[i], -1.0, 1.0);
         if (ctx_.residual_live) delta_[i] = std::clamp(residual_rad_ * a, -max_delta_, max_delta_);

@@ -4,7 +4,7 @@
 #include <filesystem>
 #include <sstream>
 
-#include "ml/mlp_policy.hpp"
+#include "ml/onnx_policy.hpp"
 #include "skills/arm_io.hpp"
 #include "skills/model.hpp"
 
@@ -25,7 +25,7 @@ TEST(SkillModel, MissingFolderIsNotUsed) {
   EXPECT_FALSE(why.empty());
 }
 
-// 저장소의 skill 정책 폴더마다: meta가 있고, use: true면 .policy가 있고 kind·layout·입력 크기가 맞음
+// 저장소의 skill 정책 폴더마다: meta가 있고, use: true면 .onnx가 있고 kind·layout·입력 크기가 맞음
 TEST(SkillModel, RepoFoldersAreConsistent) {
   int n = 0;
   for (const auto & e : std::filesystem::directory_iterator(MODEL_DIR)) {
@@ -37,14 +37,15 @@ TEST(SkillModel, RepoFoldersAreConsistent) {
     EXPECT_EQ(m.meta.at("skill"), name);
     if (m.meta.at("use") != "true") { ++n; continue; }
     ASSERT_TRUE(m.use) << name << ": " << why;
-    ml::MlpPolicy p;
+    if (ml::OnnxPolicy::runtime_version() == "none") { ++n; continue; }  // ONNX 없이 빌드
+    ml::OnnxPolicy p;
     ASSERT_TRUE(p.load(m.policy, why)) << why;
     if (m.kind == "base") {
-      EXPECT_EQ(p.obs_dim(), 13u) << name;
-      EXPECT_EQ(p.act_dim(), 2u) << name;
+      EXPECT_EQ(p.inputs(), 13) << name;
+      EXPECT_EQ(p.outputs(), 2) << name;
     } else {
-      EXPECT_EQ(p.obs_dim(), m.layout == "place" ? 39u : 41u) << name << " " << m.layout;
-      EXPECT_EQ(p.act_dim(), 5u) << name;
+      EXPECT_EQ(p.inputs(), m.layout == "place" ? 39 : 41) << name << " " << m.layout;
+      EXPECT_EQ(p.outputs(), 5) << name;
     }
     ++n;
   }

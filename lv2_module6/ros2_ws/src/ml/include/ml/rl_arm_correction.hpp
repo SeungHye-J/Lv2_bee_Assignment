@@ -12,8 +12,9 @@
 //     학습은 85 ms마다 오차 30 % 제거 → sag_gain = −ln(0.7)/0.085 ≈ 4.2 /s. 스킬 시작마다 ~/reset_sag 로 0.
 //     skill과 상관없이 늘 돈다 (sag_enabled). 발열 방지: stow(rest_pose)에선 0으로 풂 · 상한에 windup_s 붙으면 풀고 쉼
 //   - Δ: skill_context에 정책 파일(policy · layout)이 있을 때만 (닿는 구간). 아니면 Δ = 0
-//     정책은 skill 노드가 갖고 관리 (models/skills/<skill>/) — 처음 받은 경로는 구독 콜백(실시간 루프 밖)에서 읽고 검산해 둠 (경로별 한 번)
-//   - 정책: policy_hz(50)로 arm_obs(…) → MlpPolicy → a ∈ [−1, 1] → residual_live면 Δ = residual_rad·a (아니면 마지막 Δ 유지)
+//     정책은 skill 노드가 갖고 관리 (models/skills/<skill>/) — 처음 받은 경로는 구독 콜백(실시간 루프 밖)에서 ONNX 세션을 만들고 검산해 둠 (경로별 한 번).
+//     실시간 루프는 미리 잡은 버퍼로 실행만 (작은 MLP — 루프 안 추론 시간은 test_onnx_policy가 잼)
+//   - 정책: policy_hz(50)로 arm_obs(…) → OnnxPolicy(.onnx, CPU) → a ∈ [−1, 1] → residual_live면 Δ = residual_rad·a (아니면 마지막 Δ 유지)
 //   - run_id가 바뀌면 corr·Δ·이전 행동을 0부터 (시뮬 에피소드 시작)
 //   - 손 카메라 값(/hand_relative)이 max_cam_age_s보다 오래되거나 valid가 아니면 Δ를 바꾸지 않음
 // 중력 앞먹임 (gravity_enabled, 기본 켜짐 · 실행 중 ros2 param set 가능): 서보 엔코더가 못 보는 관절 비틀림 d = c·τ 를 미리 뺀다
@@ -34,7 +35,7 @@
 #include "controller_interface/chainable_controller_interface.hpp"
 #include "hardware_interface/types/hardware_interface_type_values.hpp"
 #include "ml/arm_obs.hpp"
-#include "ml/mlp_policy.hpp"
+#include "ml/onnx_policy.hpp"
 #include "ml/msg/arm_correction_debug.hpp"
 #include "ml/msg/skill_context.hpp"
 #include "perception/msg/hand_relative.hpp"
@@ -153,7 +154,7 @@ protected:
 private:
   struct Skill {
     ArmLayout layout = ArmLayout::Place;
-    MlpPolicy policy;
+    OnnxPolicy policy;
   };
   struct Ctx {  // 받은 skill_context + 그 정책 (없으면 null) — 구독 콜백이 만들고 실시간 루프가 가져감
     Ctx() = default;
