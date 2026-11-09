@@ -24,6 +24,7 @@
 """
 
 import os
+import subprocess
 import sys
 import time
 
@@ -57,7 +58,7 @@ ROS_SYSTEM_ARGS = {
     'arm_correction_type': ('ml/RlArmCorrection', 'rl_arm_correction 컨트롤러 플러그인 (테스트베드 ML 대역: faker/FakeRlArmCorrection)'),
     'use_cameras': ('true', 'RealSense 2대 (테스트베드는 faker의 fake_camera가 대신 → false)'),
     'use_pole_front_cam': ('true', 'pole_front_cam만 끄기/켜기 (한 대만 연결할 때)'),
-    'use_gripper_cam': ('true', 'gripper_cam만 끄기/켜기 (한 대만 연결할 때)'),
+    'use_gripper_cam': ('auto', 'gripper_cam: auto = gripper_cam_serial 장치가 USB에 감지될 때만 켬(뽑아 두면 노드·의존 노드 안 띄움) · true/false = 강제'),
     'pole_front_cam_serial': ('', 'pole_front_cam RealSense serial_no — 빈 값이면 첫 장치 (2대면 반드시 지정)'),
     'gripper_cam_serial': ('', 'gripper_cam RealSense serial_no — 빈 값이면 첫 장치 (2대면 반드시 지정)'),
     'pole_front_cam_profile': ('640x360x15', 'pole_front_cam RGB/depth 프로파일 (WxHxFPS)'),
@@ -74,6 +75,16 @@ ROS_SYSTEM_ARGS = {
 
 # 지도 폴더 안 지도 파일 (nvblox) — 이 파일이 있는 폴더 = 저장한 지도 (state_manager kMapFile 목록도 같은 기준)
 MAP_FILE = 'nvblox.nvblx'
+
+
+def detected_serials():
+    """USB에 꽂힌 RealSense serial 목록 (`rs-enumerate-devices -s` 출력) — 못 알아내면 None.
+    launch가 (다시) 뜰 때마다 부른다: state_manager의 launch 재시작은 start.sh를 안 거치고 기록된 인자를 그대로 쓰므로 감지는 여기서 해야 한다."""
+    try:
+        r = subprocess.run(['rs-enumerate-devices', '-s'], capture_output=True, text=True, timeout=10)
+        return r.stdout if r.returncode == 0 else None
+    except (OSError, subprocess.SubprocessError):
+        return None
 
 
 def setup_map(context):
@@ -120,6 +131,16 @@ def setup_map(context):
     # use_slam = 지도 의미(모드·map_saver가 켜져야 하나) · use_real_slam = ros_system의 cuVSLAM·nvblox를 띄울지
     use_real_slam = 'false' if fake_slam else use_slam
     map_mode = {'none': 'NONE', 'slam': 'MAPPING', 'saved': 'LOCALIZATION'}[effective]
+    # 그립퍼 캠: 뽑아 두면 노드가 respawn(2 s)하며 장치를 계속 훑어 CPU·USB를 먹는다 — 감지될 때만 켠다.
+    ug = LaunchConfiguration('use_gripper_cam').perform(context).lower()
+    if ug not in ('auto', 'true', 'false'):
+        raise RuntimeError(f'use_gripper_cam:={ug} — auto | true | false')
+    if ug == 'auto':
+        serial = LaunchConfiguration('gripper_cam_serial').perform(context)
+        found = detected_serials() if serial else None
+        ug = 'true' if (found is None or serial in found) else 'false'   # 못 알아내면 예전처럼 켬
+        if ug == 'false':
+            print(f'WARN: gripper_cam serial {serial} 감지 안 됨 — gripper_cam · gripper_depth_gate · hand_relative를 안 띄움', file=sys.stderr)
     # 인지(YOLO 등)는 지도 만들 때(MAPPING) 쓰이지 않는다 — 실기에서는 CPU 코어 하나의 절반을 먹어 주행이 끊겼다 (2026-11-09).
     #   perception:=auto(기본) = 매핑이면 끔 · true/false = 강제. faker 테스트베드(fake_slam)는 그대로 켠다.
     pm = LaunchConfiguration('perception').perform(context).lower()
@@ -136,7 +157,9 @@ def setup_map(context):
             SetLaunchConfiguration('use_nav2', use_nav2),
             SetLaunchConfiguration('localization', 'false' if effective == 'slam' else 'true'),
             SetLaunchConfiguration('nvblox_map', nvblox_map),
-            SetLaunchConfiguration('use_perception', use_perception)]
+            SetLaunchConfiguration('use_perception', use_perception),
+            SetLaunchConfiguration('use_gripper_cam', ug),
+            SetLaunchConfiguration('use_hand_relative', 'true' if use_perception == 'true' and ug == 'true' else 'false')]
 
 def generate_launch_description():
     learning = {'enabled': LaunchConfiguration('learning_enabled')}
@@ -207,7 +230,7 @@ def generate_launch_description():
         node('control', 'manual_control'),
         node('perception', 'body_filter'),
         node('perception', 'signal_decoder', condition=IfCondition(LaunchConfiguration('use_perception'))),
-        node('perception', 'hand_relative', condition=IfCondition(LaunchConfiguration('use_perception'))),  # 손 카메라 상대값 → rl_arm_correction 정책 입력
+        node('perception', 'hand_relative', condition=IfCondition(LaunchConfiguration('use_hand_relative'))),  # 손 카메라 상대값 → rl_arm_correction 정책 입력
         node('manager', 'state_manager', {'operation': LaunchConfiguration('operation'),
                                           'map_mode': LaunchConfiguration('map_mode'),
                                           'map_name': ParameterValue(LaunchConfiguration('map_name'), value_type=str),

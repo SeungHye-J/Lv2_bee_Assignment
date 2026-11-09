@@ -284,8 +284,8 @@ def slam_nodes():
     save_path = PythonExpression(["'' if ", *loc, " else ", *nvblox_file])  # 매핑일 때만 저장 (위치추정이면 불러온 지도를 안 덮어씀)
     load_path = PythonExpression([*nvblox_file, " if ", *loc, " else ''"])
 
-    def gate(name, cam, by_pose):
-        return Node(package='ros_system', executable='scan_cam_gate', name=name, output='screen', condition=on,
+    def gate(name, cam, by_pose, cond=on):
+        return Node(package='ros_system', executable='scan_cam_gate', name=name, output='screen', condition=cond,
                     parameters=[share('config', 'scan_pose.yaml'),
                                 {'gate_by_pose': by_pose, 'depth_min_range': 0.5, 'cloud_in': '',
                                  'depth_in': f'/{cam}/aligned_depth_to_color/image_raw',
@@ -301,7 +301,10 @@ def slam_nodes():
         Node(package='ros_system', executable='cuvslam_slam', name='cuvslam_slam', output='screen', condition=on,
              parameters=[{'publish_map_tf': True}]),
         gate('pole_depth_gate', 'pole_front_cam', False),
-        gate('gripper_depth_gate', 'gripper_cam', True),
+        # 그립퍼 캠이 꺼져 있으면(뽑음 · use_gripper_cam:=false) 입력이 없는 게이트도 안 띄운다
+        gate('gripper_depth_gate', 'gripper_cam', True, IfCondition(PythonExpression(
+            ["'", LaunchConfiguration('use_slam'), "'.lower() == 'true' and '", LaunchConfiguration('use_gripper_cam'),
+             "'.lower() == 'true'"]))),
         Node(package='nvblox_ros', executable='nvblox_node', name='nvblox_node', output='screen', condition=on,
              parameters=[share('config', 'nvblox.yaml'),
                          {'after_shutdown_map_save_path': ParameterValue(save_path, value_type=str)}],
