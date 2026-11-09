@@ -162,13 +162,13 @@ std::shared_ptr<const RlArmCorrection::Skill> RlArmCorrection::policy_for(const 
   if (!arm_layout_from(m.layout, s->layout)) {
     RCLCPP_WARN(log, "%s: 입력 모양 '%s' 모름 — 보정 없음", m.skill.c_str(), m.layout.c_str());
     s = nullptr;
-  } else if (!s->policy.load(m.policy, why) || size_t(s->policy.inputs()) != arm_obs_size(s->layout) ||
+  } else if (!s->policy.load(m.policy, why) || s->policy.inputs() != arm_obs_size(s->layout) ||
              s->policy.outputs() != 5) {
-    RCLCPP_ERROR(log, "%s: 정책을 못 씀 %s — %s (입력 %ld, 필요 %zu)", m.skill.c_str(), m.policy.c_str(), why.c_str(),
-                 long(s->policy.inputs()), arm_obs_size(s->layout));
+    RCLCPP_ERROR(log, "%s: 정책을 못 씀 %s — %s (입력 %zu, 필요 %zu)", m.skill.c_str(), m.policy.c_str(), why.c_str(),
+                 s->policy.inputs(), arm_obs_size(s->layout));
     s = nullptr;
   } else {
-    RCLCPP_INFO(log, "%s: 정책 %s (%s 모양)", m.skill.c_str(), m.policy.c_str(), m.layout.c_str());
+    RCLCPP_INFO(log, "%s: 정책 %s (%s 모양 · %s)", m.skill.c_str(), m.policy.c_str(), m.layout.c_str(), s->policy.runtime());
   }
   cache_[m.policy] = s;  // 못 쓰는 파일도 기억 (매번 다시 읽지 않게)
   return s;
