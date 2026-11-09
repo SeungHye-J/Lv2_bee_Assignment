@@ -1,6 +1,9 @@
 // OnnxPolicy 구현 — onnxruntime_vendor가 있을 때만 컴파일(ML_HAS_ONNX). 없으면 빈 구현(load → 예외).
 #include "ml/onnx_policy.hpp"
 
+#include <cstdlib>
+#include <string>
+
 #include <stdexcept>
 
 #ifdef ML_HAS_ONNX
@@ -18,6 +21,11 @@ Ort::Env & env() {
 }
 
 bool cuda_available() {
+  // 기본은 CPU — 375→2 작은 MLP는 CPU 0.026 ms, CUDA 0.443 ms(실측, Jetson Orin Nano)로 GPU가 17배 느리고,
+  // 첫 추론의 CUDA/cuDNN 초기화와 GPU 경쟁이 cuVSLAM·nvblox를 0.7초쯤 멈춰 map→odom TF가 비었다(실기 2026-11-09).
+  // 큰 모델로 GPU가 필요하면 환경변수 ML_ONNX_CUDA=1.
+  const char * want = std::getenv("ML_ONNX_CUDA");
+  if (!want || std::string(want) != "1") return false;
   // 이 ORT 빌드에 CUDA EP가 들어 있는지 — 없으면(CPU-only vendor) 조용히 CPU로 간다.
   // GetAvailableProviders는 컴파일된 목록이라, sm_87 커널이 없는 빌드도 CUDA를 넣을 수 있다.
   // 실제 GPU에서 커널이 없으면 세션 생성이 실패하므로 그때도 CPU로 되돌린다.
