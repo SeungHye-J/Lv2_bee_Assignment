@@ -61,8 +61,6 @@ skill_stand:
     stand_drag_m: 0.0              # [m] 잡은 채 로봇 쪽으로 곧게 끎 — 0 = 호 (11/08 사용자: 끌기 안 씀 · 이전 0.04)
     stand_drag_lift_m: 0.035       # [m] 끌면서 올리는 양 — 약 41° 대각선
     stand_arc_end_deg: 100.0       # [deg] 호 끝 각도 (11/08 사용자 · 이전 60)
-    stand_tilt_over_m: 0.030       # [m] 호를 돌며 끝까지 더 올림 (시뮬 0.010)
-    stand_arc_return: false        # 호 끝에서 90°로 되돌리지 않고 바로 벌림
     stand_set_dz_m: -0.020         # [m] 끝점에서 눌러 놓음
     stand_above_m: 0.04            # [m] 대기 높이 (못 닿으면 3 → 2 → 1 cm)
     stand_lift_away_m: 0.08        # [m] 손 빼기 높이 (못 닿으면 6 → 4 → 3 cm)
