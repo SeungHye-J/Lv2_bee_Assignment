@@ -13,7 +13,7 @@
 //   2. 팔이 닿게 다가가기: pick · place · inspect · stand <물체 id> 차례에 대상이 로봇(base_footprint, TF)에서 reach_m 넘게 떨어져 있으면
 //      먼저 그 물체를 바라보며 approach_m 떨어진 자리로 navigate한 뒤 그 단계를 실행 (단계마다 한 번 — VLM이 navigate를 빼먹어도)
 //   3. 같은 단계 max_step_failures회 연속 실패면 /robot/say로 알리고 정지. 그 전엔 FAILED만 보내고 VLM 재계획을 기다린다
-//   4. AUTO가 아닌 모드(MANUAL · EXPLORE · TEACH) · 비상정지: 진행 중 skill goal을 취소하고 FAILED, 그동안 새 계획은 받지 않음
+//   4. AUTO가 아닌 모드(MANUAL · TEACH) · 비상정지: 진행 중 skill goal을 취소하고 FAILED, 그동안 새 계획은 받지 않음
 //   적재함 장부는 이 노드 하나만 씀: 칸마다 {모양 · 색 · tag · 확인 필요} + 실은 순서 + 손에 든 퍽 → 파일(basket_file)에 저장해 다시 떠도 이어 감
 //     pick·stand_pick 성공이면 그 퍽을 손에 · load 성공이면 칸에 · unload 성공이면 손으로 · place 성공이면 손 비움.
 //     unload가 빈손(grasp_empty)이면 칸을 비우지 않고 check(확인 필요)로. load next는 basket_use 칸 중 빈 칸

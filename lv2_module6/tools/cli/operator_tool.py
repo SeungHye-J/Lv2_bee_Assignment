@@ -26,6 +26,7 @@ bringup이 떠 있는 상태에서 상태 확인, 자동/수동 전환, 비상�
 from __future__ import annotations
 
 import argparse
+import math
 import os
 import sys
 import time
@@ -34,6 +35,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
 import rclpy
+import rclpy.time
 from diagnostic_msgs.msg import DiagnosticArray
 from rclpy.node import Node
 from rclpy.qos import (
@@ -198,9 +200,26 @@ class OperatorTool(Node):
                 LATCHED)
         except Exception:
             pass
+        # 로봇 map 위치 — tf2_ros가 없는 호스트면 칸이 '-'로 남는다
+        try:
+            from tf2_ros import Buffer, TransformListener
+            self._tf_buf = Buffer()
+            self._tf_listener = TransformListener(self._tf_buf, self)
+            self.create_timer(0.5, self._update_map_pose)
+        except Exception:
+            pass
         # 노드별 추가 상태·기능 (예: controller_server RL/DWB)
         from op.pages.nodes import wire_all
         wire_all(self)
+
+    def _update_map_pose(self):
+        try:
+            tr = self._tf_buf.lookup_transform('map', 'base_footprint', rclpy.time.Time())
+        except Exception:
+            self.state.map_pose = None
+            return
+        t, q = tr.transform.translation, tr.transform.rotation
+        self.state.map_pose = (t.x, t.y, math.atan2(2.0 * (q.w * q.z + q.x * q.y), 1.0 - 2.0 * (q.y * q.y + q.z * q.z)))
 
     def _on_devices(self, msg: String):
         names = [n.strip() for n in msg.data.split(',') if n.strip()]
@@ -309,8 +328,8 @@ def build_parser() -> argparse.ArgumentParser:
                         help='/diagnostics_agg 요약 · 이름 일부를 주면 그 항목 상세(값 전부) — 예: --diagnostics signal_decoder')
     status.add_argument('--topics', action='store_true', help='/state/topics 전체 출력')
 
-    mode = sub.add_parser('mode', help='조작 모드 AUTO/MANUAL/EXPLORE/TEACH 전환 (TEACH = 팔 토크 끄고 손으로 자세)')
-    mode.add_argument('mode', type=str.lower, choices=('auto', 'manual', 'explore', 'teach'))
+    mode = sub.add_parser('mode', help='조작 모드 AUTO/MANUAL/TEACH 전환 (TEACH = 팔 토크 끄고 손으로 자세)')
+    mode.add_argument('mode', type=str.lower, choices=('auto', 'manual', 'teach'))
 
     estop = sub.add_parser('estop', help='비상정지 on/off/status')
     estop.add_argument('state', type=str.lower, choices=('on', 'off', 'status'))

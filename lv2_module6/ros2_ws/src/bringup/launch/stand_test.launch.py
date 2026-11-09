@@ -3,8 +3,8 @@
   LAUNCH_FILE=stand_test.launch.py ./start.sh   # 저장소 ros2_ws/ — 가상환경 켜고 start.sh 환경 확인(카메라 serial 등) 그대로
 
 전체 bringup(start.sh)에서 빼는 것 — Jetson 메모리·CPU를 많이 먹는데 팔 테스트엔 안 쓰는 것:
-  SLAM(cuVSLAM·nvblox·지도) · Nav2 서버 전부 · pole_front_cam 점구름 · body_filter · signal_decoder · explorer ·
-  vlm_task_planner · user_input · 진단 aggregator
+  SLAM(cuVSLAM·nvblox·지도) · Nav2 서버 전부 · pole_front_cam 점구름 · body_filter · signal_decoder ·
+  진단 aggregator
 남기는 것: skill 노드 · hand_relative · ros_system(controller_manager · 컨트롤러 · robot_state_publisher · RealSense 2대 · EKF(odom TF) · twist_mux · move_group) ·
   perception · coordinator · grasp_scorer · manual_control · arm_safety_monitor · state_manager (모드 전환 · CLI) ·
   cmd_vel_relay (Nav2 대신 /cmd_vel_mux → /cmd_vel — 수동 주행이 바퀴까지, 부드럽게 하기·충돌 감시 없음)

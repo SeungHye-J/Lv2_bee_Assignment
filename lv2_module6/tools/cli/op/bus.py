@@ -285,8 +285,6 @@ class Bus:
 
     def cmd_mode(self, args) -> int:
         target = args.mode.upper()
-        if target == 'EXPLORE' and self.state.map_mode not in ('MAPPING', ''):
-            print('WARN: EXPLORE는 지도 모드 MAPPING에서만 허용됩니다', file=sys.stderr)
         self._publish(self.pub_operation, String(data=target))
         if self._wait_value('operation_mode', target, 2.5):
             print(f'조작 모드 → {target}')

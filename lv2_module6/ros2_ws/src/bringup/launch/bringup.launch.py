@@ -3,7 +3,6 @@
   ros2 launch bringup bringup.launch.py
   ros2 launch bringup bringup.launch.py use_ros_system:=false            # 📦 대신 faker 등 다른 입력 (faker.launch.py가 씀)
   ros2 launch bringup bringup.launch.py learning_enabled:=false           # 학습 노드 Δ=0 · 프리셋 A 고정 (비교 기준)
-  ros2 launch bringup bringup.launch.py command:="빨간 퍽을 목표 구역으로 옮겨"   # user_input에 텍스트 명령 한 번
 지도 (실기·테스트베드 공통 — 지도 한 벌 = 폴더 하나 <map_dir>/<map_name>/ nvblox.nvblx · map.pgm · map.yaml):
   ros2 launch bringup bringup.launch.py map:=slam                 # 매핑: 새 폴더 <날짜_시각>/ (map_name:=으로 이름 지정, 있는 이름이면 거부)
   ros2 launch bringup bringup.launch.py map:=saved                # 위치추정: 가장 최근 폴더 (기본)
@@ -17,7 +16,7 @@
 
 🛠 노드 (패키지 · 담당):
   perception: perception, body_filter, signal_decoder(신호등 암호 → /mission/signal) (전승혜)
-  plan:       user_input(외부 텍스트 입력), vlm_task_planner, coordinator (권형중)
+  plan:       coordinator (권형중)
   ml:         grasp_scorer (송정혁)
               rl_arm_correction은 노드가 아니라 컨트롤러 플러그인(ml/RlArmCorrection) — ros_system의 controller_manager가 올린다
   control:    arm_safety_monitor, manual_control (김현하)
@@ -144,15 +143,11 @@ def generate_launch_description():
         DeclareLaunchArgument('learning_enabled', default_value='true',
                               description='false면 학습 노드가 Δ=0 · 기본 프리셋 (노드는 그대로 뜸)'),
         DeclareLaunchArgument('operation', default_value='MANUAL',
-                              description='초기 조작 모드: MANUAL(기본) | AUTO | EXPLORE | TEACH'),
-        DeclareLaunchArgument('vlm_endpoint', default_value='',
-                              description='호스트 ai-service 주소 (비면 템플릿 고정, 예: http://127.0.0.1:8000)'),
+                              description='초기 조작 모드: MANUAL(기본) | AUTO | TEACH'),
         DeclareLaunchArgument('start_pose', default_value='',
                               description='mission_manager 출발 자세 arena [x, y, yaw] YAML (비면 plan.yaml start_pose_arena)'),
         DeclareLaunchArgument('grasp_check', default_value='true',
                               description='coordinator 잡기 판정(그리퍼 위치 + 전류) — 물리 없는 대역(faker)은 손가락이 끝까지 닫혀 늘 빈손이라 false'),
-        DeclareLaunchArgument('command', default_value='',
-                              description='user_input이 시작 후 한 번 보낼 텍스트 명령'),
         DeclareLaunchArgument('restart_prepare', default_value='',
                               description='/cmd/restart all 때 다시 띄우기 전 셸 명령 (state_manager — 테스트베드 faker = build-ws)'),
         DeclareLaunchArgument('restart_log', default_value='/tmp/bringup.log',
@@ -187,9 +182,6 @@ def generate_launch_description():
                                                      LaunchConfiguration('use_slam'), "' == 'true'"]))),
 
         node('perception', 'perception_node'),
-        node('plan', 'user_input', {'command': ParameterValue(LaunchConfiguration('command'), value_type=str)}),  # 공백·빈 값도 문자열로
-        node('plan', 'vlm_task_planner',
-             {'vlm_endpoint': ParameterValue(LaunchConfiguration('vlm_endpoint'), value_type=str)}),
         # coordinator: 계획 단계를 skill 노드에 맡기는 순서 담당 (적재함 장부 · 모드·비상정지 취소)
         node('plan', 'coordinator'),
         # skill 노드 — 단계마다 액션 서버 /skills/<skill> (팔: arm_skills 컨테이너 · 주행: base_skills). 학습 정책은 skill마다 models/skills/<skill>/
@@ -197,7 +189,6 @@ def generate_launch_description():
         GroupAction([IncludeLaunchDescription(
             PythonLaunchDescriptionSource(PathJoinSubstitution([FindPackageShare('skills'), 'launch', 'skills.launch.py'])),
             launch_arguments={'grasp_check': LaunchConfiguration('grasp_check')}.items())]),
-        node('plan', 'explorer'),
         # 주사위 미션 — /cmd/mission start로 시작 (abort로 멈춤). 출발 자세만 launch 인자로 덮어씀
         node('plan', 'mission_manager', condition=IfCondition(PythonExpression(["'", LaunchConfiguration('start_pose'), "' == ''"]))),
         node('plan', 'mission_manager', {'start_pose_arena': ParameterValue(LaunchConfiguration('start_pose'), value_type=None)},

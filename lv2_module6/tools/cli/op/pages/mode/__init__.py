@@ -24,8 +24,6 @@ class ModeItem(MenuItem):
         body = [f'현재: {self.state.operation or "-"}']
         if self._target == 'AUTO':
             body.append('AUTO로 바꾸면 자동 주행이 시작될 수 있습니다.')
-        if self._target == 'EXPLORE' and self.state.map_mode != 'MAPPING':
-            body.append(f'주의: EXPLORE는 지도 모드 MAPPING에서만 허용됩니다 (지금 {self.state.map_mode or "-"}).')
         if self._target != 'MANUAL' and not self.ui.confirm(
                 f'{self._target}로 전환할까요?', default=False, body=body):
             return STAY
@@ -38,8 +36,7 @@ class ModeMenu(Menu):
 
     def items(self):
         return [ModeItem(self.app, '1', 'AUTO', '자동 미션 (coordinator·Nav2·arm)'),
-                ModeItem(self.app, '2', 'MANUAL', '수동 주행/팔/그리퍼'),
-                ModeItem(self.app, '3', 'EXPLORE', 'MAPPING 중 자동 탐사')]
+                ModeItem(self.app, '2', 'MANUAL', '수동 주행/팔/그리퍼')]
 
     def center(self):
         st = self.state

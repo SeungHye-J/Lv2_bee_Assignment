@@ -57,6 +57,7 @@ class StateStore:
         self.rates: dict[str, Rate] = {}  # 상단 생존 표시 — 키는 bars/state/top_state_bar.py TOPIC_RATES
         self.rl_status: list[float] = []  # controller_server FollowPath RL/DWB 상태
         self.rl_status_time = 0.0
+        self.map_pose: tuple[float, float, float] | None = None  # TF map → base_footprint (x, y, yaw[rad]) — 없으면 None
 
     def tick(self, key: str):
         self.rates.setdefault(key, Rate()).tick()

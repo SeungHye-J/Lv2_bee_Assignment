@@ -9,6 +9,7 @@ from .map_state import MapState
 from .no_data_state import NoDataState
 from .operation_state import OperationState
 from .perception_state import PerceptionState
+from .pose_state import PoseState
 from .robot_state import RobotState
 from .say_state import SayState
 from .state_bar import StateBar
@@ -25,7 +26,7 @@ class TopStateBar(StateBar):
 
     def __init__(self, ui):
         super().__init__(ui, [
-            [OperationState(ui), MapState(ui), EstopState(ui), DeviceState(ui), ConnectionState(ui)],
+            [OperationState(ui), MapState(ui), PoseState(ui), EstopState(ui), DeviceState(ui), ConnectionState(ui)],
             [PerceptionState(ui), TaskState(ui), DiagState(ui), SayState(ui)],
             [TopicRateState(ui, key, label, low) for key, label, low in TOPIC_RATES],
             [RobotState(ui)],
