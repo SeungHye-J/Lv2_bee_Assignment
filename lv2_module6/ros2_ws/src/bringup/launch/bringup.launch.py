@@ -120,6 +120,12 @@ def setup_map(context):
     # use_slam = 지도 의미(모드·map_saver가 켜져야 하나) · use_real_slam = ros_system의 cuVSLAM·nvblox를 띄울지
     use_real_slam = 'false' if fake_slam else use_slam
     map_mode = {'none': 'NONE', 'slam': 'MAPPING', 'saved': 'LOCALIZATION'}[effective]
+    # 인지(YOLO 등)는 지도 만들 때(MAPPING) 쓰이지 않는다 — 실기에서는 CPU 코어 하나의 절반을 먹어 주행이 끊겼다 (2026-11-09).
+    #   perception:=auto(기본) = 매핑이면 끔 · true/false = 강제. faker 테스트베드(fake_slam)는 그대로 켠다.
+    pm = LaunchConfiguration('perception').perform(context).lower()
+    if pm not in ('auto', 'true', 'false'):
+        raise RuntimeError(f'perception:={pm} — auto | true | false')
+    use_perception = 'false' if (pm == 'false' or (pm == 'auto' and effective == 'slam' and not fake_slam)) else 'true'
     # 지도/위치추정이 없으면 Nav2도 띄우지 않는다 — 지도 없는 costmap·BT가 헛도는 걸 막는다.
     use_nav2 = 'false' if effective == 'none' else 'true'
     nvblox_map = os.path.join(d, name, map_file) if effective != 'none' else ''
@@ -129,7 +135,8 @@ def setup_map(context):
             SetLaunchConfiguration('use_real_slam', use_real_slam),
             SetLaunchConfiguration('use_nav2', use_nav2),
             SetLaunchConfiguration('localization', 'false' if effective == 'slam' else 'true'),
-            SetLaunchConfiguration('nvblox_map', nvblox_map)]
+            SetLaunchConfiguration('nvblox_map', nvblox_map),
+            SetLaunchConfiguration('use_perception', use_perception)]
 
 def generate_launch_description():
     learning = {'enabled': LaunchConfiguration('learning_enabled')}
@@ -158,6 +165,8 @@ def generate_launch_description():
                               description='지도 폴더들이 있는 곳 — <map_dir>/<map_name>/nvblox.nvblx (비면 ~/.ros/beebot_maps)'),
         DeclareLaunchArgument('map_name', default_value='',
                               description='지도 폴더 이름 — slam: 비우면 날짜_시각으로 새로 · saved: 비우면 가장 최근'),
+        DeclareLaunchArgument('perception', default_value='auto',
+                              description='인지 노드(perception_node · signal_decoder · hand_relative): auto = 매핑(map:=slam)이면 끔 · true = 항상 · false = 항상 끔. body_filter는 Nav2 충돌감시용이라 그대로'),
         DeclareLaunchArgument('fake_slam', default_value='false',
                               description='true = faker SLAM 대역(코스 map_server · fake_cuvslam · fake_nvblox) — ros_system의 진짜 cuVSLAM·nvblox만 끔'),
         *[DeclareLaunchArgument(k, default_value=v, description=d) for k, (v, d) in ROS_SYSTEM_ARGS.items()],
@@ -181,7 +190,7 @@ def generate_launch_description():
              condition=IfCondition(PythonExpression(["'", LaunchConfiguration('use_ros_system'), "'.lower() == 'true' and '",
                                                      LaunchConfiguration('use_slam'), "' == 'true'"]))),
 
-        node('perception', 'perception_node'),
+        node('perception', 'perception_node', condition=IfCondition(LaunchConfiguration('use_perception'))),
         # coordinator: 계획 단계를 skill 노드에 맡기는 순서 담당 (적재함 장부 · 모드·비상정지 취소)
         node('plan', 'coordinator'),
         # skill 노드 — 단계마다 액션 서버 /skills/<skill> (팔: arm_skills 컨테이너 · 주행: base_skills). 학습 정책은 skill마다 models/skills/<skill>/
@@ -197,8 +206,8 @@ def generate_launch_description():
         node('control', 'arm_safety_monitor'),
         node('control', 'manual_control'),
         node('perception', 'body_filter'),
-        node('perception', 'signal_decoder'),
-        node('perception', 'hand_relative'),  # 손 카메라 상대값 → rl_arm_correction 정책 입력
+        node('perception', 'signal_decoder', condition=IfCondition(LaunchConfiguration('use_perception'))),
+        node('perception', 'hand_relative', condition=IfCondition(LaunchConfiguration('use_perception'))),  # 손 카메라 상대값 → rl_arm_correction 정책 입력
         node('manager', 'state_manager', {'operation': LaunchConfiguration('operation'),
                                           'map_mode': LaunchConfiguration('map_mode'),
                                           'map_name': ParameterValue(LaunchConfiguration('map_name'), value_type=str),
