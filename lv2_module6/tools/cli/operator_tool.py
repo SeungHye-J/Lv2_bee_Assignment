@@ -134,6 +134,11 @@ class OperatorTool(Node):
             if self._restart_note:
                 self._restart_armed_at = now
             self._restart_note = note
+        # /state/restart 없이 스택이 죽었다 살아난 경우(통신 끊김)도 같은 재연결 — 한 번이라도 받은 뒤 15s 침묵이면 arm.
+        # exec 뒤 새 프로세스는 state_last_update=0이라 스택이 계속 죽어 있어도 반복 exec하지 않는다.
+        last = self.state.state_last_update
+        if not self._restart_armed_at and last > 0 and now - last > 15.0:
+            self._restart_armed_at = now
         if not self._restart_armed_at:
             return
         # state_manager가 다시 살아 /state/*를 보내면 재연결 불필요.

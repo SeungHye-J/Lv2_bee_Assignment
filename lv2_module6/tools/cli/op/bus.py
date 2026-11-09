@@ -808,10 +808,20 @@ class Bus:
                 print('LOCALIZATION 전환 생략 — 실제 nvblox는 나중에 전환/종료할 때 지도를 저장합니다.')
                 return 0
             print('LOCALIZATION으로 전환 — 지도 저장 + 다시 뜨기 (수십 초)')
-            return self.cmd_map(self.map_args('mode', name='localization'))
+            return self.localize_saved()
 
         print(f'모르는 map action: {args.action}', file=sys.stderr)
         return 2
+
+    def localize_saved(self) -> int:
+        """저장 직후 LOCALIZATION — 방금 다른 이름("wow")으로 저장했으면 그 지도로 (map mode는 *현재 작업 폴더*로 가서 nvblx가 없어 NONE이 됨)."""
+        saved = getattr(self, '_saved_name', None)
+        if not saved or saved == self.state.values.get('map_name'):
+            return self.cmd_map(self.map_args('mode', name='localization'))
+        end = time.monotonic() + 5.0   # state_manager의 지도 목록이 갱신될 때까지
+        while time.monotonic() < end and saved not in (self.state.values.get('map_list') or '').splitlines():
+            self._poll(0.3)
+        return self.cmd_map(self.map_args('switch', name=saved))
 
     def _map_restart_reply(self, send, desc: str, timeout: float = 3.0) -> int:
         """지도 모드·지도 바꾸기 = state_manager가 launch 전체를 다시 띄움 (cuVSLAM·nvblox는 실행 중 전환이 없음).
@@ -918,6 +928,9 @@ class Bus:
                     break
         # 경로는 map_saver가 쓰는 쪽 기준 — CLI가 원격 PC·컨테이너 밖이면 이 컴퓨터 경로가 로봇에 없다.
         #   --file·--map-dir를 주지 않으면 state_manager의 map_dir을 쓴다 (못 읽을 때만 이 컴퓨터의 ros2_ws/map)
+        # 이름만 준 경우("wow") = 기본 지도 폴더의 <이름>/map — 안 그러면 현재 작업 폴더(tools)에 떨어진다
+        if args.file and not any(c in args.file for c in '/\\~.'):
+            name, args.file = args.file, None
         robot_dir = '' if (args.file or args.map_dir) else self._robot_map_dir()
         if args.file:
             path = Path(args.file).expanduser()
@@ -960,6 +973,7 @@ class Bus:
             print('요청 실패: map_saver가 저장하지 못했습니다', file=sys.stderr)
             return 1
         print(f'지도 저장 → {path}.pgm · {path}.yaml')
+        self._saved_name = None if args.file else name   # 이름으로 저장한 폴더 — 전환할 때 이 지도로 간다
         if self.state.map_mode == 'MAPPING':
             # 위치추정 정본은 nvblox.nvblx — map_saver의 pgm/yaml과 별개로 반드시 저장한다.
             rc = self._save_nvblox_map(path.parent / 'nvblox.nvblx')

@@ -282,7 +282,7 @@ class MapSavePage(Page):
                                body=['지도 미리보기 저장 완료.',
                                      '전환하면 지도를 확정하고 위치추정 모드로 다시 뜹니다 (실제 nvblox는 nvblox.nvblx 저장).',
                                      '다시 뜨는 데 수십 초 걸립니다 — 주행 중이면 먼저 정지하세요.']):
-                self.bus.cmd_map(self.bus.map_args('mode', name='localization'))
+                self.bus.localize_saved()
             else:
                 print('LOCALIZATION 전환 생략 — nvblox.nvblx는 나중에 전환/종료할 때 저장됩니다.')
         return STAY
