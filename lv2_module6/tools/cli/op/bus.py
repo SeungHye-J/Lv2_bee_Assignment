@@ -27,8 +27,10 @@ from .terminal import BOLD, DIM, GREEN, RED, YELLOW, Terminal
 
 try:
     from nav2_msgs.srv import SaveMap as SaveMapSrv
+    from nav2_msgs.srv import Toggle as ToggleSrv
 except ImportError:  # nav2_msgs가 없는 환경에서도 나머지 명령은 동작
     SaveMapSrv = None
+    ToggleSrv = None
 
 
 # 수동 주행 속도 상한 (텔레오퍼 -/= · 메뉴 속도 설정) — Waffle Pi 사양 (바퀴 상한 ≈ 8 rad/s × 0.033 m)
@@ -311,6 +313,47 @@ class Bus:
             return 0
         print(f'요청 실패: 현재 비상정지 {"ON" if self.state.emergency else "OFF"}', file=sys.stderr)
         return 1
+
+    # --------------------------------------------------------------- collision_monitor
+
+    def collision_status(self) -> str:
+        """manual_control이 마지막으로 반영한 collision_monitor 상태 (진단 값) — 모르면 '-'."""
+        for kvs in self.state.diag_values.values():
+            for k, v in kvs:
+                if k == 'collision_monitor':
+                    return v
+        return '-'
+
+    def cmd_collision(self, args) -> int:
+        """collision_monitor 켜기/끄기 — /collision_monitor/toggle. 모드가 바뀌면(MANUAL·MAPPING = 끔 · 그 밖 = 켬)
+        manual_control이 다시 정한다. 그 전까지는 이 명령이 정한 대로 유지된다."""
+        if args.state == 'status':
+            self._poll(1.0)
+            print(f'collision_monitor: {self.collision_status()}')
+            return 0
+        if ToggleSrv is None:
+            print('거부: nav2_msgs가 없어 collision 토글을 쓸 수 없습니다', file=sys.stderr)
+            return 2
+        client = self.node.create_client(ToggleSrv, '/collision_monitor/toggle')
+        try:
+            if not client.wait_for_service(timeout_sec=3.0):
+                print('거부: /collision_monitor/toggle 없음 — Nav2(collision_monitor)가 떠 있는지 확인 (지도 모드 NONE이면 안 뜸)', file=sys.stderr)
+                return 1
+            req = ToggleSrv.Request()
+            req.enable = args.state == 'on'
+            future = client.call_async(req)
+            rclpy.spin_until_future_complete(self.node, future, timeout_sec=5.0)
+            res = future.result() if future.done() else None
+        finally:
+            self.node.destroy_client(client)
+        if res is None:
+            print('요청 실패: collision_monitor 응답 없음', file=sys.stderr)
+            return 1
+        if not res.success:
+            print(f'거절: {res.message}', file=sys.stderr)
+            return 1
+        print(f'collision_monitor → {"켬" if args.state == "on" else "끔 (근접 정지 없이 통과 — 주의)"}')
+        return 0
 
     # ------------------------------------------------------------------- drive
 
