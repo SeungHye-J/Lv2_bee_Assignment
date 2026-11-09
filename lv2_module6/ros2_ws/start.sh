@@ -1,7 +1,7 @@
 #!/bin/bash
 # 실기 실행: 환경 확인 → (필요하면 빌드) → bringup launch
 #
-#   ./start.sh                              # 📦(카메라·EKF·RTAB-Map·controller_manager) + 🛠 노드 전부, OpenCR 실기
+#   ./start.sh                              # 📦(카메라·EKF·SLAM·controller_manager) + 🛠 노드 전부, OpenCR 실기
 #   ./start.sh mock_hardware:=true          # OpenCR 없이 (명령을 상태로 되돌림 — launch 인자는 그대로 전달)
 #   ./start.sh port:=/dev/ttyACM1           # OpenCR 포트 지정 (기본 /dev/opencr — udev 규칙 99-opencr.rules)
 #   POLE_FRONT_CAM_SERIAL=... GRIPPER_CAM_SERIAL=... ./start.sh  # RealSense serial 고정 (권장)
@@ -9,7 +9,7 @@
 #   ./start.sh learning_enabled:=false      # 학습 노드 끄고 (비교 기준)
 #   ./start.sh map:=slam                    # 지도 매핑 (새 폴더 map/<날짜_시각>/) — 기본 map:=saved = 저장 지도로 위치추정
 #   ./start.sh --build [launch 인자]        # 저장소에서 실행할 때 colcon build 후 실행
-#   LAUNCH_FILE=stand_test.launch.py ./start.sh  # 팔 테스트용 가벼운 실행 (= ./stand-test.sh)
+#   LAUNCH_FILE=stand_test.launch.py ./start.sh  # 팔 테스트용 가벼운 실행
 #
 # 두 가지 위치에서 동작한다.
 #   - 저장소 lv2_module6/ros2_ws/ : install/이 없거나 --build면 src/를 빌드
@@ -273,7 +273,7 @@ fi
 
 # 지도 폴더 기본 = 이 워크스페이스의 map/ (테스트베드 /ws/map 과 같은 자리) — map:=slam(새 폴더 매핑) · saved(저장 지도, 기본)
 case " $* " in *" map_dir:="*) ;; *) set -- "$@" "map_dir:=$HERE/map" ;; esac
-# 실행할 launch (기본 전체 bringup) — stand-test.sh가 LAUNCH_FILE=stand_test.launch.py로 가벼운 팔 테스트용을 고름
+# 실행할 launch (기본 전체 bringup) — LAUNCH_FILE=stand_test.launch.py면 가벼운 팔 테스트용
 LAUNCH_FILE="${LAUNCH_FILE:-bringup.launch.py}"
 echo "=== ros2 launch bringup $LAUNCH_FILE $*"
 exec ros2 launch bringup "$LAUNCH_FILE" "$@"
