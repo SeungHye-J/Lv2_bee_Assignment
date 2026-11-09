@@ -160,7 +160,7 @@ class CuvslamSlam(Node):
     def apply_initialpose(self, desired):
         self.map_offset = compose(desired, inverse(self.last_base))
         self.path.poses.clear()
-        self.get_logger().warn(
+        self.get_logger().warning(
             f'initialpose 적용: map ({desired[0]:+.2f}, {desired[1]:+.2f}, {math.degrees(desired[2]):+.1f}°)')
 
     def start(self, frame):
