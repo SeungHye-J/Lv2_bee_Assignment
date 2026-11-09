@@ -759,6 +759,27 @@ def test_box_tops():
     assert tops == []
 
 
+def test_posture_from_height():
+    """(11/09) 퍽 자세를 윗면 높이로 — 바닥 위 서있음(윗면 6 cm) · 누움(3 cm) · 상자(7 cm) 위 서있음(13 cm) · 누움(10 cm)
+    카메라가 50° 내려다봐도(가로·세로 비율은 못 믿는 각도) 높이로 맞게 나와야 함"""
+    import numpy as np
+    from perception_node import box_depth_m, posture_from_height, view_from_side
+
+    for top, base, want in ((0.06, 0.0, "standing"), (0.03, 0.0, "lying"), (0.13, 0.07, "standing"), (0.10, 0.07, "lying")):
+        # 받침(상자 205) 위에 퍽 크기 네모 기둥 — 윗면 높이 top
+        boxes = ([(1.0, 0.0, 0.205, base, 0.0)] if base > 0 else []) + [(1.0, 0.0, 0.04, top, 0.0)]
+        d, rot, trans, fx, fy, cx, cy = _box_depth(boxes)
+        assert not view_from_side(rot)   # 50° 내려다봄 → 비율 판정 안 믿는 각도
+        vv, uu = np.mgrid[0:d.shape[0], 0:d.shape[1]]
+        pts = np.stack([(uu - cx) * d / fx, (vv - cy) * d / fy, d], -1) @ rot.T + trans
+        on = pts[..., 2] > top - 0.005  # 퍽 윗면 화소 → 네모
+        ys, xs = np.nonzero(on)
+        box = (int(xs.min()), int(ys.min()), int(xs.max()), int(ys.max()))
+        zm = box_depth_m(d, box, 0.5)
+        got, h = posture_from_height(d, box, zm, rot, trans, fx, fy, cx, cy, 0.0)
+        assert got == want, (top, base, got, h)
+
+
 def test_box_cut_and_arm_mask():
     """(11/04) 화면 가장자리에 걸친 상자 → box_cut True (노드는 방향을 '모름'으로) · 다 보이는 상자 → False
     상자 옆에 붙은 자기 그리퍼(같은 높이 작은 덩어리) → mask_px로 그 둘레를 빼면 상자 크기가 원래대로 (안 빼면 커짐)"""
