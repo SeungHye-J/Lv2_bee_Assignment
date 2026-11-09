@@ -235,6 +235,11 @@ GPU가 없거나 CUDA EP가 없으면:
 
 둘 다 정상이다. **GPU가 있는데 `device=CPU`면** 3~4절을 다시 확인한다.
 
+> **`device=CPU`인데 CUDA ORT를 설치했다면:** ROS vendor의 `libonnxruntime.so.1`(CPU 전용)이 `LD_LIBRARY_PATH`로
+> 먼저 잡힌 것이다 (`ldd build/ml/test_nav_policy_onnx | grep onnxruntime`이 `/opt/ros/...`를 가리킴).
+> 단독 실행은 `LD_LIBRARY_PATH=/opt/onnxruntime/lib:$LD_LIBRARY_PATH ./build/ml/test_nav_policy_onnx`.
+> `start.sh`는 `/opt/onnxruntime`에 CUDA provider가 있으면 자동으로 앞에 붙인다.
+
 ### 6-2. 실제 노드 로그
 
 ```bash
