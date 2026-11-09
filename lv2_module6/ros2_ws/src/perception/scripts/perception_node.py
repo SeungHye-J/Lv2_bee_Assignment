@@ -369,6 +369,47 @@ def box_depth_m(depth_m, box, min_valid):
     return float(np.median(valid))
 
 
+PUCK_TOPS = {"standing": 0.06, "lying": 0.03}  # 받침 위 퍽 윗면 높이 [m] — 서 있음 60 mm · 누움 30 mm (발제 30×30×60 · Ø30×60)
+
+
+def posture_from_height(depth_m, box, zm, rot, trans, fx, fy, cx, cy, floor_z, supports=(0.0, 0.07), tol=0.02, min_pts=15,
+                        margin=0.01):
+    """퍽 자세를 '윗면 높이'로 (11/09 팀원 이슈: 그리퍼캠이 위에서 보면 서 있는 퍽 윗면에 옆면이 조금 같이 보여
+    박스가 가로로 길어져 '누움'으로 판정됨 — 가로·세로 비율은 옆에서 볼 때만 맞음)
+      ① 박스 안에서 깊이가 퍽 거리(zm) ±4 cm인 화소만 = 퍽 자체 (뒤 바닥·벽 빼기) → 추적 좌표 3D 점
+      ② 퍽 윗면 높이 = 그 점들 높이의 90% 값 (튀는 점 몇 개는 무시)
+      ③ 받침(바닥 floor_z · 상자 윗면 floor_z + 0.07) 위로 6 cm면 standing · 3 cm면 lying — 4가지 중 가장 가까운 것
+         (바닥 서있음 6 · 바닥 누움 3 · 상자 위 서있음 13 · 상자 위 누움 10 cm → 서로 3 cm 넘게 떨어져서 카메라 각도와 상관없이 구분)
+      가장 가까운 것도 tol(2 cm)보다 멀거나 점이 min_pts보다 적으면 '' (모름 — 기울어진 퍽 · 깊이 부족)
+      ④ 서있음 후보와 누움 후보가 margin(1 cm) 안으로 비슷하게 가까우면 '' (애매 — 11/09 실물: 어둡고 1.5 m 먼 서있는 퍽이
+         11.4 cm로 상자 위 누움 10 cm · 서있음 13 cm 사이 → 누움으로 틀렸음) → 노드는 옆에서 볼 때 가로·세로 비율로 대신함
+    → (자세, 윗면 높이 m 또는 None)"""
+    if zm <= 0:
+        return "", None
+    x0, y0, x1, y1 = box
+    patch = depth_m[y0:y1 + 1, x0:x1 + 1]
+    vv, uu = np.nonzero(np.isfinite(patch) & (np.abs(patch - zm) < 0.04) & (patch > 0.05))
+    if len(vv) < min_pts:
+        return "", None
+    z = patch[vv, uu]
+    pts = np.stack([(uu + x0 - cx) * z / fx, (vv + y0 - cy) * z / fy, z], -1) @ rot.T + trans
+    top = float(np.percentile(pts[:, 2], 90)) - floor_z
+    errs = {}  # 자세마다 가장 가까운 받침 기준 오차
+    for sup in supports:
+        for pose, hgt in PUCK_TOPS.items():
+            errs[pose] = min(errs.get(pose, 1e9), abs(top - (sup + hgt)))
+    best = min(errs, key=errs.get)
+    other = max(errs, key=errs.get)
+    if errs[best] > tol or errs[other] - errs[best] < margin:
+        return "", top
+    return best, top
+
+
+def view_from_side(rot, max_down_deg=35.0):
+    """카메라가 옆에서 보는가 (광학 z축이 수평에서 아래로 max_down_deg 안) — 가로·세로 비율 자세 판정은 이때만 믿음"""
+    return float(-rot[2, 2]) < np.sin(np.radians(max_down_deg))
+
+
 def puck_color(roi, colors, hue_tol):
     """퍽 박스 안 색 → (색 이름, H 중앙값). colors = 퍽으로 볼 색 이름들 (HUES 안의 것)
     가장자리 20%씩 뺀 안쪽에서 채도·밝기 있는 화소마다 가장 가까운 색에 투표 — 그 색 기준 H에서 hue_tol 넘게 멀면 'other'에 투표
@@ -985,6 +1026,10 @@ class PerceptionNode(Node):
                   if body is not None and self.self_arm_hits > 0 else np.zeros((0, 2)))
         dets = []
         qr_boxes = []
+        # 퍽 자세(높이 판정)에 쓰는 바닥 높이 = 로봇 base_footprint 높이 (TF 없으면 추적 좌표 0) · 받침 = 바닥 · 상자 윗면
+        base_p = self.lookup_tf(self.base_frame, now_stamp, quiet=True)
+        floor_p = float(base_p[1][2]) if base_p is not None else 0.0
+        side_view = view_from_side(rot)
         for b in boxes_in:
             tag = None
             shape, yaw, yaw_period = "", None, 0.0  # 퍽만 채움
@@ -1014,10 +1059,17 @@ class PerceptionNode(Node):
                 wcm = (x1 - x0) * zm / s["fx"] * 100 if zm > 0 else -1.0
                 hcm = (y1 - y0) * zm / s["fy"] * 100 if zm > 0 else -1.0
                 ok, _, posture = self.judge_puck(wcm, hcm, color, clipped, "", near)  # 색은 위에서 정함 → 크기·깊이·자세만
+                # 자세 (11/09): 윗면 높이로 먼저 (카메라 각도와 상관없음) · 모르면 옆에서 볼 때만 가로·세로 비율 판정을 씀
+                #   위에서 내려다보면(그리퍼캠) 서 있는 퍽 윗면에 옆면이 같이 보여 박스가 길어짐 → 비율로는 '누움'으로 틀렸음
+                if ok and zm > 0 and not clipped:
+                    h_post, _ = posture_from_height(depth_m, (x0, y0, x1, y1), zm, rot, trans, s["fx"], s["fy"], s["cx"], s["cy"],
+                                                    floor_p, (0.0, float(self.location_box_size[2])))
+                    posture = h_post or (posture if side_view else "")
                 fine = box_long_px(b, (x0, y0, x1, y1)) >= self.fine_min_px  # 멀어 작으면 모양·자세를 픽셀로 못 가림
                 m_posture = model_posture(name) if fine else ""
                 if self.trust_model_posture:
                     # 크기는 퍽인지 거르는 데만 · 자세는 모델 (OBB 모델은 누운 퍽 박스가 돌아가 있어 가로÷세로로는 못 봄)
+                    # (11/09 병합: 이 설정을 켜면 위 높이 판정보다 모델 자세가 우선 — 팀 설정 그대로)
                     posture = m_posture
                 if not ok or zm <= 0:
                     # 퍽 아님 → 버림 · 퍽인데 깊이 없음(너무 가까움) → 위치를 몰라 이번엔 갱신 안 함 = 트랙은 마지막 위치 유지
