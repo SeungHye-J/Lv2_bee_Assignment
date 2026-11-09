@@ -4,7 +4,7 @@
 #   OpenCR 펌웨어(lv2_module6/firmware/beebot_opencr)와 같은 프로토콜을 주고받는지 본다.
 #   1. SBC → OpenCR: output/hardware/serial에 "C,…" 명령 줄이 쌓이는가 (값 9개 — 9번째 = 그리퍼 전류 A, gripper_controller max_effort 0.6 · S 41개라 새 펌웨어로 봄)
 #   2. OpenCR → SBC: input/hardware/serial에 "S,…" 상태 줄(값 43개 — 모터 온도 8 + 배터리 V + 바퀴 전류 2, joint1=0.5)을 넣으면
-#      /joint_states joint1이 0.5 · wheel_left effort(전류)가 0.25가 되는가
+#      /joint_states joint1이 0.5 − URDF offset · wheel_left effort(전류)가 0.25가 되는가
 #   3. SBC → OpenCR: /cmd/beep [3000, 200] → "B,3000,200" 줄
 #   4. OpenCR → SBC: "E,…"(모터 에러) 줄 · S 끝 온도·배터리가 /motor_status error · temperature · battery_voltage로 나오는가
 # NOTE: set -u 사용 금지 — setup.bash가 미설정 변수를 참조해서 죽음.
@@ -57,7 +57,10 @@ E_LINE="E,0,0,0,32,0,0,0,0"
    sleep 0.05
  done) & FEED_PID=$!
 
-JS=$(timeout 60 ros2 topic echo --once --filter 'len(m.position) > 0 and abs(m.position[list(m.name).index("joint1")] - 0.5) < 1e-6 and abs(m.effort[list(m.name).index("wheel_left_joint")] - 0.25) < 1e-6' \
+# joint1 = 서보 값 − URDF offset (BeebotSystemHardware read) — 기본 모델(urdf:=default)의 joint1 offset만큼 기대값을 옮김
+J1_OFF=$(sed -n '/<joint name="joint1">/,/<\/joint>/s/.*name="offset">\([^<]*\)<.*/\1/p' "$(ros2 pkg prefix --share ros_system)/urdf/default/urdf.xacro" | head -n 1)
+J1_WANT=$(python3 -c "print(0.5 - float('${J1_OFF:-0}'))")
+JS=$(timeout 60 ros2 topic echo --once --filter 'len(m.position) > 0 and abs(m.position[list(m.name).index("joint1")] - '"$J1_WANT"') < 1e-6 and abs(m.effort[list(m.name).index("wheel_left_joint")] - 0.25) < 1e-6' \
   /joint_states sensor_msgs/msg/JointState 2>/dev/null)
 MS=$(timeout 30 ros2 topic echo --once --qos-durability transient_local --qos-reliability reliable \
   --filter 'len(m.temperature) == 8 and m.temperature[2] == 41 and m.error[3] == 32 and abs(m.battery_voltage - 11.7) < 0.01' \
