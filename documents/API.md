@@ -19,7 +19,7 @@
 <a id="api-custom"></a>
 ## 1. 커스텀 인터페이스 정의
 
-별도 interfaces 패키지 없이 **그 메시지를 내보내는 패키지**가 가집니다 ([DEVELOP.md](../lv2_module6/simulator/gazebo/DEVELOP.md#4-커스텀-메시지)).
+별도 interfaces 패키지 없이 **그 메시지를 내보내는 패키지**가 가집니다 ([lv2_module6/README.md](../lv2_module6/README.md)).
 C++ 헤더는 타입명을 snake_case로: `TrackedObjectArray` → `perception/msg/tracked_object_array.hpp`.
 
 <a id="api-msg-trackedobject"></a>
@@ -140,7 +140,7 @@ float32 offset_m
 | `pose` | `stow` · `carry_left` · `carry_right` · `scan` | 이름 있는 관절 자세로 (MoveIt 관절 목표, 값 = skills/params/basket.yaml · scan = ros_system/config/scan_pose.yaml) |
 | `load` | 칸 `0`~`11` · `next` | 손의 퍽을 적재함 칸에 — carry(칸 방향) → 칸 위 → 내림 → 벌림 → 들어올림 → stow (12칸, 칸·퍽 모양별 관절값 basket.yaml) |
 | `unload` | 칸 `0`~`11` · `last` | 적재함 칸의 퍽 꺼내기 — carry → 벌림 → 칸 위 → 내림 → 닫기 → 잡기 판정 → 칸 위 → carry |
-| `inspect` | 퍽 id · `"x,y,z"` | 손끝을 퍽 윗면(좌표면 그 점) 위 `inspect_height_m`로 (좌표면 손 방향 = 로봇 → 점) → `inspect_wait_s` 기다림 — gripper_cam이 윗면 16mm AprilTag(번호)를 읽게. 못 읽어도 성공 (읽었는지는 `details.tag`) |
+| `inspect` | 퍽 id · `"x,y,z"` | 손끝을 퍽 윗면(좌표면 그 점) 위 `inspect_height_m`로 (좌표면 손 방향 = 로봇 → 점) → `inspect_wait_s` 기다림 — gripper_cam이 윗면 16mm AprilTag(번호)를 읽게. 못 읽어도 성공 (읽었는지는 `details.tag`). **relation `box`** + `"x,y,z"`(상자 가운데, 퍽 윗면 높이): `pose_look` 자세로 → 상자 위 퍽이 2개 미만이거나 태그를 못 읽었으면 본 퍽을 한 장에 담는 자세(look_plan)로 다시 → 그래도 모자라면 `inspect_partial` (미션 SURVEY) |
 | `stand` | 누운 퍽 id (`puck_lying`) | 누운 퍽 세우기 — 먼 끝을 위치형으로 쥐고(`stand_pinch_m`, 닫는 전류 `stand_close_current_a` → 쥔 뒤 `stand_pinch_current_a`) 대각선으로 끌어(`stand_drag_m`, 실기 방식 · 0이면 호) 세운 뒤 벌리고 위로 (손은 빈 채 끝). 경유점 `stand_waypoints` ik(기본) · table |
 | `stand_pick` | 아무 값 (직전 `stand`의 퍽) | 세운 퍽 다시 집기 — 같은 손목으로 바로 아래로 → 닫기 → 잡기 판정 → 들어올림. 성공하면 그 퍽을 손에 든 것으로 장부에 |
 | `say` | 말할 내용 | `/robot/say`로 알림 |
@@ -196,7 +196,7 @@ string reason       # grasp_failed_all | nav_failed | arm_contact ...
 ```
 
 - 내는 쪽: coordinator → `/task/status` (reliable + transient_local). 받는 쪽: vlm_task_planner(자기 계획이 FAILED면 재계획) · mission_manager(자기 계획 결과로 다음 단계) · user_input(표시).
-- reason (coordinator.cpp): 이동 `nav_failed` · `approach_failed` / 집기 `no_grasp` · `grasp_failed_all` · `arm_contact` / 놓기 `place_failed` · `place_no_target` / 자세 `pose_failed` / 적재함 `slot_invalid` · `slot_full` · `slot_empty` · `load_failed` · `unload_failed` · `basket_table_missing` / 잡기 판정 `grasp_empty` / 세우기 `stand_failed` · `stand_no_grip` · `stand_grip_timeout` · `stand_not_lying` · `stand_no_yaw` · `stand_ik_unreachable` · `stand_table_missing` · `stand_pick_no_stand` · `stand_pick_failed` · `hand_full` / 보기 `inspect_no_target` · `inspect_failed` / 멈춤 `manual_override`·`manual_mode` · `explore_override`·`explore_mode` · `estop`·`estop_blocked` · `cancelled` — `manual`·`explore`·`estop`·`cancelled`로 시작하면 planner는 재계획하지 않음.
+- reason (coordinator.cpp): 이동 `nav_failed` · `approach_failed` / 집기 `no_grasp` · `grasp_failed_all` · `arm_contact` / 놓기 `place_failed` · `place_no_target` / 자세 `pose_failed` / 적재함 `slot_invalid` · `slot_full` · `slot_empty` · `load_failed` · `unload_failed` · `basket_table_missing` / 잡기 판정 `grasp_empty` / 세우기 `stand_failed` · `stand_no_grip` · `stand_grip_timeout` · `stand_not_lying` · `stand_no_yaw` · `stand_ik_unreachable` · `stand_table_missing` · `stand_pick_no_stand` · `stand_pick_failed` · `hand_full` / 보기 `inspect_no_target` · `inspect_failed` · `inspect_partial`(상자 보기에서 퍽·태그가 모자람) / 멈춤 `manual_override`·`manual_mode` · `explore_override`·`explore_mode` · `estop`·`estop_blocked` · `cancelled` — `manual`·`explore`·`estop`·`cancelled`로 시작하면 planner는 재계획하지 않음.
 - 주의: [노드 사전](project/ros/10-catalog.md)의 reason 예시(`nav_blocked`)와 파일(`nav_failed`)이 다릅니다 — 파일이 정본.
 
 <a id="api-msg-missionstate"></a>
@@ -365,7 +365,7 @@ string message
 
 | 이름 | 타입 | 보내는 쪽 → 받는 쪽 | 주기 · QoS |
 | --- | --- | --- | --- |
-| `/map` | nav_msgs/OccupancyGrid | nvblox_map → planner_server (global_costmap static layer) | 새 격자가 오면 최대 1Hz · reliable + transient_local (테스트베드 `map:=course`는 map_server) |
+| `/map` | nav_msgs/OccupancyGrid | nvblox_map(실기) · fake_nvblox(테스트베드) → planner_server (global_costmap static layer) | 새 격자가 오면 최대 1Hz · reliable + transient_local |
 | `/nvblox_node/static_occupancy_grid` | nav_msgs/OccupancyGrid (map) | nvblox_node → nvblox_map | nvblox 2D 점유 격자 · 보통 토픽(latched 아님) — 주기는 실기에서 확인 |
 | `/cuvslam/odom` | nav_msgs/Odometry | cuvslam_slam → ekf (`odom1`, vx·vy만) | 카메라 프레임마다 — 시각 오도메트리(속도) |
 | `/cuvslam/path` | nav_msgs/Path | cuvslam_slam → RViz | cuVSLAM 궤적 (표시용) |
@@ -419,7 +419,7 @@ string message
 | `/state/restart` | std_msgs/String (transient_local) | state_manager → 시뮬레이터 상태판 · 누구나 | 마지막 재시작 요청 결과 — `all: 재시작 중 …` · `node perception: 재시작 (pid …)` · `거절: …` · 새로 뜨면 `시작 (pid …)` |
 | `/cmd/map_name` | std_msgs/String | 시뮬레이터 지도 목록 · 운영자 → state_manager | 지도 폴더 이름 — `<map_dir>/<이름>/nvblox.nvblx`가 있으면 launch 전체를 `map:=saved map_name:=<이름>`으로 다시 띄움 (`/cmd/restart all`과 같은 길 · nvblox_map이 시작할 때 불러옴 — 위치추정, 결과는 다시 뜬 state_manager의 `/state/map_name` · `/state/map_mode`) |
 | `/cmd/map_mode` | std_msgs/String | 시뮬레이터 · 운영자 → state_manager | MAPPING(스캔) · LOCALIZATION(위치추정) — cuVSLAM·nvblox는 실행 중 전환이 없어 launch 전체를 다시 띄움: MAPPING → `map:=slam`(새 지도 폴더) · LOCALIZATION → `map:=saved map_name:=<지금 폴더>` |
-| `/state/map_mode` | std_msgs/String (transient_local) | state_manager → 시뮬레이터 · 누구나 | MAPPING · LOCALIZATION · COURSE(정지 지도, 바꿀 수 없음) — 다시 뜬 state_manager가 새 값으로 발행 |
+| `/state/map_mode` | std_msgs/String (transient_local) | state_manager → 시뮬레이터 · 누구나 | MAPPING · LOCALIZATION — 다시 뜬 state_manager가 새 값으로 발행 |
 | `/state/map_name` | std_msgs/String (transient_local) | state_manager → 시뮬레이터 · 누구나 | 지금 쓰는 지도 폴더 이름 (`<map_dir>/<이름>/` nvblox.nvblx · map.pgm · map.yaml, 빈 값 = 폴더 없음) — 시뮬레이터 [지도 저장]이 같은 폴더에 씀 |
 
 - `/state/devices`는 **이름 목록만** 낸다. 장치별 `active/disconnected`와 세부 토픽은 `/state/devices/<이름>`에서 본다.
@@ -461,14 +461,14 @@ string message
 ### skill 노드 (`plan/action/Skill`, 2026-11-04)
 
 coordinator가 계획 단계마다 skill 노드 하나에 맡김 — 한 노드에 한 번에 goal 하나. 결과 `success` · `reason`(실패 이유 → `/task/status` reason 그대로) · 피드백 `stage`.
-학습 정책은 skill 노드가 갖고 관리: `lv2_module6/ros2_ws/model/skills/<skill>/` (`<skill>.policy` 로봇용 · `<skill>.onnx` 원본 · `meta.yaml` 쓸지·시뮬 성공률·출처).
+학습 정책은 skill 노드가 갖고 관리: `lv2_module6/models/skills/<skill>/` (`<skill>.policy` 로봇용 · `<skill>.onnx` 원본 · `meta.yaml` 쓸지·시뮬 성공률·출처).
 
 | 액션 | 노드 (컨테이너) | 쓰는 goal 칸 | 하는 일 · 정책 |
 | --- | --- | --- | --- |
 | `/skills/navigate` | skill_navigate (base_skills) | `pose` | Nav2 `/navigate_to_pose` |
 | `/skills/approach` | skill_approach (base_skills) | `pose` (x, y, yaw) · `target` = 정책 `dock_box`(기본) \| `park_home` \| `drive_arc` \| `drive_straight` | 시뮬 기준 제어 + 정책 보정을 직접 계산 → `/cmd_vel_nav` (20 Hz) · 도착 판정은 정책 meta (tol_m · tol_deg · hold_s) |
 | `/skills/pose` | skill_pose (arm_skills) | `target` = stow \| carry_left \| carry_right \| scan | MoveIt 관절 목표 · 시작 자세 · 지도 만들 때 스캔 자세도 이 노드 |
-| `/skills/inspect` | skill_inspect | `pose` (볼 점) · `values[0]` 손 방향 yaw | 점 위 `inspect_height_m`에서 기다림 (태그 읽기) |
+| `/skills/inspect` | skill_inspect | `pose` (볼 점) · `values[0]` 손 방향 yaw · `target "box"`: `pose` = 상자 가운데, `values[0]` = 기대 퍽 수(기본 2) | 점 위 `inspect_height_m`에서 기다림 (태그 읽기) · box: look 자세 → 모자라면 다시 담기 |
 | `/skills/pick` | skill_pick | `target` 물체 id · `tag` · `shape` | score_grasps → 후보 손 방향 ψ로 푼 관절값으로 퍽 위 5 cm (MoveIt 관절 목표) → 닿는 구간 `pick_standing_puck` |
 | `/skills/place` | skill_place | `target` cell \| over · `pose` (놓을 면) · `values[0]` 다가가는 높이 | 닿는 구간 `place_cell` (cell) · 물체 위 MoveIt (over) |
 | `/skills/load` · `/skills/unload` | skill_load · skill_unload | `slot` · `shape` · `tag` | 적재함 칸 (장부는 coordinator) · `load_slot` · `unload_slot` |

@@ -272,8 +272,8 @@ local_costmap:
       width: 3
       height: 3
       resolution: 0.05
-      # 로봇 외곽 반경 (Waffle 폭 0.306 + 상판·팔) — 시뮬레이터 plant.ROBOT_R과 같게
-      robot_radius: 0.18
+      # 로봇 외곽 반경 — 실제 폭 0.306의 절반(0.153)에 여유. 테스트베드 통로가 좁아 0.16으로 최소화
+      robot_radius: 0.16
       always_send_full_costmap: true
       plugins: ["voxel_layer", "inflation_layer"]
       voxel_layer:
@@ -299,13 +299,13 @@ local_costmap:
           raytrace_max_range: 3.0
       inflation_layer:
         plugin: "nav2_costmap_2d::InflationLayer"
-        # 통로 0.73m − 로봇 지름 0.36m → 양쪽 여유 약 0.18m. 팽창이 통로를 다 덮지 않게 작게
-        inflation_radius: 0.25
-        cost_scaling_factor: 8.0
+        # 로봇 반경 0.16 + 최소 2cm — 통로를 덮지 않게. (기존 0.25/8.0은 0.73m 통로를 거의 다 덮었다)
+        inflation_radius: 0.18
+        cost_scaling_factor: 3.0
 
 
 # ─────────────────────────────────────────────────────────────────────────────
-# global_costmap — map 전체. 정지 지도(/map: 실기 RTAB-Map · 시뮬레이터 map_server) + pole_front_cam 장애물
+# global_costmap — map 전체. 정지 지도(/map: 실기 SLAM · 시뮬레이터 map_server) + pole_front_cam 장애물
 # ─────────────────────────────────────────────────────────────────────────────
 global_costmap:
   global_costmap:
@@ -317,11 +317,13 @@ global_costmap:
       publish_frequency: 1.0
       global_frame: map
       robot_base_frame: base_footprint
-      robot_radius: 0.18
+      robot_radius: 0.16
       resolution: 0.05
       track_unknown_space: true
       always_send_full_costmap: true
-      plugins: ["static_layer", "obstacle_layer", "inflation_layer"]
+      # 전역 계획: 정적 벽 + 작은 팽창만 — 동적 장애물은 local costmap/DWB·ONNX ESDF가 맡는다.
+      # (obstacle_layer까지 넣으면 전역 계획이 동적 장애물에 민감해져 좁은 통로에서 자주 실패)
+      plugins: ["static_layer", "inflation_layer"]
       static_layer:
         plugin: "nav2_costmap_2d::StaticLayer"
         map_subscribe_transient_local: true
@@ -342,8 +344,9 @@ global_costmap:
           raytrace_max_range: 3.0
       inflation_layer:
         plugin: "nav2_costmap_2d::InflationLayer"
-        inflation_radius: 0.25
-        cost_scaling_factor: 8.0
+        # 로봇 반경 0.16 + 최소 2cm — 지도 가장자리까지 빨갛게 덮지 않게
+        inflation_radius: 0.18
+        cost_scaling_factor: 3.0
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -419,7 +422,7 @@ collision_monitor:
 
 # ─────────────────────────────────────────────────────────────────────────────
 # lifecycle 관리자 — 맡은 서버를 순서대로 configure·activate (하나라도 실패하면 그 관리자 것만 중단)
-#   둘로 나눈 이유: 하나로 묶으면 RTAB-Map이 아직 map→odom을 못 낼 때 global_costmap 실패로 바퀴 명령 체인까지
+#   둘로 나눈 이유: 하나로 묶으면 SLAM이 아직 map→odom을 못 낼 때 global_costmap 실패로 바퀴 명령 체인까지
 #   inactive → 수동 조작(→ twist_mux → velocity_smoother → collision_monitor)도 막힘 (실측, map:=slam)
 #   bond_timeout: 활성화한 서버와 이 시간(초) 안에 bond(생존 신호)가 이어지지 않으면 중단.
 #     기동 직후 CPU가 몰리면(진짜 Nav2 + 컨트롤러 + 인지) 10초 안에 신호가 늦게 와서 중단됐음(실측) → 여유 있게

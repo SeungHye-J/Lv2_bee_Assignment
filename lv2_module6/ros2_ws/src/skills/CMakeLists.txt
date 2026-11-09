@@ -28,9 +28,9 @@ find_package(control REQUIRED)
 find_package(ml REQUIRED)
 find_package(plan REQUIRED)
 
-# --- skill 노드: 컴포넌트 하나 = skill 하나 (src/<skill>_skill.cpp) · 공통은 skill_node(액션 틀) · arm_io(팔) · stand_plan(세우기 경유점)
+# --- skill 노드: 컴포넌트 하나 = skill 하나 (src/<skill>_skill.cpp) · 공통은 skill_node(액션 틀) · arm_io(팔) · stand_plan(세우기 경유점) · look_plan(inspect 카메라 자세)
 add_library(${PROJECT_NAME} SHARED
-  src/skill_node.cpp src/arm_io.cpp src/stand_plan.cpp
+  src/skill_node.cpp src/arm_io.cpp src/stand_plan.cpp src/look_plan.cpp
   src/navigate_skill.cpp src/approach_skill.cpp src/pose_skill.cpp src/inspect_skill.cpp
   src/pick_skill.cpp src/place_skill.cpp src/load_skill.cpp src/unload_skill.cpp src/stand_skill.cpp)
 target_include_directories(${PROJECT_NAME} PUBLIC
@@ -48,8 +48,8 @@ install(TARGETS ${PROJECT_NAME} ARCHIVE DESTINATION lib LIBRARY DESTINATION lib 
 install(DIRECTORY include/ DESTINATION include)
 install(DIRECTORY config launch params DESTINATION share/${PROJECT_NAME})
 
-# 학습 정책 — 워크스페이스 공용 lv2_module6/ros2_ws/model/skills/<skill>/ (meta.yaml · <skill>.policy · <skill>.onnx) → share/skills/model
-set(SKILLS_MODEL_DIR "${CMAKE_CURRENT_SOURCE_DIR}/../../model/skills" CACHE PATH "ros2_ws/model/skills")
+# 학습 정책 — 워크스페이스 공용 lv2_module6/models/skills/<skill>/ (meta.yaml · <skill>.policy · <skill>.onnx) → share/skills/model
+set(SKILLS_MODEL_DIR "${CMAKE_CURRENT_SOURCE_DIR}/../../../models/skills" CACHE PATH "lv2_module6/models/skills")
 if(EXISTS "${SKILLS_MODEL_DIR}")
   install(DIRECTORY "${SKILLS_MODEL_DIR}/" DESTINATION share/${PROJECT_NAME}/model
     FILES_MATCHING PATTERN "meta.yaml" PATTERN "*.policy" PATTERN "*.onnx")
@@ -59,6 +59,8 @@ if(BUILD_TESTING)
   find_package(ament_cmake_gtest REQUIRED)
   ament_add_gtest(test_stand_plan test/test_stand_plan.cpp TIMEOUT 60)
   target_link_libraries(test_stand_plan ${PROJECT_NAME})
+  ament_add_gtest(test_look_plan test/test_look_plan.cpp TIMEOUT 60)
+  target_link_libraries(test_look_plan ${PROJECT_NAME})
   ament_add_gtest(test_skills test/test_skills.cpp TIMEOUT 60)
   target_link_libraries(test_skills ${PROJECT_NAME})
   target_compile_definitions(test_skills PRIVATE MODEL_DIR="${SKILLS_MODEL_DIR}")

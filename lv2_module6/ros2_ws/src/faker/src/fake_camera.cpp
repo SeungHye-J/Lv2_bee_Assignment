@@ -81,7 +81,7 @@ void FakeCamera::poll() {
     if (dummy_timeout_s_ > 0.0 && never_saw_sim && (now() - last_frame_).seconds() > dummy_timeout_s_) {
       if (!dummy_on_) {
         RCLCPP_INFO(get_logger(), "시뮬레이터 프레임 없음 — 더미 발행 (회색 영상 · %s)",
-                    map_depth_ ? "코스 지도 depth" : "고정 depth");
+                    map_depth_ ? "/map depth" : "고정 depth");
         dummy_on_ = true;
       }
       publish_dummy();
@@ -112,7 +112,7 @@ void FakeCamera::poll() {
 }
 
 void FakeCamera::publish_dummy() {
-  // 회색 영상 + 코스 지도 depth. 헤더 시각은 지금 (TF 외삽 방지).
+  // 회색 영상 + /map depth. 헤더 시각은 지금 (TF 외삽 방지).
   // last_frame_은 건드리지 않는다 — 여길 갱신하면 다음 poll에서
   // (now - last_frame_) > dummy_timeout_s가 다시 2초를 기다려 더미가 0.5Hz가 된다 (실측).
   // 주기는 dummy_rate_hz (collision_monitor source_timeout 1.0s 여유) — 렌더 비용 때문에 poll마다 내지 않는다.
@@ -131,7 +131,7 @@ void FakeCamera::publish_dummy() {
     //   costmap이 다른 자세로 되돌려 벽이 시야 전체에 번져 유령 장애물이 됐음 (1.8 rad/s × 0.16 s ≈ 17°, 2026-11-07 실측)
     if (!render_map_depth(fx, width_ / 2.0, height_ / 2.0, depth, f.stamp)) {
       depth.setTo(0);  // 지도·TF가 아직 없음 — 지어내지 않고 '측정 없음'
-      RCLCPP_WARN_THROTTLE(get_logger(), *get_clock(), 5000, "코스 지도 depth 대기 (%s) — 깊이 없음으로 발행",
+      RCLCPP_WARN_THROTTLE(get_logger(), *get_clock(), 5000, "/map depth 대기 (%s) — 깊이 없음으로 발행",
                            have_map_ ? "TF map→카메라 없음" : "/map 없음");
     }
   }
@@ -155,7 +155,7 @@ bool FakeCamera::render_map_depth(double fx, double cx, double cy, cv::Mat & dep
     {2 * (qx * qz - qy * qw), 2 * (qy * qz + qx * qw), 1 - 2 * (qx * qx + qy * qy)}};
   const double ox = tr.transform.translation.x, oy = tr.transform.translation.y, oz = tr.transform.translation.z;
   const double res = map_info_.resolution;
-  const double gx0 = map_info_.origin.position.x, gy0 = map_info_.origin.position.y;  // 코스 지도는 회전 없음
+  const double gx0 = map_info_.origin.position.x, gy0 = map_info_.origin.position.y;  // 지도는 회전 없음
   const int W = int(map_info_.width), H = int(map_info_.height);
   const double wall = wall_height_m_;
   auto occupied = [&](int ix, int iy) {

@@ -2,7 +2,7 @@
 # 집기 시연 환경 + ROS (SLAM·Nav2 없음): 바닥 · 시작 상자 · 퍽 2개 · 상자에서 30 cm 로봇 (manipulator_env.py)
 #   isaac/scripts/demo/pick_load_demo.sh · 시연: python3 -u isaac/scripts/demo/pick_load_play.py --clear-basket · 리셋: isaac/scripts/standalone/reset.sh
 #   인자는 manipulator_env.py로 (--headless 등) · --no-policy만 여기서: 그 skill 정책을 끔 (기준 동작만)
-#     --no-policy pick_standing_puck,load_slot  (이름 = ros2_ws/model/skills/ 폴더 · all = 전부)
+#     --no-policy pick_standing_puck,load_slot  (이름 = models/skills/ 폴더 · all = 전부)
 #   --no-twist-state: joint2·3 상태 = 엔코더 그대로 (기본은 엔코더 + 중력 비틀림 = 실제 각, BeebotSystemHardware twist_state)
 STANDALONE=$(dirname "$(realpath "$0")")/../standalone
 # YOLO: ~/.venv-yolo의 torch·ultralytics만 얹음 — numpy·cv2는 시스템 것 (cv_bridge가 numpy 1.x, isaac_sim.sh YOLO_VENV 주석)
