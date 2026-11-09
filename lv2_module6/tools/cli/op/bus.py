@@ -941,9 +941,13 @@ class Bus:
             path = Path(robot_dir or map_dir) / name / 'map'
         if path.suffix.lower() in ('.yaml', '.pgm'):
             path = path.with_suffix('')
-        if not robot_dir:  # 이 컴퓨터 경로일 때만 — 로봇 쪽 지도 폴더는 bringup이 이미 만듦
+        if not robot_dir:  # 이 컴퓨터 경로일 때만
             path = path.resolve()
+        # 새 이름("wow")의 폴더는 아직 없다 — map_saver는 폴더를 안 만든다. 로봇 위에서 돌 때만 만들어진다(원격 CLI는 건너뜀).
+        try:
             path.parent.mkdir(parents=True, exist_ok=True)
+        except OSError:
+            pass
 
         client = self.node.create_client(SaveMapSrv, '/map_saver/save_map')
         if not client.wait_for_service(timeout_sec=2.0):

@@ -48,7 +48,7 @@ from std_msgs.msg import Bool, String
 
 from op.bus import Bus
 from op.consts import _nonnegative_float, _positive_float
-from op.defs import STAY
+from op.defs import QUIT, STAY
 from op.pages import MainMenu
 from op.state import StateStore
 from op.terminal import Terminal
@@ -85,6 +85,7 @@ class OperatorTool(Node):
         self._device_subs: dict[str, object] = {}
         self._restart_note = ''
         self._restart_armed_at = 0.0
+        self.current_screen = ''   # 지금 들어가 있는 최상위 메뉴 키 ('4' …) — 재연결 exec 뒤 복원
         # 화면 틀(Window) 신호 — ROS 폴링·재연결은 'tick', 이름으로 화면 열기는 'navigate'
         self.ui.window.connect('tick', self._on_tick)
         self.ui.window.connect('navigate', self._on_navigate)
@@ -150,6 +151,7 @@ class OperatorTool(Node):
         if now - self._restart_armed_at < 12.0:
             return
         self.ui.close()
+        os.environ['BEE_RESUME_SCREEN'] = self.current_screen   # 메인 메뉴로 튕기지 않고 보던 메뉴로 (그 안의 하위 화면까지는 복원 안 함)
         os.execv(sys.executable, [sys.executable, '-u', str(Path(__file__).resolve()), 'menu'])
 
     def _wire(self):
@@ -253,6 +255,16 @@ class OperatorTool(Node):
     # ------------------------------------------------------------- CLI 진입
     def cmd_menu(self, args) -> int:
         from op.pages import MainMenu
+        key = os.environ.pop('BEE_RESUME_SCREEN', '')
+        if key:
+            self.poll(0.6)
+            page = self.screen(key)
+            if page is not None:
+                self.current_screen = key
+                res = page.show()
+                self.current_screen = ''
+                if res == QUIT:
+                    return 0
         return int(MainMenu(self).show() or 0)
 
     def __getattr__(self, name: str):
