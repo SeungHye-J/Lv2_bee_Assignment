@@ -31,7 +31,7 @@ _spec.loader.exec_module(_main)
 node = _main.node
 
 # 이 실행에서 고정하는 ros_system 인자 (지도·Nav2 없음 · 점구름 끔 · MoveIt 켬)
-FIXED = {'use_slam': 'false', 'localization': 'true', 'nvblox_map': '', 'use_nav2': 'false', 'use_moveit': 'true',
+FIXED = {'use_slam': 'false', 'localization': 'true', 'nvblox_map': '', 'use_nav2': 'false', 'use_cmd_chain': 'false', 'use_moveit': 'true',
          'pole_front_cam_pointcloud': 'false', 'gripper_cam_pointcloud': 'false'}
 
 

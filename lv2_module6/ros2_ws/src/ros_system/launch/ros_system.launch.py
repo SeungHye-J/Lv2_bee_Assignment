@@ -186,7 +186,8 @@ def generate_launch_description():
         flag('use_slam', 'true', 'SLAM(cuVSLAM + nvblox) — false면 map→odom·/map 없음 (테스트베드 faker는 fake_nvblox가 대신)'),
         flag('localization', 'true', 'true=위치추정 모드(운영, 저장 지도로), false=매핑 모드(지도를 새로 만듦)'),
         flag('nvblox_map', '~/.ros/nvblox.nvblx', 'nvblox 지도 파일 — 매핑이면 끌 때 여기에 저장, 위치추정이면 시작할 때 여기서 불러옴'),
-        flag('use_nav2', 'true', '진짜 Nav2 서버 (planner · controller · behavior · bt_navigator · velocity_smoother · collision_monitor)'),
+        flag('use_cmd_chain', 'true', '바퀴 명령 체인 (velocity_smoother · collision_monitor · lifecycle_manager_base) — use_nav2와 별개: 지도 없이(map:=none)도 수동 조작이 되려면 늘 필요'),
+        flag('use_nav2', 'true', '진짜 Nav2 서버 (planner · controller · behavior · bt_navigator) — 바퀴 명령 체인(velocity_smoother · collision_monitor)은 use_cmd_chain'),
         flag('nav2_params_file', share('config', 'nav2_params.yaml'), 'Nav2 파라미터 파일'),
         flag('use_moveit', 'false', 'true면 진짜 move_group (config/moveit) — spawner 완료 후 기동 (동시 기동 레이스 회피)'),
 
@@ -236,11 +237,13 @@ def nav2_nodes():
                                    이쪽만 실패하고 바퀴 체인은 산다. 하나로 묶으면 global_costmap 실패에 수동 조작까지 막혔음)
     리매핑만 우리 속도 체인에 맞춘다 (위 모듈 설명)."""
     on = IfCondition(LaunchConfiguration('use_nav2'))
+    # 바퀴 명령 체인은 Nav2(use_nav2)와 따로 — bringup이 지도 없음(map:=none)이면 use_nav2를 끄는데, 그때도 수동 조작은 돼야 한다
+    chain = IfCondition(LaunchConfiguration('use_cmd_chain'))
     params = [LaunchConfiguration('nav2_params_file')]
 
-    def server(package, executable, name=None, remaps=(), extra=()):
+    def server(package, executable, name=None, remaps=(), extra=(), cond=None):
         return Node(package=package, executable=executable, name=name or executable, output='screen',
-                    condition=on, parameters=params + list(extra), remappings=list(remaps))
+                    condition=cond or on, parameters=params + list(extra), remappings=list(remaps))
     return [
         server('nav2_planner', 'planner_server'),
         server('nav2_controller', 'controller_server', remaps=[('cmd_vel', '/cmd_vel_nav')]),
@@ -249,9 +252,9 @@ def nav2_nodes():
         server('nav2_bt_navigator', 'bt_navigator',
                extra=[{'default_nav_to_pose_bt_xml': share('config', 'navigate_to_pose.xml')}]),
         server('nav2_velocity_smoother', 'velocity_smoother',
-               remaps=[('cmd_vel', '/cmd_vel_mux'), ('cmd_vel_smoothed', '/cmd_vel_smoothed')]),
-        server('nav2_collision_monitor', 'collision_monitor'),  # 입출력 토픽은 yaml (cmd_vel_in/out_topic)
-        server('nav2_lifecycle_manager', 'lifecycle_manager', name='lifecycle_manager_base'),
+               remaps=[('cmd_vel', '/cmd_vel_mux'), ('cmd_vel_smoothed', '/cmd_vel_smoothed')], cond=chain),
+        server('nav2_collision_monitor', 'collision_monitor', cond=chain),  # 입출력 토픽은 yaml (cmd_vel_in/out_topic)
+        server('nav2_lifecycle_manager', 'lifecycle_manager', name='lifecycle_manager_base', cond=chain),
         server('nav2_lifecycle_manager', 'lifecycle_manager', name='lifecycle_manager_navigation'),
     ]
 
