@@ -63,6 +63,25 @@ sudo apt install -y --no-install-recommends \
     libopenblas-dev
 ```
 
+cuDNN은 JetPack 기본 설치에 **들어 있지 않을 수 있다** (bee는 없었음). 위 `ls`에 아무것도 안 나오면 설치한다.
+
+```bash
+apt-cache policy cudnn9-cuda-13        # Candidate가 보여야 함 (NVIDIA Jetson r39.2 repo)
+sudo apt install -y cudnn9-cuda-13 libcudnn9-dev-cuda-13
+dpkg -L libcudnn9-dev-cuda-13 | grep -E 'cudnn\.h$|libcudnn\.so$'   # 헤더·라이브러리 위치 확인
+```
+
+CUDA 라이브러리 중 **cuFFT도 JetPack 기본에 빠져 있을 수 있다** (bee는 없었음). 없으면 3절 설정 단계에서
+`Target "onnxruntime_providers_cuda" links to: CUDA::cufft but the target was not found`로 실패한다.
+
+```bash
+ls /usr/local/cuda/targets/*/lib | grep cufft || sudo apt install -y libcufft-dev-13-2
+```
+
+- 3절 `--cudnn_home`은 **`include/cudnn.h`와 `lib/libcudnn.so`가 같이 있는 상위 폴더**여야 한다.
+  위 `dpkg -L` 결과에 따라 맞춘다 (헤더가 `/usr/include/aarch64-linux-gnu/`에 있으면 `--cudnn_home /usr`로 하되
+  안 되면 그 폴더에 심볼릭 링크를 만든다).
+
 > **TensorRT는 지금 필요 없다.** `onnx_policy.cpp`는 CUDA EP만 등록한다. TensorRT EP까지 쓰려면
 > `--use_tensorrt`로 ORT를 빌드하고 코드에 TensorRT EP 등록을 추가해야 한다. 이 MLP에는 이득이 거의 없다.
 
@@ -99,6 +118,8 @@ export CUDACXX=/usr/local/cuda/bin/nvcc
 - ORT 1.24.1부터 CUDA 13.0을 지원한다. CUDA 13.2는 그 상위 버전이라 호환된다.
 - Orin Nano 8GB에서는 `--parallel 4`가 빠듯할 수 있다. `killed`가 나오면 `--parallel 2`로 줄인다.
   빌드는 수 시간 걸리고 메모리를 많이 쓴다. swap 8GB로 부족하면 16GB로 늘린다 (SETTING.md의 swap 절 참고).
+- 설정 단계에서 실패해 의존성을 추가 설치한 뒤에는 `rm -f build/Linux/Release/CMakeCache.txt`만 지우고
+  같은 명령을 다시 실행한다 (받아 둔 `_deps`는 유지돼 설정이 빨리 끝난다).
 - 중간에 OOM이 나면 `rm -rf build/Linux/Release` 후 `--parallel 2`로 다시 실행한다.
 
 ### 3-1. `/opt/onnxruntime`에 설치
