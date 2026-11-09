@@ -44,6 +44,7 @@ void OnnxPolicy::load(const std::string & path) {
     std::string device = "CPU", note;
     if (cuda_available()) {
       try {
+        env();  // CUDA provider는 로드 시점에 DefaultLogger를 쓴다 — Env를 먼저 만들어 둬야 함
         Ort::SessionOptions opt;
         opt.SetIntraOpNumThreads(1);  // 20Hz 작은 MLP — 다른 노드와 CPU를 덜 다툰다
         OrtCUDAProviderOptions cuda{};
