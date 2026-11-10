@@ -15,12 +15,16 @@
 #include <opencv2/imgcodecs.hpp>
 #include <opencv2/imgproc.hpp>
 
-#include "plan/vlm_task_planner.hpp"  // detail()
-
 namespace plan {
 
 namespace {
-constexpr uint32_t PLAN_ID_BASE = 1000000;  // vlm_task_planner(1부터)와 plan_id가 겹치지 않게
+constexpr uint32_t PLAN_ID_BASE = 1000000;
+
+// 물체의 details 값 (없으면 "")
+std::string detail(const perception::msg::TrackedObject & o, const std::string & key) {
+  for (const auto & kv : o.details) if (kv.key == key) return kv.value;
+  return "";
+}
 
 std::vector<Box> boxes(const std::vector<double> & flat, double half) {  // [x, y, …] 또는 half < 0이면 [x, y, half, …]
   std::vector<Box> out;
