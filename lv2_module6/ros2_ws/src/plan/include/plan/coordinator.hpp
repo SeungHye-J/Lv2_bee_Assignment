@@ -2,8 +2,8 @@
 
 // coordinator (🛠 직접 작성, 담당: 권형중) — 설계: documents/project/ros/03-plan.md "coordinator가 지키는 실행 규칙"
 //   계획(/task/sub_goals)의 단계를 차례로 skill 노드(skills 패키지, 🎬 /skills/<skill> 액션)에 맡기는 순서 담당 (2026-11-04 skill 노드로 나눔)
-//   입력: /task/sub_goals (VLM · mission_manager 계획), /tracked_objects (대상 id 검증 · 물체 자세), /state/operation_mode · /state/emergency
-//   출력: 🎬 /skills/{navigate,approach,pose,inspect,pick,place,load,unload,stand,stand_pick}, ✉️ /task/status → VLM·UI, ✉️ /robot/say,
+//   입력: /task/sub_goals (mission_manager 계획), /tracked_objects (대상 id 검증 · 물체 자세), /state/operation_mode · /state/emergency
+//   출력: 🎬 /skills/{navigate,approach,pose,inspect,pick,place,load,unload,stand,stand_pick}, ✉️ /task/status → mission_manager, ✉️ /robot/say,
 //         📢 /coordinator/basket (적재함 장부, latched) · 📞 /coordinator/basket_clear
 //   이 노드에 남은 것: 계획 검증 · 단계 순서 · 물체 → 좌표 (다가갈 자리 · 놓을 면 · 볼 점) · 적재함 장부와 손에 든 퍽 · 모드·비상정지 취소 · 실패 횟수
 //   팔·주행 동작, 학습 정책, 시작·스캔 자세는 skill 노드 (skills/launch/skills.launch.py · documents/project/ros/05-arm.md)
@@ -11,8 +11,8 @@
 //   1. 계획 검증 — 허용 동작(navigate·approach·pick·place·inspect·say·pose·load·unload·stand·stand_pick), 숫자 대상 id가 /tracked_objects에 있는지
 //      (pose·load·unload·stand_pick의 target은 자세 이름·칸 번호라 물체 검증 안 함), pose 이름은 pose_names
 //   2. 팔이 닿게 다가가기: pick · place · inspect · stand <물체 id> 차례에 대상이 로봇(base_footprint, TF)에서 reach_m 넘게 떨어져 있으면
-//      먼저 그 물체를 바라보며 approach_m 떨어진 자리로 navigate한 뒤 그 단계를 실행 (단계마다 한 번 — VLM이 navigate를 빼먹어도)
-//   3. 같은 단계 max_step_failures회 연속 실패면 /robot/say로 알리고 정지. 그 전엔 FAILED만 보내고 VLM 재계획을 기다린다
+//      먼저 그 물체를 바라보며 approach_m 떨어진 자리로 navigate한 뒤 그 단계를 실행 (단계마다 한 번 — 계획에 navigate가 빠져 있어도)
+//   3. 같은 단계 max_step_failures회 연속 실패면 /robot/say로 알리고 정지. 그 전엔 FAILED만 보내고 다음 계획을 기다린다
 //   4. AUTO가 아닌 모드(MANUAL · TEACH) · 비상정지: 진행 중 skill goal을 취소하고 FAILED, 그동안 새 계획은 받지 않음
 //   적재함 장부는 이 노드 하나만 씀: 칸마다 {모양 · 색 · tag · 확인 필요} + 실은 순서 + 손에 든 퍽 → 파일(basket_file)에 저장해 다시 떠도 이어 감
 //     pick·stand_pick 성공이면 그 퍽을 손에 · load 성공이면 칸에 · unload 성공이면 손으로 · place 성공이면 손 비움.

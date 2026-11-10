@@ -179,7 +179,7 @@ bool same_goals(const SubGoalArray & a, const SubGoalArray & b) {
 }  // namespace
 
 void Coordinator::on_plan(const SubGoalArray & plan) {
-  // transient_local 재수신은 무시 — 단, 같은 id에 내용이 다르면 다른 계획 (VLM 카운터와 sim 직접 발행 충돌 대비)
+  // transient_local 재수신은 무시 — 단, 같은 id에 내용이 다르면 다른 계획 (mission_manager 카운터와 sim 직접 발행 충돌 대비)
   if (estop_) {
     RCLCPP_WARN(get_logger(), "계획 %u 거부: 비상정지 중", plan.plan_id);
     status(0, TaskStatus::FAILED, "estop_blocked");
@@ -264,7 +264,7 @@ void Coordinator::run_step() {
     running_ = false;
     status(plan_.goals.back().step, TaskStatus::SUCCEEDED, "");
     const bool carried = std::any_of(plan_.goals.begin(), plan_.goals.end(), [](const SubGoal & s) { return s.skill == "place"; });
-    if (carried) say("퍽을 옮겼어요");  // inspect만 한 계획(퍽 번호 보기)은 말 없이 — planner가 이어서 계획
+    if (carried) say("퍽을 옮겼어요");  // inspect만 한 계획(퍽 번호 보기)은 말 없이 — mission_manager가 이어서 계획
     return;
   }
   const auto & g = plan_.goals[idx_];
@@ -332,7 +332,7 @@ void Coordinator::next() {
   run_step();
 }
 
-// 규칙 3: 같은 단계 max_step_failures회 연속 실패면 알리고 정지. 그 전엔 FAILED만 보내고 VLM 재계획을 기다린다
+// 규칙 3: 같은 단계 max_step_failures회 연속 실패면 알리고 정지. 그 전엔 FAILED만 보내고 다음 계획을 기다린다
 void Coordinator::fail(const std::string & reason) {
   if (!running_) return;  // 이미 멈춤 (수동 전환으로 취소된 goal의 결과 등)
   const auto & g = plan_.goals[idx_];
@@ -421,7 +421,7 @@ void Coordinator::approach(const SubGoal & g) {
 
 void Coordinator::pick(const SubGoal & g) {
   if (!is_id(g.target) || !find(std::stoul(g.target))) { fail("pick_no_target"); return; }
-  if (approach_if_far(g)) return;  // 집을 퍽이 팔 밖이면 먼저 다가감 (VLM이 navigate를 빼먹어도)
+  if (approach_if_far(g)) return;  // 집을 퍽이 팔 밖이면 먼저 다가감 (계획에 navigate가 빠져 있어도)
   const auto o = *find(std::stoul(g.target));
   Skill::Goal sg;
   sg.target = g.target;
