@@ -54,6 +54,20 @@ cd tools
 ./run-cli beep                # OpenCR 부저 기본음 · ./run-cli beep 4000 300 = 높이·길이 (메뉴 0)
 ```
 
+### bag 녹화 + 시스템 부하 (CPU · 메모리 · GPU)
+
+과부하·끊김을 분석하려면 토픽만으로는 모자란다 — **bag 과 같은 폴더에 부하 기록(`sys.csv`)을 같이** 남긴다. 메뉴 `9) 토픽 · bag`(`s` 선택 녹화 · `d` 진단 녹화 · `u` 부하 기록 켬/끔)과 아래 명령이 같은 모듈(`op/bagrec.py`)이다 — 다른 터미널·ssh에서 멈출 수도 있다.
+
+```bash
+./run-cli bag start --label asis_manual    # 진단 프리셋 토픽(명령 체인·odom·TF·지도·코스트맵·상태) + 부하 기록
+./run-cli bag start --topics /map /tf      # 이 토픽만
+./run-cli bag start --no-sys               # 부하 기록 끔
+./run-cli bag status                       # 녹화 중인 폴더 · 경과 · 크기
+./run-cli bag stop                         # SIGINT 로 정상 종료 (metadata 기록)
+```
+
+저장: `~/.cache/beebot/bags/<날짜시각>_<라벨>/` — `*.mcap` + `metadata.yaml` + **`sys.csv`**(1초마다: load1 · cpu_pct · mem_avail_mb · swap_used_mb · gpu_pct · 메모리 큰 프로세스 6개) + `tegrastats.log`(Jetson). 부하 기록기는 `tools/bag/sysmon.py`(표준 라이브러리만, 단독 실행 가능). 시험: `python3 tools/cli/tests/test_bagrec.py`.
+
 `start`는 기본값으로 **`ROS_DOMAIN_ID=88` + `ros2_ws/fastdds_local_only.xml`(SHM 전용)** 을 쓴다 — DDS가 기기 밖으로 나가지도 들어오지도 않는다. 셸의 `FASTDDS_DEFAULT_PROFILES_FILE` · `ROS_DOMAIN_ID`를 지정하면 그 값이 우선한다 (PC에서 볼 때는 `fastdds.xml`).
 
 ```bash

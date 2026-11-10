@@ -19,6 +19,7 @@ from geometry_msgs.msg import TwistStamped
 from sensor_msgs.msg import JointState
 from std_msgs.msg import Bool, Empty, Int32MultiArray, String
 
+from . import bagrec
 from .dialog import TeleopDialog
 from .pages.ab.core import AbTest
 from .consts import (ARM_JOINTS, DIAG_LEVELS, GRIPPER_CLOSE, GRIPPER_JOINT,
@@ -353,6 +354,32 @@ class Bus:
             print(f'거절: {res.message}', file=sys.stderr)
             return 1
         print(f'collision_monitor → {"켬" if args.state == "on" else "끔 (근접 정지 없이 통과 — 주의)"}')
+        return 0
+
+    # --------------------------------------------------------------------- bag
+
+    def cmd_bag(self, args) -> int:
+        """bag 녹화 + 시스템 부하(CPU·메모리·스왑·GPU) — start · stop · status (메뉴 9 토픽 · bag 과 같은 모듈)."""
+        if args.action == 'status':
+            cur = bagrec.current()
+            print(f'녹화 중: {bagrec.describe(cur)}' if cur else '녹화 중 아님')
+            return 0
+        if args.action == 'stop':
+            rec = bagrec.stop()
+            if rec is None:
+                print('녹화 중 아님')
+                return 0
+            print(f'녹화 중지: {bagrec.describe(rec)}')
+            return 0
+        try:
+            rec = bagrec.start(label=args.label, topics=args.topics or None, regex=args.regex,
+                               sys_on=not args.no_sys)
+        except RuntimeError as exc:
+            print(f'거부: {exc}', file=sys.stderr)
+            return 1
+        print(f'녹화 시작: {rec["bag"]}')
+        print(f'  토픽: {"선택 " + str(len(args.topics)) + "개" if args.topics else "진단 프리셋" if not args.regex else args.regex}'
+              f' · 부하 기록 {"켬 (sys.csv)" if rec["sys"] else "끔"} · 멈추려면 run-cli bag stop')
         return 0
 
     # ------------------------------------------------------------------- drive

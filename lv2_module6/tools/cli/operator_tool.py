@@ -335,6 +335,13 @@ def build_parser() -> argparse.ArgumentParser:
     collision = sub.add_parser('collision', help='collision_monitor 켜기/끄기/상태 (MANUAL·MAPPING이면 자동으로 꺼짐 — 직접 바꿀 때)')
     collision.add_argument('state', type=str.lower, choices=('on', 'off', 'status'))
 
+    bag = sub.add_parser('bag', help='bag 녹화 + CPU·메모리·GPU 부하 기록 — start | stop | status (메뉴 9)')
+    bag.add_argument('action', type=str.lower, choices=('start', 'stop', 'status'))
+    bag.add_argument('--label', '-l', default=None, help='start: 폴더 이름에 붙일 라벨 (예: asis_manual)')
+    bag.add_argument('--topics', nargs='*', default=None, help='start: 이 토픽만 (생략하면 진단 프리셋)')
+    bag.add_argument('--regex', default=None, help='start: 토픽 정규식 (프리셋 대신)')
+    bag.add_argument('--no-sys', action='store_true', help='start: 부하(sys.csv) 기록 끔')
+
     drive = sub.add_parser('drive', help='바퀴 수동 주행 (MANUAL 모드)')
     drive.add_argument('direction', type=str.lower, choices=('forward', 'back', 'left', 'right', 'stop'))
     drive.add_argument('--speed', type=_nonnegative_float, default=0.15, help='선속도 [m/s] (기본 0.15)')
