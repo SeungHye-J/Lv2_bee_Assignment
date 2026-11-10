@@ -67,6 +67,7 @@ Coordinator::Coordinator(const rclcpp::NodeOptions & options)
   max_step_failures_ = declare_parameter<int>("max_step_failures", 2);
   server_wait_s_ = declare_parameter<double>("server_wait_s", 30.0);
   reach_m_ = declare_parameter<double>("reach_m", 0.30);
+  remember_s_ = declare_parameter<double>("remember_s", 120.0);  // [s] 안 보이게 된 퍽을 이만큼 기억 (0 = 안 함) — remembered_
   approach_m_ = declare_parameter<double>("approach_m", 0.24);
   place_spacing_ = declare_parameter<double>("place_spacing", 0.08);
   box_margin_m_ = declare_parameter<double>("box_margin_m", 0.03);
@@ -99,13 +100,13 @@ Coordinator::Coordinator(const rclcpp::NodeOptions & options)
   tf_listener_ = std::make_shared<tf2_ros::TransformListener>(*tf_buffer_);
   const auto latched = rclcpp::QoS(10).reliable().transient_local();
   status_pub_ = create_publisher<TaskStatus>("/task/status", latched);
-  say_pub_ = create_publisher<std_msgs::msg::String>("/robot/say", rclcpp::QoS(10).reliable());
   goals_sub_ = create_subscription<SubGoalArray>("/task/sub_goals", latched,
     [this](SubGoalArray::ConstSharedPtr m) { on_plan(*m); });
   objects_sub_ = create_subscription<TrackedObjectArray>("/tracked_objects", rclcpp::QoS(5).reliable(),
     [this](TrackedObjectArray::ConstSharedPtr m) {
       const bool first = !objects_;
       objects_ = m;
+      remember(*m);
       if (first && waiting_plan_) {  // 물체 목록보다 계획이 먼저 왔으면 지금 검증
         auto plan = *waiting_plan_;
         waiting_plan_.reset();
@@ -152,7 +153,7 @@ void Coordinator::on_mode(const std::string & mode) {
   if (mode == mode_) return;
   mode_ = mode;
   RCLCPP_WARN(get_logger(), "운영 모드: %s", mode.c_str());
-  if (mode != "AUTO" && running_) {  // 수동 · 자동 탐사(EXPLORE) · TEACH — 작업 실행과 동시에 하면 안 됨
+  if (mode != "AUTO" && running_) {  // 수동 · TEACH — 작업 실행과 동시에 하면 안 됨
     cancel_all();
     running_ = false;
     status(idx_ < plan_.goals.size() ? plan_.goals[idx_].step : 0, TaskStatus::FAILED,
@@ -179,7 +180,7 @@ bool same_goals(const SubGoalArray & a, const SubGoalArray & b) {
 }  // namespace
 
 void Coordinator::on_plan(const SubGoalArray & plan) {
-  // transient_local 재수신은 무시 — 단, 같은 id에 내용이 다르면 다른 계획 (VLM 카운터와 sim 직접 발행 충돌 대비)
+  // transient_local 재수신은 무시 — 단, 같은 id에 내용이 다르면 다른 계획 (mission_manager 카운터와 sim 직접 발행 충돌 대비)
   if (estop_) {
     RCLCPP_WARN(get_logger(), "계획 %u 거부: 비상정지 중", plan.plan_id);
     status(0, TaskStatus::FAILED, "estop_blocked");
@@ -223,10 +224,10 @@ void Coordinator::on_plan(const SubGoalArray & plan) {
 }
 
 bool Coordinator::validate(const SubGoalArray & plan, std::string & why) const {
-  static const std::set<std::string> allowed = {"navigate", "approach", "pick", "place", "inspect", "say", "pose", "load", "unload",
+  static const std::set<std::string> allowed = {"navigate", "approach", "pick", "place", "inspect", "pose", "load", "unload",
                                                 "stand", "stand_pick"};
   // target이 물체 id가 아님 (stand_pick은 직전 stand의 퍽 — 세운 사이 인지 id가 바뀌어도 됨)
-  static const std::set<std::string> not_object = {"say", "pose", "load", "unload", "stand_pick"};
+  static const std::set<std::string> not_object = {"pose", "load", "unload", "stand_pick"};
   if (plan.goals.empty()) { why = "empty"; return false; }
   for (const auto & g : plan.goals) {
     if (!allowed.count(g.skill)) { why = "skill " + g.skill; return false; }
@@ -245,7 +246,27 @@ bool Coordinator::is_id(const std::string & s) {
 
 const perception::msg::TrackedObject * Coordinator::find(uint32_t id) const {
   if (objects_) for (const auto & o : objects_->objects) if (o.id == id) return &o;
+  if (const auto it = remembered_.find(id); it != remembered_.end()) return &it->second.o;  // 지금은 안 보이는 퍽
   return nullptr;
+}
+
+void Coordinator::remember(const TrackedObjectArray & m) {
+  const rclcpp::Time t = now();
+  // 믿을 만한 관측만 기억에 씀: 계획이 없을 때(팔 멈춤) · inspect 단계. pick·load 중에는 팔이 빨리 움직여(TF 시각 어긋남)
+  //   트랙이 엉뚱한 자리로 끌려갔음 (11/07 Isaac: 적재 중 옆 퍽 트랙이 14 cm 밀려 그 자리로 pick → IK 실패)
+  const bool trust = !running_ || (idx_ < plan_.goals.size() && plan_.goals[idx_].skill == "inspect");
+  for (auto it = remembered_.begin(); it != remembered_.end();) {  // 오래됨 · 같은 자리(3 cm)에 다른 id 트랙이 다시 생김 → 잊음
+    bool replaced = (t - it->second.t).seconds() > remember_s_;
+    for (const auto & o : m.objects)
+      if (trust && !replaced && o.id != it->first && o.class_name.rfind("puck", 0) == 0 &&
+          std::hypot(o.pose.pose.position.x - it->second.o.pose.pose.position.x,
+                     o.pose.pose.position.y - it->second.o.pose.pose.position.y) < 0.03)
+        replaced = true;
+    it = replaced ? remembered_.erase(it) : std::next(it);
+  }
+  if (remember_s_ <= 0 || !trust) return;
+  for (const auto & o : m.objects)
+    if (o.class_name.rfind("puck", 0) == 0) remembered_[o.id] = {o, t};
 }
 
 std::string Coordinator::shape_of(const perception::msg::TrackedObject & o) const {
@@ -263,15 +284,12 @@ void Coordinator::run_step() {
   if (idx_ >= plan_.goals.size()) {
     running_ = false;
     status(plan_.goals.back().step, TaskStatus::SUCCEEDED, "");
-    const bool carried = std::any_of(plan_.goals.begin(), plan_.goals.end(), [](const SubGoal & s) { return s.skill == "place"; });
-    if (carried) say("퍽을 옮겼어요");  // inspect만 한 계획(퍽 번호 보기)은 말 없이 — planner가 이어서 계획
     return;
   }
   const auto & g = plan_.goals[idx_];
   status(g.step, TaskStatus::RUNNING, "");
   RCLCPP_INFO(get_logger(), "step %u: %s %s", g.step, g.skill.c_str(), g.target.c_str());
-  if (g.skill == "say") { say(g.target); next(); }
-  else if (g.skill == "navigate") navigate(g);
+  if (g.skill == "navigate") navigate(g);
   else if (g.skill == "approach") approach(g);
   else if (g.skill == "pick") g.target == "tray" ? unload(g) : pick(g);   // pick tray = unload last (호환)
   else if (g.skill == "place") g.target == "tray" ? load(g) : place(g);   // place tray = load next (호환)
@@ -332,7 +350,7 @@ void Coordinator::next() {
   run_step();
 }
 
-// 규칙 3: 같은 단계 max_step_failures회 연속 실패면 알리고 정지. 그 전엔 FAILED만 보내고 VLM 재계획을 기다린다
+// 규칙 3: 같은 단계 max_step_failures회 연속 실패면 알리고 정지. 그 전엔 FAILED만 보내고 다음 계획을 기다린다
 void Coordinator::fail(const std::string & reason) {
   if (!running_) return;  // 이미 멈춤 (수동 전환으로 취소된 goal의 결과 등)
   const auto & g = plan_.goals[idx_];
@@ -340,10 +358,7 @@ void Coordinator::fail(const std::string & reason) {
   running_ = false;
   RCLCPP_WARN(get_logger(), "step %u 실패 (%s) %d/%d", g.step, reason.c_str(), n, max_step_failures_);
   status(g.step, TaskStatus::FAILED, reason);
-  if (n >= max_step_failures_) {
-    failures_.clear();
-    say(g.skill == "navigate" ? "목표까지 갈 수 없어요" : "퍽을 잡을 수 없어요");
-  }
+  if (n >= max_step_failures_) failures_.clear();
 }
 
 std::string Coordinator::key(const SubGoal & g) { return g.skill + ":" + g.target; }
@@ -421,13 +436,23 @@ void Coordinator::approach(const SubGoal & g) {
 
 void Coordinator::pick(const SubGoal & g) {
   if (!is_id(g.target) || !find(std::stoul(g.target))) { fail("pick_no_target"); return; }
-  if (approach_if_far(g)) return;  // 집을 퍽이 팔 밖이면 먼저 다가감 (VLM이 navigate를 빼먹어도)
+  if (approach_if_far(g)) return;  // 집을 퍽이 팔 밖이면 먼저 다가감 (계획에 navigate가 빠져 있어도)
   const auto o = *find(std::stoul(g.target));
   Skill::Goal sg;
   sg.target = g.target;
   sg.shape = shape_of(o);
   sg.tag = tag_of(o);
+  const bool visible = objects_ && std::any_of(objects_->objects.begin(), objects_->objects.end(),
+                                               [&o](const auto & x) { return x.id == o.id; });
+  if (!visible) {  // 기억한 퍽 — 대상과 그 옆 퍽(기억한 것)을 실어 보냄: grasp_scorer가 지금 인지 대신 씀
+    sg.objects.push_back(o);
+    for (const auto & [id, s] : remembered_)
+      if (id != o.id) sg.objects.push_back(s.o);
+    RCLCPP_INFO(get_logger(), "pick %s: 지금 안 보임 — 기억한 자리 (%.3f, %.3f)로", g.target.c_str(),
+                o.pose.pose.position.x, o.pose.pose.position.y);
+  }
   send("pick", sg, [this, o](const Skill::Result &) {
+    remembered_.erase(o.id);  // 손에 있음
     held_ = PuckInfo{shape_of(o), o.color, tag_of(o), false};  // 집은 퍽 — 칸에 실을 때 장부에 그대로 적음
     basket_changed();
     next();
@@ -679,12 +704,6 @@ void Coordinator::status(uint32_t step, uint8_t state, const std::string & reaso
   s.state = state;
   s.reason = reason;
   status_pub_->publish(s);
-}
-
-void Coordinator::say(const std::string & text) {
-  std_msgs::msg::String m;
-  m.data = text;
-  say_pub_->publish(m);
 }
 
 }  // namespace plan

@@ -3,8 +3,9 @@
 
 [입력 / 출력]
   입력: pole_front_cam · gripper_cam 컬러 · 정렬 depth · camera_info (best_effort)
-  출력: /tracked_objects (perception/TrackedObjectArray, map, reliable) — 두 카메라 융합 결과 (vlm_task_planner · coordinator · grasp_scorer)
-        /perception/<cam>/detections — 융합 전 카메라별 한 프레임 검출 (id = 붙은 트랙 id) · 디버그용
+  출력: /tracked_objects (perception/TrackedObjectArray, map, reliable) — 두 카메라 융합 결과 (coordinator · grasp_scorer)
+        /perception/<cam>/detections (같은 타입) — 융합 전 카메라별 한 프레임 검출 (id = 붙은 트랙 id, covariance = 관측 공분산)
+          → 시뮬레이터가 카메라별 검출과 융합 결과를 나란히 그림 (디버그용 — 소비 노드 없음)
         /perception/<cam>/debug_image — 박스를 그린 영상 (보는 쪽이 있을 때만) · /mission/qr · /mission/dice_image(_raw) · /diagnostics
 
 [좌표 · 추적]
