@@ -54,6 +54,18 @@ cd tools
 ./run-cli beep                # OpenCR 부저 기본음 · ./run-cli beep 4000 300 = 높이·길이 (메뉴 0)
 ```
 
+### Nav2 컨트롤러 바꾸기 (정책 · DWB · MPPI · RPP · RotationShim)
+
+`rl_nav_controller`(Nav2 `FollowPath` 플러그인)는 **정책 ON/OFF** 와 별개로, 정책이 꺼졌을 때 쓰는 **안쪽(바이패스) controller** 를 실행 중에 바꿀 수 있다 (서비스 `/controller_server/FollowPath/set_fallback`, `ml/srv/SetFallback`). 기본은 DWB. 각 controller 의 파라미터는 `nav2_params.yaml` 의 `FollowPath.inner_dwb | inner_mppi | inner_rpp | inner_rotation_shim`.
+
+```bash
+./run-cli controller status                 # 정책 ON/OFF · 안쪽 controller · 진단
+./run-cli controller policy off             # 정책 끔 → 안쪽 controller 가 주행
+./run-cli controller fallback mppi          # dwb | mppi | rpp | rotation_shim (실패하면 이전 것 유지)
+./run-cli ab rl_nav_controller guide --b-fallback mppi    # 자동 A/B: A=정책, B=mppi (위치 맞추기 주행은 늘 DWB)
+```
+메뉴: `8) A/B 테스트 → rl_nav_controller → 5) 안쪽 컨트롤러 바꾸기`. ⚠ MPPI 는 CPU 연산이 무겁다 (`inner_mppi` 는 batch 800 · 40 스텝으로 가볍게 시작, 실기 튜닝 전). 바꾸려면 `ml` 을 빌드해 `controller_server` 를 다시 띄워야 서비스가 생긴다.
+
 ### bag 녹화 + 시스템 부하 (CPU · 메모리 · GPU)
 
 과부하·끊김을 분석하려면 토픽만으로는 모자란다 — **bag 과 같은 폴더에 부하 기록(`sys.csv`)을 같이** 남긴다. 메뉴 `9) 토픽 · bag`(`s` 선택 녹화 · `d` 진단 녹화 · `u` 부하 기록 켬/끔)과 아래 명령이 같은 모듈(`op/bagrec.py`)이다 — 다른 터미널·ssh에서 멈출 수도 있다.

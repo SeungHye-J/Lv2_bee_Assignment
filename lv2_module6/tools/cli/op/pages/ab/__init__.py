@@ -11,11 +11,11 @@ import sys
 import time
 from pathlib import Path
 
-from ...defs import STAY
+from ...defs import BACK, MAIN, QUIT, STAY
 from ...dialog import RVIZ_GOAL_TOPIC, RouteRvizDialog, fmt_pose
 from ...terminal import GREEN, RED
-from ...menus import GoMenu, Menu, MenuItem
-from .core import AB_NODES
+from ...menus import ActionItem, GoMenu, Menu, MenuItem
+from .core import AB_NODES, FALLBACKS
 
 
 class AbStatusItem(MenuItem):
@@ -411,7 +411,20 @@ class RlNavControllerAbMenu(Menu):
     def items(self):
         return [GoMenu(self.app, '1', '① 경로 정하기 (지도 · RViz · 텔레오퍼 · 좌표)', AbRouteMenu(self.app)),
                 AbGuideItem(self.app), AbResultItem(self.app),
-                GoMenu(self.app, '4', '수동 (고급) — 상태 · 정책 ON/OFF · 녹화 · 리포트', AbManualMenu(self.app))]
+                GoMenu(self.app, '4', '수동 (고급) — 상태 · 정책 ON/OFF · 녹화 · 리포트', AbManualMenu(self.app)),
+                ActionItem(self.app, '5', '안쪽 컨트롤러 바꾸기 (DWB · MPPI · RPP · RotationShim)', self._pick_fallback)]
+
+    def _pick_fallback(self):
+        """정책을 끌 때 쓰는 안쪽(바이패스) controller 를 실행 중에 바꾼다 — 서비스 FollowPath/set_fallback."""
+        names = {'1': 'dwb', '2': 'mppi', '3': 'rpp', '4': 'rotation_shim'}
+        ok, _msg, now = self.bus.ab.fallback('')
+        lines = [f' 지금 안쪽 controller: {now or "?"}', ' 정책 ON 이면 정책이 돌고, OFF 일 때 이 controller 가 돈다.',
+                 ' MPPI 는 CPU 를 많이 쓴다 — 부하 확인하며. 바꾸는 데 몇 초 걸린다.']
+        choice = self.ui.select('안쪽 controller 고르기', [(k, v) for k, v in names.items()], lines)
+        if choice in (BACK, MAIN, QUIT) or choice not in names:
+            return
+        ok, msg, active = self.bus.ab.fallback(names[choice])
+        print(('ok: ' if ok else 'FAIL: ') + msg + (f' (지금 {active})' if active else ''))
 
     def center(self):
         now = time.monotonic()

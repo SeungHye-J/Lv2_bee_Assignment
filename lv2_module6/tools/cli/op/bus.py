@@ -1247,6 +1247,30 @@ class Bus:
         from .pages.ab.core import AbTest
         return AbTest(self).cmd(args)
 
+    def cmd_controller(self, args) -> int:
+        """Nav2 컨트롤러 — 정책 ON/OFF(바이패스) · 안쪽(바이패스) controller 고르기(DWB·MPPI·RPP·RotationShim). ab 와 같은 구현."""
+        from .pages.ab.core import FALLBACKS, AbTest
+        ab = AbTest(self)
+        self._poll(0.8)
+        if args.what == 'status':
+            print('\n'.join(ab.status_lines()))
+            ok, msg, active = ab.fallback('')
+            print(f' 안쪽 controller(서비스): {active or "?"}' + ('' if ok else f' — {msg}'))
+            return 0
+        if args.what == 'policy':
+            if args.value not in ('on', 'off'):
+                print('거부: controller policy on|off', file=sys.stderr)
+                return 2
+            ok, msg = ab.toggle(args.value == 'on')
+            print(('ok: ' if ok else 'FAIL: ') + msg)
+            return 0 if ok else 1
+        if args.value not in FALLBACKS:
+            print(f'거부: controller fallback {"|".join(FALLBACKS)}', file=sys.stderr)
+            return 2
+        ok, msg, active = ab.fallback(args.value)
+        print(('ok: ' if ok else 'FAIL: ') + msg + (f' (지금 {active})' if active else ''))
+        return 0 if ok else 1
+
     def cmd_node(self, args) -> int:
         if args.action in ('list', 'status'):
             self._poll(0.5)   # 한 번 실행 명령 — 디스커버리 시간을 준다

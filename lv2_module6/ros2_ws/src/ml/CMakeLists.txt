@@ -62,6 +62,7 @@ find_package(realtime_tools REQUIRED)
 
 rosidl_generate_interfaces(${PROJECT_NAME}
   srv/ScoreGrasps.srv
+  srv/SetFallback.srv
   msg/SkillContext.msg
   msg/ArmCorrectionDebug.msg
   DEPENDENCIES geometry_msgs std_msgs)
@@ -114,7 +115,7 @@ target_link_libraries(rl_nav_controller PUBLIC rclcpp::rclcpp rclcpp_lifecycle::
   tf2_geometry_msgs::tf2_geometry_msgs ament_index_cpp::ament_index_cpp
   ${geometry_msgs_TARGETS} ${nav_msgs_TARGETS} ${sensor_msgs_TARGETS} ${std_srvs_TARGETS}
   ${diagnostic_msgs_TARGETS})
-target_link_libraries(rl_nav_controller PUBLIC ml_onnx)
+target_link_libraries(rl_nav_controller PUBLIC ml_onnx ${msgs_cpp})   # ml/srv/SetFallback (런타임 inner 교체)
 ml_onnx_rpath(rl_nav_controller)
 pluginlib_export_plugin_description_file(nav2_core rl_nav_controller.xml)
 install(TARGETS rl_nav_controller LIBRARY DESTINATION lib)
@@ -159,6 +160,8 @@ if(BUILD_TESTING)
   ament_add_gtest(test_rl_arm_correction test/test_rl_arm_correction.cpp)
   target_link_libraries(test_rl_arm_correction rl_arm_correction)
   ament_add_gtest(test_nav_obs test/test_nav_obs.cpp TIMEOUT 60)
+  ament_add_gtest(test_fallback_controller test/test_fallback_controller.cpp TIMEOUT 60)
+  target_include_directories(test_fallback_controller PRIVATE include)
   target_include_directories(test_nav_obs PRIVATE include)
   ament_add_test(test_launch GENERATE_RESULT_FOR_RETURN_CODE_ZERO
     COMMAND ros2 launch "${CMAKE_CURRENT_SOURCE_DIR}/launch/ml.launch.py" --show-args

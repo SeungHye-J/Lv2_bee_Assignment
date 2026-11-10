@@ -418,7 +418,13 @@ def build_parser() -> argparse.ArgumentParser:
     ab.add_argument('--out', default=None, help='record: 저장 폴더 · report: 출력 PNG')
     ab.add_argument('--last', action='store_true', help='report: 최근 녹화 2개 사용')
     ab.add_argument('--labels', nargs='*', default=None, help='report: 범례 이름 (예: 정책 DWB)')
+    ab.add_argument('--b-fallback', default='dwb', choices=('dwb', 'mppi', 'rpp', 'rotation_shim'),
+                    help='guide: B leg 의 안쪽 controller (정책 OFF 일 때 쓰는 것, 기본 dwb) — A 는 늘 정책')
     ab.add_argument('--config', default=None, help='guide: command.json 경로 (기본 tools/cli/op/pages/ab/<노드>/command.json)')
+
+    ctl = sub.add_parser('controller', help='Nav2 컨트롤러 — status | policy on|off | fallback dwb|mppi|rpp|rotation_shim (메뉴 8 A/B)')
+    ctl.add_argument('what', type=str.lower, choices=('status', 'policy', 'fallback'))
+    ctl.add_argument('value', nargs='?', type=str.lower, help='policy: on|off · fallback: dwb|mppi|rpp|rotation_shim')
 
     restart = sub.add_parser('restart', help='state_manager에 재시작 요청 (위험) — all = bringup 전체')
     restart.add_argument('target', help='all 또는 노드 이름')
