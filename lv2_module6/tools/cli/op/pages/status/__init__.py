@@ -175,6 +175,16 @@ class NavRvizPage(RvizPage):
     config = 'nav'
 
 
+class NvbloxRvizPage(RvizPage):
+    title = 'nvblox 전용 RViz'
+    config = 'nvblox'
+
+
+class CuvslamRvizPage(RvizPage):
+    title = 'cuVSLAM 전용 RViz'
+    config = 'cuvslam'
+
+
 class BeepNowItem(MenuItem):
     key = '1'
 

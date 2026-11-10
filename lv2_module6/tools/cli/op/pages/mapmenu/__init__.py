@@ -172,6 +172,22 @@ class NavRvizItem(MenuItem):
         return NavRvizPage(self.app).show()
 
 
+class SlamRvizItem(MenuItem):
+    """SLAM 전용 RViz 열기 — nvblox(3D 메시·ESDF·코스트맵) / cuVSLAM(경로·odom) 항목만 다르고 같다."""
+    shows_busy = False
+
+    def __init__(self, app, key: str, label: str, page: str):
+        super().__init__(app)
+        self.key, self._label, self._page = key, label, page
+
+    def label(self):
+        return self._label
+
+    def run(self):
+        from .. import status
+        return getattr(status, self._page)(self.app).show()
+
+
 class MapMenu(Menu):
     title = '지도/위치'
 
@@ -184,6 +200,8 @@ class MapMenu(Menu):
                 MapViewItem(self.app, '7'), MapPoseMenuItem(self.app),
                 MapRvizItem(self.app),
                 NavRvizItem(self.app),
+                SlamRvizItem(self.app, 'd', 'nvblox 전용 RViz 열기 (nvblox.rviz — 3D 메시 · ESDF · 코스트맵)', 'NvbloxRvizPage'),
+                SlamRvizItem(self.app, 'e', 'cuVSLAM 전용 RViz 열기 (cuvslam.rviz — 경로 · odom 비교)', 'CuvslamRvizPage'),
                 _teleop_item(self.app, 'a'),
                 GoMenu(self.app, 'b', '수동 주행 메뉴 (전진·후진·회전·속도 설정)', ManualMenu(self.app))]
 
