@@ -2,12 +2,12 @@
 perception:
   ros__parameters:
     rate_hz: 10.0            # /tracked_objects 발행 주기 (설계: 10Hz · reliable)
-    model_path: "bee_yolo11n_v4.pt"  # 비면 share/perception/model/model.pt(팀 모델) 자동 탐색, 없으면 빈 목록 · 파일 이름만 쓰면 그 폴더에서 찾음
-                            #   bee_yolo11n_v4.pt (11/02): 10클래스(빨강·초록 퍽 × 사각·원기둥 · 신호등 상태 4 · person · obstacle) — v3 + 로봇 카메라 실물 531장
-                            #     (어둡게 + 노이즈 사본 · 작은 퍽 증강). 로봇 카메라 시험(학습에 안 쓴 녹화, 퍽 366, imgsz 416 · conf 0.4):
-                            #     퍽 335 찾음(91.5%) · 헛검출 12 (v3: 212 · 14) · 옛 실물 시험 퍽 180/184 · 신호등 상태 572/588
+    model_path: "bee_yolo11n_v5.pt"  # 비면 share/perception/model/model.pt(팀 모델) 자동 탐색, 없으면 빈 목록 · 파일 이름만 쓰면 그 폴더에서 찾음
+                            #   bee_yolo11n_v5.pt: v4와 같은 10클래스(빨강·초록 퍽 × 사각·원기둥 · 신호등 상태 4 · person · obstacle) — v4 + 노트북 카메라 실물 234장 + 잘못된 학습 라벨 고침
+                            #     시험 (imgsz 640 · conf 0.4, 학습에 안 쓴 사진 · 시험 라벨 확인 후): 로봇 카메라 퍽 767개 중 727 찾음(94.8%) · 헛검출 23
+                            #     옛 실물 시험 퍽 187/193 · 헛검출 8 · 신호등 상태 579/582
                             #     imgsz 640(젯슨 엔진 384×640)이면 작은 퍽을 더 찾음 — 젯슨 속도 확인 후 바꿀 것
-                            #   되돌리기: "bee_yolo11n_v3.pt" (11/02 오전) · "bee_yolo11n_v2.pt" (10/27, 14클래스) · "" (팀 기본 model.pt)
+                            #   되돌리기: "bee_yolo11n_v4.pt" · "" (팀 기본 model.pt)
     confidence: 0.4         # 검출 신뢰도 하한
     imgsz: 416              # YOLO 입력 한 변 (도커 CPU용)
     # device: 코드 기본 "cpu" — 여기 두지 않음: 노드 이름 아래 값이 launch 덮어쓰기(/**)를 이겨 stand_test perception_device가 안 먹었다 (2026-11-06)
