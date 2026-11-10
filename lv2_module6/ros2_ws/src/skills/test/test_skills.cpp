@@ -4,6 +4,7 @@
 #include <filesystem>
 #include <sstream>
 
+#include "ml/arm_obs.hpp"
 #include "ml/policy.hpp"
 #include "skills/arm_io.hpp"
 #include "skills/model.hpp"
@@ -43,8 +44,13 @@ TEST(SkillModel, RepoFoldersAreConsistent) {
     if (m.kind == "base") {
       EXPECT_EQ(p.inputs(), 13u) << name;
       EXPECT_EQ(p.outputs(), 2u) << name;
+    } else if (m.kind == "hand") {  // 세우기 방식 C: ml/stand_c_obs.hpp 28 → 손 속도 3
+      EXPECT_EQ(p.inputs(), 28u) << name;
+      EXPECT_EQ(p.outputs(), 3u) << name;
     } else {
-      EXPECT_EQ(p.inputs(), m.layout == "place" ? 39u : 41u) << name << " " << m.layout;
+      ml::ArmLayout l;
+      ASSERT_TRUE(ml::arm_layout_from(m.layout, l)) << name << " " << m.layout;
+      EXPECT_EQ(p.inputs(), ml::arm_obs_size(l)) << name << " " << m.layout;
       EXPECT_EQ(p.outputs(), 5u) << name;
     }
     ++n;
