@@ -53,7 +53,6 @@ class StateStore:
         # 상시 상태바용 (없으면 0/빈 값으로 표시, 보드 미동작 아님)
         self.tracked_count = 0
         self.task_status = ''
-        self.say_last = ''
         self.rates: dict[str, Rate] = {}  # 상단 생존 표시 — 키는 bars/state/top_state_bar.py TOPIC_RATES
         self.rl_status: list[float] = []  # controller_server FollowPath RL/DWB 상태
         self.rl_status_time = 0.0
@@ -165,10 +164,6 @@ class StateStore:
                 level = int(level)
             self.diagnostics[status.name] = (level, status.message)
             self.diag_values[status.name] = [(kv.key, kv.value) for kv in status.values]
-
-    def on_say(self, text: str):
-        self._touch()
-        self.say_last = text
 
     def on_objects(self, objects):
         self._touch()

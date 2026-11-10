@@ -174,8 +174,6 @@ class OperatorTool(Node):
             self.create_subscription(typ, topic, lambda _m, key=key: self.state.tick(key), qos_profile_sensor_data)
         self.create_subscription(DiagnosticArray, '/diagnostics_agg',
                                  lambda m: self.state.on_diagnostics(m.status), LIVE)
-        self.create_subscription(String, '/robot/say',
-                                 lambda m: self.state.on_say(m.data), 10)
         # 커스텀 msg가 빌드 전이면 해당 줄만 비활성 (cli 동작에는 지장 없음)
         try:
             from perception.msg import TrackedObjectArray  # type: ignore
