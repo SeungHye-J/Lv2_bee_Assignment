@@ -335,6 +335,13 @@ def build_parser() -> argparse.ArgumentParser:
     collision = sub.add_parser('collision', help='collision_monitor 켜기/끄기/상태 (MANUAL·MAPPING이면 자동으로 꺼짐 — 직접 바꿀 때)')
     collision.add_argument('state', type=str.lower, choices=('on', 'off', 'status'))
 
+    bag = sub.add_parser('bag', help='bag 녹화 + CPU·메모리·GPU 부하 기록 — start | stop | status (메뉴 9)')
+    bag.add_argument('action', type=str.lower, choices=('start', 'stop', 'status'))
+    bag.add_argument('--label', '-l', default=None, help='start: 폴더 이름에 붙일 라벨 (예: asis_manual)')
+    bag.add_argument('--topics', nargs='*', default=None, help='start: 이 토픽만 (생략하면 진단 프리셋)')
+    bag.add_argument('--regex', default=None, help='start: 토픽 정규식 (프리셋 대신)')
+    bag.add_argument('--no-sys', action='store_true', help='start: 부하(sys.csv) 기록 끔')
+
     drive = sub.add_parser('drive', help='바퀴 수동 주행 (MANUAL 모드)')
     drive.add_argument('direction', type=str.lower, choices=('forward', 'back', 'left', 'right', 'stop'))
     drive.add_argument('--speed', type=_nonnegative_float, default=0.15, help='선속도 [m/s] (기본 0.15)')
@@ -411,7 +418,13 @@ def build_parser() -> argparse.ArgumentParser:
     ab.add_argument('--out', default=None, help='record: 저장 폴더 · report: 출력 PNG')
     ab.add_argument('--last', action='store_true', help='report: 최근 녹화 2개 사용')
     ab.add_argument('--labels', nargs='*', default=None, help='report: 범례 이름 (예: 정책 DWB)')
+    ab.add_argument('--b-fallback', default='dwb', choices=('dwb', 'mppi', 'rpp', 'rotation_shim'),
+                    help='guide: B leg 의 안쪽 controller (정책 OFF 일 때 쓰는 것, 기본 dwb) — A 는 늘 정책')
     ab.add_argument('--config', default=None, help='guide: command.json 경로 (기본 tools/cli/op/pages/ab/<노드>/command.json)')
+
+    ctl = sub.add_parser('controller', help='Nav2 컨트롤러 — status | policy on|off | fallback dwb|mppi|rpp|rotation_shim (메뉴 8 A/B)')
+    ctl.add_argument('what', type=str.lower, choices=('status', 'policy', 'fallback'))
+    ctl.add_argument('value', nargs='?', type=str.lower, help='policy: on|off · fallback: dwb|mppi|rpp|rotation_shim')
 
     restart = sub.add_parser('restart', help='state_manager에 재시작 요청 (위험) — all = bringup 전체')
     restart.add_argument('target', help='all 또는 노드 이름')

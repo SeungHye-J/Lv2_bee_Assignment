@@ -34,6 +34,8 @@ AB_NODES = (
 NODE = 'rl_nav_controller'
 PARAM_NODE = 'controller_server'  # 플러그인이라 파라미터는 controller_server가 들고 있음 (FollowPath.*)
 TOGGLE = '/controller_server/FollowPath/toggle'
+SET_FALLBACK = '/controller_server/FollowPath/set_fallback'  # ml/srv/SetFallback — 안쪽(바이패스) controller 를 실행 중에 바꿈
+FALLBACKS = ('dwb', 'mppi', 'rpp', 'rotation_shim')
 STATUS = '/controller_server/FollowPath/status'  # [rl_active, reason, …] — 컨트롤러가 한 번 돌 때마다 (rl_nav_controller.hpp)
 REASONS = {0: '정책', 1: '모델 없음', 2: 'enable=false(DWB)', 3: '센서 없음/stale', 4: '추론 실패'}
 # guide 전에 active여야 하는 Nav2 수명주기 노드 (map_server는 저장 지도용 — 테스트베드 fake SLAM은 fake_nvblox가 /map)
@@ -83,6 +85,8 @@ class AbTest:
         self.prompt = bus.prompt
         self.term = bus.term
         self._toggle_cli = None
+        self._fallback_cli = None
+        self.b_fallback = 'dwb'  # guide 의 B leg 가 쓸 안쪽 controller (A 는 정책)
         self._nav_cli = None
         self._pub_reset = None
         self._param_cache = (0.0, None, None)  # (읽은 시각, enabled, model_path)
@@ -391,6 +395,30 @@ class AbTest:
         lines.append(' ' + self.plan_summary())
         return lines
 
+    # ------------------------------------------------------------------ 안쪽 controller
+    def fallback(self, name: str = '') -> tuple[bool, str, str]:
+        """안쪽(바이패스) controller 조회·교체 — 서비스 FollowPath/set_fallback. name='' 이면 조회만. → (성공, 메시지, 지금 inner)"""
+        try:
+            from ml.srv import SetFallback
+        except Exception:
+            return False, 'ml.srv.SetFallback 없음 — ros2_ws 의 ml 을 빌드하고 source 하세요', ''
+        if self._fallback_cli is None:
+            self._fallback_cli = self.node.create_client(SetFallback, SET_FALLBACK)
+        cli = self._fallback_cli
+        if not cli.wait_for_service(timeout_sec=3.0):
+            return False, f'{SET_FALLBACK} 없음 — controller_server 가 새 ml 로 떠 있나? (재빌드·재시작)', ''
+        req = SetFallback.Request()
+        req.controller = name
+        fut = cli.call_async(req)
+        try:
+            rclpy.spin_until_future_complete(self.node, fut, timeout_sec=25.0)   # 플러그인 로드·설정에 몇 초
+        except Exception:
+            pass
+        res = fut.result() if fut.done() else None
+        if res is None:
+            return False, 'set_fallback 응답 없음 (25 s)', ''
+        return bool(res.success), str(res.message), str(res.active)
+
     # ------------------------------------------------------------------ 토글
     def toggle(self, on: bool) -> tuple[bool, str]:
         """서비스 우선, 실패하면 파라미터 enabled로 바꾼다."""
@@ -586,12 +614,17 @@ class AbTest:
         raise RuntimeError(f'{frame_id}→base_footprint TF 없음 — 지도/로컬라이제이션 확인 ({last_err})')
 
     def frame_xy(self, child: str, frame_id: str = 'map') -> tuple[float, float] | None:
-        """map 기준 다른 프레임(odom 등)의 원점 (x, y) — 기다리지 않음, 없으면 None. 지도 화면의 M·O 표시용."""
+        """map 기준 다른 프레임(odom 등)의 원점 (x, y) — 기다리지 않음, 없으면 None."""
+        pose = self.frame_pose(child, frame_id)
+        return None if pose is None else pose[:2]
+
+    def frame_pose(self, child: str, frame_id: str = 'map') -> tuple[float, float, float] | None:
+        """map 기준 다른 프레임(odom 등)의 (x, y, yaw[deg]) — 기다리지 않음, 없으면 None. 지도 화면의 M·O 표시(위치 + 방향)용."""
         try:
-            x, y, _ = self._lookup_pose(frame_id, child)
+            x, y, yaw = self._lookup_pose(frame_id, child)
         except Exception:
             return None
-        return x, y
+        return x, y, math.degrees(yaw)
 
     def _lookup_pose(self, frame_id: str, child: str = 'base_footprint') -> tuple[float, float, float]:
         """지금 map(frame_id) 기준 child(기본 base_footprint)의 (x, y, yaw[rad]) — TF가 없으면 예외."""
@@ -972,7 +1005,8 @@ class AbTest:
         sim = self._is_sim()
         placed = not drive
         if drive:
-            self.toggle(False)  # 위치 맞추기는 측정이 아님 — 늘 inner DWB로 (정책이 못 가면 측정 전부터 막힘)
+            self.fallback('dwb')  # 위치 맞추기는 측정이 아님 — 늘 정책 OFF + inner DWB로 (정책·실험용 controller 가 못 가면 측정 전부터 막힘)
+            self.toggle(False)
             self._progress(f'{kind}{r} 전 시작점으로 복귀: Nav2(DWB)가 자동 주행 — {self._fmt(start)}')
             try:
                 self.nav_goal(start, plan['frame_id'], plan['goal_timeout_s'], f'{kind}{r} 전 시작점 복귀(DWB)')
@@ -985,6 +1019,10 @@ class AbTest:
         elif not placed:
             self._ask_place(start, f'{kind}{r}')  # 실기: 자동 복귀 실패 → 사람이 옮김 (s 건너뛰기 · q 전체 중단)
         self._clear_costmaps()
+        if kind == 'B':
+            ok, msg, _ = self.fallback(self.b_fallback)
+            if not ok:
+                raise RuntimeError(f'B: 안쪽 controller {self.b_fallback} 로 바꾸기 실패 — {msg}')
         ok, msg = self.toggle(kind == 'A')
         if not ok:
             raise RuntimeError(f'{kind}: 정책 {"ON" if kind == "A" else "OFF"} 실패 — {msg}')
@@ -1000,7 +1038,7 @@ class AbTest:
         timer = self.node.create_timer(0.1, sample)
         rec = self.start(f'{label}_r{r}_{kind}', out=str(group_dir / f'{time.strftime("%Y%m%d_%H%M%S")}_{kind}'))
         self._write_plan_csv(rec['bag'], start, plan)
-        self._progress(f'{kind}{r} 녹화 ({"정책" if kind == "A" else "DWB"}): {rec["bag"]}')
+        self._progress(f'{kind}{r} 녹화 ({"정책" if kind == "A" else self.b_fallback.upper()}): {rec["bag"]}')
         t0, err, stopped, abort = time.monotonic(), '', False, None
         try:
             self._run_route(plan, f'{kind}{r}')
@@ -1060,6 +1098,7 @@ class AbTest:
     def cmd(self, args) -> int:
         target = getattr(args, 'node', None) or 'nodes'
         action = getattr(args, 'action', None)
+        self.b_fallback = getattr(args, 'b_fallback', None) or 'dwb'
         # 예전 `ab status`도 한동안 받아 준다 — 새 문법은 `ab rl_nav_controller status`.
         if target in self.LEGACY_ACTIONS and action is None:
             print(f'WARN: `ab {target}`는 예전 문법 — `ab {NODE} {target}`로 바뀌었습니다',

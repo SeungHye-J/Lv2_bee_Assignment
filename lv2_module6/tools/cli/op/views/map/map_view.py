@@ -17,10 +17,12 @@ PATH_RGB, ROBOT_RGB, GOAL_RGB, START_RGB, CURSOR_RGB = (240, 190, 40), (235, 60,
 COST_INFLATED, COST_LETHAL = (125, 85, 25), (175, 35, 35)   # 코스트맵 겹침 — 팽창 / 내접·치명
 BRAILLE = {(0, 0): 0x01, (0, 1): 0x02, (0, 2): 0x04, (1, 0): 0x08, (1, 1): 0x10, (1, 2): 0x20, (0, 3): 0x40, (1, 3): 0x80}
 YAW_LEN, YAW_GAP, HEAD_LEN = 16, 3, 5   # 방향선 길이 · 십자선에서 비우는 거리 · 화살표 머리 길이 (점 단위 — 점자 한 글자 = 2×4점)
+FRAME_LEN, FRAME_GAP, FRAME_HEAD = 10, 3, 4   # M·O·로봇의 방향 화살표 — 십자선 방향선보다 짧게
 PAN_KEYS = {'up': (0, 1), 'down': (0, -1), 'left': (-1, 0), 'right': (1, 0)}
 
 
-def _yaw_dots(cx: int, cy: int, yaw_deg: float) -> set[tuple[int, int]]:
+def _yaw_dots(cx: int, cy: int, yaw_deg: float, length: int = YAW_LEN, gap: int = YAW_GAP,
+              head: int = HEAD_LEN) -> set[tuple[int, int]]:
     """점자 점 좌표(가로 2점/칸 · 세로 4점/줄 — 점은 정사각형)에서 (cx, cy)로부터 yaw 방향 선 + 화살표 머리."""
     rad = math.radians(yaw_deg)
     pts = set()
@@ -30,10 +32,10 @@ def _yaw_dots(cx: int, cy: int, yaw_deg: float) -> set[tuple[int, int]]:
         while t <= b:
             pts.add((int(round(x0 + t * math.cos(ang))), int(round(y0 - t * math.sin(ang)))))
             t += 0.5
-    ray(cx, cy, rad, YAW_GAP, YAW_LEN)
-    tip = (cx + YAW_LEN * math.cos(rad), cy - YAW_LEN * math.sin(rad))
+    ray(cx, cy, rad, gap, length)
+    tip = (cx + length * math.cos(rad), cy - length * math.sin(rad))
     for side in (-1, 1):   # 머리 = 끝에서 뒤로 ±28° 두 줄
-        ray(tip[0], tip[1], rad + math.pi + side * math.radians(28), 0, HEAD_LEN)
+        ray(tip[0], tip[1], rad + math.pi + side * math.radians(28), 0, head)
     return pts
 
 
@@ -69,6 +71,8 @@ class MapView(View):
         self.robot: tuple[float, float] | None = None
         self.start: tuple[float, float] | None = None
         self.odom: tuple[float, float] | None = None   # map 기준 odom 프레임 원점 (None = TF 없음)
+        self.odom_yaw: float | None = None   # map 기준 odom 프레임 방향 [deg] — O에서 뻗는 화살표 (None이면 안 그림)
+        self.robot_yaw: float | None = None  # 로봇 진행 방향 [deg] — ●에서 뻗는 화살표
         self.show_frames = True      # map 원점 M · odom 원점 O (로봇 ● = base_footprint)
         self.goals: list[dict] = []
         self.yaw = 0.0
@@ -172,6 +176,23 @@ class MapView(View):
                 robot_cell = (c, r // 2)
                 labels[robot_cell] = ('●' if self.color else '@', ROBOT_RGB)
         cur = (cols // 2, (sub // 2) // 2)
+        # M·O·로봇의 방향 화살표 — map x축(M은 늘 0°) · odom 프레임 방향 · 로봇 진행 방향. 글자(M·O·●)가 있는 칸은 글자가 우선.
+        rays: dict[tuple[int, int], tuple[int, tuple]] = {}   # 글자 칸 → (점자 비트, 색)
+        if self.show_frames:
+            sources = [((0.0, 0.0), 0.0, MAP_RGB)]
+            if self.odom and self.odom_yaw is not None:
+                sources.append((self.odom, self.odom_yaw, ODOM_RGB))
+            if self.robot and self.robot_yaw is not None:
+                sources.append((self.robot, self.robot_yaw, ROBOT_RGB))
+            for p, yaw_deg, rgb in sources:
+                pc, pr = scr(p)
+                if not (0 <= pc < cols and 0 <= pr < sub):
+                    continue
+                for dx, dy in _yaw_dots(pc * 2 + 1, (pr // 2) * 4 + 2, yaw_deg, FRAME_LEN, FRAME_GAP, FRAME_HEAD):
+                    c, r = dx // 2, dy // 4
+                    if 0 <= c < cols and 0 <= r < rows and (c, r) not in labels and (c, r) != cur:
+                        bits = rays.get((c, r), (0, rgb))[0] | BRAILLE[(dx % 2, dy % 4)]
+                        rays[(c, r)] = (bits, rgb)
         braille: dict[tuple[int, int], int] = {}   # 글자 칸 → 점자 점 비트 (방향선)
         if self.show_yaw:
             for dx, dy in _yaw_dots(cur[0] * 2 + 1, cur[1] * 4 + 2, self.yaw):
@@ -210,6 +231,10 @@ class MapView(View):
                         bg = bc or tc or (0, 0, 0)
                         put(f'\033[1;38;2;{CURSOR_RGB[0]};{CURSOR_RGB[1]};{CURSOR_RGB[2]}m'
                             f'\033[48;2;{bg[0]};{bg[1]};{bg[2]}m', chr(0x2800 + braille[(c, tr)]))
+                    elif (c, tr) in rays:   # M·O·로봇 방향 화살표 — 각자 색의 점자
+                        bits, rgb = rays[(c, tr)]
+                        bg = bc or tc or (0, 0, 0)
+                        put(f'\033[1;38;2;{rgb[0]};{rgb[1]};{rgb[2]}m\033[48;2;{bg[0]};{bg[1]};{bg[2]}m', chr(0x2800 + bits))
                     elif tc is None and bc is None:
                         put('\033[0m', ' ')
                     else:

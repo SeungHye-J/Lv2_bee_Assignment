@@ -19,6 +19,7 @@ from geometry_msgs.msg import TwistStamped
 from sensor_msgs.msg import JointState
 from std_msgs.msg import Bool, Empty, Int32MultiArray, String
 
+from . import bagrec
 from .dialog import TeleopDialog
 from .pages.ab.core import AbTest
 from .consts import (ARM_JOINTS, DIAG_LEVELS, GRIPPER_CLOSE, GRIPPER_JOINT,
@@ -353,6 +354,32 @@ class Bus:
             print(f'거절: {res.message}', file=sys.stderr)
             return 1
         print(f'collision_monitor → {"켬" if args.state == "on" else "끔 (근접 정지 없이 통과 — 주의)"}')
+        return 0
+
+    # --------------------------------------------------------------------- bag
+
+    def cmd_bag(self, args) -> int:
+        """bag 녹화 + 시스템 부하(CPU·메모리·스왑·GPU) — start · stop · status (메뉴 9 토픽 · bag 과 같은 모듈)."""
+        if args.action == 'status':
+            cur = bagrec.current()
+            print(f'녹화 중: {bagrec.describe(cur)}' if cur else '녹화 중 아님')
+            return 0
+        if args.action == 'stop':
+            rec = bagrec.stop()
+            if rec is None:
+                print('녹화 중 아님')
+                return 0
+            print(f'녹화 중지: {bagrec.describe(rec)}')
+            return 0
+        try:
+            rec = bagrec.start(label=args.label, topics=args.topics or None, regex=args.regex,
+                               sys_on=not args.no_sys)
+        except RuntimeError as exc:
+            print(f'거부: {exc}', file=sys.stderr)
+            return 1
+        print(f'녹화 시작: {rec["bag"]}')
+        print(f'  토픽: {"선택 " + str(len(args.topics)) + "개" if args.topics else "진단 프리셋" if not args.regex else args.regex}'
+              f' · 부하 기록 {"켬 (sys.csv)" if rec["sys"] else "끔"} · 멈추려면 run-cli bag stop')
         return 0
 
     # ------------------------------------------------------------------- drive
@@ -1219,6 +1246,30 @@ class Bus:
         """A/B 테스트 — op/pages/ab/core.py로 위임 (메뉴 13와 같은 구현)."""
         from .pages.ab.core import AbTest
         return AbTest(self).cmd(args)
+
+    def cmd_controller(self, args) -> int:
+        """Nav2 컨트롤러 — 정책 ON/OFF(바이패스) · 안쪽(바이패스) controller 고르기(DWB·MPPI·RPP·RotationShim). ab 와 같은 구현."""
+        from .pages.ab.core import FALLBACKS, AbTest
+        ab = AbTest(self)
+        self._poll(0.8)
+        if args.what == 'status':
+            print('\n'.join(ab.status_lines()))
+            ok, msg, active = ab.fallback('')
+            print(f' 안쪽 controller(서비스): {active or "?"}' + ('' if ok else f' — {msg}'))
+            return 0
+        if args.what == 'policy':
+            if args.value not in ('on', 'off'):
+                print('거부: controller policy on|off', file=sys.stderr)
+                return 2
+            ok, msg = ab.toggle(args.value == 'on')
+            print(('ok: ' if ok else 'FAIL: ') + msg)
+            return 0 if ok else 1
+        if args.value not in FALLBACKS:
+            print(f'거부: controller fallback {"|".join(FALLBACKS)}', file=sys.stderr)
+            return 2
+        ok, msg, active = ab.fallback(args.value)
+        print(('ok: ' if ok else 'FAIL: ') + msg + (f' (지금 {active})' if active else ''))
+        return 0 if ok else 1
 
     def cmd_node(self, args) -> int:
         if args.action in ('list', 'status'):

@@ -255,6 +255,9 @@ sudo apt-get install -y --no-install-recommends \
     ros-lyrical-nav2-velocity-smoother \
     ros-lyrical-nav2-collision-monitor \
     ros-lyrical-nav2-map-server \
+    ros-lyrical-nav2-mppi-controller \
+    ros-lyrical-nav2-regulated-pure-pursuit-controller \
+    ros-lyrical-nav2-rotation-shim-controller \
     && rm -rf /var/lib/apt/lists/*
 ```
 
