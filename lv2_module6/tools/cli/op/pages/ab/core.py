@@ -614,12 +614,17 @@ class AbTest:
         raise RuntimeError(f'{frame_id}→base_footprint TF 없음 — 지도/로컬라이제이션 확인 ({last_err})')
 
     def frame_xy(self, child: str, frame_id: str = 'map') -> tuple[float, float] | None:
-        """map 기준 다른 프레임(odom 등)의 원점 (x, y) — 기다리지 않음, 없으면 None. 지도 화면의 M·O 표시용."""
+        """map 기준 다른 프레임(odom 등)의 원점 (x, y) — 기다리지 않음, 없으면 None."""
+        pose = self.frame_pose(child, frame_id)
+        return None if pose is None else pose[:2]
+
+    def frame_pose(self, child: str, frame_id: str = 'map') -> tuple[float, float, float] | None:
+        """map 기준 다른 프레임(odom 등)의 (x, y, yaw[deg]) — 기다리지 않음, 없으면 None. 지도 화면의 M·O 표시(위치 + 방향)용."""
         try:
-            x, y, _ = self._lookup_pose(frame_id, child)
+            x, y, yaw = self._lookup_pose(frame_id, child)
         except Exception:
             return None
-        return x, y
+        return x, y, math.degrees(yaw)
 
     def _lookup_pose(self, frame_id: str, child: str = 'base_footprint') -> tuple[float, float, float]:
         """지금 map(frame_id) 기준 child(기본 base_footprint)의 (x, y, yaw[rad]) — TF가 없으면 예외."""

@@ -79,4 +79,35 @@ cv.yaw = 0.0
 cell_txt = re.sub(r'\x1b\[[0-9;]*m', '', ''.join(cv.render(30, 10)))
 assert any(0x2800 < ord(ch) <= 0x28FF for ch in cell_txt), '방향선(점자)이 있어야 함'
 assert '+' in cell_txt
+
+
+# M · O · 로봇의 방향 화살표 — 색 모드에서 점자(U+2800~28FF)로 그려지고, 방향이 바뀌면 다른 칸에 그려진다
+def braille_cells(view, cols=40, rows=20):
+    out = view.render(cols, rows)
+    return {(c, r) for r, line in enumerate(out) for c, ch in enumerate(_strip(line)) if 0x2800 <= ord(ch) <= 0x28FF}
+
+
+def _strip(line):
+    import re
+    return re.sub(r'\x1b\[[0-9;]*m', '', line)
+
+
+big = MapGrid(40, 40, 0.1, -2.0, -2.0, [0] * 1600)
+cv = MapView(big, color=True)
+cv.vp.fit(40, 40)
+cv.show_frames = True
+base = braille_cells(cv)                       # M 의 방향선(0°)만 있을 때
+cv.odom, cv.odom_yaw = (0.8, 0.5), 0.0
+east = braille_cells(cv)
+cv.odom_yaw = 90.0
+north = braille_cells(cv)
+assert base and len(east) > len(base), 'O 방향선이 그려져야 함'
+assert east != north, 'odom 방향이 바뀌면 화살표가 다른 칸에 그려져야 함'
+cv.odom_yaw = None
+assert braille_cells(cv) == base, 'odom 방향을 모르면 O 화살표는 안 그림'
+cv.robot, cv.robot_yaw = (-0.6, -0.4), 180.0
+assert len(braille_cells(cv)) > len(base), '로봇 진행 방향 화살표'
+cv.show_frames = False
+assert not braille_cells(cv), 'show_frames 가 꺼지면 방향 화살표도 없음'
 print('PASS test_map_view')
+
