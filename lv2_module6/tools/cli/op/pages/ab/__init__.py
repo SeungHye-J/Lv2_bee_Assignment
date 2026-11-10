@@ -420,7 +420,7 @@ class RlNavControllerAbMenu(Menu):
         ok, _msg, now = self.bus.ab.fallback('')
         lines = [f' 지금 안쪽 controller: {now or "?"}', ' 정책 ON 이면 정책이 돌고, OFF 일 때 이 controller 가 돈다.',
                  ' MPPI 는 CPU 를 많이 쓴다 — 부하 확인하며. 바꾸는 데 몇 초 걸린다.']
-        choice = self.ui.select('안쪽 controller 고르기', [(k, v) for k, v in names.items()], lines)
+        choice = self.ui.choose('안쪽 controller 고르기', [(k, v) for k, v in names.items()], lines)
         if choice in (BACK, MAIN, QUIT) or choice not in names:
             return
         ok, msg, active = self.bus.ab.fallback(names[choice])

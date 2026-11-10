@@ -218,7 +218,7 @@ class ControllerServerFeature(NodeFeature):
             lines = [f' 지금 안쪽 controller: {now}',
                      ' 서비스: /controller_server/FollowPath/set_fallback (ml/srv/SetFallback)',
                      ' 정책 ON 이면 정책이 돌고, OFF(바이패스)일 때 이 controller 가 돈다 — 바꾸는 데 몇 초']
-            choice = app.ui.select('안쪽 controller 고르기', list(names.items()), lines)
+            choice = app.ui.choose('안쪽 controller 고르기', list(names.items()), lines)
             if choice not in names:
                 return
             ok, result = bus.call_service(
