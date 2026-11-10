@@ -179,13 +179,18 @@ void BeebotSystemHardware::report(diagnostic_updater::DiagnosticStatusWrapper & 
   if (mock_) s.summary(DiagnosticStatus::OK, "mock — 명령을 상태로 되돌림");
   else if (fd_ < 0) s.summary(DiagnosticStatus::ERROR, "포트 닫힘: " + port_);
   else if (age > 0.5) s.summary(DiagnosticStatus::ERROR, "OpenCR 상태(S) 수신 없음");
-  else if (arm_absent_.load()) s.summary(DiagnosticStatus::WARN, "연결됨 " + port_ + " — 팔 없음(바퀴만)");
+  else if (arm_absent_.load()) {
+    // 팔을 뽑은 건 예상된 상태 — 에러가 아니라 주의(WARN). 바퀴가 응답하는지는 따로 알려 준다 (바퀴가 죽었는데 '바퀴만'으로 읽히지 않게)
+    const bool wheels_ok = hw_error_[0].load() != -1 && hw_error_[1].load() != -1;
+    s.summary(DiagnosticStatus::WARN, "연결됨 " + port_ + " — 팔·그리퍼 응답 없음 · 바퀴 " + (wheels_ok ? "정상" : "응답 없음"));
+  }
   else s.summary(DiagnosticStatus::OK, "연결됨 " + port_);
   std::string errors;
   std::string hot;
   for (size_t i = 0; i < MOTORS; ++i) {
     const int e = hw_error_[i].load();
-    if (e != 0) errors += (errors.empty() ? "" : ", ") + std::string(motor_name(i)) + " " + error_text(e);
+    const bool expected_absent = arm_absent_.load() && e == -1 && i >= 2;  // 팔 없음으로 활성화된 뒤의 팔·그리퍼 '응답 없음'은 에러로 안 침
+    if (e != 0 && !expected_absent) errors += (errors.empty() ? "" : ", ") + std::string(motor_name(i)) + " " + error_text(e);
     s.add(std::string("모터 에러 ") + motor_name(i), e == 0 ? std::string("정상") : error_text(e));
     const int t = hw_temp_[i].load();
     if (t >= TEMP_WARN_C) hot += (hot.empty() ? "" : ", ") + std::string(motor_name(i)) + " " + std::to_string(t) + "°C";

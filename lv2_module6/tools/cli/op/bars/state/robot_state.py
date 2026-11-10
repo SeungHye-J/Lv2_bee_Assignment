@@ -55,8 +55,10 @@ class RobotState(_LinkState):
             worst = max(worst, level)
             errors = errors or (level == 2 and '✗' in txt and NO_REPLY not in txt)
             parts.append(self.term.paint(txt, {0: GREEN, 1: YELLOW}.get(level, RED + BOLD)))
-        if opencr and opencr[0] >= 2:   # OpenCR 연결 자체 문제 (포트 닫힘 · S 끊김)
-            parts.insert(0, self.term.paint(opencr[1], RED + BOLD))
+        # OpenCR 진단 메시지는 *연결 자체* 문제(포트 닫힘 · S 끊김)일 때만 — 모터 에러 목록까지 붙은 긴 문장을 그대로 싣지 않는다
+        #   (모터 상태는 위 그룹 칸이 이미 말해 준다)
+        if opencr and opencr[0] >= 2 and ('포트 닫힘' in opencr[1] or '수신 없음' in opencr[1]):
+            parts.insert(0, self.term.paint(opencr[1].split(';')[0].split(' → ')[0], RED + BOLD))
             worst = 2
         hint = self.term.paint('  → 팔 → 5) 재부팅', DIM) if errors else ''
         mark, color = {0: ('●', GREEN), 1: ('▲', YELLOW)}.get(worst, ('✗', RED + BOLD))
