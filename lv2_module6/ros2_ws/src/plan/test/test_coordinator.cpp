@@ -8,7 +8,6 @@
 
 #include "plan/coordinator.hpp"
 #include "rclcpp_action/rclcpp_action.hpp"
-#include "plan/vlm_task_planner.hpp"
 
 using namespace plan;  // 노드 클래스·메시지 별칭 (include/plan/*.hpp)
 
