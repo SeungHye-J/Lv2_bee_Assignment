@@ -10,7 +10,7 @@ from .no_data_state import NoDataState
 from .operation_state import OperationState
 from .perception_state import PerceptionState
 from .pose_state import PoseState
-from .robot_state import RobotState
+from .robot_state import PowerState, RobotState
 from .state_bar import StateBar
 from .task_state import TaskState
 from .topic_rate_state import TopicRateState
@@ -21,7 +21,7 @@ TOPIC_RATES = (('joint_states', 'joint', 50), ('odom', 'odom', 20), ('imu', 'imu
 
 
 class TopStateBar(StateBar):
-    """줄 1 모드·지도·E-STOP·장치·연결 · 줄 2 인지·임무·진단 · 줄 3 토픽 Hz · 줄 4 로봇 · (상태 없으면 경고)."""
+    """줄 1 모드·지도·E-STOP·장치·연결 · 줄 2 인지·임무·진단 · 줄 3 토픽 Hz · 줄 4 모터(바퀴·팔·그리퍼 그룹) · 줄 5 전원 · (상태 없으면 경고)."""
 
     def __init__(self, ui):
         super().__init__(ui, [
@@ -29,5 +29,6 @@ class TopStateBar(StateBar):
             [PerceptionState(ui), TaskState(ui), DiagState(ui)],
             [TopicRateState(ui, key, label, low) for key, label, low in TOPIC_RATES],
             [RobotState(ui)],
+            [PowerState(ui)],
             [NoDataState(ui)],
         ])
