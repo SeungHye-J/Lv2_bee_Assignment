@@ -426,8 +426,10 @@ ROS 층 선택 (모든 명령 앞에 붙임):
     beep.add_argument('value', nargs='*', help='Hz ms (예: 4000 300)')
 
     mission = sub.add_parser('mission', help='주사위 미션 — start | abort | status (메뉴 0). mission_manager의 /cmd/mission · /mission/state')
-    mission.add_argument('action', type=str.lower, choices=('start', 'abort', 'status'),
-                         help='start = 시작 (적재함 장부가 남았으면 거부) · abort = 중지 · status = 지금 단계·진행')
+    mission.add_argument('action', type=str.lower, choices=('start', 'abort', 'status', 'skill', 'stop'),
+                         help='start = 시작 (적재함 장부가 남았으면 거부) · abort = 중지 · status = 지금 단계·진행 · '
+                              'skill <이름> <target> = 세부 명령 한 단계 (예: skill pick 5 · skill navigate 1.5,0.8,0) · stop = 진행 중 전부 취소')
+    mission.add_argument('args', nargs='*', help='skill: <skill 이름> <target>')
 
     sub.add_parser('recover', help='조작이 안 될 때 — 모터 에러 재부팅 + 꺼진 컨트롤러 다시 켜기 (메뉴: 수동·팔·그리퍼 → z)')
 

@@ -55,6 +55,7 @@ class Bus:
         self.pub_reboot = node.create_publisher(Empty, "/cmd/manual/reboot_motors", 10)
         self.pub_beep = node.create_publisher(Int32MultiArray, "/cmd/beep", 10)
         self.pub_mission = node.create_publisher(String, "/cmd/mission", 10)
+        self.pub_goals = None  # /task/sub_goals — 세부 명령을 처음 보낼 때 만든다 (plan 메시지가 없는 환경 보호)
         self.ab = AbTest(self)
 
     def _poll(self, seconds: float = 0.2):
@@ -672,6 +673,14 @@ class Bus:
         """mission_manager에 start | abort (/cmd/mission) · status는 /mission/state 한 번 출력. 메뉴는 문자열, 명령줄은 args.action.
         start는 적재함 장부가 남았으면 거부 — 사유는 /mission/state의 '하는 일'에 뜸."""
         cmd = getattr(args, 'action', args)
+        if cmd == 'skill':
+            a = getattr(args, 'args', [])
+            if len(a) != 2:
+                print('사용: mission skill <navigate|approach|pose|inspect|pick|place|load|unload|stand|stand_pick> <target>', file=sys.stderr)
+                return 2
+            return self.cmd_skill(a[0], a[1])
+        if cmd == 'stop':
+            return self.cmd_skill('stop', '')
         if cmd == 'status':
             end = time.monotonic() + 3.0
             while self.state.mission is None and time.monotonic() < end and rclpy.ok():
@@ -684,6 +693,30 @@ class Bus:
             return 0
         self._publish(self.pub_mission, String(data=cmd))
         print(f'미션 {cmd} 전송')
+        return 0
+
+    _skill_seq = 0
+
+    def cmd_skill(self, skill: str, target: str) -> int:
+        """세부 명령 하나 — /task/sub_goals(plan/SubGoalArray)에 skill 한 단계짜리 계획을 보내 coordinator가 /skills/<skill>로 실행.
+        mission_manager와 같은 길(plan_id만 2000000+n으로 구분). skill='stop'이면 전체 취소(plan_id 0 · goals 빔). AUTO·비상정지 해제는 coordinator가 검사."""
+        try:
+            from plan.msg import SubGoal, SubGoalArray  # type: ignore
+        except Exception:
+            print('plan 메시지 없음 — ros2_ws를 빌드·source한 real 환경에서만 보낼 수 있음', file=sys.stderr)
+            return 1
+        if self.pub_goals is None:
+            from rclpy.qos import QoSDurabilityPolicy, QoSProfile, QoSReliabilityPolicy
+            self.pub_goals = self.node.create_publisher(SubGoalArray, '/task/sub_goals', QoSProfile(
+                depth=10, reliability=QoSReliabilityPolicy.RELIABLE, durability=QoSDurabilityPolicy.TRANSIENT_LOCAL))
+        msg = SubGoalArray()
+        msg.header.stamp = self.node.get_clock().now().to_msg()
+        if skill != 'stop':
+            Bus._skill_seq += 1
+            msg.plan_id = 2000000 + Bus._skill_seq
+            msg.goals = [SubGoal(step=1, skill=skill, target=target, relation='', offset_m=0.0)]
+        self._publish(self.pub_goals, msg)
+        print('전체 취소 전송' if skill == 'stop' else f'{skill} {target} 전송 (plan {msg.plan_id}) — 결과는 미션 화면 아래 task 줄')
         return 0
 
     def cmd_recover(self, args=None) -> int:
