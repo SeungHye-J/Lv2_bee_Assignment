@@ -27,7 +27,7 @@ cli/
     │   ├── bar.py     # Bar(Component) — MenuBar·StateBar 공통 부모
     │   ├── menu/      # 메뉴 막대 — MenuBar → LeftSideMenuBar · ChoiceItem
     │   └── state/     # 상단 상태바 — State(칸) 하위 클래스들 + StateBar + TopStateBar
-    ├── dialog/        # 창 — Dialog(dialog.py) 최상위 부모 + 하위 클래스 한 파일에 하나 (Input·Key·Pager·Busy·Teleop·RouteRviz)
+    ├── dialog/        # 창 — Dialog(dialog.py) 최상위 부모 + 하위 클래스 한 파일에 하나 (Input·Key·Pager·Busy·Teleop)
     ├── views/         # 화면 부품
     │   ├── view.py    # View(Component) — MapView·ArmView 공통 부모
     │   ├── map/       # 터미널 지도 — MapGrid(벽 우선 피라미드) · Viewport(중심·확대) · MapView
@@ -41,7 +41,6 @@ cli/
         ├── page.py    # Page 베이스만
         ├── mainmenu/ status/ mode/ manual/ arm/ map/ mapmenu/ params/ devices/ topics/  # 화면별 package
         ├── nodes/     # 노드별 추가 상태 (feature.py + <node>.py)
-        ├── ab/        # A/B 화면 + core.py + <node>/command.json
         └── calibration/  # 칼리브레이션 화면 + core.py + wheel/
 ```
 
@@ -110,8 +109,7 @@ Dialog (op/dialog/dialog.py — 하위 클래스는 op/dialog/<이름>_dialog.py
  ├─ KeyDialog        키 하나 (confirm의 y/n)      ← ui.modal_key · ui.confirm
  ├─ PagerDialog      결과창 스크롤                ← ui.pager
  ├─ BusyDialog       처리 중 창 (키 루프 없음)    ← ui.busy · step · progress
- ├─ TeleopDialog     텔레오퍼                     ← bus.cmd_teleop (A/B 경로 goal 찍기는 on_mark로 같은 창)
- └─ RouteRvizDialog  A/B RViz goal 찍기          ← pages/ab 경로 편집
+ ├─ TeleopDialog     텔레오퍼                     ← bus.cmd_teleop
 ```
 
 새 창은 `op/dialog/<이름>_dialog.py`에 `Dialog`를 상속해 위 메서드만 채우고 `dialog/__init__.py`에 넣는다.
@@ -298,12 +296,12 @@ python3 cli/tests/scenarios.py teleop-hud
 
 ## 5. 지도 화면 (MapPage) — 파라미터로 쓰임이 바뀌는 화면
 
-`pages/map/` 하나가 **보기 · A/B 경로 goal 찍기 · 로봇 위치 지정**을 다 한다. 웹 페이지처럼 이름과 파라미터로 연다:
+`pages/map/` 하나가 **보기 · goal 찍기 · 로봇 위치 지정**을 다 한다. 웹 페이지처럼 이름과 파라미터로 연다:
 
 ```python
 self.ui.window.navigate('map', mode='view')                                   # 지금 /map 보기 (로봇 ● 표시)
 self.ui.window.navigate('map', mode='view', source=map_yaml)                  # 저장된 지도 파일 보기
-self.ui.window.navigate('map', mode='goals', start=…, goals=…, on_save=cb)    # A/B 경로 — 저장하면 cb(goals)
+self.ui.window.navigate('map', mode='goals', start=…, goals=…, on_save=cb)    # goal 목록 — 저장하면 cb(goals)
 self.ui.window.navigate('map', mode='pose', on_pose=fn)                       # 위치 지정 — Enter → fn(x, y, yaw_deg)
 ```
 

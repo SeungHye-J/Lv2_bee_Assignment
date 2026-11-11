@@ -1,8 +1,7 @@
 """범용 녹화 — ros2 bag record(MCAP) + 시스템 부하(tools/bag/sysmon.py) 를 한 번에 시작·중지·확인.
 
-`run-cli bag start|stop|status` 와 메뉴 9) 토픽 · bag 이 같이 쓴다 (상태를 파일에 남겨서 다른 프로세스에서도 멈출 수 있다).
+`run-cli bag start|stop|status` 와 메뉴 8) 토픽 · bag 이 같이 쓴다 (상태를 파일에 남겨서 다른 프로세스에서도 멈출 수 있다).
 폴더 하나 = <bag 폴더>/ (bag 본체 + metadata.yaml) + sys.csv(CPU·메모리·스왑·GPU·큰 프로세스) + tegrastats.log + bag.log.
-ab 의 A/B 녹화(op/pages/ab/core.py)는 A/B 토픽·리포트에 묶여 있어 따로 둔다 (같은 pid 파일·SIGINT 패턴).
 """
 from __future__ import annotations
 

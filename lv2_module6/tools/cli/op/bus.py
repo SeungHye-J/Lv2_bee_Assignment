@@ -21,7 +21,7 @@ from std_msgs.msg import Bool, Empty, Int32MultiArray, String
 
 from . import bagrec
 from .dialog import TeleopDialog
-from .pages.ab.core import AbTest
+from .nav import RobotNav
 from .consts import (ARM_JOINTS, DIAG_LEVELS, GRIPPER_CLOSE, GRIPPER_JOINT,
                     GRIPPER_OPEN, WHEEL_JOINTS)
 from .terminal import BOLD, DIM, GREEN, RED, YELLOW, Terminal
@@ -56,7 +56,7 @@ class Bus:
         self.pub_beep = node.create_publisher(Int32MultiArray, "/cmd/beep", 10)
         self.pub_mission = node.create_publisher(String, "/cmd/mission", 10)
         self.pub_goals = None  # /task/sub_goals — 세부 명령을 처음 보낼 때 만든다 (plan 메시지가 없는 환경 보호)
-        self.ab = AbTest(self)
+        self.nav = RobotNav(self)   # 로봇 위치(TF) · initialpose · Nav2 goal
 
     def _poll(self, seconds: float = 0.2):
         """콜백을 잠깐 돌려 상태를 갱신한다."""
@@ -1293,35 +1293,6 @@ class Bus:
                 return 0 if self.lifecycle_activate(name) else 1
         print(f'FAIL: {name} 20초 안에 다시 안 뜸 — /tmp/restart_{name}.log 확인', file=sys.stderr)
         return 1
-
-    def cmd_ab(self, args) -> int:
-        """A/B 테스트 — op/pages/ab/core.py로 위임 (메뉴 13와 같은 구현)."""
-        from .pages.ab.core import AbTest
-        return AbTest(self).cmd(args)
-
-    def cmd_controller(self, args) -> int:
-        """Nav2 컨트롤러 — 정책 ON/OFF(바이패스) · 안쪽(바이패스) controller 고르기(DWB·MPPI·RPP·RotationShim). ab 와 같은 구현."""
-        from .pages.ab.core import FALLBACKS, AbTest
-        ab = AbTest(self)
-        self._poll(0.8)
-        if args.what == 'status':
-            print('\n'.join(ab.status_lines()))
-            ok, msg, active = ab.fallback('')
-            print(f' 안쪽 controller(서비스): {active or "?"}' + ('' if ok else f' — {msg}'))
-            return 0
-        if args.what == 'policy':
-            if args.value not in ('on', 'off'):
-                print('거부: controller policy on|off', file=sys.stderr)
-                return 2
-            ok, msg = ab.toggle(args.value == 'on')
-            print(('ok: ' if ok else 'FAIL: ') + msg)
-            return 0 if ok else 1
-        if args.value not in FALLBACKS:
-            print(f'거부: controller fallback {"|".join(FALLBACKS)}', file=sys.stderr)
-            return 2
-        ok, msg, active = ab.fallback(args.value)
-        print(('ok: ' if ok else 'FAIL: ') + msg + (f' (지금 {active})' if active else ''))
-        return 0 if ok else 1
 
     def cmd_node(self, args) -> int:
         if args.action in ('list', 'status'):

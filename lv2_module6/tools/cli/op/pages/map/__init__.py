@@ -118,8 +118,8 @@ class MapPage(Menu):
             self.pick()
         elif k == 'backspace' and self.mode == 'goals':
             self.undo_goal()
-        elif k in ('[', ']', '{', '}') and self.mode != 'view':   # [ ] = 15° · { } = 1° (미세)
-            self.turn({'[': -YAW_STEP, ']': YAW_STEP, '{': -1.0, '}': 1.0}[k])
+        elif k in ('[', ']', '{', '}') and self.mode != 'view':   # [ ] = 15° · { } = 1° (미세) — 왼쪽 키([ {)는 좌회전(반시계, +) · 오른쪽 키(] })는 우회전(시계, −)
+            self.turn({'[': YAW_STEP, ']': -YAW_STEP, '{': 1.0, '}': -1.0}[k])
         elif k in ('c', 'C'):
             self.toggle_cost()
         elif k in ('p', 'P'):
@@ -194,7 +194,7 @@ class MapPage(Menu):
                  (lambda: 'costmap 겹쳐 보기 (c) — ' + self.COST_LABELS[self.cost_mode], self.toggle_cost),
                  (lambda: f'Nav2 경로 겹쳐 보기 (p) — {"켜짐" if self.plan_on else "꺼짐"}', self.toggle_plan)]
         if self.mode != 'view':
-            rows += [(f'방향 +{YAW_STEP:.0f}° (]) · 미세 +1° = }}', lambda: self.turn(YAW_STEP)), (f'방향 -{YAW_STEP:.0f}° ([) · 미세 -1° = {{', lambda: self.turn(-YAW_STEP))]
+            rows += [(f'좌회전 +{YAW_STEP:.0f}° ([) · 미세 +1° = {{', lambda: self.turn(YAW_STEP)), (f'우회전 -{YAW_STEP:.0f}° (]) · 미세 -1° = }}', lambda: self.turn(-YAW_STEP))]
         if self.mode == 'goals':
             rows += [('저장하고 나가기', self._save)]
         return [act(self.app, str(i), label, fn) for i, (label, fn) in enumerate(rows, 1)]
@@ -204,10 +204,10 @@ class MapPage(Menu):
         now = time.monotonic()
         if now - self._robot_at >= 0.3:
             self._robot_at = now
-            p = self.bus.ab.robot_pose()
+            p = self.bus.nav.robot_pose()
             self._robot = (p['x'], p['y']) if p else None
             self._robot_yaw = p['yaw_deg'] if p else None
-            odom = self.bus.ab.frame_pose('odom')
+            odom = self.bus.nav.frame_pose('odom')
             self._odom = odom[:2] if odom else None
             self._odom_yaw = odom[2] if odom else None
         return self._robot

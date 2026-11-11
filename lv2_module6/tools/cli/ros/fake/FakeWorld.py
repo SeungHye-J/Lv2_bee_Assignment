@@ -2,7 +2,7 @@
 
 FakeRos._spin이 step()을 불러 약 20 Hz로 굴린다 (스레드 없음). 입력은 FakeRos.\\_fake_on_publish가 on_publish로 넘긴다.
   입력   /cmd/manual/cmd_vel(바퀴) · /cmd/manual/arm(팔) · /cmd/mission(start|abort) · /task/sub_goals(skill 계획)
-         + 지도 화면의 goal 찍기(send_nav_goal) · initialpose(set_robot_pose) — attach()가 bus.ab에 끼워 넣는다
+         + 지도 화면의 goal 찍기(send_nav_goal) · initialpose(set_robot_pose) — attach()가 bus.nav에 끼워 넣는다
   출력   /joint_states · /odom · /imu · 카메라 · /tracked_objects · /motor_status · /diagnostics_agg(생존 표시)
          /mission/state · /task/status · /plan · /local_plan · /global_costmap/costmap · /local_costmap/costmap
 진짜와 다른 점(알아 둘 것): 경로는 지도 격자 위 최단 경로, 벽 밖으로는 못 감 · 미션·skill은 시간표대로 성공 · 값은 전부 더미.
@@ -404,7 +404,7 @@ class FakeWorld:
 
 
 def attach(app, world):
-    """진짜 AbTest의 TF·Nav2 부분을 가짜 월드로 바꿔 끼운다 (지도 화면 로봇 점 · goal · initialpose)."""
-    ab = app.bus.ab
+    """진짜 RobotNav의 TF·Nav2 부분을 가짜 월드로 바꿔 끼운다 (지도 화면 로봇 점 · goal · initialpose)."""
+    ab = app.bus.nav
     ab.robot_pose, ab.frame_pose = world.robot_pose, world.frame_pose
     ab.send_nav_goal, ab.set_robot_pose = world.send_nav_goal, world.set_robot_pose

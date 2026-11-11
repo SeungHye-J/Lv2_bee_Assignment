@@ -206,3 +206,12 @@ assert txt.count('o') >= 2, '경로 사이사이에 점이 찍혀야 함'
 view.plans = [([(-3.0 + i * 0.1, 0.0) for i in range(61)], (170, 0, 255))]   # 지역 경로에는 안 찍음
 assert '\n'.join(view.render(60, 15)).count('o') == 0
 print('map_view path points ok')
+
+# 지도 회전 키 — 왼쪽 키([ {)는 좌회전(+) · 오른쪽 키(] })는 우회전(−)
+from op.pages.map import MapPage  # noqa: E402
+pg = MapPage.__new__(MapPage)
+pg.mode, pg.yaw, pg.msg, pg.view = 'pose', 0.0, '', None
+for key, want in (('[', 15.0), (']', -15.0), ('{', 1.0), ('}', -1.0)):
+    pg.yaw = 0.0
+    assert pg._extra_key(key) and abs(pg.yaw - want) < 1e-9, (key, pg.yaw)
+print('map rotate keys ok')

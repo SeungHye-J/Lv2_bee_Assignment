@@ -98,7 +98,7 @@ class MapView(View):
     """grid를 vp(Viewport)로 잘라 cols × rows 글자 영역으로 그린다. robot·start·goals는 밖(페이지)이 갱신, 키는 on_key."""
 
     focusable = True
-    hints = '↑↓←→ 지도 이동 · +/- 확대·축소 · f 전체 · r 로봇 따라가기 · c costmap · p 경로 · [ ] 방향 15° · { } 1° · Enter 찍기'
+    hints = '↑↓←→ 지도 이동 · +/- 확대·축소 · f 전체 · r 로봇 따라가기 · c costmap · p 경로 · [ ] 좌·우 회전 15° · { } 1° · Enter 찍기'
 
     def __init__(self, grid: MapGrid, color: bool = True, extra_key=None):
         self.grid, self.color = grid, color
@@ -123,7 +123,7 @@ class MapView(View):
         self._bkey = None
         self._bcells: dict = {}
         self.waypoints: list[tuple[float, float]] = []   # 경유점 (navigate·approach 목표) — 번호가 주황으로 찍힘
-        self.plans: list[tuple[list[tuple[float, float]], tuple]] = []   # 겹쳐 그릴 Nav2 경로들 (점 목록, 색) — 끝점은 E
+        self.plans: list[tuple[list[tuple[float, float]], tuple]] = []   # 겹쳐 그릴 Nav2 경로들 (점 목록, 색) — 끝점은 G·L
         self._cost_codes: list[list[int]] | None = None
 
     @property
