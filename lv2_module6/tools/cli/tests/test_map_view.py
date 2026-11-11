@@ -183,3 +183,15 @@ assert '\033[1;38;2;255;255;255m\033[48;2;20;90;255mG' in out, '끝점 G는 흰 
 view.plans = [([(-0.3, -0.3), (0.3, 0.3)], (170, 0, 255))]
 assert 'L' in ''.join(view.render(30, 10)).replace('\033', ''), '지역 경로 끝은 L'
 print('map_view plan end marker ok')
+
+# 글자가 겹치면 — 우선순위가 높은 쪽이 그 칸, 진 쪽은 옆 칸에 (M·O·로봇이 한 칸이어도 셋 다 보임)
+view = MapView(g, color=False)
+view.vp.fit(30, 20)
+view.following = False
+view.vp.cx, view.vp.cy = 0.35, 0.35                  # 십자선을 겹침에서 멀리
+view.robot = view.odom = (0.0, 0.0)                    # 로봇 · O · M이 모두 세계 (0,0)
+txt = '\n'.join(view.render(30, 10))
+assert '@' in txt and 'O' in txt and 'M' in txt, '겹쳐도 로봇·O·M이 모두 보여야 함'
+rows_ = [l for l in txt.split('\n') if '@' in l]
+assert rows_ and all(ch in rows_[0] for ch in 'OM@') and max(rows_[0].index(ch) for ch in 'OM@') - min(rows_[0].index(ch) for ch in 'OM@') <= 4, rows_
+print('map_view overlap ok')

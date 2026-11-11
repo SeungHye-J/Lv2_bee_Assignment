@@ -249,34 +249,48 @@ class MapView(View):
             for a, b in zip(pl, pl[1:]):
                 draw(a, b, rgb)
 
-        def mark(p, ch, rgb):
+        # 글자 표시 — 같은 칸에 여럿이 겹치면 우선순위가 높은 쪽이 그 칸, 진 쪽은 바로 옆 빈 칸에 나란히 (번갈아 그릴 애니메이션이 없어서)
+        #   우선순위: 로봇 ● > 경로 끝 G·L > 경유점 번호 > goal 번호 > S > O > M. 십자선 칸은 비워 둠 (십자선이 덮으니)
+        pend: list[tuple[int, tuple[int, int], str, tuple, tuple | None]] = []   # (우선순위, 칸, 글자, 글자색, 바탕색)
+
+        def mark(p, ch, rgb, prio=50, bg=None):
             c, r = scr(p)
             if 0 <= c < cols and 0 <= r < sub:
-                labels[(c, r // 2)] = (ch, rgb)
+                pend.append((prio, (c, r // 2), ch, rgb, bg))
         endbg: dict[tuple[int, int], tuple] = {}   # 경로 끝점 G(전역)·L(지역) — 흰 글자에 경로 색 바탕 (경로선 위에 겹쳐도 보임)
         for pl, rgb in self.plans:
             if pl:
-                mark(pl[-1], 'L' if rgb == LOCAL_PLAN_RGB else 'G', (255, 255, 255))   # G = 전역 경로 끝(목표) · L = 지역 경로 끝(컨트롤러가 앞서 보는 점)
-                c, r = scr(pl[-1])
-                if 0 <= c < cols and 0 <= r < sub:
-                    endbg[(c, r // 2)] = rgb
+                mark(pl[-1], 'L' if rgb == LOCAL_PLAN_RGB else 'G', (255, 255, 255), 90, rgb)   # G = 전역 경로 끝(목표) · L = 지역 경로 끝(컨트롤러가 앞서 보는 점)
         for i, p in enumerate(self.waypoints, 1):
-            mark(p, str(i % 10), WAYPOINT_RGB)
+            mark(p, str(i % 10), WAYPOINT_RGB, 80)
         if self.start:
-            mark(self.start, 'S', START_RGB)
+            mark(self.start, 'S', START_RGB, 60)
         for i, g in enumerate(self.goals, 1):
-            mark((g['x'], g['y']), str(i % 10), GOAL_RGB)
+            mark((g['x'], g['y']), str(i % 10), GOAL_RGB, 70)
         if self.show_frames:
-            mark((0.0, 0.0), 'M', MAP_RGB)
+            mark((0.0, 0.0), 'M', MAP_RGB, 40)
             if self.odom:
-                mark(self.odom, 'O', ODOM_RGB)
+                mark(self.odom, 'O', ODOM_RGB, 50)
         robot_cell = None
         if self.robot:
             c, r = scr(self.robot)
             if 0 <= c < cols and 0 <= r < sub:
                 robot_cell = (c, r // 2)
-                labels[robot_cell] = ('●' if self.color else '@', ROBOT_RGB)
         cur = (cols // 2, (sub // 2) // 2)
+        if robot_cell:   # 로봇이 십자선 칸이면 아래에서 ⊕ 하나로 — 그 밖은 일반 글자처럼 겹침 처리
+            pend.append((100, robot_cell, '●' if self.color else '@', ROBOT_RGB, None))
+        taken = {cur}
+        for prio, pos, ch, rgb, bg in sorted(pend, key=lambda t: -t[0]):
+            if pos == cur and ch in ('●', '@'):
+                continue
+            for dc, dr in ((0, 0), (1, 0), (-1, 0), (0, -1), (0, 1), (2, 0), (-2, 0)):
+                q = (pos[0] + dc, pos[1] + dr)
+                if q not in taken and 0 <= q[0] < cols and 0 <= q[1] < rows:
+                    taken.add(q)
+                    labels[q] = (ch, rgb)
+                    if bg:
+                        endbg[q] = bg
+                    break
         # M·O·로봇의 방향 화살표 — map x축(M은 늘 0°) · odom 프레임 방향 · 로봇 진행 방향. 글자(M·O·●)가 있는 칸은 글자가 우선.
         rays: dict[tuple[int, int], tuple[int, tuple]] = {}   # 글자 칸 → (점자 비트, 색)
         if self.show_frames:
