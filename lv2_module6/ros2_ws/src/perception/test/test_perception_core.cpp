@@ -7,7 +7,12 @@
 #include <fstream>
 #include <random>
 
-#include <opencv2/aruco.hpp>
+#include <opencv2/core/version.hpp>
+#if CV_VERSION_MAJOR > 4 || (CV_VERSION_MAJOR == 4 && CV_VERSION_MINOR >= 7)
+#include <opencv2/objdetect/aruco_detector.hpp>  // OpenCV 4.7+ (젯슨 4.8)
+#else
+#include <opencv2/aruco.hpp>  // OpenCV 4.6 contrib (PC 도커)
+#endif
 #include <opencv2/imgcodecs.hpp>
 #include <opencv2/imgproc.hpp>
 
@@ -32,7 +37,11 @@ cv::Mat roi_hsv(int h, int s = 200, int v = 150) {
 }
 cv::Mat marker(int id, int size) {
   cv::Mat m;
+#if CV_VERSION_MAJOR > 4 || (CV_VERSION_MAJOR == 4 && CV_VERSION_MINOR >= 7)
+  cv::aruco::generateImageMarker(cv::aruco::getPredefinedDictionary(cv::aruco::DICT_APRILTAG_36h11), id, size, m);
+#else
   cv::aruco::drawMarker(cv::aruco::getPredefinedDictionary(cv::aruco::DICT_APRILTAG_36h11), id, size, m);
+#endif
   cv::Mat bgr;
   cv::cvtColor(m, bgr, cv::COLOR_GRAY2BGR);
   return bgr;

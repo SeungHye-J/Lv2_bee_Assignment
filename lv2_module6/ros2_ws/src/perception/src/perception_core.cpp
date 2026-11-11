@@ -8,7 +8,15 @@
 #include <limits>
 #include <numeric>
 
+#include <opencv2/core/version.hpp>
+// AprilTag(aruco): OpenCV 4.7부터는 본체(objdetect) 안 ArucoDetector · 4.6 이하는 contrib aruco 모듈
+//   (젯슨 JetPack OpenCV 4.8 = 본체 · PC 도커 Ubuntu 24.04 apt OpenCV 4.6 = contrib)
+#if CV_VERSION_MAJOR > 4 || (CV_VERSION_MAJOR == 4 && CV_VERSION_MINOR >= 7)
+#include <opencv2/objdetect/aruco_detector.hpp>
+#define PERCEPTION_ARUCO_DETECTOR 1
+#else
 #include <opencv2/aruco.hpp>
+#endif
 #include <opencv2/calib3d.hpp>
 #include <opencv2/imgproc.hpp>
 
@@ -522,7 +530,31 @@ std::pair<std::string, std::optional<double>> posture_from_height(
 bool view_from_side(const cv::Matx33d & rot, double max_down_deg) { return -rot(2, 2) < std::sin(deg2rad(max_down_deg)); }
 
 // ---------- AprilTag
-struct TagDetector::Impl {
+#ifdef PERCEPTION_ARUCO_DETECTOR
+struct TagDetector::Impl {  // OpenCV 4.7+ — 검출기 객체에 파라미터를 넣고, 바뀔 때만 다시 넣음
+  cv::aruco::DetectorParameters params;
+  cv::aruco::ArucoDetector det;
+  Impl() : params(make_params()), det(cv::aruco::getPredefinedDictionary(cv::aruco::DICT_APRILTAG_36h11), params) {}
+  static cv::aruco::DetectorParameters make_params() {
+    cv::aruco::DetectorParameters p;
+    p.minMarkerPerimeterRate = 0.01;
+    return p;
+  }
+};
+
+TagDetector::TagDetector() : impl_(std::make_shared<Impl>()) { ok_ = true; }
+
+void TagDetector::detect(const cv::Mat & gray, std::optional<double> min_px, std::vector<std::vector<cv::Point2f>> & corners,
+                         std::vector<int> & ids) {
+  const double rate = min_px ? *min_px / std::max(gray.rows, gray.cols) : 0.01;
+  if (impl_->params.minMarkerPerimeterRate != rate) {
+    impl_->params.minMarkerPerimeterRate = rate;
+    impl_->det.setDetectorParameters(impl_->params);
+  }
+  impl_->det.detectMarkers(gray, corners, ids);
+}
+#else
+struct TagDetector::Impl {  // OpenCV 4.6 이하 — contrib aruco 함수
   cv::Ptr<cv::aruco::Dictionary> dict;
   cv::Ptr<cv::aruco::DetectorParameters> params;
 };
@@ -539,6 +571,7 @@ void TagDetector::detect(const cv::Mat & gray, std::optional<double> min_px, std
   impl_->params->minMarkerPerimeterRate = min_px ? *min_px / std::max(gray.rows, gray.cols) : 0.01;
   cv::aruco::detectMarkers(gray, impl_->dict, corners, ids, impl_->params);
 }
+#endif
 
 std::vector<Tag> detect_tags(TagDetector * det, const cv::Mat & bgr, double gamma, bool half, std::optional<double> min_px,
                              std::optional<double> half_min_px) {
