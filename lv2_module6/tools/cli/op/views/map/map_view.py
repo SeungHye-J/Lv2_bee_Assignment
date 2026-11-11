@@ -14,6 +14,7 @@ from .viewport import Viewport
 RGB = {UNKNOWN: (70, 70, 78), FREE: (205, 205, 210), OCC: (18, 18, 24)}   # 칸 색 — OUT은 색 없음 (터미널 바탕)
 MAP_RGB, ODOM_RGB = (90, 220, 255), (255, 150, 40)   # map 원점 M · odom 원점 O
 PATH_RGB, ROBOT_RGB, GOAL_RGB, START_RGB, CURSOR_RGB = (240, 190, 40), (235, 60, 60), (60, 200, 90), (70, 150, 255), (255, 80, 220)
+PLAN_RGB, LOCAL_PLAN_RGB = (60, 230, 200), (255, 255, 255)   # Nav2 전역 경로(/plan) · 지역 경로(/local_plan)
 COST_INFLATED, COST_LETHAL = (125, 85, 25), (175, 35, 35)   # 코스트맵 겹침 — 팽창 / 내접·치명
 BRAILLE = {(0, 0): 0x01, (0, 1): 0x02, (0, 2): 0x04, (1, 0): 0x08, (1, 1): 0x10, (1, 2): 0x20, (0, 3): 0x40, (1, 3): 0x80}
 YAW_LEN, YAW_GAP, HEAD_LEN = 16, 3, 5   # 방향선 길이 · 십자선에서 비우는 거리 · 화살표 머리 길이 (점 단위 — 점자 한 글자 = 2×4점)
@@ -62,7 +63,7 @@ class MapView(View):
     """grid를 vp(Viewport)로 잘라 cols × rows 글자 영역으로 그린다. robot·start·goals는 밖(페이지)이 갱신, 키는 on_key."""
 
     focusable = True
-    hints = '↑↓←→ 지도 이동 · +/- 확대·축소 · f 전체 · r 로봇 따라가기 · c costmap · [ ] 방향 15° · { } 1° · Enter 찍기'
+    hints = '↑↓←→ 지도 이동 · +/- 확대·축소 · f 전체 · r 로봇 따라가기 · c costmap · p 경로 · [ ] 방향 15° · { } 1° · Enter 찍기'
 
     def __init__(self, grid: MapGrid, color: bool = True, extra_key=None):
         self.grid, self.color = grid, color
@@ -83,6 +84,7 @@ class MapView(View):
         self._codes: list[list[int]] = []
         self.cost: CostGrid | None = None   # 겹쳐 볼 코스트맵 (None = 없음)
         self.show_cost = False
+        self.plans: list[tuple[list[tuple[float, float]], tuple]] = []   # 겹쳐 그릴 Nav2 경로들 (점 목록, 색) — 끝점은 E
         self._cost_codes: list[list[int]] | None = None
 
     @property
@@ -157,10 +159,19 @@ class MapView(View):
                 if 0 <= c < cols and 0 <= r < sub:
                     dots[(c, r)] = PATH_RGB
 
+        for pl, rgb in self.plans:   # Nav2 경로 — 목표 줄(노랑) 위에
+            for a, b in zip(pl, pl[1:]):
+                for c, r in _line(scr(a), scr(b)):
+                    if 0 <= c < cols and 0 <= r < sub:
+                        dots[(c, r)] = rgb
+
         def mark(p, ch, rgb):
             c, r = scr(p)
             if 0 <= c < cols and 0 <= r < sub:
                 labels[(c, r // 2)] = (ch, rgb)
+        for pl, rgb in self.plans:
+            if pl:
+                mark(pl[-1], 'E', rgb)
         if self.start:
             mark(self.start, 'S', START_RGB)
         for i, g in enumerate(self.goals, 1):

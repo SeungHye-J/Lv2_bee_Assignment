@@ -111,3 +111,14 @@ cv.show_frames = False
 assert not braille_cells(cv), 'show_frames 가 꺼지면 방향 화살표도 없음'
 print('PASS test_map_view')
 
+
+# Nav2 경로 겹침(p) — 점선(:)이 늘고 끝점 E가 보임, 경로가 없으면 그대로
+view = MapView(g, color=False)
+view.vp.fit(30, 20)
+base = ''.join(view.render(30, 10))
+view.plans = [([(-0.3, -0.3), (0.0, 0.0), (0.3, 0.3)], (60, 230, 200))]
+with_plan = ''.join(view.render(30, 10))
+assert 'E' in with_plan and with_plan.count(':') > base.count(':'), '경로가 그려져야 함'
+view.plans = []
+assert ''.join(view.render(30, 10)) == base
+print('map_view plan overlay ok')
