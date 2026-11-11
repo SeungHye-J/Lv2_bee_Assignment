@@ -14,7 +14,7 @@ from .viewport import Viewport
 RGB = {UNKNOWN: (70, 70, 78), FREE: (205, 205, 210), OCC: (18, 18, 24)}   # 칸 색 — OUT은 색 없음 (터미널 바탕)
 MAP_RGB, ODOM_RGB = (90, 220, 255), (255, 150, 40)   # map 원점 M · odom 원점 O
 PATH_RGB, ROBOT_RGB, GOAL_RGB, START_RGB, CURSOR_RGB = (240, 190, 40), (235, 60, 60), (60, 200, 90), (70, 150, 255), (255, 80, 220)
-PLAN_RGB, LOCAL_PLAN_RGB = (60, 230, 200), (255, 255, 255)   # Nav2 전역 경로(/plan) · 지역 경로(/local_plan)
+PLAN_RGB, LOCAL_PLAN_RGB, WAYPOINT_RGB = (20, 90, 255), (170, 0, 255), (255, 110, 0)   # 전역 경로(/plan) 파랑 · 지역 경로(/local_plan) 보라 · 경유점 주황 — 밝은 회색 지도·검은 벽·분홍 십자선·빨강 로봇과 겹쳐도 구분됨
 COST_INFLATED, COST_LETHAL = (125, 85, 25), (175, 35, 35)   # 코스트맵 겹침 — 팽창 / 내접·치명
 BRAILLE = {(0, 0): 0x01, (0, 1): 0x02, (0, 2): 0x04, (1, 0): 0x08, (1, 1): 0x10, (1, 2): 0x20, (0, 3): 0x40, (1, 3): 0x80}
 YAW_LEN, YAW_GAP, HEAD_LEN = 16, 3, 5   # 방향선 길이 · 십자선에서 비우는 거리 · 화살표 머리 길이 (점 단위 — 점자 한 글자 = 2×4점)
@@ -94,6 +94,7 @@ class MapView(View):
         self._codes: list[list[int]] = []
         self.cost: CostGrid | None = None   # 겹쳐 볼 코스트맵 (None = 없음)
         self.show_cost = False
+        self.waypoints: list[tuple[float, float]] = []   # 경유점 (navigate·approach 목표) — 번호가 주황으로 찍힘
         self.plans: list[tuple[list[tuple[float, float]], tuple]] = []   # 겹쳐 그릴 Nav2 경로들 (점 목록, 색) — 끝점은 E
         self._cost_codes: list[list[int]] | None = None
 
@@ -182,6 +183,8 @@ class MapView(View):
         for pl, rgb in self.plans:
             if pl:
                 mark(pl[-1], 'E', rgb)
+        for i, p in enumerate(self.waypoints, 1):
+            mark(p, str(i % 10), WAYPOINT_RGB)
         if self.start:
             mark(self.start, 'S', START_RGB)
         for i, g in enumerate(self.goals, 1):

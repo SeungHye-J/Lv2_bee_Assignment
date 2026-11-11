@@ -88,9 +88,14 @@ w.set_robot_pose(w.x, w.y, 0.0)
 page = MapPage(app, mode='view')
 for kind, topic in (('plan', '/plan'), ('local_plan', '/local_plan')):
     app.create_subscription(PathMsg, topic, lambda m, k=kind: page._on_path(k, m), None)
+from plan.msg import SubGoalArray  # noqa: E402
+app.create_subscription(SubGoalArray, '/task/sub_goals', page._on_goals, None)
 w.send_nav_goal({'x': w.x + 1.0, 'y': w.y})
 run(1.2)
 page.plan_on = True
+bus.cmd_skill('navigate', f'{w.x + 0.5:.2f},{w.y:.2f}')   # 경유점 — 실행 중인 navigate 목표가 번호로 찍힘
+run(0.3)
+assert len(page._waypoint_pts()) == 1 and '경유점' in page._plan_lines()[1], page._plan_lines()
 lines, info = page._plan_lines()
 assert len(lines) == 2 and '전역' in info and '지역' in info, info
 cg = CostGrid.from_msg(LATEST['/global_costmap/costmap'])

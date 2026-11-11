@@ -140,3 +140,13 @@ assert _cell_bg(FREE, OCC, RGB[FREE], RGB[OCC]) == RGB[OCC]
 assert _cell_bg(FREE, FREE, RGB[FREE], RGB[FREE]) == RGB[FREE]
 assert _cell_bg(OUT, OUT, None, None) is None, '지도 밖은 칠하지 않음'
 print('map_view wall under arrow ok')
+
+# 경유점 — 주황 번호로 찍힘 · 경로선 색은 밝은 회색 지도(205,205,210)와 구분되는 색 (흰색이면 안 보임)
+from op.views.map.map_view import LOCAL_PLAN_RGB, PLAN_RGB, WAYPOINT_RGB  # noqa: E402
+for rgb in (PLAN_RGB, LOCAL_PLAN_RGB, WAYPOINT_RGB):
+    assert max(abs(a - b) for a, b in zip(rgb, (205, 205, 210))) > 80, rgb
+view = MapView(g, color=True)
+view.vp.fit(30, 20)
+view.waypoints = [(0.2, 0.2)]   # (0,0)은 M 글자가 덮음
+assert '\033[1;38;2;255;110;0m' in '\n'.join(view.render(30, 10)), '경유점이 주황으로 찍혀야 함'
+print('map_view waypoint ok')

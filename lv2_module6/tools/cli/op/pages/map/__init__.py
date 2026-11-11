@@ -57,6 +57,7 @@ class MapPage(Menu):
         self._cost_subs: list = []
         self.plan_on = False          # p — Nav2 전역(/plan)·지역(/local_plan) 경로 겹침
         self._plans: dict = {'plan': None, 'local_plan': None}   # 종류 → (받은 시각, [(x, y)…])
+        self._waypoints: tuple[int, list[tuple[float, float]]] | None = None   # (plan_id, 경유점) — /task/sub_goals의 navigate·approach 목표
 
     # ---------------------------------------------------------------- 동작 (키 · 메뉴 공용)
     def pick(self) -> None:
@@ -140,18 +141,44 @@ class MapPage(Menu):
             self.msg = '저장 지도에는 경로가 없음 — 지금 지도(live)에서만'
             return
         self.plan_on = not self.plan_on
-        self.msg = '경로 겹침 ' + ('ON — 전역 /plan · 지역 /local_plan' if self.plan_on else 'OFF')
+        self.msg = '경로 겹침 ' + ('ON — 전역(파랑) · 지역(보라) · 경유점(주황 번호)' if self.plan_on else 'OFF')
+
+    def _on_goals(self, m) -> None:
+        """/task/sub_goals — navigate·approach 목표 좌표(\"x,y[,yaw]\")만 경유점으로 (물체 id 목표는 좌표를 모름)."""
+        pts = []
+        for g in m.goals:
+            if g.skill in ('navigate', 'approach') and ',' in g.target:
+                try:
+                    x, y = (float(t) for t in g.target.split(',')[:2])
+                except ValueError:
+                    continue
+                pts.append((x, y))
+        self._waypoints = (int(m.plan_id), pts) if pts else None
+
+    def _waypoint_pts(self):
+        """그리는 경유점 — 그 계획이 지금 실행 중(/task/status RUNNING)일 때만 (끝난 계획의 점이 남아 보이지 않게)."""
+        wp = self._waypoints
+        if not (self.plan_on and wp):
+            return []
+        ts = self.state_task()
+        return wp[1] if ts.startswith(f'plan={wp[0]} ') and 'RUNNING' in ts else []
+
+    def state_task(self) -> str:
+        return self.app.state.task_status or ''
 
     def _plan_lines(self):
         """겹칠 경로 [(점들, 색)] + 상태 글자. 15초 넘게 안 온 경로는 버림 (지난 주행 것이 남아 보이지 않게)."""
         if not self.plan_on:
             return [], ''
         now, out, info = time.monotonic(), [], []
-        for kind, label, rgb in (('plan', '전역', PLAN_RGB), ('local_plan', '지역', LOCAL_PLAN_RGB)):
+        for kind, label, rgb in (('plan', '전역(파랑)', PLAN_RGB), ('local_plan', '지역(보라)', LOCAL_PLAN_RGB)):
             got = self._plans.get(kind)
             if got and now - got[0] <= self.PLAN_FRESH_S and len(got[1]) > 1:
                 out.append((got[1], rgb))
                 info.append(f'{label} {len(got[1])}점')
+        wps = self._waypoint_pts()
+        if wps:
+            info.append(f'경유점(주황 번호) {len(wps)}개')
         return out, ('경로(p): ' + ' · '.join(info) if info else f'경로(p): 없음 — 주행 중이 아니거나 {self.PLAN_FRESH_S:.0f}초 넘게 안 옴')
 
     # ---------------------------------------------------------------- 화면
@@ -219,6 +246,7 @@ class MapPage(Menu):
         v.cost = self._cost_grid()
         v.show_cost = self.cost_mode != 0 and v.cost is not None
         v.plans, plan_info = self._plan_lines()
+        v.waypoints = self._waypoint_pts()
         v.robot, v.start, v.goals, v.yaw = (self._pose(), ((self.start['x'], self.start['y']) if self.start else None),
                                             self.goals, self.yaw)
         if not self._fitted:
@@ -316,6 +344,12 @@ class MapPage(Menu):
                     self._cost_subs.append(self.app.create_subscription(
                         PathMsg, topic, lambda m, k=kind: self._on_path(k, m),
                         QoSProfile(depth=1, reliability=QoSReliabilityPolicy.RELIABLE)))
+            except Exception:
+                pass
+            try:   # 경유점 — plan 메시지가 없는 환경이면 건너뜀
+                from plan.msg import SubGoalArray
+                self._cost_subs.append(self.app.create_subscription(
+                    SubGoalArray, '/task/sub_goals', self._on_goals, qos))
             except Exception:
                 pass
         try:
