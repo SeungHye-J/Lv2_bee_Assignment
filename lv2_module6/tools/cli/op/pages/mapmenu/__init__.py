@@ -69,7 +69,7 @@ class MapPoseItem(MenuItem):
         return '초기 위치 (initialpose · 지도에서 찍기)'
 
     def run(self):
-        return self.ui.window.navigate('map', mode='pose', on_pose=self.bus.ab.set_robot_pose)
+        return self.ui.window.navigate('map', mode='pose', on_pose=self.bus.nav.set_robot_pose)
 
 
 class MapGoalItem(MenuItem):
@@ -81,7 +81,7 @@ class MapGoalItem(MenuItem):
         return '이동 목표 (goal · 지도에서 찍기)'
 
     def run(self):
-        if self.state.operation != 'AUTO':
+        if self.state.operation and self.state.operation != 'AUTO':   # 모르면(빈 값) 묻지 않음 — 재연결 직후 거짓 확인창 방지
             if not self.ui.confirm('AUTO로 전환하고 이동 목표를 찍을까요?', default=True,
                                    body=['Nav2 이동 목표는 AUTO에서 실행됩니다.']):
                 return STAY
@@ -89,7 +89,7 @@ class MapGoalItem(MenuItem):
         return self.ui.window.navigate('map', mode='goal', on_pose=self._send_goal)
 
     def _send_goal(self, x: float, y: float, yaw_deg: float) -> None:
-        self.bus.ab.send_nav_goal({'x': x, 'y': y, 'yaw_deg': yaw_deg}, 'map')
+        self.bus.nav.send_nav_goal({'x': x, 'y': y, 'yaw_deg': yaw_deg}, 'map')
 
 
 class MapPoseMenuItem(MenuItem):

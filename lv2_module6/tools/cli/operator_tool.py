@@ -87,7 +87,7 @@ class OperatorTool(Node):
         self._device_subs: dict[str, object] = {}
         self._restart_note = ''
         self._restart_armed_at = 0.0
-        self.current_screen = ''   # 지금 들어가 있는 최상위 메뉴 키 ('4' …) — 재연결 exec 뒤 복원
+        self.resume_path: list[str] = []   # 지금 열려 있는 화면 항목 키 경로 (예: ['4','8','1']) — 재연결 exec 뒤 이 경로로 복원
         # 화면 틀(Window) 신호 — ROS 폴링·재연결은 'tick', 이름으로 화면 열기는 'navigate'
         self.ui.window.connect('tick', self._on_tick)
         self.ui.window.connect('navigate', self._on_navigate)
@@ -153,7 +153,7 @@ class OperatorTool(Node):
         if now - self._restart_armed_at < 12.0:
             return
         self.ui.close()
-        os.environ['BEE_RESUME_SCREEN'] = self.current_screen   # 메인 메뉴로 튕기지 않고 보던 메뉴로 (그 안의 하위 화면까지는 복원 안 함)
+        os.environ['BEE_RESUME_PATH'] = ','.join(self.resume_path)   # 보던 화면 그대로 — 메뉴 키 경로를 새 프로세스가 되짚는다
         os.execv(sys.executable, [sys.executable, '-u', str(Path(__file__).resolve()), 'menu'])
 
     def _wire(self):
@@ -265,12 +265,9 @@ class OperatorTool(Node):
             from op.pages import CalibrateMenu
             return CalibrateMenu(self)
         if name == '8':
-            from op.pages import AbMenu
-            return AbMenu(self)
-        if name == '9':
             from op.pages import TopicBagMenu
             return TopicBagMenu(self)
-        if name == '0':
+        if name == '9':
             from op.pages import MissionMenu
             return MissionMenu(self)
         if name == 'diagnostics':
@@ -281,16 +278,13 @@ class OperatorTool(Node):
     # ------------------------------------------------------------- CLI 진입
     def cmd_menu(self, args) -> int:
         from op.pages import MainMenu
-        key = os.environ.pop('BEE_RESUME_SCREEN', '')
-        if key:
-            self.poll(0.6)
-            page = self.screen(key)
-            if page is not None:
-                self.current_screen = key
-                res = page.show()
-                self.current_screen = ''
-                if res == QUIT:
-                    return 0
+        path = [k for k in os.environ.pop('BEE_RESUME_PATH', '').split(',') if k]
+        if path:   # 재연결로 다시 뜸 — 먼저 /state/*(latched)를 받는다: 모르는 상태로 항목을 열면 '모드가 AUTO가 아님' 같은 확인창이 거짓으로 뜸
+            end = time.monotonic() + 6.0
+            while not self.state.values.get('operation_mode') and time.monotonic() < end:
+                self.poll(0.2)
+        if path:   # 재연결로 다시 뜸 — 메인 메뉴에서 같은 키를 차례로 눌러 보던 화면까지 되돌아간다 (Window.run이 소비)
+            self.ui.window.resume_queue = path
         return int(MainMenu(self).show() or 0)
 
     def __getattr__(self, name: str):
@@ -309,7 +303,7 @@ def build_parser() -> argparse.ArgumentParser:
         prog='operator_tool',
         formatter_class=argparse.RawDescriptionHelpFormatter,
         description='bee 운영자 CLI — 인자 없이 실행하면 대화형 메뉴, 명령을 주면 한 번 실행하고 끝난다. '
-                    '메뉴 번호: 1 상태 · 2 장치 · 3 조작 · 4 지도/위치 · 5 노드 · 6 RViz · 7 칼리브레이션 · 8 A/B · 9 토픽·bag · 0 미션',
+                    '메뉴 번호: 1 상태 · 2 장치 · 3 조작 · 4 지도/위치 · 5 노드 · 6 RViz · 7 칼리브레이션 · 8 토픽·bag · 9 미션',
         epilog='''run-cli가 먼저 받는 명령 (bringup 수명주기·빌드 — real 전용):
   ./tools/run-cli start                  # bringup 시작 (백그라운드, 로그 ./bringup.log)
   ./tools/run-cli stop                   # 떠 있는 ROS 전부 끄기
@@ -318,9 +312,10 @@ def build_parser() -> argparse.ArgumentParser:
 
 ROS 층 선택 (모든 명령 앞에 붙임):
   --source real     진짜 rclpy — bringup·실기 (기본)
-  --source fake     프로세스 안 가짜 ROS — ROS·도커 없이 화면 시험
+  --source fake     프로세스 안 가짜 ROS + 움직이는 가짜 세계 — ROS·도커 없이 화면 시험
+                    (수동 주행·goal·미션·skill·costmap(c)·경로(p)가 명령에 반응. 값은 전부 더미 — ros/fake/FakeWorld.py)
   --source docker   도커 test-faker가 /debug에 쓰는 파일 브리지 (--debug-dir 경로 · --no-sim · --no-faker)
-  fake/docker는 plan 메시지를 몰라서 미션 상태(/mission/state)는 안 보임
+  docker는 plan 메시지를 몰라서 미션 상태(/mission/state)는 안 보임
 
 예시:
   ./tools/run-cli mission status
@@ -337,11 +332,6 @@ ROS 층 선택 (모든 명령 앞에 붙임):
   ./tools/run-cli map status
   ./tools/run-cli map save
   ./tools/run-cli node status controller_server   # RL/DWB 상태
-  ./tools/run-cli ab nodes
-  ./tools/run-cli ab rl_nav_controller status
-  ./tools/run-cli ab rl_nav_controller record --label 정책
-  ./tools/run-cli ab rl_nav_controller stop
-  ./tools/run-cli ab rl_nav_controller report --last
 ''')
     sub = parser.add_subparsers(dest='command', required=True)
 
@@ -361,7 +351,7 @@ ROS 층 선택 (모든 명령 앞에 붙임):
     collision = sub.add_parser('collision', help='collision_monitor 켜기/끄기/상태 (MANUAL·MAPPING이면 자동으로 꺼짐 — 직접 바꿀 때)')
     collision.add_argument('state', type=str.lower, choices=('on', 'off', 'status'))
 
-    bag = sub.add_parser('bag', help='bag 녹화 + CPU·메모리·GPU 부하 기록 — start | stop | status (메뉴 9)')
+    bag = sub.add_parser('bag', help='bag 녹화 + CPU·메모리·GPU 부하 기록 — start | stop | status (메뉴 8)')
     bag.add_argument('action', type=str.lower, choices=('start', 'stop', 'status'))
     bag.add_argument('--label', '-l', default=None, help='start: 폴더 이름에 붙일 라벨 (예: asis_manual)')
     bag.add_argument('--topics', nargs='*', default=None, help='start: 이 토픽만 (생략하면 진단 프리셋)')
@@ -425,7 +415,7 @@ ROS 층 선택 (모든 명령 앞에 붙임):
     beep = sub.add_parser('beep', help='OpenCR 부저 — 인자 없으면 기본음, beep <Hz 100~8000> <ms 10~2000> (메뉴 1 상태 → 삑)')
     beep.add_argument('value', nargs='*', help='Hz ms (예: 4000 300)')
 
-    mission = sub.add_parser('mission', help='주사위 미션 — start | abort | status (메뉴 0). mission_manager의 /cmd/mission · /mission/state')
+    mission = sub.add_parser('mission', help='주사위 미션 — start | abort | status (메뉴 9). mission_manager의 /cmd/mission · /mission/state')
     mission.add_argument('action', type=str.lower, choices=('start', 'abort', 'status', 'skill', 'stop'),
                          help='start = 시작 (적재함 장부가 남았으면 거부) · abort = 중지 · status = 지금 단계·진행 · '
                               'skill <이름> <target> = 세부 명령 한 단계 (예: skill pick 5 · skill navigate 1.5,0.8,0) · stop = 진행 중 전부 취소')
@@ -438,25 +428,6 @@ ROS 층 선택 (모든 명령 앞에 붙임):
                       help='list = 전체 · status <이름> · restart <이름> (수명주기 노드는 active까지) · '
                            'activate <이름> = 수명주기 노드 unconfigured·inactive → active')
     node.add_argument('name', nargs='?', help='노드 이름 (예: velocity_smoother)')
-
-    ab = sub.add_parser('ab', help='A/B 테스트 — ab nodes | ab <노드> <동작> (메뉴 8)')
-    ab.add_argument('node', nargs='?', default='nodes',
-                    help='노드 이름 (예: rl_nav_controller) 또는 nodes')
-    ab.add_argument('action', nargs='?', default=None,
-                    choices=('status', 'on', 'off', 'record', 'stop', 'report', 'guide'),
-                    help='status · on · off · record · stop · report · guide (생략 시 status)')
-    ab.add_argument('bags', nargs='*', help='report: bag 폴더 2개 (A B)')
-    ab.add_argument('--label', '-l', default=None, help='record/guide: bag 이름에 붙일 라벨 (예: 정책, DWB)')
-    ab.add_argument('--out', default=None, help='record: 저장 폴더 · report: 출력 PNG')
-    ab.add_argument('--last', action='store_true', help='report: 최근 녹화 2개 사용')
-    ab.add_argument('--labels', nargs='*', default=None, help='report: 범례 이름 (예: 정책 DWB)')
-    ab.add_argument('--b-fallback', default='dwb', choices=('dwb', 'mppi', 'rpp', 'rotation_shim'),
-                    help='guide: B leg 의 안쪽 controller (정책 OFF 일 때 쓰는 것, 기본 dwb) — A 는 늘 정책')
-    ab.add_argument('--config', default=None, help='guide: command.json 경로 (기본 tools/cli/op/pages/ab/<노드>/command.json)')
-
-    ctl = sub.add_parser('controller', help='Nav2 컨트롤러 — status | policy on|off | fallback dwb|mppi|rpp|rotation_shim (메뉴 8 A/B 테스트)')
-    ctl.add_argument('what', type=str.lower, choices=('status', 'policy', 'fallback'))
-    ctl.add_argument('value', nargs='?', type=str.lower, help='policy: on|off · fallback: dwb|mppi|rpp|rotation_shim')
 
     restart = sub.add_parser('restart', help='state_manager에 재시작 요청 (위험) — all = bringup 전체')
     restart.add_argument('target', help='all 또는 노드 이름')

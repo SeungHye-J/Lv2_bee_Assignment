@@ -182,8 +182,7 @@ COPY docker/lv2_module6/build-ws.sh /usr/local/bin/build-ws
 COPY docker/lv2_module6/ros-restart.sh /usr/local/bin/ros-restart
 COPY docker/lv2_module6/ros-faker-restart.sh /usr/local/bin/ros-faker-restart
 COPY docker/lv2_module6/ros-kill.sh /usr/local/bin/ros-kill
-COPY docker/lv2_module6/test-ab-nav-policy.sh /usr/local/bin/test-ab-nav-policy
-# run-cli·A/B 도구 — Jetson 실기에서도 같은 경로(/ws/tools)로 동작 (개발 컨테이너는 compose 마운트로 덮어씀)
+# run-cli 도구 — Jetson 실기에서도 같은 경로(/ws/tools)로 동작 (개발 컨테이너는 compose 마운트로 덮어씀)
 COPY lv2_module6/tools /ws/tools
 RUN chmod +x /entrypoint.sh /usr/local/bin/test-* /usr/local/bin/build-ws /usr/local/bin/ros-restart /usr/local/bin/ros-faker-restart /usr/local/bin/ros-kill \
     && echo "source /opt/ros/lyrical/setup.bash" >> /root/.bashrc \
