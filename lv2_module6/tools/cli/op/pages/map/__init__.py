@@ -141,7 +141,7 @@ class MapPage(Menu):
             self.msg = '저장 지도에는 경로가 없음 — 지금 지도(live)에서만'
             return
         self.plan_on = not self.plan_on
-        self.msg = '경로 겹침 ' + ('ON — 전역(파랑) · 지역(보라) · 경유점(주황 번호)' if self.plan_on else 'OFF')
+        self.msg = '경로 겹침 ' + ('ON — 전역(파랑 G) · 지역(보라 L) · 주황 o = 경로 1 m 간격 · 주황 번호 = 작업 경유점' if self.plan_on else 'OFF')
 
     def _on_goals(self, m) -> None:
         """/task/sub_goals — navigate·approach 목표 좌표(\"x,y[,yaw]\")만 경유점으로 (물체 id 목표는 좌표를 모름)."""

@@ -261,6 +261,14 @@ class MapView(View):
         for pl, rgb in self.plans:
             if pl:
                 mark(pl[-1], 'L' if rgb == LOCAL_PLAN_RGB else 'G', (255, 255, 255), 90, rgb)   # G = 전역 경로 끝(목표) · L = 지역 경로 끝(컨트롤러가 앞서 보는 점)
+        for pl, rgb in self.plans:   # 전역 경로 사이사이 점 'o' — 1 m마다 (줄여 보면 점이 겹치지 않게 간격을 넓힘). 번호 경유점·끝점보다 낮은 순위
+            if rgb == PLAN_RGB and len(pl) > 2:
+                step, run, nxt = max(1.0, 6 * vp.scale), 0.0, max(1.0, 6 * vp.scale)
+                for a, b in zip(pl, pl[1:-1]):
+                    run += math.hypot(b[0] - a[0], b[1] - a[1])
+                    if run >= nxt:
+                        mark(b, 'o', WAYPOINT_RGB, 20)
+                        nxt += step
         for i, p in enumerate(self.waypoints, 1):
             mark(p, str(i % 10), WAYPOINT_RGB, 80)
         if self.start:

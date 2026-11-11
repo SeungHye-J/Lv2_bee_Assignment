@@ -195,3 +195,14 @@ assert '@' in txt and 'O' in txt and 'M' in txt, '겹쳐도 로봇·O·M이 모�
 rows_ = [l for l in txt.split('\n') if '@' in l]
 assert rows_ and all(ch in rows_[0] for ch in 'OM@') and max(rows_[0].index(ch) for ch in 'OM@') - min(rows_[0].index(ch) for ch in 'OM@') <= 4, rows_
 print('map_view overlap ok')
+
+# 경로 사이사이 점 o — 전역 경로를 1 m마다 (지도 8×8칸은 작아 0.8 m를 넘는 경로로)
+g2 = MapGrid(80, 80, 0.1, -4.0, -4.0, [0] * 6400)
+view = MapView(g2, color=False)
+view.vp.fit(60, 30)
+view.plans = [([(-3.0 + i * 0.1, 0.0) for i in range(61)], (20, 90, 255))]   # 6 m 직선
+txt = '\n'.join(view.render(60, 15))
+assert txt.count('o') >= 2, '경로 사이사이에 점이 찍혀야 함'
+view.plans = [([(-3.0 + i * 0.1, 0.0) for i in range(61)], (170, 0, 255))]   # 지역 경로에는 안 찍음
+assert '\n'.join(view.render(60, 15)).count('o') == 0
+print('map_view path points ok')
