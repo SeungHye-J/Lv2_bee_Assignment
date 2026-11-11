@@ -167,6 +167,7 @@ def install_modules(node_cls, *, parameter_client_cls, spin_once=None,
          spin_until_future_complete=spin_until_future_complete
          or (lambda node, fut, timeout_sec=1.0: None))
     _mod('rclpy.node', Node=node_cls)
+    _mod('rclpy.time', Time=lambda *a, **k: None)  # operator_tool이 import — fake는 TF가 없어 실제로 안 쓰임
     _mod('rclpy.parameter', Parameter=msgs.Parameter)
     _mod('rclpy.parameter_client', AsyncParameterClient=parameter_client_cls)
     qos = _mod('rclpy.qos')

@@ -53,6 +53,7 @@ class StateStore:
         # 상시 상태바용 (없으면 0/빈 값으로 표시, 보드 미동작 아님)
         self.tracked_count = 0
         self.task_status = ''
+        self.mission = None  # 마지막 /mission/state (plan/MissionState) — 미션 메뉴가 보여줌
         self.rates: dict[str, Rate] = {}  # 상단 생존 표시 — 키는 bars/state/top_state_bar.py TOPIC_RATES
         self.rl_status: list[float] = []  # controller_server FollowPath RL/DWB 상태
         self.rl_status_time = 0.0

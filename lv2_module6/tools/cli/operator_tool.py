@@ -198,6 +198,12 @@ class OperatorTool(Node):
                 LATCHED)
         except Exception:
             pass
+        try:
+            from plan.msg import MissionState  # type: ignore
+            self.create_subscription(MissionState, '/mission/state',
+                                     lambda m: setattr(self.state, 'mission', m), LATCHED)
+        except Exception:
+            pass
         # 로봇 map 위치 — tf2_ros가 없는 호스트면 칸이 '-'로 남는다
         try:
             from tf2_ros import Buffer, TransformListener
@@ -264,6 +270,9 @@ class OperatorTool(Node):
         if name == '9':
             from op.pages import TopicBagMenu
             return TopicBagMenu(self)
+        if name == '0':
+            from op.pages import MissionMenu
+            return MissionMenu(self)
         if name == 'diagnostics':
             from op.pages import DiagnosticsMenu
             return DiagnosticsMenu(self)
@@ -299,7 +308,24 @@ def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         prog='operator_tool',
         formatter_class=argparse.RawDescriptionHelpFormatter,
-        epilog='''예시:
+        description='bee 운영자 CLI — 인자 없이 실행하면 대화형 메뉴, 명령을 주면 한 번 실행하고 끝난다. '
+                    '메뉴 번호: 1 상태 · 2 장치 · 3 조작 · 4 지도/위치 · 5 노드 · 6 RViz · 7 칼리브레이션 · 8 A/B · 9 토픽·bag · 0 미션',
+        epilog='''run-cli가 먼저 받는 명령 (bringup 수명주기·빌드 — real 전용):
+  ./tools/run-cli start                  # bringup 시작 (백그라운드, 로그 ./bringup.log)
+  ./tools/run-cli stop                   # 떠 있는 ROS 전부 끄기
+  ./tools/run-cli restart [all|<노드>]   # 전체 또는 그 노드만 다시 띄움
+  ./tools/run-cli build [colcon 인자…]   # colcon build --symlink-install (예: --packages-select ml)
+
+ROS 층 선택 (모든 명령 앞에 붙임):
+  --source real     진짜 rclpy — bringup·실기 (기본)
+  --source fake     프로세스 안 가짜 ROS — ROS·도커 없이 화면 시험
+  --source docker   도커 test-faker가 /debug에 쓰는 파일 브리지 (--debug-dir 경로 · --no-sim · --no-faker)
+  fake/docker는 plan 메시지를 몰라서 미션 상태(/mission/state)는 안 보임
+
+예시:
+  ./tools/run-cli mission status
+  ./tools/run-cli mission start
+  ./tools/run-cli --source fake menu
   ./tools/run-cli status
   ./tools/run-cli menu
   ./tools/run-cli
@@ -349,7 +375,7 @@ def build_parser() -> argparse.ArgumentParser:
     drive.add_argument('--duration', type=_positive_float, default=1.0, help='주행 시간 [s] (기본 1.0)')
     drive.add_argument('--force', action='store_true', help='MANUAL 상태 확인을 건너뜀 (위험)')
 
-    calibrate = sub.add_parser('calibrate', help='칼리브레이션 (메뉴: 13) — wheel: 계획을 수동 경로로 재생하며 응답을 raw.csv로 기록 (로봇이 움직임)')
+    calibrate = sub.add_parser('calibrate', help='칼리브레이션 (메뉴 7) — wheel: 계획을 수동 경로로 재생하며 응답을 raw.csv로 기록 (로봇이 움직임)')
     cal_sub = calibrate.add_subparsers(dest='part', required=True)
     cal_wheel = cal_sub.add_parser('wheel', help='바퀴 응답 (MANUAL 모드 — 계획 JSON 재생)')
     cal_wheel.add_argument('plan', nargs='?', default=str(Path(__file__).resolve().parent / 'op' / 'pages' / 'calibration' / 'wheel' / 'command.json'),
@@ -396,18 +422,24 @@ def build_parser() -> argparse.ArgumentParser:
     map_parser.add_argument('--no-localize', dest='localize', action='store_false',
                             help='save만 하고 MAPPING 유지')
 
-    beep = sub.add_parser('beep', help='OpenCR 부저 — 인자 없으면 기본음, beep <Hz 100~8000> <ms 10~2000> (메뉴: 0 비프음)')
+    beep = sub.add_parser('beep', help='OpenCR 부저 — 인자 없으면 기본음, beep <Hz 100~8000> <ms 10~2000> (메뉴 1 상태 → 삑)')
     beep.add_argument('value', nargs='*', help='Hz ms (예: 4000 300)')
+
+    mission = sub.add_parser('mission', help='주사위 미션 — start | abort | status (메뉴 0). mission_manager의 /cmd/mission · /mission/state')
+    mission.add_argument('action', type=str.lower, choices=('start', 'abort', 'status', 'skill', 'stop'),
+                         help='start = 시작 (적재함 장부가 남았으면 거부) · abort = 중지 · status = 지금 단계·진행 · '
+                              'skill <이름> <target> = 세부 명령 한 단계 (예: skill pick 5 · skill navigate 1.5,0.8,0) · stop = 진행 중 전부 취소')
+    mission.add_argument('args', nargs='*', help='skill: <skill 이름> <target>')
 
     sub.add_parser('recover', help='조작이 안 될 때 — 모터 에러 재부팅 + 꺼진 컨트롤러 다시 켜기 (메뉴: 수동·팔·그리퍼 → z)')
 
-    node = sub.add_parser('node', help='노드 상태·재시작·수명주기 활성화 (메뉴: 10 노드)')
+    node = sub.add_parser('node', help='노드 상태·재시작·수명주기 활성화 (메뉴 5 노드)')
     node.add_argument('action', type=str.lower, choices=('list', 'status', 'restart', 'activate'),
                       help='list = 전체 · status <이름> · restart <이름> (수명주기 노드는 active까지) · '
                            'activate <이름> = 수명주기 노드 unconfigured·inactive → active')
     node.add_argument('name', nargs='?', help='노드 이름 (예: velocity_smoother)')
 
-    ab = sub.add_parser('ab', help='A/B 테스트 — ab nodes | ab <노드> <동작> (메뉴: 14)')
+    ab = sub.add_parser('ab', help='A/B 테스트 — ab nodes | ab <노드> <동작> (메뉴 8)')
     ab.add_argument('node', nargs='?', default='nodes',
                     help='노드 이름 (예: rl_nav_controller) 또는 nodes')
     ab.add_argument('action', nargs='?', default=None,
@@ -422,7 +454,7 @@ def build_parser() -> argparse.ArgumentParser:
                     help='guide: B leg 의 안쪽 controller (정책 OFF 일 때 쓰는 것, 기본 dwb) — A 는 늘 정책')
     ab.add_argument('--config', default=None, help='guide: command.json 경로 (기본 tools/cli/op/pages/ab/<노드>/command.json)')
 
-    ctl = sub.add_parser('controller', help='Nav2 컨트롤러 — status | policy on|off | fallback dwb|mppi|rpp|rotation_shim (메뉴 8 A/B)')
+    ctl = sub.add_parser('controller', help='Nav2 컨트롤러 — status | policy on|off | fallback dwb|mppi|rpp|rotation_shim (메뉴 8 A/B 테스트)')
     ctl.add_argument('what', type=str.lower, choices=('status', 'policy', 'fallback'))
     ctl.add_argument('value', nargs='?', type=str.lower, help='policy: on|off · fallback: dwb|mppi|rpp|rotation_shim')
 
