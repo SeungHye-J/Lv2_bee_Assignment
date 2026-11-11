@@ -167,11 +167,11 @@ class MapPage(Menu):
         return self.app.state.task_status or ''
 
     def _plan_lines(self):
-        """겹칠 경로 [(점들, 색)] + 상태 글자. 15초 넘게 안 온 경로는 버림 (지난 주행 것이 남아 보이지 않게)."""
+        """겹칠 경로 [(점들, 색)] + 상태 글자 (끝점 G = 전역 · L = 지역). 15초 넘게 안 온 경로는 버림 (지난 주행 것이 남아 보이지 않게)."""
         if not self.plan_on:
             return [], ''
         now, out, info = time.monotonic(), [], []
-        for kind, label, rgb in (('plan', '전역(파랑)', PLAN_RGB), ('local_plan', '지역(보라)', LOCAL_PLAN_RGB)):
+        for kind, label, rgb in (('plan', '전역(파랑 G)', PLAN_RGB), ('local_plan', '지역(보라 L)', LOCAL_PLAN_RGB)):
             got = self._plans.get(kind)
             if got and now - got[0] <= self.PLAN_FRESH_S and len(got[1]) > 1:
                 out.append((got[1], rgb))

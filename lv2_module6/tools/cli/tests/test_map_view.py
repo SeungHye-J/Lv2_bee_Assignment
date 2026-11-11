@@ -118,7 +118,7 @@ view.vp.fit(30, 20)
 base = ''.join(view.render(30, 10))
 view.plans = [([(-0.3, -0.3), (0.0, 0.0), (0.3, 0.3)], (60, 230, 200))]
 with_plan = ''.join(view.render(30, 10))
-assert 'E' in with_plan and with_plan.count(':') > base.count(':'), '경로가 그려져야 함'
+assert 'G' in with_plan and with_plan.count(':') > base.count(':'), '경로가 그려져야 함'
 view.plans = []
 assert ''.join(view.render(30, 10)) == base
 print('map_view plan overlay ok')
@@ -151,30 +151,35 @@ view.waypoints = [(0.2, 0.2)]   # (0,0)은 M 글자가 덮음
 assert '\033[1;38;2;255;110;0m' in '\n'.join(view.render(30, 10)), '경유점이 주황으로 찍혀야 함'
 print('map_view waypoint ok')
 
-# 점자 지도(기본) — 점 8개가 글자 한 칸 · 벽이 한 점이라도 있으면 점은 벽 · costmap을 켜면 반블록으로 자동 전환
-from op.views.map.map_view import BRAILLE, _braille_cell  # noqa: E402
-from op.views.map import UNKNOWN  # noqa: E402
-sub8 = [((dx, dy), FREE) for dy in range(4) for dx in range(2)]
-assert _braille_cell(sub8)[0] == 0 and _braille_cell(sub8)[2] == RGB[FREE], '한 종류면 배경만'
-w8 = [((dx, dy), OCC if (dx, dy) == (1, 2) else FREE) for dy in range(4) for dx in range(2)]
-bits, fg, bg, wall = _braille_cell(w8)
-assert bits == BRAILLE[(1, 2)] and fg == RGB[OCC] and bg == RGB[FREE] and wall, '벽 한 점이 점으로 남아야 함'
-edge = [((dx, dy), FREE if dx == 0 else OUT) for dy in range(4) for dx in range(2)]
-bits, fg, bg, wall = _braille_cell(edge)
+# 1/4 블록 지도(기본) — 빈틈 없는 블록 · 벽이 한 칸이라도 있으면 앞색은 벽 · costmap을 켜면 반블록으로 자동 전환
+from op.views.map.map_view import QUAD, QUAD_BIT, _quad_cell  # noqa: E402
+sub4 = [((dx, dy), FREE) for dy in (0, 1) for dx in (0, 1)]
+assert _quad_cell(sub4)[0] == 0 and _quad_cell(sub4)[2] == RGB[FREE], '한 종류면 배경만'
+w4 = [((dx, dy), OCC if (dx, dy) == (1, 0) else FREE) for dy in (0, 1) for dx in (0, 1)]
+bits, fg, bg, wall = _quad_cell(w4)
+assert QUAD[bits] == '▝' and fg == RGB[OCC] and bg == RGB[FREE] and wall, '벽 한 칸이 블록으로 남아야 함'
+col = [((dx, dy), OCC if dx == 0 else FREE) for dy in (0, 1) for dx in (0, 1)]
+assert QUAD[_quad_cell(col)[0]] == '▌', '세로 벽 = 왼쪽 반 블록 (이어진 선)'
+edge = [((dx, dy), FREE if dx == 0 else OUT) for dy in (0, 1) for dx in (0, 1)]
+bits, fg, bg, wall = _quad_cell(edge)
 assert fg == RGB[FREE] and bg is None and not wall, '지도 가장자리는 바탕 그대로'
-view = MapView(g, color=True)
-view.vp.fit(30, 20)
-hi = '\n'.join(view.render(30, 10))
-assert any(0x2801 <= ord(ch) <= 0x28ff for ch in hi), '점자로 그려져야 함'
+from ros.fake.FakeRos import fake_map  # noqa: E402
+view = MapView(MapGrid.from_msg(fake_map()), color=True)   # 실제 미로 지도 — 벽이 이어진 선으로 나오는지
+view.vp.fit(70, 60)
+hi = '\n'.join(view.render(70, 30))
+assert any(ch in QUAD[1:] for ch in hi), '블록으로 그려져야 함'
 view.show_cost = True
-lo = '\n'.join(view.render(30, 10))
-assert '▀' in lo and '▀' not in hi, 'costmap 모드는 반블록'
-print('map_view braille base ok')
+lo = '\n'.join(view.render(70, 30))
+assert not any(ch in '▘▝▖▗▌▐▚▞▛▜▙▟' for ch in lo), 'costmap 모드는 반블록(▀▄)만'
+assert any(ch in '▘▝▖▗▌▐▚▞▛▜▙▟' for ch in hi), '기본은 1/4 블록'
+print('map_view quad base ok')
 
 # 경로 끝점 E — 흰 글자 + 경로 색 바탕 (경로선과 같은 색 글자라 안 보이던 것)
 view = MapView(g, color=True)
 view.vp.fit(30, 20)
 view.plans = [([(-0.3, -0.3), (0.3, 0.3)], (20, 90, 255))]
 out = '\n'.join(view.render(30, 10))
-assert '\033[1;38;2;255;255;255m\033[48;2;20;90;255mE' in out, 'E는 흰 글자 + 경로 색 바탕'
+assert '\033[1;38;2;255;255;255m\033[48;2;20;90;255mG' in out, '끝점 G는 흰 글자 + 경로 색 바탕'
+view.plans = [([(-0.3, -0.3), (0.3, 0.3)], (170, 0, 255))]
+assert 'L' in ''.join(view.render(30, 10)).replace('\033', ''), '지역 경로 끝은 L'
 print('map_view plan end marker ok')

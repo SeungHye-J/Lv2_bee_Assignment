@@ -45,9 +45,14 @@ def _cell_bg(top: int, bot: int, tc, bc):
     return RGB[OCC] if OCC in (top, bot) else (bc or tc)
 
 
-def _braille_cell(sub: list[int]):
-    """글자 한 칸의 점자 2×4 칸(코드 8개, BRAILLE 순서) → (점 비트, 점 색, 배경 색, 벽 있음).
-    색은 점(전경)과 배경 둘뿐이라: 점 = 벽 > 모름 > 빈 곳 순으로 있는 가장 센 종류, 배경 = 나머지 중 가장 많은 종류 (지도 밖이면 None = 터미널 바탕)."""
+# 1/4 블록 — 글자 한 칸 = 가로 2 × 세로 2칸, 빈틈 없이 채워져서 가는 벽도 이어진 선으로 보임 (점자는 점 사이가 비어 점선처럼 보였음)
+QUAD = ' ▘▝▀▖▌▞▛▗▚▐▜▄▙▟█'   # 비트: 왼위 1 · 오른위 2 · 왼아래 4 · 오른아래 8
+QUAD_BIT = {(0, 0): 1, (1, 0): 2, (0, 1): 4, (1, 1): 8}
+
+
+def _quad_cell(sub: list):
+    """글자 한 칸의 1/4 블록 4칸(((dx, dy), 코드) 4개) → (블록 비트, 앞색, 배경색, 벽 있음).
+    앞색 = 벽 > 모름 > 빈 곳 순으로 있는 가장 센 종류, 배경 = 나머지 중 가장 많은 종류 (지도 밖이면 None = 터미널 바탕)."""
     cnt: dict[int, int] = {}
     for _, cd in sub:
         cnt[cd] = cnt.get(cd, 0) + 1
@@ -59,9 +64,9 @@ def _braille_cell(sub: list[int]):
     rest = {c: n for c, n in cnt.items() if c != fg_cls}
     bg_cls = max(rest, key=rest.get)
     bits = 0
-    for (dx, dy), cd in sub:
+    for pos, cd in sub:
         if cd == fg_cls:
-            bits |= BRAILLE[(dx, dy)]
+            bits |= QUAD_BIT[pos]
     return bits, RGB[fg_cls], RGB.get(bg_cls), wall
 
 
@@ -114,7 +119,7 @@ class MapView(View):
         self._codes: list[list[int]] = []
         self.cost: CostGrid | None = None   # 겹쳐 볼 코스트맵 (None = 없음)
         self.show_cost = False
-        self.hires = True            # 기본 지도를 점자 2×4로 (반블록의 4배 해상도) — costmap을 겹칠 때는 색이 정확한 반블록으로 자동 전환
+        self.hires = True            # 기본 지도를 1/4 블록(▘▝▖▗…)으로 — costmap을 겹칠 때는 색이 정확한 반블록으로 자동 전환
         self._bkey = None
         self._bcells: dict = {}
         self.waypoints: list[tuple[float, float]] = []   # 경유점 (navigate·approach 목표) — 번호가 주황으로 찍힘
@@ -173,7 +178,7 @@ class MapView(View):
         return self._codes
 
     def _hires_cells(self, cols: int, rows: int) -> dict:
-        """점자 지도 — 글자 칸 (c, r) → _braille_cell 결과. 점 하나 = 반블록 한 칸의 절반이라 같은 화면에 4배로 촘촘히 샘플링. 키·확대가 같으면 재사용."""
+        """1/4 블록 지도 — 글자 칸 (c, r) → _quad_cell 결과. 가로는 반블록의 2배로 촘촘히, 세로는 풀 칸 1~2개를 합쳐 샘플링. 키·확대가 같으면 재사용."""
         vp, g = self.vp, self.grid
         key = (vp.k, round(vp.cx, 6), round(vp.cy, 6), cols, rows)
         if key == self._bkey:
@@ -182,13 +187,24 @@ class MapView(View):
         w, h, raw = g.level(lv)
         size, s2 = g.res * (1 << lv), vp.scale / 2
         xs = [math.floor((vp.cx + (i + 0.5 - cols) * s2 - g.ox) / size) for i in range(cols * 2)]
-        ys = [math.floor((vp.cy + (rows * 2 - (j + 0.5)) * s2 - g.oy) / size) for j in range(rows * 4)]
-        pix = [[raw[y * w + x] if 0 <= x < w and 0 <= y < h else OUT for x in xs] for y in ys]
+        rowc = []   # 샘플 줄 하나 = 세로 scale = 풀 칸 1~2개 — 그 칸들을 합쳐서(벽 우선) 가는 벽이 샘플 사이로 빠지지 않게
+        for j in range(rows * 2):
+            top = (vp.cy + (rows - j) * vp.scale - g.oy) / size
+            lo, hi = math.floor(top - vp.scale / size + 1e-9), math.floor(top - 1e-9)
+            rowc.append(range(lo, hi + 1))
+
+        def pix(j, x):
+            best = OUT
+            for y in rowc[j]:
+                v = raw[y * w + x] if 0 <= x < w and 0 <= y < h else OUT
+                if v != OUT and (best == OUT or v > best):
+                    best = v
+            return best
         cells = {}
         for r in range(rows):
             for c in range(cols):
-                cells[(c, r)] = _braille_cell([((dx, dy), pix[4 * r + dy][2 * c + dx])
-                                               for dy in range(4) for dx in range(2)])
+                cells[(c, r)] = _quad_cell([((dx, dy), pix(2 * r + dy, xs[2 * c + dx]))
+                                            for dy in (0, 1) for dx in (0, 1)])
         self._bkey, self._bcells = key, cells
         return cells
 
@@ -237,10 +253,10 @@ class MapView(View):
             c, r = scr(p)
             if 0 <= c < cols and 0 <= r < sub:
                 labels[(c, r // 2)] = (ch, rgb)
-        endbg: dict[tuple[int, int], tuple] = {}   # 경로 끝점 E — 흰 글자에 경로 색 바탕 (경로선 위에 겹쳐도 보임)
+        endbg: dict[tuple[int, int], tuple] = {}   # 경로 끝점 G(전역)·L(지역) — 흰 글자에 경로 색 바탕 (경로선 위에 겹쳐도 보임)
         for pl, rgb in self.plans:
             if pl:
-                mark(pl[-1], 'E', (255, 255, 255))
+                mark(pl[-1], 'L' if rgb == LOCAL_PLAN_RGB else 'G', (255, 255, 255))   # G = 전역 경로 끝(목표) · L = 지역 경로 끝(컨트롤러가 앞서 보는 점)
                 c, r = scr(pl[-1])
                 if 0 <= c < cols and 0 <= r < sub:
                     endbg[(c, r // 2)] = rgb
@@ -316,7 +332,7 @@ class MapView(View):
                         db, rgb = bdots[(c, tr)]
                         put(f'\033[1;38;2;{rgb[0]};{rgb[1]};{rgb[2]}m{_bg(over)}', chr(0x2800 + db))
                     elif bits and fg:
-                        put(f'\033[22;38;2;{fg[0]};{fg[1]};{fg[2]}m{_bg(bgc)}', chr(0x2800 + bits))
+                        put(f'\033[22;38;2;{fg[0]};{fg[1]};{fg[2]}m{_bg(bgc)}', QUAD[bits])
                     else:
                         put(f'\033[0m{_bg(bgc)}', ' ')
                     continue
