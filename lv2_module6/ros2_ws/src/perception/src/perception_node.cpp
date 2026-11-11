@@ -123,7 +123,8 @@ PerceptionNode::PerceptionNode(const rclcpp::NodeOptions & options) : rclcpp::No
   const std::string model_path = ps("model_path", "");  // YOLO 가중치 ('' = 설치 폴더 model.pt · 이름만 = 설치 폴더에서 · 경로) — .onnx
   conf_th_ = pd("confidence", 0.4);                     // YOLO 신뢰도 하한
   imgsz_ = pi("imgsz", 416);                            // 입력 크기 [px] — .onnx가 고정 크기면 그 크기를 씀
-  device_ = ps("device", "cpu");                        // cpu · cuda (젯슨 GPU — ONNX Runtime CUDA, 안 되면 CPU)
+  device_ = ps("device", "cuda");                       // cuda (젯슨 GPU — ONNX Runtime CUDA, 안 되면 저절로 CPU) · cpu
+                                                        //   bringup은 device를 안 넘겨서 기본값이 쓰임 → GPU부터 시도
   cpu_threads_ = pi("cpu_threads", 2);                  // CPU 추론 스레드 수 (제어·Nav2가 밀리지 않게)
   sync_slop_ = pd("sync_slop", 0.05);                   // 컬러·depth 시각 차 허용 [s]
   match_dist_ = pd("match_dist", 0.4);                  // 검출을 트랙에 붙이는 최대 거리 [m]
