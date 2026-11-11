@@ -81,6 +81,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     ros-lyrical-nav2-navfn-planner \
     ros-lyrical-nav2-controller \
     ros-lyrical-nav2-dwb-controller \
+    ros-lyrical-nav2-mppi-controller \
     ros-lyrical-nav2-behaviors \
     ros-lyrical-nav2-costmap-2d \
     ros-lyrical-nav2-velocity-smoother \

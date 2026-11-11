@@ -52,7 +52,7 @@ void RlNavController::configure(
   //   각 inner 의 파라미터 공간은 <name>.inner_<별칭> (include/ml/fallback_controller.hpp) — nav2_params.yaml 에 블록별로 둔다.
   //   실행 중에는 서비스 ~/<name>/set_fallback 으로 바꾼다 (switch_inner).
   std::string want = param<std::string>(node, name + ".fallback_controller", "");
-  if (want.empty()) want = param<std::string>(node, name + ".inner_plugin", "dwb_core::DWBLocalPlanner");  // 예전 이름 호환
+  if (want.empty()) want = param<std::string>(node, name + ".inner_plugin", "mppi");  // 예전 이름 호환 · 둘 다 없으면 MPPI
   Fallback fb;
   resolve_fallback(want, fb);
   RCLCPP_INFO(logger_, "[%s] fallback_controller=%s → %s (파라미터 %s.*)", name_.c_str(), want.c_str(), fb.cls.c_str(),

@@ -87,7 +87,7 @@ private:
   // inner(바이패스) controller 는 실행 중에 바꿀 수 있다 (~/<name>/set_fallback) — inner_ 를 부르는 동안·바꾸는 동안은 inner_mtx_
   //   잠금 순서: mtx_ → inner_mtx_ (그 반대로 잡지 않는다)
   std::mutex inner_mtx_;
-  std::string inner_key_ = "dwb";          // 지금 쓰는 inner 별칭
+  std::string inner_key_ = "mppi";          // 지금 쓰는 inner 별칭
   bool active_ = false;                    // activate()~deactivate() — 새 inner 도 같은 상태로 만든다
   nav_msgs::msg::Path last_path_;          // 새 inner 에 다시 넘길 마지막 전역 경로
   double last_speed_limit_ = 0.0;
