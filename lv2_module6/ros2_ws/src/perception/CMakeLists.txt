@@ -22,8 +22,7 @@ find_package(tf2_geometry_msgs REQUIRED)
 find_package(ament_index_cpp REQUIRED)
 # 인지 노드 C++판 (perception_node) — 영상·YOLO·AprilTag·바코드
 # AprilTag: OpenCV 4.7+는 objdetect(본체) · 4.6 이하는 contrib aruco — 있는 쪽을 씀 (젯슨 4.8 · PC 도커 4.6)
-find_package(OpenCV REQUIRED COMPONENTS core imgproc calib3d OPTIONAL_COMPONENTS objdetect aruco)
-find_package(cv_bridge REQUIRED)
+find_package(OpenCV REQUIRED COMPONENTS core imgproc calib3d imgcodecs OPTIONAL_COMPONENTS objdetect aruco)  # imgcodecs = 테스트 사진 읽기
 find_package(message_filters REQUIRED)
 # ONNX Runtime: 기본은 ROS 패키지 onnxruntime_vendor (CPU) · GPU(CUDA)판이 따로 깔려 있으면 ONNXRUNTIME_ROOT로 그 폴더를 줌
 #   (예: colcon build --cmake-args -DONNXRUNTIME_ROOT=/opt/onnxruntime-gpu — include/onnxruntime_cxx_api.h · lib/libonnxruntime.so)
@@ -74,7 +73,7 @@ target_include_directories(${PROJECT_NAME}_cpp PUBLIC include)
 target_compile_features(${PROJECT_NAME}_cpp PUBLIC cxx_std_17)
 target_link_libraries(${PROJECT_NAME}_cpp PUBLIC rclcpp::rclcpp ${sensor_msgs_TARGETS} ${std_msgs_TARGETS}
   ${geometry_msgs_TARGETS} ${diagnostic_msgs_TARGETS} tf2::tf2 tf2_ros::tf2_ros ament_index_cpp::ament_index_cpp
-  cv_bridge::cv_bridge message_filters::message_filters ${OpenCV_LIBS} onnxruntime::onnxruntime ${msgs_cpp})
+  message_filters::message_filters ${OpenCV_LIBS} onnxruntime::onnxruntime ${msgs_cpp})
 if(ZXing_FOUND)
   target_link_libraries(${PROJECT_NAME}_cpp PUBLIC ZXing::ZXing)
   message(STATUS "바코드: zxing-cpp ${ZXing_VERSION}")
@@ -83,6 +82,11 @@ else()
 endif()
 add_executable(perception_node src/perception_node_main.cpp)
 target_link_libraries(perception_node ${PROJECT_NAME}_cpp)
+if(ONNXRUNTIME_ROOT)
+  # GPU판 ONNX Runtime이 실행 때도 먼저 잡히게 — ROS setup이 LD_LIBRARY_PATH에 넣는 CPU판(onnxruntime_vendor)보다
+  # 실행 파일에 적힌 경로(RPATH)가 앞서도록 (기본 RUNPATH는 LD_LIBRARY_PATH에 밀림)
+  target_link_options(perception_node PRIVATE "LINKER:--disable-new-dtags")
+endif()
 install(TARGETS perception_node DESTINATION lib/${PROJECT_NAME})
 # 예전 파이썬판 (scripts/perception_node.py) — 되돌릴 때: launch에서 executable을 perception_node_py로
 install(PROGRAMS scripts/perception_node.py

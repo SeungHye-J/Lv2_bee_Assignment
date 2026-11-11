@@ -5,13 +5,14 @@
 #include <algorithm>
 #include <chrono>
 #include <cmath>
+#include <cstring>
+#include <stdexcept>
 #include <functional>
 #include <sstream>
 
 #include <opencv2/imgproc.hpp>
 
-#include "ament_index_cpp/get_package_share_directory.hpp"
-#include "cv_bridge/cv_bridge.hpp"
+#include "ament_index_cpp/get_package_share_path.hpp"
 #include "diagnostic_msgs/msg/key_value.hpp"
 #include "tf2/LinearMath/Matrix3x3.hpp"
 #include "tf2/LinearMath/Quaternion.hpp"
@@ -54,6 +55,44 @@ std::string fmt(const char * f, double v) {
   char b[64];
   std::snprintf(b, sizeof(b), f, v);
   return b;
+}
+
+// ROS Image ↔ cv::Mat — cv_bridge를 안 씀: 젯슨은 ROS cv_bridge가 OpenCV 4.6, 이 노드는 JetPack OpenCV 4.8이라
+//   cv_bridge를 링크하면 두 버전 라이브러리가 한 프로그램에 같이 올라감 (빌드 경고 "libopencv_* 406 may conflict with 408")
+cv::Mat image_to_mat(const sensor_msgs::msg::Image & m, bool color) {
+  const std::string & e = m.encoding;
+  int type = -1;
+  if (e == "bgr8" || e == "rgb8") type = CV_8UC3;
+  else if (e == "bgra8" || e == "rgba8") type = CV_8UC4;
+  else if (e == "mono8" || e == "8UC1") type = CV_8UC1;
+  else if (e == "16UC1" || e == "mono16") type = CV_16UC1;
+  else if (e == "32FC1") type = CV_32FC1;
+  if (type < 0 || m.height == 0 || m.width == 0 || m.data.size() < static_cast<size_t>(m.step) * m.height)
+    throw std::runtime_error("영상 형식 못 읽음: " + e);
+  const cv::Mat view(static_cast<int>(m.height), static_cast<int>(m.width), type, const_cast<uint8_t *>(m.data.data()), m.step);
+  cv::Mat out;
+  if (!color) return view.clone();  // depth: 그대로 (16UC1 [mm] · 32FC1 [m])
+  if (e == "bgr8") out = view.clone();
+  else if (e == "rgb8") cv::cvtColor(view, out, cv::COLOR_RGB2BGR);
+  else if (e == "bgra8") cv::cvtColor(view, out, cv::COLOR_BGRA2BGR);
+  else if (e == "rgba8") cv::cvtColor(view, out, cv::COLOR_RGBA2BGR);
+  else if (type == CV_8UC1) cv::cvtColor(view, out, cv::COLOR_GRAY2BGR);
+  else throw std::runtime_error("컬러 영상이 아님: " + e);
+  return out;
+}
+
+sensor_msgs::msg::Image mat_to_image(const cv::Mat & bgr, const std_msgs::msg::Header & hd) {
+  sensor_msgs::msg::Image m;
+  m.header = hd;
+  m.height = static_cast<uint32_t>(bgr.rows);
+  m.width = static_cast<uint32_t>(bgr.cols);
+  m.encoding = "bgr8";
+  m.is_bigendian = 0;
+  m.step = static_cast<uint32_t>(bgr.cols * 3);
+  m.data.resize(static_cast<size_t>(m.step) * m.height);
+  const cv::Mat c = bgr.isContinuous() ? bgr : bgr.clone();
+  std::memcpy(m.data.data(), c.data, m.data.size());
+  return m;
 }
 
 }  // namespace
@@ -169,10 +208,11 @@ PerceptionNode::PerceptionNode(const rclcpp::NodeOptions & options) : rclcpp::No
   near_px_ = pi("near_px", 70);                         // 깊이 없는데 박스 짧은 변이 이 이상이면 너무 가까운 퍽 [px]
   depth_min_valid_ = pd("depth_min_valid", 0.5);
   {
-    declare_parameter("puck_tags", rclcpp::ParameterValue(std::vector<int64_t>{0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11}));
-    for (auto v : get_parameter("puck_tags").as_integer_array()) puck_tag_ids_.insert(static_cast<int>(v));
-    declare_parameter("location_tags", rclcpp::ParameterValue(std::vector<int64_t>{12, 13, 14}));
-    for (auto v : get_parameter("location_tags").as_integer_array()) location_tags_.insert(static_cast<int>(v));
+    // 값을 변수에 먼저 받아 둠 — get_parameter(...)가 돌려준 임시 객체의 배열을 바로 돌면 그 객체가 먼저 사라짐
+    const auto puck_tags = declare_parameter("puck_tags", std::vector<int64_t>{0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11});
+    for (auto v : puck_tags) puck_tag_ids_.insert(static_cast<int>(v));
+    const auto loc_tags = declare_parameter("location_tags", std::vector<int64_t>{12, 13, 14});
+    for (auto v : loc_tags) location_tags_.insert(static_cast<int>(v));
   }
   puck_tag_size_ = pd("puck_tag_size_m", 0.016);
   yaw_min_points_ = pi("yaw_min_points", 30);
@@ -206,7 +246,7 @@ PerceptionNode::PerceptionNode(const rclcpp::NodeOptions & options) : rclcpp::No
   // ---- 모델
   std::string model_dir;
   try {
-    model_dir = ament_index_cpp::get_package_share_directory("perception") + "/model";
+    model_dir = (ament_index_cpp::get_package_share_path("perception") / "model").string();
   } catch (const std::exception &) {
   }
   model_path_ = resolve_model_path(model_path, model_dir);
@@ -222,6 +262,7 @@ PerceptionNode::PerceptionNode(const rclcpp::NodeOptions & options) : rclcpp::No
       return nullptr;
     }
     RCLCPP_INFO(get_logger(), "%s 로드: %s (%s)", what, path.c_str(), m->provider().c_str());
+    if (!m->error().empty()) RCLCPP_WARN(get_logger(), "%s: %s", what, m->error().c_str());  // GPU를 원했는데 CPU로 넘어간 이유
     return m;
   };
   if (!model_path_.empty()) {
@@ -278,8 +319,8 @@ PerceptionNode::PerceptionNode(const rclcpp::NodeOptions & options) : rclcpp::No
 void PerceptionNode::on_frame(const std::string & cam, const Image::ConstSharedPtr & color, const Image::ConstSharedPtr & depth) {
   cv::Mat bgr, d;
   try {
-    bgr = cv_bridge::toCvCopy(color, "bgr8")->image;
-    d = cv_bridge::toCvCopy(depth)->image;  // passthrough
+    bgr = image_to_mat(*color, true);
+    d = image_to_mat(*depth, false);
   } catch (const std::exception & e) {
     RCLCPP_WARN_THROTTLE(get_logger(), *get_clock(), 5000, "%s 변환 실패: %s", cam.c_str(), e.what());
     return;
@@ -620,7 +661,7 @@ void PerceptionNode::publish_debug(const std::string & cam, const Frame & s, con
   std_msgs::msg::Header hd;
   hd.stamp = s.stamp;
   hd.frame_id = s.frame_id;
-  debug_pubs_[cam]->publish(*cv_bridge::CvImage(hd, "bgr8", img).toImageMsg());
+  debug_pubs_[cam]->publish(mat_to_image(img, hd));
 }
 
 std::optional<std::vector<std::array<double, 4>>> PerceptionNode::box_rois(const cv::Mat & bgr) {
@@ -735,7 +776,7 @@ void PerceptionNode::publish_dice(const cv::Mat & img, const Frame & s, const st
   std_msgs::msg::Header hd;
   hd.stamp = s.stamp;
   hd.frame_id = s.frame_id;
-  (raw ? dice_raw_pub_ : dice_pub_)->publish(*cv_bridge::CvImage(hd, "bgr8", img).toImageMsg());
+  (raw ? dice_raw_pub_ : dice_pub_)->publish(mat_to_image(img, hd));
   RCLCPP_INFO(get_logger(), "주사위 사진 발행: %s", what.c_str());
 }
 
