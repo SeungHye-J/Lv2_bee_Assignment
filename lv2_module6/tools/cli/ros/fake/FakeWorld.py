@@ -50,6 +50,8 @@ class FakeWorld:
         self.slow = {}                              # 주기가 긴 출력의 마지막 시각
         self.path: list[tuple[float, float]] = []   # 지금 따라가는 경로
         self.nav_done = None                        # 경로 끝나면 부를 함수(ok)
+        self.nav_active = False                     # 이동 중(경로 따라가기 → 목표 방향 맞추기)
+        self.goal_yaw = None                        # 도착 뒤 제자리에서 맞출 방향 [rad] (None이면 안 맞춤)
         self.mission = None                         # {'i', 'since', 'placed', ...}
         self.m = MissionState()
         self.plan = None                            # coordinator 계획 {'id','goals','i','since'}
@@ -158,7 +160,9 @@ class FakeWorld:
         path = self.find_path(float(pose['x']), float(pose['y']))
         if path is None:
             raise RuntimeError('경로를 못 찾음 — 벽·팽창 영역이거나 지도 밖 (가짜 Nav2)')
-        self.path, self.nav_done = path, None
+        self.path, self.nav_done, self.nav_active = path, None, True
+        yaw = pose.get('yaw_deg')
+        self.goal_yaw = None if yaw is None else math.radians(float(yaw))   # 도착하면 이 방향으로 제자리 회전
 
     def set_robot_pose(self, x, y, yaw_deg, frame_id='map'):
         self.x, self.y, self.yaw = float(x), float(y), math.radians(float(yaw_deg))
@@ -172,6 +176,7 @@ class FakeWorld:
 
     def _cancel_nav(self):
         self.path, done, self.nav_done = [], self.nav_done, None
+        self.nav_active, self.goal_yaw = False, None
         if done:
             done(False)
 
@@ -215,7 +220,8 @@ class FakeWorld:
             path = self.find_path(x, y)
             if path is None:
                 return self._fail(g, 'nav_failed')
-            self.path, self.nav_done = path, lambda ok, g=g: self._goal_done(g, ok, 'nav_failed')
+            self.path, self.nav_active, self.goal_yaw = path, True, None
+            self.nav_done = lambda ok, g=g: self._goal_done(g, ok, 'nav_failed')
             p['since'] = 0.0
         elif g.skill == 'pose':
             if g.target not in POSES:
@@ -331,17 +337,22 @@ class FakeWorld:
                 self.path.pop(0)
                 if self.path:
                     tx, ty = self.path[0]
-            if not self.path:
+            if self.path:
+                want = math.atan2(ty - self.y, tx - self.x)
+                err = (want - self.yaw + math.pi) % (2 * math.pi) - math.pi
+                self.wz = max(-1.5, min(1.5, 2.0 * err))
+                self.vx = 0.25 if abs(err) < 0.6 else 0.0
+        if self.nav_active and not self.path:   # 경로 끝 — 목표 방향이 있으면 제자리 회전으로 맞춘 뒤 도착 처리 (Nav2 goal의 yaw)
+            err = 0.0 if self.goal_yaw is None else (self.goal_yaw - self.yaw + math.pi) % (2 * math.pi) - math.pi
+            if abs(err) > 0.05:
+                self.vx, self.wz = 0.0, max(-1.5, min(1.5, 2.0 * err)) if abs(err) > 0.15 else (0.3 if err > 0 else -0.3)
+            else:
                 done, self.nav_done = self.nav_done, None
+                self.nav_active, self.goal_yaw = False, None
+                self.vx = self.wz = 0.0
                 if done:
                     done(True)
-                self.vx = self.wz = 0.0
-                return
-            want = math.atan2(ty - self.y, tx - self.x)
-            err = (want - self.yaw + math.pi) % (2 * math.pi) - math.pi
-            self.wz = max(-1.5, min(1.5, 2.0 * err))
-            self.vx = 0.25 if abs(err) < 0.6 else 0.0
-        elif now - self.vel_at > 0.6:   # 수동 명령이 끊기면 정지
+        elif not self.path and now - self.vel_at > 0.6:   # 수동 명령이 끊기면 정지
             self.vx = self.wz = 0.0
         nx, ny = self.x + self.vx * math.cos(self.yaw) * dt, self.y + self.vx * math.sin(self.yaw) * dt
         if self.blocked(nx, ny) and not self.blocked(self.x, self.y):

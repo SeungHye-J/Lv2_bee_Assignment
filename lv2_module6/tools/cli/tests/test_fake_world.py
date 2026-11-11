@@ -55,6 +55,16 @@ for _ in range(80):
         break
 assert abs(w.x - tx) < 0.15 and abs(w.y - ty) < 0.15, (w.x, w.y, tx, ty)
 
+# goal의 방향(yaw) — 도착하면 제자리에서 그 방향으로 돌아 서야 함 (왼쪽 +90°)
+import math  # noqa: E402
+w.set_robot_pose(w.x, w.y, 0.0)
+w.send_nav_goal({'x': w.x + 0.4, 'y': w.y, 'yaw_deg': 90.0})
+for _ in range(120):
+    run(0.1)
+    if not w.nav_active:
+        break
+assert not w.nav_active and abs(((w.yaw - math.radians(90.0)) + math.pi) % (2 * math.pi) - math.pi) < 0.1, math.degrees(w.yaw)
+
 # 미션 시작 → 단계가 /mission/state로 나옴 · abort → ERROR
 bus.cmd_mission('start')
 run(0.3)
