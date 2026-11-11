@@ -108,7 +108,14 @@ assert braille_cells(cv) == base, 'odom 방향을 모르면 O 화살표는 안 �
 cv.robot, cv.robot_yaw = (-0.6, -0.4), 180.0
 assert len(braille_cells(cv)) > len(base), '로봇 진행 방향 화살표'
 cv.show_frames = False
-assert not braille_cells(cv), 'show_frames 가 꺼지면 방향 화살표도 없음'
+off = braille_cells(cv)
+assert off and len(off) < len(braille_cells(cv.__class__(big, color=True)) | off) + 1, '로봇 화살표는 남음'
+cv.robot = None
+assert not braille_cells(cv), 'show_frames 가 꺼지고 로봇도 없으면 화살표 없음 (M·O 방향선은 숨김)'
+cv.show_frames = True
+assert braille_cells(cv), 'M 화살표는 켜면 다시 나옴'
+cv2 = MapView(big, color=True)
+assert cv2.show_frames is False, '처음에는 M·O 숨김'
 print('PASS test_map_view')
 
 
@@ -189,6 +196,7 @@ view = MapView(g, color=False)
 view.vp.fit(30, 20)
 view.following = False
 view.vp.cx, view.vp.cy = 0.35, 0.35                  # 십자선을 겹침에서 멀리
+view.show_frames = True                                # M·O는 켜야 보임 (기본 숨김)
 view.robot = view.odom = (0.0, 0.0)                    # 로봇 · O · M이 모두 세계 (0,0)
 txt = '\n'.join(view.render(30, 10))
 assert '@' in txt and 'O' in txt and 'M' in txt, '겹쳐도 로봇·O·M이 모두 보여야 함'

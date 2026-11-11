@@ -124,6 +124,8 @@ class MapPage(Menu):
             self.toggle_cost()
         elif k in ('p', 'P'):
             self.toggle_plan()
+        elif k in ('o', 'O'):
+            self.toggle_frames()
         else:
             return False
         return True
@@ -133,6 +135,10 @@ class MapPage(Menu):
     def toggle_cost(self) -> None:
         self.cost_mode = (self.cost_mode + 1) % 3
         self.msg = 'costmap 겹침 ' + self.COST_LABELS[self.cost_mode]
+
+    def toggle_frames(self) -> None:
+        self.view.show_frames = not self.view.show_frames
+        self.msg = 'M(map 원점)·O(odom 원점) ' + ('표시' if self.view.show_frames else '숨김')
 
     PLAN_FRESH_S = 15.0   # Nav2는 주행이 끝나도 빈 경로를 안 내서 — 이보다 오래된 경로는 안 그림
 
@@ -192,7 +198,8 @@ class MapPage(Menu):
         rows += [('확대 (+)', lambda: self.zoom(+1)), ('축소 (-)', lambda: self.zoom(-1)), ('전체 보기 (f)', self.fit),
                  (lambda: f'로봇 따라가기 (r) — {"켜짐" if v.following else "꺼짐"}', self.toggle_follow),
                  (lambda: 'costmap 겹쳐 보기 (c) — ' + self.COST_LABELS[self.cost_mode], self.toggle_cost),
-                 (lambda: f'Nav2 경로 겹쳐 보기 (p) — {"켜짐" if self.plan_on else "꺼짐"}', self.toggle_plan)]
+                 (lambda: f'Nav2 경로 겹쳐 보기 (p) — {"켜짐" if self.plan_on else "꺼짐"}', self.toggle_plan),
+                 (lambda: f'M·O 프레임 표시 (o) — {"켜짐" if v.show_frames else "꺼짐"}', self.toggle_frames)]
         if self.mode != 'view':
             rows += [(f'좌회전 +{YAW_STEP:.0f}° ([) · 미세 +1° = {{', lambda: self.turn(YAW_STEP)), (f'우회전 -{YAW_STEP:.0f}° (]) · 미세 -1° = }}', lambda: self.turn(-YAW_STEP))]
         if self.mode == 'goals':
@@ -282,8 +289,10 @@ class MapPage(Menu):
             status.append('겹침: ' + self.COST_LABELS[self.cost_mode]
                           + (' ON' if v.show_cost else ' 데이터 대기')
                           + ' · 주황=팽창 · 빨강=내접/치명')
-        legend = self.term.paint('● 로봇(base_footprint)  M map원점  O odom원점  각각 짧은 화살표 = 그 프레임의 앞(+x) 방향  + 십자선  S 출발  1 2 goal', DIM)
-        frames = (f'프레임: map 원점 M(0,0) 방향 +0°' + (f' · odom O({self._odom[0]:+.2f},{self._odom[1]:+.2f}) 방향 {self._odom_yaw:+.0f}°' if self._odom else ' · odom TF 없음')
+        legend = self.term.paint('● 로봇(base_footprint) 짧은 화살표 = 앞(+x) 방향  + 십자선  S 출발  1 2 goal'
+                                 + ('  M map원점  O odom원점' if v.show_frames else '  (o = M·O 표시)'), DIM)
+        frames = ((f'프레임: map 원점 M(0,0) 방향 +0°' + (f' · odom O({self._odom[0]:+.2f},{self._odom[1]:+.2f}) 방향 {self._odom_yaw:+.0f}°' if self._odom else ' · odom TF 없음')
+                   if v.show_frames else '프레임')
                   + (f' · base_footprint ●({self._robot[0]:+.2f},{self._robot[1]:+.2f}) 방향 {self._robot_yaw:+.0f}°' if self._robot and self._robot_yaw is not None
                      else f' · base_footprint ●({self._robot[0]:+.2f},{self._robot[1]:+.2f})' if self._robot else ' · base_footprint TF 없음'))
         return lines + status + [frames, self.msg, legend]
