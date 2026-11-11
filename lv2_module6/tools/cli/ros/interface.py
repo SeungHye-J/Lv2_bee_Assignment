@@ -193,6 +193,6 @@ def install_modules(node_cls, *, parameter_client_cls, spin_once=None,
     _mod('rcl_interfaces',
          msg=_mod('rcl_interfaces.msg', ParameterType=msgs.ParameterType,
                   ParameterValue=msgs._ParamValue))
-    _mod('nav2_msgs', srv=_mod('nav2_msgs.srv', SaveMap=msgs.SaveMap))
+    _mod('nav2_msgs', srv=_mod('nav2_msgs.srv', SaveMap=msgs.SaveMap, Toggle=msgs.Toggle))
     if custom_msgs:
         _install_custom_msgs()

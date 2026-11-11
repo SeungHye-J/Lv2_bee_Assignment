@@ -55,6 +55,16 @@ class FakeWorld:
         self.plan = None                            # coordinator 계획 {'id','goals','i','since'}
         self.task = TaskStatus()
 
+    def reload(self, grid):
+        """지도를 바꿔 끼움 — 벽·costmap을 다시 만들고 로봇은 새 지도의 빈 곳으로, 진행 중이던 이동은 취소."""
+        self._cancel_nav()
+        self.g, self.w, self.h = grid, int(grid.info.width), int(grid.info.height)
+        self.res = float(grid.info.resolution)
+        self.ox, self.oy = float(grid.info.origin.position.x), float(grid.info.origin.position.y)
+        self.occ = [v >= 50 for v in grid.data]
+        self.cost = self._inflate()
+        self.x, self.y = self._free_near(0.0, 0.0)
+
     # ------------------------------------------------------------------ 지도
     def _cell(self, x, y):
         c, r = int(math.floor((x - self.ox) / self.res)), int(math.floor((y - self.oy) / self.res))
@@ -289,6 +299,7 @@ class FakeWorld:
         for t in ('/odom', '/imu', '/pole_front_cam/color/camera_info', '/gripper_cam/color/camera_info'):
             d(t, _Msg())
         if self._every('slow', now, 1.0):
+            self.node.state._touch_state()   # 가짜 state_manager 생존 신호 — 없으면 15초 뒤 '연결 ✗'로 보고 CLI가 스스로 재시작함
             d('/tracked_objects', TrackedObjectArray(objects=[_Msg() for _ in range(12 if self.mission else 3)]))
             d('/diagnostics_agg', self._diag())
             d('/motor_status', MotorStatus(joints=list(self.joints), temperature=[38 + i * 2 for i in range(6)],

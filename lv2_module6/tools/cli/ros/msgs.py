@@ -195,6 +195,23 @@ class SaveMap:
     Response = SaveMapResponse
 
 
+class ToggleRequest(_Msg):
+    def __init__(self, **kw):
+        self.enable = True
+        super().__init__(**kw)
+
+
+class ToggleResponse(_Msg):
+    def __init__(self, **kw):
+        self.success, self.message = True, ''
+        super().__init__(**kw)
+
+
+class Toggle:   # nav2_msgs/srv/Toggle — collision_monitor 켜기·끄기
+    Request = ToggleRequest
+    Response = ToggleResponse
+
+
 class Int32MultiArray(_Msg):
     def __init__(self, data=None):
         self.data = list(data or [])

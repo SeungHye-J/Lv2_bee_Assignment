@@ -97,3 +97,28 @@ cg = CostGrid.from_msg(LATEST['/global_costmap/costmap'])
 assert any(cg.code(*w._world(c, r)) == 2 for r in range(0, w.h, 3) for c in range(0, w.w, 3)), 'costmap에 벽(내접)이 있어야 함'
 assert LATEST['/local_costmap/costmap'].info.width > 10
 print('PASS test_fake_world (map topics)')
+
+# 저장 지도 폴더 = ros/fake/map/<이름> — 목록 · 보기(map.yaml) · 전환 · 저장
+import shutil  # noqa: E402
+from op.views.map import MapGrid  # noqa: E402
+from ros.fake.FakeRos import CURRENT, MAP_DIR, fake_map_names  # noqa: E402
+assert bus.default_map_dir() == MAP_DIR, bus.default_map_dir()
+assert bus.map_names() == fake_map_names() and 'default' in bus.map_names(), bus.map_names()
+assert MapGrid.from_yaml(MAP_DIR / 'default' / 'map.yaml').w > 0   # 지도 목록 → 보기가 읽는 파일
+app.state.values['operation_mode'] = 'MANUAL'
+bus.cmd_map(bus.map_args('switch', name='20261017_223015'))
+app.poll(0.3)
+assert CURRENT['name'] == '20261017_223015', CURRENT
+tmp = MAP_DIR / '_test_saved'
+try:
+    assert bus.cmd_map(bus.map_args('save', file=str(tmp / 'map'), localize=False)) == 0
+    assert (tmp / 'map.yaml').is_file() and (tmp / 'map.pgm').is_file(), '저장하면 폴더에 지도가 생겨야 함'
+finally:
+    shutil.rmtree(tmp, ignore_errors=True)
+    CURRENT['name'] = 'default'
+print('PASS test_fake_world (map store)')
+
+# 가짜 state_manager 생존 신호 — 계속 오지 않으면 CLI가 '연결 ✗'로 보고 스스로 재시작함
+run(1.3)
+assert time.monotonic() - app.state.state_last_update < 2.0, '/state/* 생존 신호가 끊김'
+print('PASS test_fake_world (heartbeat)')
