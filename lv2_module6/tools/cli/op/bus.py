@@ -668,8 +668,20 @@ class Bus:
         print('삑 ' + (f'{data[0]} Hz {data[1]} ms (B,{data[0]},{data[1]})' if data else '기본음 (B)'))
         return 0
 
-    def cmd_mission(self, cmd: str) -> int:
-        """mission_manager에 start | abort (/cmd/mission). start는 적재함 장부가 남았으면 거부 — 사유는 미션 화면 '하는 일'에 뜸."""
+    def cmd_mission(self, args) -> int:
+        """mission_manager에 start | abort (/cmd/mission) · status는 /mission/state 한 번 출력. 메뉴는 문자열, 명령줄은 args.action.
+        start는 적재함 장부가 남았으면 거부 — 사유는 /mission/state의 '하는 일'에 뜸."""
+        cmd = getattr(args, 'action', args)
+        if cmd == 'status':
+            end = time.monotonic() + 3.0
+            while self.state.mission is None and time.monotonic() < end and rclpy.ok():
+                self._poll(0.2)
+            m = self.state.mission
+            if m is None:
+                print('/mission/state 없음 — mission_manager(plan) 확인', file=sys.stderr)
+                return 1
+            print(f'단계 {m.phase} · {m.note or "-"} · 놓은 퍽 {m.placed}/{m.total}' + (f' · ERROR {m.error}' if m.error else ''))
+            return 0
         self._publish(self.pub_mission, String(data=cmd))
         print(f'미션 {cmd} 전송')
         return 0
