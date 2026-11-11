@@ -87,7 +87,7 @@ class OperatorTool(Node):
         self._device_subs: dict[str, object] = {}
         self._restart_note = ''
         self._restart_armed_at = 0.0
-        self.current_screen = ''   # 지금 들어가 있는 최상위 메뉴 키 ('4' …) — 재연결 exec 뒤 복원
+        self.resume_path: list[str] = []   # 지금 열려 있는 화면 항목 키 경로 (예: ['4','8','1']) — 재연결 exec 뒤 이 경로로 복원
         # 화면 틀(Window) 신호 — ROS 폴링·재연결은 'tick', 이름으로 화면 열기는 'navigate'
         self.ui.window.connect('tick', self._on_tick)
         self.ui.window.connect('navigate', self._on_navigate)
@@ -153,7 +153,7 @@ class OperatorTool(Node):
         if now - self._restart_armed_at < 12.0:
             return
         self.ui.close()
-        os.environ['BEE_RESUME_SCREEN'] = self.current_screen   # 메인 메뉴로 튕기지 않고 보던 메뉴로 (그 안의 하위 화면까지는 복원 안 함)
+        os.environ['BEE_RESUME_PATH'] = ','.join(self.resume_path)   # 보던 화면 그대로 — 메뉴 키 경로를 새 프로세스가 되짚는다
         os.execv(sys.executable, [sys.executable, '-u', str(Path(__file__).resolve()), 'menu'])
 
     def _wire(self):
@@ -281,16 +281,9 @@ class OperatorTool(Node):
     # ------------------------------------------------------------- CLI 진입
     def cmd_menu(self, args) -> int:
         from op.pages import MainMenu
-        key = os.environ.pop('BEE_RESUME_SCREEN', '')
-        if key:
-            self.poll(0.6)
-            page = self.screen(key)
-            if page is not None:
-                self.current_screen = key
-                res = page.show()
-                self.current_screen = ''
-                if res == QUIT:
-                    return 0
+        path = [k for k in os.environ.pop('BEE_RESUME_PATH', '').split(',') if k]
+        if path:   # 재연결로 다시 뜸 — 메인 메뉴에서 같은 키를 차례로 눌러 보던 화면까지 되돌아간다 (Window.run이 소비)
+            self.ui.window.resume_queue = path
         return int(MainMenu(self).show() or 0)
 
     def __getattr__(self, name: str):
