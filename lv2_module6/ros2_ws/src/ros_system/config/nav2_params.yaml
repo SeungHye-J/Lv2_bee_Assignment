@@ -19,6 +19,9 @@ bt_navigator:
     robot_base_frame: base_footprint
     # 현재 속도를 읽는 토픽. /odom(바퀴만)이 아니라 EKF가 IMU까지 합친 결과.
     odom_topic: /odometry/filtered
+    # 목표·현재 자세를 map으로 바꿀 때 TF가 이 시간(초)까지 늦어도 허용. 기본(0.1)이면 부하로 TF가 수십 ms만 늦어도
+    #   "Failed to transform end pose to global frame"(102)으로 목표가 취소됐다 (실기 2026-11-11).
+    transform_tolerance: 0.5
     # BT를 한 번 tick하는 주기(ms). 10 → 100Hz. 로봇 속도와는 무관하고 configure 때 한 번 읽혀 실행 중 변경 불가.
     bt_loop_duration: 10
     # BT 노드가 액션 서버(planner·controller·behavior)·서비스(is_path_valid)의 응답을 기다리는 시간(ms). Nav2 기본 20.
@@ -46,6 +49,8 @@ bt_navigator:
 # ─────────────────────────────────────────────────────────────────────────────
 controller_server:
   ros__parameters:
+    # 경로 끝점을 map으로 바꿀 때 TF 허용 지연(초). bt_navigator와 같은 이유 — 기본(0.1)은 부하 시 너무 짧다.
+    transform_tolerance: 0.5
     # 컨트롤러 계산 주기(Hz). /cmd_vel_nav가 이 주기로 나온다 (API.md: 20Hz).
     controller_frequency: 20.0
     # 현재 속도를 읽는 토픽 (EKF 결과). 가속 제한 계산에 쓴다.
