@@ -81,7 +81,7 @@ class MapGoalItem(MenuItem):
         return '이동 목표 (goal · 지도에서 찍기)'
 
     def run(self):
-        if self.state.operation != 'AUTO':
+        if self.state.operation and self.state.operation != 'AUTO':   # 모르면(빈 값) 묻지 않음 — 재연결 직후 거짓 확인창 방지
             if not self.ui.confirm('AUTO로 전환하고 이동 목표를 찍을까요?', default=True,
                                    body=['Nav2 이동 목표는 AUTO에서 실행됩니다.']):
                 return STAY

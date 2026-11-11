@@ -122,3 +122,13 @@ assert 'E' in with_plan and with_plan.count(':') > base.count(':'), '경로가 �
 view.plans = []
 assert ''.join(view.render(30, 10)) == base
 print('map_view plan overlay ok')
+
+# 십자선·방향 화살표가 지도 밖에 있어도 검은 네모(배경 48;2;0;0;0)를 칠하지 않는다 — 터미널 바탕 그대로
+view = MapView(g, color=True)
+view.vp.fit(30, 20)
+view.vp.cy += 5.0        # 십자선을 지도 위쪽 밖으로
+view.following = False
+view.show_yaw = True
+out = '\n'.join(view.render(30, 10))
+assert '\033[48;2;0;0;0m' not in out, '지도 밖에 검은 배경이 칠해짐'
+print('map_view off-map ok')

@@ -282,6 +282,10 @@ class OperatorTool(Node):
     def cmd_menu(self, args) -> int:
         from op.pages import MainMenu
         path = [k for k in os.environ.pop('BEE_RESUME_PATH', '').split(',') if k]
+        if path:   # 재연결로 다시 뜸 — 먼저 /state/*(latched)를 받는다: 모르는 상태로 항목을 열면 '모드가 AUTO가 아님' 같은 확인창이 거짓으로 뜸
+            end = time.monotonic() + 6.0
+            while not self.state.values.get('operation_mode') and time.monotonic() < end:
+                self.poll(0.2)
         if path:   # 재연결로 다시 뜸 — 메인 메뉴에서 같은 키를 차례로 눌러 보던 화면까지 되돌아간다 (Window.run이 소비)
             self.ui.window.resume_queue = path
         return int(MainMenu(self).show() or 0)

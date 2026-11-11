@@ -40,6 +40,11 @@ def _yaw_dots(cx: int, cy: int, yaw_deg: float, length: int = YAW_LEN, gap: int 
     return pts
 
 
+def _bg(rgb) -> str:
+    """배경색 SGR — 지도 밖(None)은 칠하지 않고 터미널 바탕 그대로 (검은 네모가 안 생기게)."""
+    return f'\033[48;2;{rgb[0]};{rgb[1]};{rgb[2]}m' if rgb else '\033[49m'
+
+
 def _line(a: tuple[int, int], b: tuple[int, int]):
     """두 화면 칸 사이를 잇는 칸들 (브레젠험)."""
     (x0, y0), (x1, y1) = a, b
@@ -233,24 +238,25 @@ class MapView(View):
                         if ct and top != OCC and bot != OCC:   # 벽은 지도 색 그대로, 빈 칸의 팽창만 덮는다
                             tc = bc = COST_LETHAL if ct == 2 else COST_INFLATED
                     if lab:
-                        bg = bc or tc or (0, 0, 0)
+                        bg = bc or tc
                         f = lab[1]
                         if (c, tr) == cur:   # 십자선 = 분홍 바탕에 흰 +  (로봇과 같은 칸이면 빨간 바탕)
                             bg, f = (ROBOT_RGB if (c, tr) == robot_cell else CURSOR_RGB), (255, 255, 255)
-                        put(f'\033[1;38;2;{f[0]};{f[1]};{f[2]}m\033[48;2;{bg[0]};{bg[1]};{bg[2]}m', lab[0])
+                        put(f'\033[1;38;2;{f[0]};{f[1]};{f[2]}m{_bg(bg)}', lab[0])
                     elif (c, tr) in braille:   # 방향선 — 지도 바탕 위에 분홍 점자
-                        bg = bc or tc or (0, 0, 0)
-                        put(f'\033[1;38;2;{CURSOR_RGB[0]};{CURSOR_RGB[1]};{CURSOR_RGB[2]}m'
-                            f'\033[48;2;{bg[0]};{bg[1]};{bg[2]}m', chr(0x2800 + braille[(c, tr)]))
+                        bg = bc or tc
+                        put(f'\033[1;38;2;{CURSOR_RGB[0]};{CURSOR_RGB[1]};{CURSOR_RGB[2]}m{_bg(bg)}', chr(0x2800 + braille[(c, tr)]))
                     elif (c, tr) in rays:   # M·O·로봇 방향 화살표 — 각자 색의 점자
                         bits, rgb = rays[(c, tr)]
-                        bg = bc or tc or (0, 0, 0)
-                        put(f'\033[1;38;2;{rgb[0]};{rgb[1]};{rgb[2]}m\033[48;2;{bg[0]};{bg[1]};{bg[2]}m', chr(0x2800 + bits))
+                        bg = bc or tc
+                        put(f'\033[1;38;2;{rgb[0]};{rgb[1]};{rgb[2]}m{_bg(bg)}', chr(0x2800 + bits))
                     elif tc is None and bc is None:
                         put('\033[0m', ' ')
                     else:
-                        t, b = tc or (0, 0, 0), bc or (0, 0, 0)
-                        put(f'\033[22;38;2;{t[0]};{t[1]};{t[2]}m\033[48;2;{b[0]};{b[1]};{b[2]}m', '▀')
+                        if tc is None:   # 윗칸만 지도 밖 — 아래 반블록 ▄ + 터미널 바탕
+                            put(f'\033[22;38;2;{bc[0]};{bc[1]};{bc[2]}m\033[49m', '▄')
+                        else:
+                            put(f'\033[22;38;2;{tc[0]};{tc[1]};{tc[2]}m{_bg(bc)}', '▀')
                 else:
                     code = max(top, bot) if OUT not in (top, bot) else min(top, bot)
                     on_path = (c, 2 * tr) in dots or (c, 2 * tr + 1) in dots or (c, tr) in braille
