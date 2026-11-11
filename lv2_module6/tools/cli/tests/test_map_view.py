@@ -95,7 +95,7 @@ def _strip(line):
 big = MapGrid(40, 40, 0.1, -2.0, -2.0, [0] * 1600)
 cv = MapView(big, color=True)
 cv.vp.fit(40, 40)
-cv.show_frames = True
+cv.show_map = cv.show_odom = True
 base = braille_cells(cv)                       # M 의 방향선(0°)만 있을 때
 cv.odom, cv.odom_yaw = (0.8, 0.5), 0.0
 east = braille_cells(cv)
@@ -107,15 +107,24 @@ cv.odom_yaw = None
 assert braille_cells(cv) == base, 'odom 방향을 모르면 O 화살표는 안 그림'
 cv.robot, cv.robot_yaw = (-0.6, -0.4), 180.0
 assert len(braille_cells(cv)) > len(base), '로봇 진행 방향 화살표'
-cv.show_frames = False
+cv.show_map = cv.show_odom = False
 off = braille_cells(cv)
 assert off and len(off) < len(braille_cells(cv.__class__(big, color=True)) | off) + 1, '로봇 화살표는 남음'
 cv.robot = None
-assert not braille_cells(cv), 'show_frames 가 꺼지고 로봇도 없으면 화살표 없음 (M·O 방향선은 숨김)'
-cv.show_frames = True
+assert not braille_cells(cv), 'M·O가 꺼지고 로봇도 없으면 화살표 없음 (M·O 방향선은 숨김)'
+cv.show_map = True
 assert braille_cells(cv), 'M 화살표는 켜면 다시 나옴'
 cv2 = MapView(big, color=True)
-assert cv2.show_frames is False, '처음에는 M·O 숨김'
+assert cv2.show_map is False and cv2.show_odom is False, '처음에는 M·O 숨김'
+# M과 O는 따로 — M만 켜면 O 글자는 안 나옴
+cv2.vp.fit(40, 40)
+cv2.odom, cv2.odom_yaw = (0.8, 0.5), 0.0
+cv2.show_map = True
+t_ = '\n'.join(cv2.render(40, 20))
+assert 'M' in t_ and 'O' not in t_, 'M만 켰는데 O가 나옴'
+cv2.show_map, cv2.show_odom = False, True
+t_ = '\n'.join(cv2.render(40, 20))
+assert 'O' in t_ and 'M' not in t_, 'O만 켰는데 M이 나옴'
 print('PASS test_map_view')
 
 
@@ -196,7 +205,7 @@ view = MapView(g, color=False)
 view.vp.fit(30, 20)
 view.following = False
 view.vp.cx, view.vp.cy = 0.35, 0.35                  # 십자선을 겹침에서 멀리
-view.show_frames = True                                # M·O는 켜야 보임 (기본 숨김)
+view.show_map = view.show_odom = True                  # M·O는 켜야 보임 (기본 숨김)
 view.robot = view.odom = (0.0, 0.0)                    # 로봇 · O · M이 모두 세계 (0,0)
 txt = '\n'.join(view.render(30, 10))
 assert '@' in txt and 'O' in txt and 'M' in txt, '겹쳐도 로봇·O·M이 모두 보여야 함'
@@ -223,3 +232,13 @@ for key, want in (('[', 15.0), (']', -15.0), ('{', 1.0), ('}', -1.0)):
     pg.yaw = 0.0
     assert pg._extra_key(key) and abs(pg.yaw - want) < 1e-9, (key, pg.yaw)
 print('map rotate keys ok')
+
+# m = M(map 원점) · o = O(odom 원점) — 각자 따로 토글
+pg = MapPage.__new__(MapPage)
+pg.mode, pg.msg = 'view', ''
+pg.view = MapView(g, color=True)
+assert pg._extra_key('m') and pg.view.show_map and not pg.view.show_odom, 'm은 M만'
+assert pg._extra_key('o') and pg.view.show_map and pg.view.show_odom, 'o는 O만'
+assert pg._extra_key('m') and not pg.view.show_map and pg.view.show_odom
+assert pg._extra_key('o') and not pg.view.show_map and not pg.view.show_odom
+print('map frame toggles ok')

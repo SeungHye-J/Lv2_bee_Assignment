@@ -98,7 +98,7 @@ class MapView(View):
     """grid를 vp(Viewport)로 잘라 cols × rows 글자 영역으로 그린다. robot·start·goals는 밖(페이지)이 갱신, 키는 on_key."""
 
     focusable = True
-    hints = '↑↓←→ 지도 이동 · +/- 확대·축소 · f 전체 · r 로봇 따라가기 · c costmap · p 경로 · o M·O · [ ] 좌·우 회전 15° · { } 1° · Enter 찍기'
+    hints = '↑↓←→ 지도 이동 · +/- 확대·축소 · f 전체 · r 로봇 따라가기 · c costmap · p 경로 · m M · o O · [ ] 좌·우 회전 15° · { } 1° · Enter 찍기'
 
     def __init__(self, grid: MapGrid, color: bool = True, extra_key=None):
         self.grid, self.color = grid, color
@@ -109,7 +109,8 @@ class MapView(View):
         self.odom: tuple[float, float] | None = None   # map 기준 odom 프레임 원점 (None = TF 없음)
         self.odom_yaw: float | None = None   # map 기준 odom 프레임 방향 [deg] — O에서 뻗는 화살표 (None이면 안 그림)
         self.robot_yaw: float | None = None  # 로봇 진행 방향 [deg] — ●에서 뻗는 화살표
-        self.show_frames = False     # map 원점 M · odom 원점 O — 처음엔 숨김, o 키로 켬 (로봇 ●과 방향 화살표는 늘 보임)
+        self.show_map = False        # map 원점 M — 처음엔 숨김, m 키로 켬 (로봇 ●과 방향 화살표는 늘 보임)
+        self.show_odom = False       # odom 원점 O — 처음엔 숨김, o 키로 켬
         self.goals: list[dict] = []
         self.yaw = 0.0
         self.show_yaw = False       # True면 십자선에서 방향(yaw)선을 뻗어 그림 — 찍는 모드(goal · 위치 지정)
@@ -275,8 +276,9 @@ class MapView(View):
             mark(self.start, 'S', START_RGB, 60)
         for i, g in enumerate(self.goals, 1):
             mark((g['x'], g['y']), str(i % 10), GOAL_RGB, 70)
-        if self.show_frames:
+        if self.show_map:
             mark((0.0, 0.0), 'M', MAP_RGB, 40)
+        if self.show_odom:
             if self.odom:
                 mark(self.odom, 'O', ODOM_RGB, 50)
         robot_cell = None
@@ -302,8 +304,8 @@ class MapView(View):
         # M·O·로봇의 방향 화살표 — map x축(M은 늘 0°) · odom 프레임 방향 · 로봇 진행 방향. 글자(M·O·●)가 있는 칸은 글자가 우선.
         rays: dict[tuple[int, int], tuple[int, tuple]] = {}   # 글자 칸 → (점자 비트, 색)
         if True:
-            sources = [((0.0, 0.0), 0.0, MAP_RGB)] if self.show_frames else []
-            if self.show_frames and self.odom and self.odom_yaw is not None:
+            sources = [((0.0, 0.0), 0.0, MAP_RGB)] if self.show_map else []
+            if self.show_odom and self.odom and self.odom_yaw is not None:
                 sources.append((self.odom, self.odom_yaw, ODOM_RGB))
             if self.robot and self.robot_yaw is not None:
                 sources.append((self.robot, self.robot_yaw, ROBOT_RGB))
