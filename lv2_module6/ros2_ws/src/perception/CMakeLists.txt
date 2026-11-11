@@ -20,6 +20,25 @@ find_package(tf2 REQUIRED)
 find_package(tf2_ros REQUIRED)
 find_package(tf2_geometry_msgs REQUIRED)
 find_package(ament_index_cpp REQUIRED)
+# 인지 노드 C++판 (perception_node) — 영상·YOLO·AprilTag·바코드
+find_package(OpenCV REQUIRED COMPONENTS core imgproc calib3d aruco)
+find_package(cv_bridge REQUIRED)
+find_package(message_filters REQUIRED)
+# ONNX Runtime: 기본은 ROS 패키지 onnxruntime_vendor (CPU) · GPU(CUDA)판이 따로 깔려 있으면 ONNXRUNTIME_ROOT로 그 폴더를 줌
+#   (예: colcon build --cmake-args -DONNXRUNTIME_ROOT=/opt/onnxruntime-gpu — include/onnxruntime_cxx_api.h · lib/libonnxruntime.so)
+set(ONNXRUNTIME_ROOT "$ENV{ONNXRUNTIME_ROOT}" CACHE PATH "GPU ONNX Runtime 폴더 (비면 onnxruntime_vendor)")
+if(ONNXRUNTIME_ROOT)
+  find_path(ORT_INC onnxruntime_cxx_api.h PATHS "${ONNXRUNTIME_ROOT}/include" "${ONNXRUNTIME_ROOT}/include/onnxruntime" NO_DEFAULT_PATH)
+  find_library(ORT_LIB onnxruntime PATHS "${ONNXRUNTIME_ROOT}/lib" NO_DEFAULT_PATH)
+  add_library(onnxruntime::onnxruntime SHARED IMPORTED)
+  set_target_properties(onnxruntime::onnxruntime PROPERTIES IMPORTED_LOCATION "${ORT_LIB}" INTERFACE_INCLUDE_DIRECTORIES "${ORT_INC}"
+    INTERFACE_LINK_OPTIONS "LINKER:-rpath,${ONNXRUNTIME_ROOT}/lib")
+  message(STATUS "ONNX Runtime: ${ORT_LIB}")
+else()
+  find_package(onnxruntime_vendor REQUIRED)
+endif()
+# 바코드 (zxing-cpp C++, apt libzxing-dev) — 없으면 바코드 없이 빌드 (진단에 '없음')
+find_package(ZXing QUIET)
 
 rosidl_generate_interfaces(${PROJECT_NAME}
   msg/TrackedObject.msg
@@ -44,10 +63,27 @@ foreach(node body_filter signal_decoder)
 endforeach()
 install(TARGETS body_filter signal_decoder DESTINATION lib/${PROJECT_NAME})
 
-# YOLO 노드 (Python, scripts/perception_node.py) — 메시지 패키지는 이 CMake가 만든다
+# YOLO 인지 노드 — C++판이 perception_node (bringup·launch가 이 이름으로 띄움, 11/11 젯슨 CPU 때문에 C++로)
+#   계산 함수 perception_core · YOLO 실행 yolo_onnx · 노드 perception_node (설명은 include/perception/<이름>.hpp)
+add_library(${PROJECT_NAME}_cpp STATIC src/perception_core.cpp src/yolo_onnx.cpp src/perception_node.cpp)
+target_include_directories(${PROJECT_NAME}_cpp PUBLIC include)
+target_compile_features(${PROJECT_NAME}_cpp PUBLIC cxx_std_17)
+target_link_libraries(${PROJECT_NAME}_cpp PUBLIC rclcpp::rclcpp ${sensor_msgs_TARGETS} ${std_msgs_TARGETS}
+  ${geometry_msgs_TARGETS} ${diagnostic_msgs_TARGETS} tf2::tf2 tf2_ros::tf2_ros ament_index_cpp::ament_index_cpp
+  cv_bridge::cv_bridge message_filters::message_filters ${OpenCV_LIBS} onnxruntime::onnxruntime ${msgs_cpp})
+if(ZXing_FOUND)
+  target_link_libraries(${PROJECT_NAME}_cpp PUBLIC ZXing::ZXing)
+  message(STATUS "바코드: zxing-cpp ${ZXing_VERSION}")
+else()
+  message(WARNING "zxing-cpp 없음 (apt install libzxing-dev) — perception_node가 바코드를 못 읽음")
+endif()
+add_executable(perception_node src/perception_node_main.cpp)
+target_link_libraries(perception_node ${PROJECT_NAME}_cpp)
+install(TARGETS perception_node DESTINATION lib/${PROJECT_NAME})
+# 예전 파이썬판 (scripts/perception_node.py) — 되돌릴 때: launch에서 executable을 perception_node_py로
 install(PROGRAMS scripts/perception_node.py
   DESTINATION lib/${PROJECT_NAME}
-  RENAME perception_node)
+  RENAME perception_node_py)
 # 손 카메라 상대값 (Python, scripts/hand_relative.py + 계산 모듈 hand_geom.py를 같은 폴더에)
 install(PROGRAMS scripts/hand_relative.py DESTINATION lib/${PROJECT_NAME} RENAME hand_relative)
 install(FILES scripts/hand_geom.py DESTINATION lib/${PROJECT_NAME})
@@ -77,6 +113,9 @@ if(BUILD_TESTING)
   target_link_libraries(test_body_filter ${PROJECT_NAME}_nodes)
   ament_add_gtest(test_signal test/test_signal.cpp TIMEOUT 60)
   target_link_libraries(test_signal ${PROJECT_NAME}_nodes)
+  ament_add_gtest(test_perception_core test/test_perception_core.cpp TIMEOUT 60
+    ENV PERCEPTION_TEST_DATA=${CMAKE_CURRENT_SOURCE_DIR}/test/data)
+  target_link_libraries(test_perception_core ${PROJECT_NAME}_cpp)
   ament_add_test(test_launch GENERATE_RESULT_FOR_RETURN_CODE_ZERO
     COMMAND ros2 launch "${CMAKE_CURRENT_SOURCE_DIR}/launch/perception.launch.py" --show-args
     TIMEOUT 60)
