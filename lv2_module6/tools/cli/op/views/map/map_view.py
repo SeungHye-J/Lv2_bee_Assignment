@@ -45,6 +45,26 @@ def _cell_bg(top: int, bot: int, tc, bc):
     return RGB[OCC] if OCC in (top, bot) else (bc or tc)
 
 
+def _braille_cell(sub: list[int]):
+    """글자 한 칸의 점자 2×4 칸(코드 8개, BRAILLE 순서) → (점 비트, 점 색, 배경 색, 벽 있음).
+    색은 점(전경)과 배경 둘뿐이라: 점 = 벽 > 모름 > 빈 곳 순으로 있는 가장 센 종류, 배경 = 나머지 중 가장 많은 종류 (지도 밖이면 None = 터미널 바탕)."""
+    cnt: dict[int, int] = {}
+    for _, cd in sub:
+        cnt[cd] = cnt.get(cd, 0) + 1
+    wall = OCC in cnt
+    if len(cnt) == 1:
+        (cd,) = cnt
+        return 0, None, RGB.get(cd), wall
+    fg_cls = next(c for c in (OCC, UNKNOWN, FREE) if c in cnt)
+    rest = {c: n for c, n in cnt.items() if c != fg_cls}
+    bg_cls = max(rest, key=rest.get)
+    bits = 0
+    for (dx, dy), cd in sub:
+        if cd == fg_cls:
+            bits |= BRAILLE[(dx, dy)]
+    return bits, RGB[fg_cls], RGB.get(bg_cls), wall
+
+
 def _bg(rgb) -> str:
     """배경색 SGR — 지도 밖(None)은 칠하지 않고 터미널 바탕 그대로 (검은 네모가 안 생기게)."""
     return f'\033[48;2;{rgb[0]};{rgb[1]};{rgb[2]}m' if rgb else '\033[49m'
@@ -94,6 +114,9 @@ class MapView(View):
         self._codes: list[list[int]] = []
         self.cost: CostGrid | None = None   # 겹쳐 볼 코스트맵 (None = 없음)
         self.show_cost = False
+        self.hires = True            # 기본 지도를 점자 2×4로 (반블록의 4배 해상도) — costmap을 겹칠 때는 색이 정확한 반블록으로 자동 전환
+        self._bkey = None
+        self._bcells: dict = {}
         self.waypoints: list[tuple[float, float]] = []   # 경유점 (navigate·approach 목표) — 번호가 주황으로 찍힘
         self.plans: list[tuple[list[tuple[float, float]], tuple]] = []   # 겹쳐 그릴 Nav2 경로들 (점 목록, 색) — 끝점은 E
         self._cost_codes: list[list[int]] | None = None
@@ -149,13 +172,36 @@ class MapView(View):
             self._key = key
         return self._codes
 
+    def _hires_cells(self, cols: int, rows: int) -> dict:
+        """점자 지도 — 글자 칸 (c, r) → _braille_cell 결과. 점 하나 = 반블록 한 칸의 절반이라 같은 화면에 4배로 촘촘히 샘플링. 키·확대가 같으면 재사용."""
+        vp, g = self.vp, self.grid
+        key = (vp.k, round(vp.cx, 6), round(vp.cy, 6), cols, rows)
+        if key == self._bkey:
+            return self._bcells
+        lv = max(vp.k - 1, 0)
+        w, h, raw = g.level(lv)
+        size, s2 = g.res * (1 << lv), vp.scale / 2
+        xs = [math.floor((vp.cx + (i + 0.5 - cols) * s2 - g.ox) / size) for i in range(cols * 2)]
+        ys = [math.floor((vp.cy + (rows * 2 - (j + 0.5)) * s2 - g.oy) / size) for j in range(rows * 4)]
+        pix = [[raw[y * w + x] if 0 <= x < w and 0 <= y < h else OUT for x in xs] for y in ys]
+        cells = {}
+        for r in range(rows):
+            for c in range(cols):
+                cells[(c, r)] = _braille_cell([((dx, dy), pix[4 * r + dy][2 * c + dx])
+                                               for dy in range(4) for dx in range(2)])
+        self._bkey, self._bcells = key, cells
+        return cells
+
     def render(self, cols: int, rows: int) -> list[str]:
         """rows줄 (각 cols칸). 안 그려지는 칸(지도 밖)은 공백."""
         self.size = (cols, rows)
         sub = rows * 2
         vp = self.vp
         self._follow(cols, sub)
-        codes = self._base(cols, sub)
+        hires = self.color and not self.show_cost and self.hires
+        codes = None if hires else self._base(cols, sub)
+        bcells = self._hires_cells(cols, rows) if hires else None
+        bdots: dict[tuple[int, int], list] = {}   # 점자 모드의 경로선 — 글자 칸 → [점 비트, 색]
         cost_codes = self._cost_codes
         dots: dict[tuple[int, int], tuple] = {}      # 화면 칸 → 색 (경로 점)
         labels: dict[tuple[int, int], tuple] = {}    # 글자 칸 → (글자, 색)
@@ -164,25 +210,40 @@ class MapView(View):
             c, r = vp.to_screen(p[0], p[1], cols, sub)
             return int(math.floor(c)), int(math.floor(r))
 
-        pts = ([self.start] if self.start else []) + [(g['x'], g['y']) for g in self.goals]
-        for a, b in zip(pts, pts[1:]):
-            for c, r in _line(scr(a), scr(b)):
-                if 0 <= c < cols and 0 <= r < sub:
-                    dots[(c, r)] = PATH_RGB
+        def scrb(p):   # 점자 점 좌표 (가로 2점/칸 · 세로 4점/줄) — 점 하나 = scale/2
+            s2 = vp.scale / 2
+            return (int(math.floor((p[0] - vp.cx) / s2 + cols)), int(math.floor(rows * 2 - (p[1] - vp.cy) / s2)))
 
-        for pl, rgb in self.plans:   # Nav2 경로 — 목표 줄(노랑) 위에
-            for a, b in zip(pl, pl[1:]):
+        def draw(a, b, rgb):
+            if hires:
+                for c, r in _line(scrb(a), scrb(b)):
+                    if 0 <= c < cols * 2 and 0 <= r < rows * 4:
+                        cell = bdots.setdefault((c // 2, r // 4), [0, rgb])
+                        cell[0] |= BRAILLE[(c % 2, r % 4)]
+                        cell[1] = rgb
+            else:
                 for c, r in _line(scr(a), scr(b)):
                     if 0 <= c < cols and 0 <= r < sub:
                         dots[(c, r)] = rgb
+        pts = ([self.start] if self.start else []) + [(g['x'], g['y']) for g in self.goals]
+        for a, b in zip(pts, pts[1:]):
+            draw(a, b, PATH_RGB)
+
+        for pl, rgb in self.plans:   # Nav2 경로 — 목표 줄(노랑) 위에
+            for a, b in zip(pl, pl[1:]):
+                draw(a, b, rgb)
 
         def mark(p, ch, rgb):
             c, r = scr(p)
             if 0 <= c < cols and 0 <= r < sub:
                 labels[(c, r // 2)] = (ch, rgb)
+        endbg: dict[tuple[int, int], tuple] = {}   # 경로 끝점 E — 흰 글자에 경로 색 바탕 (경로선 위에 겹쳐도 보임)
         for pl, rgb in self.plans:
             if pl:
-                mark(pl[-1], 'E', rgb)
+                mark(pl[-1], 'E', (255, 255, 255))
+                c, r = scr(pl[-1])
+                if 0 <= c < cols and 0 <= r < sub:
+                    endbg[(c, r // 2)] = rgb
         for i, p in enumerate(self.waypoints, 1):
             mark(p, str(i % 10), WAYPOINT_RGB)
         if self.start:
@@ -236,8 +297,30 @@ class MapView(View):
                 row.append(ch if sgr == cur_sgr else sgr + ch)
                 cur_sgr = sgr
             for c in range(cols):
-                top, bot = codes[2 * tr][c], codes[2 * tr + 1][c]
                 lab = labels.get((c, tr))
+                if hires:   # 점자 지도 — 글자(M·O·●·+) > 방향선 > 화살표 > 경로선 > 지도 순으로 얹음. 벽이 한 점이라도 있으면 배경은 벽 색
+                    bits, fg, bgc, wall = bcells[(c, tr)]
+                    over = RGB[OCC] if wall else bgc
+                    if lab:
+                        f = lab[1]
+                        if (c, tr) == cur:
+                            over, f = (ROBOT_RGB if (c, tr) == robot_cell else CURSOR_RGB), (255, 255, 255)
+                        over = endbg.get((c, tr), over)
+                        put(f'\033[1;38;2;{f[0]};{f[1]};{f[2]}m{_bg(over)}', lab[0])
+                    elif (c, tr) in braille:
+                        put(f'\033[1;38;2;{CURSOR_RGB[0]};{CURSOR_RGB[1]};{CURSOR_RGB[2]}m{_bg(over)}', chr(0x2800 + braille[(c, tr)]))
+                    elif (c, tr) in rays:
+                        rb, rgb = rays[(c, tr)]
+                        put(f'\033[1;38;2;{rgb[0]};{rgb[1]};{rgb[2]}m{_bg(over)}', chr(0x2800 + rb))
+                    elif (c, tr) in bdots:
+                        db, rgb = bdots[(c, tr)]
+                        put(f'\033[1;38;2;{rgb[0]};{rgb[1]};{rgb[2]}m{_bg(over)}', chr(0x2800 + db))
+                    elif bits and fg:
+                        put(f'\033[22;38;2;{fg[0]};{fg[1]};{fg[2]}m{_bg(bgc)}', chr(0x2800 + bits))
+                    else:
+                        put(f'\033[0m{_bg(bgc)}', ' ')
+                    continue
+                top, bot = codes[2 * tr][c], codes[2 * tr + 1][c]
                 if self.color:
                     tc = dots.get((c, 2 * tr)) or (RGB.get(top) if top != OUT else None)
                     bc = dots.get((c, 2 * tr + 1)) or (RGB.get(bot) if bot != OUT else None)
@@ -246,7 +329,7 @@ class MapView(View):
                         if ct and top != OCC and bot != OCC:   # 벽은 지도 색 그대로, 빈 칸의 팽창만 덮는다
                             tc = bc = COST_LETHAL if ct == 2 else COST_INFLATED
                     if lab:
-                        bg = _cell_bg(top, bot, tc, bc)
+                        bg = endbg.get((c, tr)) or _cell_bg(top, bot, tc, bc)
                         f = lab[1]
                         if (c, tr) == cur:   # 십자선 = 분홍 바탕에 흰 +  (로봇과 같은 칸이면 빨간 바탕)
                             bg, f = (ROBOT_RGB if (c, tr) == robot_cell else CURSOR_RGB), (255, 255, 255)
