@@ -232,3 +232,54 @@ class QoSProfile(_Msg):
         self.durability = None
         self.history = None
         super().__init__(**kw)
+
+
+# ---------------------------------------------------------------- 가짜 월드가 쓰는 메시지 (nav_msgs/Path · plan · perception · control)
+class Path(_Msg):
+    def __init__(self, **kw):
+        self.header = Header()
+        self.poses = []
+        super().__init__(**kw)
+
+
+class TrackedObjectArray(_Msg):
+    def __init__(self, **kw):
+        self.objects = []
+        super().__init__(**kw)
+
+
+class MotorStatus(_Msg):
+    def __init__(self, **kw):
+        self.joints, self.temperature, self.text = [], [], []
+        self.battery_voltage = float('nan')
+        super().__init__(**kw)
+
+
+class TaskStatus(_Msg):
+    def __init__(self, **kw):
+        self.plan_id, self.step, self.state, self.reason = 0, 0, 0, ''
+        super().__init__(**kw)
+
+
+class SubGoal(_Msg):
+    def __init__(self, **kw):
+        self.step, self.skill, self.target, self.relation, self.offset_m = 0, '', '', '', 0.0
+        super().__init__(**kw)
+
+
+class SubGoalArray(_Msg):
+    def __init__(self, **kw):
+        self.header = Header()
+        self.plan_id = 0
+        self.goals = []
+        super().__init__(**kw)
+
+
+class MissionState(_Msg):
+    def __init__(self, **kw):
+        self.header = Header()
+        self.phase, self.note, self.barcode, self.order, self.error = 'IDLE', '', '', '', ''
+        self.count_r = self.count_y = self.count_g = 0
+        self.tray, self.results = [], []
+        self.placed = self.total = 0
+        super().__init__(**kw)

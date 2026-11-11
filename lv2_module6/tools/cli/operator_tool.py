@@ -318,9 +318,10 @@ def build_parser() -> argparse.ArgumentParser:
 
 ROS 층 선택 (모든 명령 앞에 붙임):
   --source real     진짜 rclpy — bringup·실기 (기본)
-  --source fake     프로세스 안 가짜 ROS — ROS·도커 없이 화면 시험
+  --source fake     프로세스 안 가짜 ROS + 움직이는 가짜 세계 — ROS·도커 없이 화면 시험
+                    (수동 주행·goal·미션·skill·costmap(c)·경로(p)가 명령에 반응. 값은 전부 더미 — ros/fake/FakeWorld.py)
   --source docker   도커 test-faker가 /debug에 쓰는 파일 브리지 (--debug-dir 경로 · --no-sim · --no-faker)
-  fake/docker는 plan 메시지를 몰라서 미션 상태(/mission/state)는 안 보임
+  docker는 plan 메시지를 몰라서 미션 상태(/mission/state)는 안 보임
 
 예시:
   ./tools/run-cli mission status

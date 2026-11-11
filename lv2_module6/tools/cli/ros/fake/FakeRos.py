@@ -8,6 +8,7 @@
 """
 from __future__ import annotations
 
+import time
 from pathlib import Path
 
 from ..interface import DoneFuture, RosClient, RosNode, RosPublisher, RosSubscription, install_modules
@@ -17,6 +18,8 @@ from ..msgs import OccupancyGrid, SaveMapResponse, _Msg, _Time
 # ---------------------------------------------------------------- 가짜 노드/버스
 BUS: dict[str, list] = {}  # topic -> [(node, callback)]
 PUB_LOG: list[tuple[str, object]] = []
+LATEST: dict[str, object] = {}   # 토픽 → 마지막 메시지 (transient_local처럼 늦게 구독해도 바로 받음)
+LATCHED = ('/mission/state', '/task/status', '/global_costmap/costmap', '/local_costmap/costmap')
 
 
 class _Clock:
@@ -121,7 +124,18 @@ class FakeRos(RosNode):
         self._fake_subs.append((topic, callback))
         if topic == '/map':   # transient_local — 구독하면 마지막 지도가 바로 옴
             callback(fake_map())
+        elif topic in LATCHED and topic in LATEST:
+            callback(LATEST[topic])
         return _FakeSub()
+
+    def _deliver(self, topic, msg):
+        """가짜 월드가 내는 토픽 — 구독자 콜백으로 바로 (발행 로그는 안 찍음)."""
+        LATEST[topic] = msg
+        for _node, cb in list(BUS.get(topic, [])):
+            try:
+                cb(msg)
+            except Exception as e:  # noqa: BLE001
+                print(f'[fake] 콜백 에러 {topic}: {e}')
 
     def destroy_subscription(self, sub):
         pass
@@ -159,6 +173,9 @@ class FakeRos(RosNode):
         state = getattr(self, 'state', None)
         if state is None:
             return
+        world = getattr(self, 'world', None)
+        if world is not None:
+            world.on_publish(topic, msg)
         vals = state.values
         data = getattr(msg, 'data', None)
         if topic == '/cmd/operation_mode' and isinstance(data, str):
@@ -198,7 +215,15 @@ class FakeRos(RosNode):
 
     @classmethod
     def install(cls):
-        install_modules(cls, parameter_client_cls=AsyncParameterClient)
+        install_modules(cls, parameter_client_cls=AsyncParameterClient, spin_once=_spin, custom_msgs=True)
+
+
+def _spin(node, timeout_sec=0.0):
+    """rclpy.spin_once 대용 — 가짜 월드를 한 걸음 굴리고 잠깐 쉰다 (바쁜 대기 방지)."""
+    world = getattr(node, 'world', None)
+    if world is not None:
+        world.step()
+    time.sleep(min(max(timeout_sec, 0.0), 0.02))
 
 
 class AsyncParameterClient:

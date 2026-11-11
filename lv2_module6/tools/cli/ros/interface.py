@@ -148,12 +148,12 @@ def _install_custom_msgs() -> None:
     for pkg_name, classes in (
             ('perception', ('TrackedObjectArray',)),
             ('control', ('MotorStatus',)),
-            ('plan', ('TaskStatus',))):
+            ('plan', ('TaskStatus', 'SubGoal', 'SubGoalArray', 'MissionState'))):
         pkg = types.ModuleType(pkg_name)
         pkg.__path__ = []  # 패키지처럼
         msg = types.ModuleType(f'{pkg_name}.msg')
         for cname in classes:
-            setattr(msg, cname, type(cname, (msgs._Msg,), {}))
+            setattr(msg, cname, getattr(msgs, cname, None) or type(cname, (msgs._Msg,), {}))
         pkg.msg = msg
         sys.modules[pkg_name] = pkg
         sys.modules[f'{pkg_name}.msg'] = msg
@@ -186,7 +186,7 @@ def install_modules(node_cls, *, parameter_client_cls, spin_once=None,
     _mod('sensor_msgs', msg=_mod('sensor_msgs.msg', JointState=msgs.JointState,
                                  Header=msgs.Header, Imu=msgs.Imu, CameraInfo=msgs.CameraInfo))
     _mod('nav_msgs', msg=_mod('nav_msgs.msg', Odometry=msgs.Odometry,
-                              OccupancyGrid=msgs.OccupancyGrid))
+                              OccupancyGrid=msgs.OccupancyGrid, Path=msgs.Path))
     _mod('diagnostic_msgs', msg=_mod('diagnostic_msgs.msg', DiagnosticArray=msgs.DiagnosticArray,
                                      DiagnosticStatus=msgs.DiagnosticStatus,
                                      KeyValue=msgs.KeyValue))

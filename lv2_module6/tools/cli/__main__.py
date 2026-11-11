@@ -161,6 +161,11 @@ def _seed(app: 'ot.OperatorTool'):
                          values=[KeyValue(key='모드', value='AUTO')]),
         DiagnosticStatus(level=1, name='beebot: opencr', message='모터 에러 없음 · S 줄 지연',
                          values=[KeyValue(key='받은 S 줄', value='48 Hz')])])
+    if SOURCE == 'fake':   # 움직이는 가짜 세계 — 이동·미션·경로·costmap이 명령에 반응
+        from ros.fake.FakeRos import fake_map
+        from ros.fake.FakeWorld import FakeWorld, attach
+        app.world = FakeWorld(app, fake_map())
+        attach(app, app.world)
     try:
         st.on_objects([1, 2, 3])
     except Exception:  # noqa: BLE001

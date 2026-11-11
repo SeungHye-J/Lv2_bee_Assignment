@@ -1,0 +1,99 @@
+#!/usr/bin/env python3
+"""fake 월드 시험 — ROS 없이: python3 tools/cli/tests/test_fake_world.py
+가짜 bringup을 띄워 명령(수동 주행 · goal · 미션 · skill)에 가짜 월드가 반응하는지 본다."""
+import runpy
+import sys
+import time
+from pathlib import Path
+
+CLI = Path(__file__).resolve().parent.parent
+sys.path.insert(0, str(CLI))
+sys.argv = ['cli', '--source', 'fake', 'status']
+g = runpy.run_path(str(CLI / '__main__.py'), run_name='fake_world_test')   # 대역 설치 + OperatorTool 패치만 (main은 안 탐)
+ot = g['ot']
+app = ot.OperatorTool()
+w = app.world
+bus = app.bus
+
+
+def run(sec):
+    end = time.monotonic() + sec
+    while time.monotonic() < end:
+        app.poll(0.05)
+
+
+run(0.3)
+assert app.state.rates['joint_states'].hz() > 5, '가짜 joint_states가 흘러야 함'
+assert app.state.rates['odom'].hz() > 5
+
+# 수동 주행: MANUAL에서 cmd_vel을 보내면 로봇이 움직임 (벽에 막히면 멈추니 시작 위치 기준으로 비교)
+app.state.values['operation_mode'] = 'MANUAL'
+x0, yaw0 = w.x, w.yaw
+for _ in range(10):
+    bus._send_velocity(0.0, 0.8)
+    run(0.05)
+assert abs(w.yaw - yaw0) > 0.1, '제자리 회전이 반영돼야 함'
+run(0.8)
+assert w.wz == 0.0, '명령이 끊기면 정지'
+
+# AUTO 아니면 goal 거부 · AUTO면 경로가 생기고 도착
+try:
+    w.send_nav_goal({'x': 0.0, 'y': 0.0})
+    raise SystemExit('MANUAL에서 goal이 받아들여짐')
+except RuntimeError:
+    pass
+app.state.values['operation_mode'] = 'AUTO'
+w.set_robot_pose(w.x, w.y, 0.0)
+tx, ty = w.x + 0.6, w.y
+w.send_nav_goal({'x': tx, 'y': ty})
+assert w.path, '경로가 있어야 함'
+run(0.7)
+assert w._cell(w.x, w.y) is not None
+for _ in range(80):
+    run(0.1)
+    if not w.path:
+        break
+assert abs(w.x - tx) < 0.15 and abs(w.y - ty) < 0.15, (w.x, w.y, tx, ty)
+
+# 미션 시작 → 단계가 /mission/state로 나옴 · abort → ERROR
+bus.cmd_mission('start')
+run(0.3)
+assert app.state.mission is not None and app.state.mission.phase == 'GO_OBSERVE', app.state.mission
+bus.cmd_mission('abort')
+run(0.2)
+assert app.state.mission.phase == 'ERROR' and app.state.mission.error == 'aborted'
+
+# 세부 명령 (coordinator 흉내) — pose는 성공, 모르는 skill은 실패
+bus.cmd_skill('pose', 'scan')
+run(0.2)
+assert 'RUNNING' in app.state.task_status, app.state.task_status
+run(2.0)
+assert 'SUCCEEDED' in app.state.task_status, app.state.task_status
+bus.cmd_skill('nope', 'x')
+run(0.2)
+assert 'FAILED' in app.state.task_status and 'unknown_skill' in app.state.task_status, app.state.task_status
+app.state.values['operation_mode'] = 'MANUAL'
+bus.cmd_skill('pose', 'stow')
+run(0.2)
+assert 'FAILED' in app.state.task_status, 'MANUAL에서는 거부돼야 함'
+print('PASS test_fake_world')
+
+# 지도 화면에 쓰는 토픽 — costmap(c)·경로(p)가 fake에서도 흘러온다 (MapPage.show와 같은 구독)
+from nav_msgs.msg import Path as PathMsg  # noqa: E402
+from op.pages.map import MapPage  # noqa: E402
+from op.views.map import CostGrid  # noqa: E402
+from ros.fake.FakeRos import LATEST  # noqa: E402
+app.state.values['operation_mode'] = 'AUTO'
+w.set_robot_pose(w.x, w.y, 0.0)
+page = MapPage(app, mode='view')
+for kind, topic in (('plan', '/plan'), ('local_plan', '/local_plan')):
+    app.create_subscription(PathMsg, topic, lambda m, k=kind: page._on_path(k, m), None)
+w.send_nav_goal({'x': w.x + 1.0, 'y': w.y})
+run(1.2)
+page.plan_on = True
+lines, info = page._plan_lines()
+assert len(lines) == 2 and '전역' in info and '지역' in info, info
+cg = CostGrid.from_msg(LATEST['/global_costmap/costmap'])
+assert any(cg.code(*w._world(c, r)) == 2 for r in range(0, w.h, 3) for c in range(0, w.w, 3)), 'costmap에 벽(내접)이 있어야 함'
+assert LATEST['/local_costmap/costmap'].info.width > 10
+print('PASS test_fake_world (map topics)')
