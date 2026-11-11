@@ -198,6 +198,12 @@ class OperatorTool(Node):
                 LATCHED)
         except Exception:
             pass
+        try:
+            from plan.msg import MissionState  # type: ignore
+            self.create_subscription(MissionState, '/mission/state',
+                                     lambda m: setattr(self.state, 'mission', m), LATCHED)
+        except Exception:
+            pass
         # 로봇 map 위치 — tf2_ros가 없는 호스트면 칸이 '-'로 남는다
         try:
             from tf2_ros import Buffer, TransformListener
@@ -264,6 +270,9 @@ class OperatorTool(Node):
         if name == '9':
             from op.pages import TopicBagMenu
             return TopicBagMenu(self)
+        if name == '0':
+            from op.pages import MissionMenu
+            return MissionMenu(self)
         if name == 'diagnostics':
             from op.pages import DiagnosticsMenu
             return DiagnosticsMenu(self)

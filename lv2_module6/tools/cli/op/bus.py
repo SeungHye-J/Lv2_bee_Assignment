@@ -54,6 +54,7 @@ class Bus:
         self.pub_restart = node.create_publisher(String, "/cmd/restart", 10)
         self.pub_reboot = node.create_publisher(Empty, "/cmd/manual/reboot_motors", 10)
         self.pub_beep = node.create_publisher(Int32MultiArray, "/cmd/beep", 10)
+        self.pub_mission = node.create_publisher(String, "/cmd/mission", 10)
         self.ab = AbTest(self)
 
     def _poll(self, seconds: float = 0.2):
@@ -665,6 +666,12 @@ class Bus:
             return 2
         self._publish(self.pub_beep, Int32MultiArray(data=data))
         print('삑 ' + (f'{data[0]} Hz {data[1]} ms (B,{data[0]},{data[1]})' if data else '기본음 (B)'))
+        return 0
+
+    def cmd_mission(self, cmd: str) -> int:
+        """mission_manager에 start | abort (/cmd/mission). start는 적재함 장부가 남았으면 거부 — 사유는 미션 화면 '하는 일'에 뜸."""
+        self._publish(self.pub_mission, String(data=cmd))
+        print(f'미션 {cmd} 전송')
         return 0
 
     def cmd_recover(self, args=None) -> int:

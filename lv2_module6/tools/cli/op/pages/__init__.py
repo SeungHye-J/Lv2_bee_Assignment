@@ -10,6 +10,7 @@ from .manual import ArmMenu, DriveSettingsMenu, GripperMenu, ManualMenu, WheelMe
 from .arm import ArmControlPage
 from .map import MapPage
 from .mapmenu import MapMenu, MapSavePage, MapSwitchMenu
+from .mission import MissionMenu
 from .mode import CollisionMenu, EstopMenu, ModeMenu
 from .nodes import NodeActionMenu, NodesMenu
 from .params import NodeParamMenu
@@ -21,4 +22,4 @@ __all__ = ['ArmControlPage', 'MapPage', 'Menu', 'Page', 'MainMenu', 'AbMenu', 'R
            'DeviceDetailMenu', 'ModeMenu', 'EstopMenu', 'CollisionMenu',
            'NodesMenu', 'NodeActionMenu', 'ManualMenu', 'WheelMenu', 'DriveSettingsMenu', 'ArmMenu',
            'GripperMenu', 'MapMenu', 'MapSwitchMenu', 'MapSavePage',
-           'NodeParamMenu', 'BeepMenu', 'CalibrateMenu', 'TopicBagMenu', 'ControlMenu']
+           'NodeParamMenu', 'BeepMenu', 'CalibrateMenu', 'TopicBagMenu', 'ControlMenu', 'MissionMenu']
