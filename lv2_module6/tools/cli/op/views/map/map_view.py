@@ -238,17 +238,17 @@ class MapView(View):
                         if ct and top != OCC and bot != OCC:   # 벽은 지도 색 그대로, 빈 칸의 팽창만 덮는다
                             tc = bc = COST_LETHAL if ct == 2 else COST_INFLATED
                     if lab:
-                        bg = bc or tc
+                        bg = RGB[OCC] if OCC in (top, bot) else (bc or tc)   # 한 글자 = 위·아래 두 칸인데 배경은 한 색 — 벽이 반쪽이라도 있으면 벽 색 (회색으로 안 지워지게)
                         f = lab[1]
                         if (c, tr) == cur:   # 십자선 = 분홍 바탕에 흰 +  (로봇과 같은 칸이면 빨간 바탕)
                             bg, f = (ROBOT_RGB if (c, tr) == robot_cell else CURSOR_RGB), (255, 255, 255)
                         put(f'\033[1;38;2;{f[0]};{f[1]};{f[2]}m{_bg(bg)}', lab[0])
                     elif (c, tr) in braille:   # 방향선 — 지도 바탕 위에 분홍 점자
-                        bg = bc or tc
+                        bg = RGB[OCC] if OCC in (top, bot) else (bc or tc)   # 한 글자 = 위·아래 두 칸인데 배경은 한 색 — 벽이 반쪽이라도 있으면 벽 색 (회색으로 안 지워지게)
                         put(f'\033[1;38;2;{CURSOR_RGB[0]};{CURSOR_RGB[1]};{CURSOR_RGB[2]}m{_bg(bg)}', chr(0x2800 + braille[(c, tr)]))
                     elif (c, tr) in rays:   # M·O·로봇 방향 화살표 — 각자 색의 점자
                         bits, rgb = rays[(c, tr)]
-                        bg = bc or tc
+                        bg = RGB[OCC] if OCC in (top, bot) else (bc or tc)   # 한 글자 = 위·아래 두 칸인데 배경은 한 색 — 벽이 반쪽이라도 있으면 벽 색 (회색으로 안 지워지게)
                         put(f'\033[1;38;2;{rgb[0]};{rgb[1]};{rgb[2]}m{_bg(bg)}', chr(0x2800 + bits))
                     elif tc is None and bc is None:
                         put('\033[0m', ' ')

@@ -132,3 +132,20 @@ view.show_yaw = True
 out = '\n'.join(view.render(30, 10))
 assert '\033[48;2;0;0;0m' not in out, '지도 밖에 검은 배경이 칠해짐'
 print('map_view off-map ok')
+
+# 화살표·방향선 밑의 벽 — 글자 한 칸의 위·아래 중 한쪽이라도 벽이면 배경은 벽 색 (회색으로 지워지지 않음)
+data = [0] * 64
+for c in range(8):
+    data[4 * 8 + c] = 100        # 가로 벽 한 줄 (한 칸 두께)
+gw = MapGrid(8, 8, 0.1, -0.4, -0.4, data)
+view = MapView(gw, color=True)
+view.vp.fit(40, 20)
+view.show_yaw = True
+view.yaw = 90.0
+view.vp.cy = -0.4 + 4.5 * 0.1   # 십자선을 벽 근처로
+out = '\n'.join(view.render(40, 12))
+wall = '\033[48;2;18;18;24m'
+import re as _re
+braille = [m for m in _re.finditer(r'(\033\[[0-9;]*m)+[⠁-⣿]', out)]
+assert braille and any(wall in b.group(0) for b in braille), '벽 위를 지나는 방향선 칸의 배경이 벽 색이어야 함'
+print('map_view wall under arrow ok')
