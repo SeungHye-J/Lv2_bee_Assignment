@@ -275,13 +275,28 @@ class StateStore:
             self.slam_jumps += 1
             self.slam_last_jump = (dist, math.degrees(dyaw), time.strftime('%H:%M:%S'))
 
-    def collision_enabled(self) -> str:
-        """manual_control이 마지막으로 반영한 collision_monitor 켬/끔 (진단 값) — 모르면 '-'."""
+    def collision_diag(self) -> str:
+        """manual_control 진단의 원본 값 — /state/collision 이 없을 때의 폴백 (모르면 '-')."""
         for kvs in self.diag_values.values():
             for k, v in kvs:
                 if k == 'collision_monitor':
                     return v
         return '-'
+
+    def collision_enabled(self) -> str:
+        """/state/collision ("on:auto" | "off:auto" | "on:direct" | "off:direct") → 화면 문구.
+        state_manager가 상태의 주인 — manual_control 진단은 옛 스택 폴백으로만 쓴다."""
+        value = self.values.get('collision') or ''
+        if ':' not in value:
+            return self.collision_diag()
+        state, source = value.split(':', 1)
+        on = state == 'on'
+        if on:
+            return '켬 (직접)' if source == 'direct' else '켬 (자동)'
+        if source == 'direct':
+            return '끔 (직접 — 근접 정지 없이 통과)'
+        why = 'MANUAL' if self.values.get('operation_mode') == 'MANUAL' else 'MAPPING'
+        return f'끔 ({why} — 근접 정지 없이 통과)'
 
     # ---------------------------------------------------------------- 파생
     def device_info(self, name: str) -> tuple[str, str, list[str]]:
