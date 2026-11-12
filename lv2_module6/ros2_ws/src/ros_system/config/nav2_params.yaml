@@ -345,6 +345,9 @@ planner_server:
     planner_plugins: ["GridBased"]
     GridBased:
       plugin: "nav2_smac_planner::SmacPlanner2D"
+      # 비용 가중치 — 클수록 벽에서 떨어진(비용 낮은) 칸을 고른다. 1.0이면 모서리에 붙고,
+      # 실측(같은 경로): 1.0 평균 여유 0.424m · 5.0 0.461m (하위 10% 0.220 → 0.293m)
+      cost_travel_multiplier: 5.0
       # 목표가 벽·팽창 영역 안이면 이 거리(m)까지 가까운 빈 곳으로 대신 감 (퍽 앞 접근 자세가 벽에 붙을 때)
       tolerance: 0.20
       downsample_costmap: false
