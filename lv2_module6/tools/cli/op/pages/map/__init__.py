@@ -118,6 +118,21 @@ class MapPage(Menu):
         except Exception as exc:
             self.msg = f'FAIL: {exc}'
 
+    def set_initial_pose_here(self) -> None:
+        """십자선 위치·방향을 로봇 초기 위치로 — /initialpose (faker는 텔레포트). 위치를 잃었을 때 여기서 바로."""
+        x, y = self.view.center
+        pose = {'x': round(x, 3), 'y': round(y, 3), 'yaw_deg': round(self.yaw, 1)}
+        if not self.ui.confirm('여기를 로봇 초기 위치로 지정할까요?',
+                               body=[fmt_pose(pose), '위치추정(LOCALIZATION)에서 위치를 잃었을 때 쓰세요']):
+            self.msg = '취소'
+            return
+        try:
+            with self.ui.capture():
+                self.bus.nav.set_robot_pose(pose['x'], pose['y'], pose['yaw_deg'])
+            self.msg = f'초기 위치 {fmt_pose(pose)}'
+        except Exception as exc:
+            self.msg = f'FAIL: {exc}'
+
     def undo_goal(self) -> None:
         p = self.bus.nav.nav_progress() if hasattr(self.bus.nav, 'nav_progress') else None
         if p and p['state'] == 'running':
@@ -316,6 +331,8 @@ class MapPage(Menu):
             self.toggle_snap()
         elif k in ('x', 'X') and self.mode == 'goal':
             self.cancel_nav()
+        elif k in ('i', 'I') and self.mode == 'goal':
+            self.set_initial_pose_here()
         elif k in ('[', ']', '{', '}') and self.mode != 'view':   # [ ] = 15° · { } = 1° (미세) — 왼쪽 키([ {)는 좌회전(반시계, +) · 오른쪽 키(] })는 우회전(시계, −)
             self.turn({'[': YAW_STEP, ']': -YAW_STEP, '{': 1.0, '}': -1.0}[k])
         elif k in ('c', 'C'):
@@ -417,6 +434,7 @@ class MapPage(Menu):
                          ('마지막 웨이포인트 취소 (Backspace)', self.undo_goal),
                          ('웨이포인트 전송 — 순서대로 주행 (g)', self.send_waypoints),
                          ('웨이포인트 전체 지우기 (d)', self.clear_goals),
+                         ('로봇 초기 위치 지정 — 십자선 위치 (i)', self.set_initial_pose_here),
                          (lambda: f'가운데 스냅 (s) — {_onoff(self.snap)}', self.toggle_snap),
                          ('Nav2 주행 취소 (x)', self.cancel_nav)],
                 'view': []}[self.mode]
@@ -591,7 +609,7 @@ class MapPage(Menu):
             return STAY
         self.view = MapView(grid, self.term.color, extra_key=self._extra_key)
         if self.mode == 'goal':
-            self.view.hints += ' · g 전송 · d 전체 지우기 · s 중앙 스냅 · x 취소 · Backspace 마지막 취소'
+            self.view.hints += ' · g 전송 · d 전체 지우기 · i 초기 위치 · s 중앙 스냅 · x 취소 · Backspace 마지막 취소'
         if self.source is None:  # live 지도일 때만 costmap 겹침 — 저장 지도에는 현재 costmap이 없다
             from nav_msgs.msg import OccupancyGrid
             from rclpy.qos import QoSDurabilityPolicy, QoSProfile, QoSReliabilityPolicy
