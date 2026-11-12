@@ -193,19 +193,60 @@ class RobotNav:
         for _ in range(3):
             self._pub_reset.publish(m)
             self.bus._poll(0.2)
-        try:
-            from control_msgs.srv import SetOdometry
-            cli = self.node.create_client(SetOdometry, '/diff_drive_controller/set_odometry')
-            if cli.wait_for_service(timeout_sec=2.0):
-                req = SetOdometry.Request()
-                req.x = float(pose['x'])
-                req.y = float(pose['y'])
-                req.yaw = yaw
-                fut = cli.call_async(req)
-                rclpy.spin_until_future_complete(self.node, fut, timeout_sec=5.0)
-        except Exception:
-            pass
+        if os.environ.get('CLI_SOURCE') == 'docker':
+            self._docker_reset_odom(float(pose['x']), float(pose['y']), yaw)
+        else:
+            self._reset_odom(float(pose['x']), float(pose['y']), yaw)
         self.bus._poll(1.0)  # TF·EKF가 점프를 따라잡을 시간
+
+    def _reset_odom(self, x: float, y: float, yaw: float) -> None:
+        """odom(바퀴)과 EKF 상태를 같은 자세로 — 텔레포트는 바퀴가 안 굴러서 odom/EKF가 옛 자리에 남는다.
+        안 옮기면 local costmap(odom)이 옛 자리 기준으로 그려져 지도 위 로봇과 어긋난다."""
+        from control_msgs.srv import SetOdometry
+        from robot_localization.srv import SetPose
+
+        cli = self.node.create_client(SetOdometry, '/diff_drive_controller/set_odometry')
+        if cli.wait_for_service(timeout_sec=2.0):
+            req = SetOdometry.Request()
+            req.x, req.y, req.yaw = float(x), float(y), float(yaw)
+            fut = cli.call_async(req)
+            rclpy.spin_until_future_complete(self.node, fut, timeout_sec=5.0)
+
+        pose_cli = self.node.create_client(SetPose, '/set_pose')
+        if pose_cli.wait_for_service(timeout_sec=2.0):
+            req = SetPose.Request()
+            req.pose.header.frame_id = 'odom'
+            req.pose.pose.pose.position.x = float(x)
+            req.pose.pose.pose.position.y = float(y)
+            req.pose.pose.pose.orientation.z = math.sin(yaw / 2.0)
+            req.pose.pose.pose.orientation.w = math.cos(yaw / 2.0)
+            req.pose.pose.covariance[0] = req.pose.pose.covariance[7] = req.pose.pose.covariance[35] = 0.01
+            fut = pose_cli.call_async(req)
+            rclpy.spin_until_future_complete(self.node, fut, timeout_sec=5.0)
+
+    def _docker_reset_odom(self, x: float, y: float, yaw: float) -> None:
+        """도커: 컨테이너 안에서 odom·EKF 리셋 서비스를 호출한다 (호스트 CLI는 서비스 타입 플러그인을 못 씀)."""
+        import shlex
+        container = os.environ.get('BEEBOT_CONTAINER', 'lv2_module6')
+        cov = [0.01 if i in (0, 7, 35) else 0.0 for i in range(36)]
+        odom_goal = {'x': round(x, 3), 'y': round(y, 3), 'yaw': round(yaw, 6)}
+        pose_goal = {'pose': {
+            'header': {'frame_id': 'odom'},
+            'pose': {'pose': {'position': {'x': round(x, 3), 'y': round(y, 3), 'z': 0.0},
+                              'orientation': {'x': 0.0, 'y': 0.0,
+                                              'z': round(math.sin(yaw / 2.0), 6),
+                                              'w': round(math.cos(yaw / 2.0), 6)}},
+                     'covariance': cov}}}
+        script = (
+            'source /opt/ros/lyrical/setup.bash && '
+            f'ros2 service call /diff_drive_controller/set_odometry control_msgs/srv/SetOdometry '
+            f'{shlex.quote(json.dumps(odom_goal))} >/dev/null && '
+            f'ros2 service call /set_pose robot_localization/srv/SetPose {shlex.quote(json.dumps(pose_goal))} >/dev/null')
+        try:
+            subprocess.run(['docker', 'exec', container, 'bash', '-lc', script],
+                           text=True, capture_output=True, timeout=20, check=False)
+        except (OSError, subprocess.TimeoutExpired):
+            pass  # 텔레포트 자체는 됐다 — 리셋 실패는 화면상 위치 어긋남으로만 보인다
 
     # ---------------------------------------------------------------- Nav2 goal · 웨이포인트 순차 주행
     def send_nav_goal(self, pose: dict, frame_id: str = 'map') -> None:

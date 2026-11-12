@@ -517,7 +517,13 @@ class MapPage(Menu):
             return cached
         inbox = self._cost_inbox[kind]
         if inbox:
-            self._cost[kind] = CostGrid.from_msg(inbox[-1])
+            grid = CostGrid.from_msg(inbox[-1])
+            if grid.frame_id not in ('', 'map'):
+                # local costmap은 odom 프레임 — map 기준 자세로 변환해 겹쳐야 로봇·지도와 맞는다
+                parent = self.bus.nav.frame_pose(grid.frame_id)
+                if parent is not None:
+                    grid.set_parent(parent[0], parent[1], math.radians(parent[2]))
+            self._cost[kind] = grid
             self._cost_at[kind] = now
         return self._cost.get(kind)
 
