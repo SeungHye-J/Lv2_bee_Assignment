@@ -172,14 +172,23 @@ class OrbitCamera:
             lo = (walls[:, :2] - walls[:, 3:5] / 2).min(axis=0)
             hi = (walls[:, :2] + walls[:, 3:5] / 2).max(axis=0)
             center = (lo + hi) / 2
-            extent = float(np.max(hi - lo))
+            size = hi - lo
         else:
-            center, extent = np.zeros(2), 6.0
+            center, size = np.zeros(2), np.array([6.0, 6.0])
         self.target = np.array([center[0], center[1], 0.3])
         self.pan[:] = 0.0
-        self.yaw = math.radians(45.0)      # 미로를 비스듬히 내려다보는 3/4 뷰
-        self.pitch = math.radians(38.0)
-        self.distance = float(np.clip(extent * 0.9, 3.2, 8.0))
+        # 위에서 거의 수직으로 내려다보는 기본 뷰 — 미로가 화면을 채우고 벽이 바닥에 묻히지 않게.
+        #   45°/38° 사선 뷰는 대각선 7.8 m가 화면 밖으로 나가고 벽이 납작하게 보였다 (맥 GUI 실측).
+        self.yaw = 0.0
+        self.pitch = math.radians(70.0)
+        # 미로 bounds를 화면에 맞춘다: 수평은 폭, 수직은 경사진 지면+벽 높이.
+        hfov = math.radians(vazebo.scene.HFOV_DEG)
+        aspect = float(vazebo.scene.RENDER_W) / float(vazebo.scene.RENDER_H)
+        vfov = 2.0 * math.atan(math.tan(hfov / 2.0) / aspect)
+        ground_y = abs(size[1] * math.sin(self.pitch)) + 0.39 * math.cos(self.pitch)
+        d_w = abs(size[0]) / (2.0 * math.tan(hfov / 2.0))
+        d_h = ground_y / (2.0 * math.tan(vfov / 2.0))
+        self.distance = float(np.clip(max(d_w, d_h) * 1.08, 3.2, 14.0))
         self.follow = False
         self.dirty = True
 
@@ -207,7 +216,7 @@ class OrbitCamera:
         self.dirty = True
 
     def zoom(self, delta):
-        self.distance = float(np.clip(self.distance * (0.9 if delta > 0 else 1.1), 1.0, 8.0))
+        self.distance = float(np.clip(self.distance * (0.9 if delta > 0 else 1.1), 1.0, 14.0))
         self.dirty = True
 
     def move(self, key: str) -> bool:
@@ -256,7 +265,7 @@ def _look_at(eye, target, up=(0.0, 0.0, 1.0)):
 def _decorate_world(img):
     cv2.rectangle(img, (0, 0), (VIEW_W, 28), (25, 25, 25), -1)
     cv2.rectangle(img, (0, VIEW_H - 24), (VIEW_W, VIEW_H), (25, 25, 25), -1)
-    cv2.putText(img, '3D world (GPU · orbit)', (8, 20),
+    cv2.putText(img, '3D world (orbit)', (8, 20),
                 cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 255, 255), 1)
     cv2.putText(img, 'WASD/arrows move | LMB orbit | RMB pan | wheel zoom | R reset | F follow',
                 (8, VIEW_H - 7), cv2.FONT_HERSHEY_SIMPLEX, 0.4, (220, 220, 220), 1)
@@ -421,12 +430,11 @@ def _gui(sim):
         cam.drag = None
 
     def wheel(e):
-        if inside(e.x, e.y):
-            cam.zoom(1 if e.delta > 0 else -1)
+        # 스크롤은 창 어디에 있든 3D 뷰 확대/축소 — 오른쪽 카메라 타일 위에서도 동작.
+        cam.zoom(1 if e.delta > 0 else -1)
 
     def wheel_linux(e):
-        if inside(e.x, e.y):
-            cam.zoom(1 if e.num == 4 else -1)
+        cam.zoom(1 if e.num == 4 else -1)
 
     def key(e):
         k = e.keysym.lower()
