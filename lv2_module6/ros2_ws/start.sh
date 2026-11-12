@@ -281,7 +281,7 @@ case " $* " in *" map_dir:="*) ;; *) set -- "$@" "map_dir:=$HERE/map" ;; esac
 # Foxglove 접속 안내 — 같은 와이파이의 아이패드(mDNS 이름)를 찾아 보여 주고, 아이패드에서 열 링크(qrencode가 있으면 QR)를 찍음
 #   아이패드 앱을 로봇이 대신 열 수는 없음 → 아이패드 카메라로 QR을 찍거나 링크를 열면 Foxglove가 로봇에 바로 붙음
 foxglove_hint() {
-  case " $* " in *" use_foxglove:=false "*) return ;; esac
+  case " $* " in *" use_foxglove:=true "*|*" use_foxglove:=auto "*) ;; *) return ;; esac  # 기본 끔 — 켤 때만 안내
   ros2 pkg prefix foxglove_bridge >/dev/null 2>&1 || { echo "Foxglove: foxglove_bridge 없음 (sudo apt install ros-lyrical-foxglove-bridge)"; return; }
   local port=8765 tls=false a ip ipads url host scheme=ws d=$HOME/.ros/foxglove
   for a in "$@"; do case "$a" in foxglove_port:=*) port="${a#*:=}" ;; foxglove_tls:=*) tls="${a#*:=}" ;; esac; done
