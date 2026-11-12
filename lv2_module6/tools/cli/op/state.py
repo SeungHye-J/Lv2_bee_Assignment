@@ -58,6 +58,7 @@ class StateStore:
         self.param_clients: dict = {}
         # 상시 상태바용 (없으면 0/빈 값으로 표시, 보드 미동작 아님)
         self.tracked_count = 0
+        self.tracked: list = []                  # /tracked_objects 마지막 메시지의 물체들 (보이는 물체 화면 — 인지가 2 s 안 보이면 빼고 보냄)
         self.task_status = ''
         self.rates: dict[str, Rate] = {}  # 상단 생존 표시 — 키는 bars/state/top_state_bar.py TOPIC_RATES
         self.rl_status: list[float] = []  # controller_server FollowPath RL/DWB 상태
@@ -193,8 +194,10 @@ class StateStore:
         self.tick('tracked_objects')
         try:
             self.tracked_count = len(objects)
+            self.tracked = list(objects)
         except Exception:
             self.tracked_count = 0
+            self.tracked = []
         counts: dict[str, int] = {}
         for o in objects or ():
             name = getattr(o, 'class_name', '') or '?'

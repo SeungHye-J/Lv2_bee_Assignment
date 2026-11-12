@@ -308,6 +308,9 @@ class OperatorTool(Node):
         if name == '9':
             from op.pages import MissionMenu
             return MissionMenu(self)
+        if name == 'objects':
+            from op.pages import ObjectsPage
+            return ObjectsPage(self)
         if name == 'diagnostics':
             from op.pages import DiagnosticsMenu
             return DiagnosticsMenu(self)
