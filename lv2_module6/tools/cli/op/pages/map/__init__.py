@@ -338,8 +338,10 @@ class MapPage(Menu):
             self.cancel_nav()
         elif k in ('i', 'I') and self.mode == 'goal':
             self.set_initial_pose_here()
-        elif k in ('v', 'V') and self.mode == 'goal':
+        elif k == 'v' and self.mode == 'goal':
             self.preview_path()
+        elif k == 'V' and self.mode == 'goal':
+            self.clear_preview()
         elif k in ('[', ']', '{', '}') and self.mode != 'view':   # [ ] = 15° · { } = 1° (미세) — 왼쪽 키([ {)는 좌회전(반시계, +) · 오른쪽 키(] })는 우회전(시계, −)
             self.turn({'[': YAW_STEP, ']': -YAW_STEP, '{': 1.0, '}': -1.0}[k])
         elif k in ('c', 'C'):
@@ -456,6 +458,14 @@ class MapPage(Menu):
         except Exception as exc:  # noqa: BLE001 — 화면에 이유를 남긴다
             self.msg = f'FAIL: {exc}'
 
+    def clear_preview(self) -> None:
+        """예상 경로 지우기 (V)."""
+        if self._preview is None:
+            self.msg = '예상 경로 없음'
+            return
+        self._preview = None
+        self.msg = '예상 경로 지움'
+
     # ---------------------------------------------------------------- 화면
     def items(self):
         if self.saved:   # 저장했으면 보이는 항목이 없다 → Window.run이 끝남 (기존 규약: 항목이 없으면 화면 종료)
@@ -468,6 +478,7 @@ class MapPage(Menu):
                          ('웨이포인트 전송 — 순서대로 주행 (g)', self.send_waypoints),
                          ('웨이포인트 전체 지우기 (d)', self.clear_goals),
                          ('예상 경로 미리보기 — 계산만 (v)', self.preview_path),
+                         ('예상 경로 지우기 (V)', self.clear_preview),
                          ('로봇 초기 위치 지정 — 십자선 위치 (i)', self.set_initial_pose_here),
                          (lambda: f'가운데 스냅 (s) — {_onoff(self.snap)}', self.toggle_snap),
                          ('Nav2 주행 취소 (x)', self.cancel_nav)],
@@ -649,7 +660,7 @@ class MapPage(Menu):
             return STAY
         self.view = MapView(grid, self.term.color, extra_key=self._extra_key)
         if self.mode == 'goal':
-            self.view.hints += ' · g 전송 · v 예상 경로 · d 전체 지우기 · i 초기 위치 · s 중앙 스냅 · x 취소 · Backspace 마지막 취소'
+            self.view.hints += ' · g 전송 · v 예상 경로 · V 지우기 · d 전체 지우기 · i 초기 위치 · s 중앙 스냅 · x 취소 · Backspace 마지막 취소'
         if self.source is None:  # live 지도일 때만 costmap 겹침 — 저장 지도에는 현재 costmap이 없다
             from nav_msgs.msg import OccupancyGrid
             from rclpy.qos import QoSDurabilityPolicy, QoSProfile, QoSReliabilityPolicy
