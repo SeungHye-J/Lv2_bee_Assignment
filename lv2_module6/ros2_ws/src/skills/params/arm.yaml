@@ -11,3 +11,7 @@ server_wait_s: 30.0      # [s] MoveIt · Nav2 서버가 뜰 때까지 기다림
 # inspect 상자 보기 1차 자세 (skill_inspect target box · skill_pose "look") — 상자 앞 퍽 둘을 gripper_cam 한 장에 (사용자 11/07: 0 · −96.4 · 18.6 · 110.4 · 0°)
 #   이 자세로 퍽이 모자라거나 태그를 못 읽으면 skill_inspect가 본 퍽을 담는 자세로 다시 봄 (look_plan)
 pose_look: [0.0, -1.682497, 0.324631, 1.926843, 0.0]
+# 바코드 읽기 자세 (skill_pose "barcode" · mission_manager BARCODE) — 팔을 앞으로 뻗어 gripper_cam이 정면(아래 6°)을 봄
+#   손 카메라 = 차체 앞 0.43 m · 바닥 위 0.30 m (look_plan FK). pole_front_cam(640×360, 벽까지 0.79 m)에선 바코드가 36 px라
+#   막대 하나가 0.3 px — 못 읽음 (실기 11-12). 손 카메라는 벽까지 약 0.22 m → 약 130 px. 높이는 실기 화면에서 추정한 0.27~0.30 m
+pose_barcode: [0.0, 1.38, -1.39, -0.24, 0.0]

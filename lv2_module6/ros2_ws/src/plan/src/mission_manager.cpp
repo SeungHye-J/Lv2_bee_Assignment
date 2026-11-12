@@ -113,6 +113,7 @@ MissionManager::MissionManager()
   signal_timeout_s_ = declare_parameter<double>("signal_timeout_s", 150.0);
   signal_error_cycles_ = static_cast<int>(declare_parameter<int64_t>("signal_error_cycles", 2));
   barcode_timeout_s_ = declare_parameter<double>("barcode_timeout_s", 20.0);
+  barcode_arm_pose_ = declare_parameter<std::string>("barcode_arm_pose", "barcode");
   // 비우면 출발(관측) 자리에서 그대로 바코드를 봄 — 이동 없음 (실기 11-12: 출발 자리에서 신호등·바코드가 다 보이고,
   //   26 cm 뒤 자리로 가려면 Nav2가 전진만 해서 돌아섰다 다시 돌아 한 바퀴를 돎)
   const auto bp = declare_parameter<std::vector<double>>("barcode_pose_arena", std::vector<double>{});
@@ -274,6 +275,24 @@ void MissionManager::go_observe() {
 }
 
 void MissionManager::barcode_phase() {
+  if (barcode_arm_pose_.empty()) { barcode_read(); return; }
+  // 팔을 앞으로 뻗어 gripper_cam으로 — pole_front_cam은 해상도가 모자라 바코드 막대를 못 가름 (실기 11-12)
+  note("팔 " + barcode_arm_pose_ + " 자세 → 손 카메라로 바코드");
+  run({SubGoal().set__skill("pose").set__target(barcode_arm_pose_)}, [this](bool ok, const std::string & why) {
+    if (!ok) { barcode_done(false, "barcode_pose_failed:" + why); return; }
+    barcode_read();
+  });
+}
+
+void MissionManager::barcode_done(bool ok, const std::string & why) {
+  if (barcode_arm_pose_.empty()) { ok ? finish(true, "") : finish(false, why); return; }
+  run({stow()}, [this, ok, why](bool sok, const std::string & swhy) {  // 실패해도 팔은 접고 끝냄
+    if (!ok) { finish(false, why); return; }
+    finish(sok, "barcode_stow_failed:" + swhy);
+  });
+}
+
+void MissionManager::barcode_read() {
   // 이번에 실제로 본 바코드만 — /tracked_objects의 barcode(last_seen ≥ 시작) 또는 시작 뒤 받은 /mission/qr
   note("바코드 읽는 중");
   phase_started_ = now();
@@ -283,15 +302,15 @@ void MissionManager::barcode_phase() {
       if (o.class_name == "barcode" && rclcpp::Time(o.last_seen, RCL_ROS_TIME) >= phase_started_) barcode_ = detail(o, "content");
     if (barcode_.empty() && barcode_rx_ >= phase_started_) barcode_ = barcode_msg_;
     if (barcode_.empty()) {
-      if ((now() - phase_started_).seconds() > barcode_timeout_s_) { timer_->cancel(); finish(false, "barcode_missing"); }
+      if ((now() - phase_started_).seconds() > barcode_timeout_s_) { timer_->cancel(); barcode_done(false, "barcode_missing"); }
       return;
     }
     timer_->cancel();
     RCLCPP_INFO(get_logger(), "바코드 %s", barcode_.c_str());
     snap("barcode");
-    if (!observe_move_) { finish(true, ""); return; }  // 이미 관측 자리
-    const auto p = to_map(start_.x, start_.y, M_PI);  // 관측 = 출발 자리에서 −X(π)를 봄
-    run({SubGoal().set__skill("navigate").set__target(fmt("%.3f,%.3f,%.3f", p.x, p.y, p.yaw))},
+    if (!observe_move_) { barcode_done(true, ""); return; }  // 이미 관측 자리 — 팔만 접음
+    const auto p = to_map(start_.x, start_.y, M_PI);  // 관측 = 출발 자리에서 −X(π)를 봄 — 팔부터 접고 이동
+    run({stow(), SubGoal().set__skill("navigate").set__target(fmt("%.3f,%.3f,%.3f", p.x, p.y, p.yaw))},
       [this](bool ok, const std::string & why) { finish(ok, "observe_nav_failed:" + why); });
   });
 }
