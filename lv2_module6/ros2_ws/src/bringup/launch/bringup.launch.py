@@ -167,6 +167,8 @@ def generate_launch_description():
     return LaunchDescription([
         DeclareLaunchArgument('use_ros_system', default_value='true',
                               description='false면 ros_system(📦)을 띄우지 않음'),
+        DeclareLaunchArgument('use_mission_manager', default_value='true',
+                              description='false면 mission_manager를 띄우지 않음 — 도면 벽(/arena/walls)이 /map에 안 겹침 (매핑·주행 시험용, 미션 불가)'),
         DeclareLaunchArgument('use_ml', default_value='true',
                               description='false면 ml 노드(grasp_scorer)를 띄우지 않음'),
         *[DeclareLaunchArgument(f'use_{n}', default_value=LaunchConfiguration('use_ml'),
@@ -223,9 +225,11 @@ def generate_launch_description():
             PythonLaunchDescriptionSource(PathJoinSubstitution([FindPackageShare('skills'), 'launch', 'skills.launch.py'])),
             launch_arguments={'grasp_check': LaunchConfiguration('grasp_check')}.items())]),
         # 주사위 미션 — /cmd/mission start로 시작 (abort로 멈춤). 출발 자세만 launch 인자로 덮어씀
-        node('plan', 'mission_manager', condition=IfCondition(PythonExpression(["'", LaunchConfiguration('start_pose'), "' == ''"]))),
+        node('plan', 'mission_manager', condition=IfCondition(PythonExpression(
+            ["'", LaunchConfiguration('use_mission_manager'), "'.lower() == 'true' and '", LaunchConfiguration('start_pose'), "' == ''"]))),
         node('plan', 'mission_manager', {'start_pose_arena': ParameterValue(LaunchConfiguration('start_pose'), value_type=None)},
-             condition=IfCondition(PythonExpression(["'", LaunchConfiguration('start_pose'), "' != ''"]))),
+             condition=IfCondition(PythonExpression(
+                 ["'", LaunchConfiguration('use_mission_manager'), "'.lower() == 'true' and '", LaunchConfiguration('start_pose'), "' != ''"]))),
         *[node('ml', n, learning, condition=IfCondition(LaunchConfiguration(f'use_{n}'))) for n in ML_NODES],
         node('control', 'arm_safety_monitor'),
         node('control', 'manual_control'),
