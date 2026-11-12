@@ -13,11 +13,14 @@
   ③ BackUp 후진 0.10 m / 0.05 m/s. pole_front_cam이 뒤를 못 봐서 0.30 m 후진은 벽에 박힌다.
   ④ 복구 Spin/BackUp은 disable_collision_checks=true — 로컬 코스트맵의 유령 점이 복구를 막아
      전역 지도상 빈 공간에서도 못 움직이던 데드락을 끊는다 (2026-11-12 테스트베드: backup failed: Collision Ahead).
+  ⑤ 최상위 재시도 3회 — 복구(회전/후진/대기)를 각 1회씩. 3회 안에 현재 웨이포인트에 못 가면 그 목표는 ABORTED.
+     이때 ros_system의 rewind 노드가 실제 주행 궤적을 0.4 m 후진해 이전 자세로 되돌린다. 그 뒤 같은
+     웨이포인트로 다시 시도하는 것은 CLI/오퍼레이터 몫이다 (BT는 현재 웨이포인트만 재시도하고 이전 점으로 돌아가지 않는다).
   ros_system.launch.py가 bt_navigator의 default_nav_through_poses_bt_xml로 넘긴다.
 -->
 <root BTCPP_format="4" main_tree_to_execute="NavigateThroughPosesWReplanningAndRecovery">
   <BehaviorTree ID="NavigateThroughPosesWReplanningAndRecovery">
-    <RecoveryNode number_of_retries="6" name="NavigateRecovery">
+    <RecoveryNode number_of_retries="3" name="NavigateRecovery">
       <PipelineSequence name="NavigateWithReplanning">
         <ProgressCheckerSelector selected_progress_checker="{selected_progress_checker}" default_progress_checker="progress_checker" topic_name="progress_checker_selector"/>
         <GoalCheckerSelector selected_goal_checker="{selected_goal_checker}" default_goal_checker="general_goal_checker" topic_name="goal_checker_selector"/>
