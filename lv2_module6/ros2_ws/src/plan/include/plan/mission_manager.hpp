@@ -11,7 +11,7 @@
 //         ✉️ /mission/state (plan/MissionState, latched) · /mission/markers (RViz)
 //         ✉️ 기록 log_dir/<시작 시각>/ signal · allocation · build · verify · return · error .json + photos/ · /diagnostics
 //   단계 (순서와 실패 시 갈 곳은 mission_solver next_phase):
-//     GO_OBSERVE 팔 scan 자세 + 바코드 보는 자세로 → BARCODE 이번에 본 바코드 → 관측 자세(−X)로
+//     GO_OBSERVE 바코드 보는 자세로 (팔은 stow 그대로 — scan 자세는 없앰, 11-09) → BARCODE 이번에 본 바코드 → 관측 자세(−X)로
 //     → READ 12회 점멸 — signal_status가 ok(두 사이클 같은 답)면 확정 · unconfirmed면 기다림 ·
 //              count·unknown·range가 signal_error_cycles번 이어지면 ERROR (발제: 추정 금지 → 안전 정지) · signal_timeout_s 넘어도 ERROR
 //     → SURVEY 시작 박스 6곳 전부: 퍽 두 자리 inspect(tag·색·모양) → pick → load next (적재함 12칸)
@@ -87,6 +87,8 @@ private:
 
   void go_observe();
   void barcode_phase();
+  void barcode_read();                                // 바코드 기다림 (팔을 barcode 자세로 둔 뒤)
+  void barcode_done(bool ok, const std::string & why);  // 팔 stow로 → 다음 단계
   void read_phase();
   void survey(size_t box);
   void load(size_t box, std::vector<int> found, size_t k);  // 찾은 퍽(tag)을 적재함에 — 트랙 id는 집기 직전에 다시 찾음
@@ -122,6 +124,8 @@ private:
   Pose2 start_;
   std::vector<double> start_zone_, footprint_;
   std::vector<Box> start_boxes_, loc_boxes_;
+  std::vector<size_t> survey_order_, build_loc_order_;  // 시작 박스 · 장소 방문 순서 (0부터, plan.yaml survey_order · build_location_order)
+  size_t survey_k_ = 0;                                  // 지금 몇 번째 박스를 도는지 (survey_order_ 인덱스)
   std::vector<double> walls_;    // 경기장 벽 선분 [x0, y0, x1, y1, …] (arena, m) — 다가설 자리 거르기 · /arena/walls
   double wall_clearance_ = 0.22; // [m] 다가설 자리가 벽에서 이보다 가까우면 그 변은 안 감 (로봇 반경 0.16 + 여유)
   std::vector<std::pair<double, double>> locations_;
@@ -130,6 +134,8 @@ private:
   double box_top_z_, puck_h_, grid_step_, standoff_, approach_gap_, verify_radius_, match_radius_;
   double place_tol_, place_search_, corr_max_;
   Pose2 barcode_pose_;
+  std::string barcode_arm_pose_;  // 바코드 읽을 때 팔 자세 ("" = 안 움직임)
+  bool observe_move_ = false;  // barcode_pose_arena가 있으면 그 자리로 갔다가 관측 자리로 돌아옴
   double signal_timeout_s_, barcode_timeout_s_, home_hold_s_;
   int signal_error_cycles_ = 2;
   int approach_tries_, retries_;

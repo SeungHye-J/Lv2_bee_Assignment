@@ -102,6 +102,9 @@ MissionManager::MissionManager()
   match_radius_ = declare_parameter<double>("match_radius", 0.04);
   stand_check_s_ = declare_parameter<double>("stand_check_s", 1.0);
   verify_radius_ = declare_parameter<double>("verify_radius", 0.15);
+  // 방문 순서 (1부터) — 경기장 고정이라 오프라인 A*(tools/plan/route_order.py, 도면 벽)로 정한 값. 비거나 틀리면 1, 2, 3, …
+  survey_order_ = visit_order(declare_parameter<std::vector<int64_t>>("survey_order", std::vector<int64_t>{}), start_boxes_.size());
+  build_loc_order_ = visit_order(declare_parameter<std::vector<int64_t>>("build_location_order", std::vector<int64_t>{}), 3);
   walls_ = declare_parameter<std::vector<double>>("arena_walls", std::vector<double>{});
   wall_clearance_ = declare_parameter<double>("wall_clearance", 0.22);
   place_tol_ = declare_parameter<double>("place_tol", 0.010);
@@ -110,8 +113,12 @@ MissionManager::MissionManager()
   signal_timeout_s_ = declare_parameter<double>("signal_timeout_s", 150.0);
   signal_error_cycles_ = static_cast<int>(declare_parameter<int64_t>("signal_error_cycles", 2));
   barcode_timeout_s_ = declare_parameter<double>("barcode_timeout_s", 20.0);
-  const auto bp = declare_parameter<std::vector<double>>("barcode_pose_arena", {0.950, 0.800, M_PI + 0.171});
-  barcode_pose_ = {bp.at(0), bp.at(1), bp.at(2)};
+  barcode_arm_pose_ = declare_parameter<std::string>("barcode_arm_pose", "gaze");
+  // 비우면 출발(관측) 자리에서 그대로 바코드를 봄 — 이동 없음 (실기 11-12: 출발 자리에서 신호등·바코드가 다 보이고,
+  //   26 cm 뒤 자리로 가려면 Nav2가 전진만 해서 돌아섰다 다시 돌아 한 바퀴를 돎)
+  const auto bp = declare_parameter<std::vector<double>>("barcode_pose_arena", std::vector<double>{});
+  observe_move_ = bp.size() >= 3;
+  if (observe_move_) barcode_pose_ = {bp.at(0), bp.at(1), bp.at(2)};
   home_hold_s_ = declare_parameter<double>("home_hold_s", 3.0);
   log_dir_ = declare_parameter<std::string>("log_dir", "~/.ros/mission");
   photo_topic_ = declare_parameter<std::string>("photo_topic", "/gripper_cam/color/image_raw");
@@ -255,14 +262,37 @@ void MissionManager::enter(Phase p, const std::string & why) {
 }
 
 void MissionManager::go_observe() {
-  note("팔 scan 자세 · 바코드 보는 자세로 (출발 구역 안)");
+  // 팔은 stow 그대로 — 예전 pose scan(왼쪽 뒤 150°)은 팔을 뻗은 채 회전해 관성으로 밀리고 무게중심이 쏠림 (11-09 시뮬). stow에서도 pole_front_cam에 신호등이 보임
+  note("바코드 보는 자세로 (출발 구역 안 · 팔 stow)");
+  if (!observe_move_) {  // 출발 자리에서 그대로 봄
+    note("바코드 · 신호등을 출발 자리에서 봄 (이동 없음 · 팔 stow)");
+    finish(true, "");
+    return;
+  }
   const auto p = to_map(barcode_pose_.x, barcode_pose_.y, barcode_pose_.yaw);
-  run({SubGoal().set__skill("pose").set__target("scan"),
-       SubGoal().set__skill("navigate").set__target(fmt("%.3f,%.3f,%.3f", p.x, p.y, p.yaw))},
+  run({SubGoal().set__skill("navigate").set__target(fmt("%.3f,%.3f,%.3f", p.x, p.y, p.yaw))},
     [this](bool ok, const std::string & why) { finish(ok, "observe_nav_failed:" + why); });
 }
 
 void MissionManager::barcode_phase() {
+  if (barcode_arm_pose_.empty()) { barcode_read(); return; }
+  // 팔을 앞으로 뻗어 gripper_cam으로 — pole_front_cam은 해상도가 모자라 바코드 막대를 못 가름 (실기 11-12)
+  note("팔 " + barcode_arm_pose_ + " 자세 → 손 카메라로 바코드");
+  run({SubGoal().set__skill("pose").set__target(barcode_arm_pose_)}, [this](bool ok, const std::string & why) {
+    if (!ok) { barcode_done(false, "barcode_pose_failed:" + why); return; }
+    barcode_read();
+  });
+}
+
+void MissionManager::barcode_done(bool ok, const std::string & why) {
+  if (barcode_arm_pose_.empty()) { ok ? finish(true, "") : finish(false, why); return; }
+  run({stow()}, [this, ok, why](bool sok, const std::string & swhy) {  // 실패해도 팔은 접고 끝냄
+    if (!ok) { finish(false, why); return; }
+    finish(sok, "barcode_stow_failed:" + swhy);
+  });
+}
+
+void MissionManager::barcode_read() {
   // 이번에 실제로 본 바코드만 — /tracked_objects의 barcode(last_seen ≥ 시작) 또는 시작 뒤 받은 /mission/qr
   note("바코드 읽는 중");
   phase_started_ = now();
@@ -272,14 +302,15 @@ void MissionManager::barcode_phase() {
       if (o.class_name == "barcode" && rclcpp::Time(o.last_seen, RCL_ROS_TIME) >= phase_started_) barcode_ = detail(o, "content");
     if (barcode_.empty() && barcode_rx_ >= phase_started_) barcode_ = barcode_msg_;
     if (barcode_.empty()) {
-      if ((now() - phase_started_).seconds() > barcode_timeout_s_) { timer_->cancel(); finish(false, "barcode_missing"); }
+      if ((now() - phase_started_).seconds() > barcode_timeout_s_) { timer_->cancel(); barcode_done(false, "barcode_missing"); }
       return;
     }
     timer_->cancel();
     RCLCPP_INFO(get_logger(), "바코드 %s", barcode_.c_str());
     snap("barcode");
-    const auto p = to_map(start_.x, start_.y, M_PI);  // 관측 = 출발 자리에서 −X(π)를 봄
-    run({SubGoal().set__skill("navigate").set__target(fmt("%.3f,%.3f,%.3f", p.x, p.y, p.yaw))},
+    if (!observe_move_) { barcode_done(true, ""); return; }  // 이미 관측 자리 — 팔만 접음
+    const auto p = to_map(start_.x, start_.y, M_PI);  // 관측 = 출발 자리에서 −X(π)를 봄 — 팔부터 접고 이동
+    run({stow(), SubGoal().set__skill("navigate").set__target(fmt("%.3f,%.3f,%.3f", p.x, p.y, p.yaw))},
       [this](bool ok, const std::string & why) { finish(ok, "observe_nav_failed:" + why); });
   });
 }
@@ -322,12 +353,14 @@ void MissionManager::read_phase() {
 }
 
 // ---------- SURVEY — 시작 박스 6곳 전부 조사하면서 적재함에 싣기
-void MissionManager::survey(size_t b) {
-  if (b >= start_boxes_.size()) { solve_allocation(); return; }
+void MissionManager::survey(size_t k) {  // k = 방문 순서 인덱스 (survey_order_) · b = 박스 번호(0부터)
+  if (k >= survey_order_.size()) { solve_allocation(); return; }
+  survey_k_ = k;
+  const size_t b = survey_order_[k];
   const Box box = start_boxes_[b];
   note("시작 박스 " + str(static_cast<int>(b) + 1) + " 조사");
   go_near(box, box.x, box.y, [this, b, box](bool ok, const std::string & why) {
-    if (!ok) { result("box " + str(static_cast<int>(b) + 1) + ": approach_failed " + why); survey(b + 1); return; }
+    if (!ok) { result("box " + str(static_cast<int>(b) + 1) + ": approach_failed " + why); survey(survey_k_ + 1); return; }
     // 상자 한 번 보기 (look 자세 → 퍽이 모자라거나 태그를 못 읽으면 본 퍽을 담는 자세로 다시) — 퍽 자리마다 따로 보던 것 (11/07)
     const std::vector<SubGoal> goals = {
       SubGoal().set__skill("inspect").set__target(point(box.x, box.y, box_top_z_ + puck_h_)).set__relation("box")};
@@ -360,7 +393,7 @@ void MissionManager::survey(size_t b) {
 }
 
 void MissionManager::load(size_t b, std::vector<int> found, size_t k) {
-  if (k >= found.size()) { survey(b + 1); return; }
+  if (k >= found.size()) { survey(survey_k_ + 1); return; }
   if (!basket_has_room()) { load(b, found, found.size()); return; }  // 꽉 참 — 나머지는 BUILD 때 시작 박스에서 직접
   const int tag = found[k];
   note("퍽 " + str(tag) + " → 적재함 (load next)");
@@ -392,7 +425,7 @@ void MissionManager::solve_allocation() {
   const bool ok = allocate(pucks_, counts_, alloc_, why);
   std::string groups;
   if (ok) {
-    for (size_t li = 0; li < 3; ++li) {
+    for (const size_t li : build_loc_order_) {  // 장소 방문 순서 (build_location_order) — 장소 번호 li는 그대로
       const char g = order_[li];
       const auto cells = dice_cells(group_count(counts_, g));
       std::vector<int> tags;
