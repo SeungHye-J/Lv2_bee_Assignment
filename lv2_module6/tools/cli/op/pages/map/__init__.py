@@ -448,8 +448,15 @@ class MapPage(Menu):
             self.msg = '저장 지도에는 planner가 없음 — 지금 지도(live)에서만'
             return
         try:
-            with self.ui.capture():
-                pts = self.bus.nav.preview_path(self.goals, 'map')
+            self.ui.busy('예상 경로 계산')
+            self.ui.progress('Nav2 planner에 경로 요청 중… (로봇은 움직이지 않음)')
+            try:
+                with self.ui.capture():
+                    pts = self.bus.nav.preview_path(
+                        self.goals, 'map',
+                        on_wait=lambda sec: self.ui.progress(f'Nav2 planner 계산 중… {sec:.1f}s'))
+            finally:
+                self.ui._busy = None
             if len(pts) < 2:
                 self.msg = 'planner가 경로를 내지 않음 (출발/목표 확인)'
                 return
