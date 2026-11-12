@@ -113,7 +113,7 @@ MissionManager::MissionManager()
   signal_timeout_s_ = declare_parameter<double>("signal_timeout_s", 150.0);
   signal_error_cycles_ = static_cast<int>(declare_parameter<int64_t>("signal_error_cycles", 2));
   barcode_timeout_s_ = declare_parameter<double>("barcode_timeout_s", 20.0);
-  barcode_arm_pose_ = declare_parameter<std::string>("barcode_arm_pose", "barcode");
+  barcode_arm_pose_ = declare_parameter<std::string>("barcode_arm_pose", "gaze");
   // 비우면 출발(관측) 자리에서 그대로 바코드를 봄 — 이동 없음 (실기 11-12: 출발 자리에서 신호등·바코드가 다 보이고,
   //   26 cm 뒤 자리로 가려면 Nav2가 전진만 해서 돌아섰다 다시 돌아 한 바퀴를 돎)
   const auto bp = declare_parameter<std::vector<double>>("barcode_pose_arena", std::vector<double>{});

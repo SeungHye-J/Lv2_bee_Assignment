@@ -16,7 +16,7 @@ coordinator:
       unload: 90.0
       stand: 90.0
       stand_pick: 90.0
-    pose_names: [stow, carry_left, carry_right, barcode]   # pose 단계 검증 (값은 skill_pose — skills/params/basket.yaml · arm.yaml) · scan 자세는 없앰 (11-09)
+    pose_names: [stow, carry_left, carry_right, gaze]   # pose 단계 검증 (값은 skill_pose — skills/params/basket.yaml · arm.yaml) · scan 자세는 없앰 (11-09)
     # 적재함 장부 (이 노드만 씀): 파일에 저장해 다시 떠도 이어 감 · load next가 쓰는 칸 (팔이 잘 못 닿는 칸은 실기에서 확인 후 뺌)
     basket_slots: 12
     #   사람이 적재함을 손으로 비웠으면: ros2 service call /coordinator/basket_clear std_srvs/srv/Trigger
@@ -83,7 +83,7 @@ mission_manager:             # 주사위 기억 미션 (documents/mission/README
     #   옮겨서 보려면 아래 줄을 살림 (빈 배열 []은 ROS YAML이 타입을 몰라 못 씀 — 줄을 빼면 코드 기본 = 이동 없음)
     # barcode_pose_arena: [0.950, 0.800, 3.3126]
     barcode_timeout_s: 20.0                  # [s] 이번에 본 바코드가 없으면 오류 (팔이 barcode 자세에 간 뒤부터)
-    barcode_arm_pose: barcode                # 바코드는 팔을 이 자세로 뻗어 gripper_cam으로 읽고 stow로 돌아옴 ("" = 팔 안 움직이고 pole_front_cam만)
+    barcode_arm_pose: gaze                   # 바코드는 팔을 이 자세로 뻗어 gripper_cam으로 읽고 stow로 돌아옴 ("" = 팔 안 움직이고 pole_front_cam만)
     signal_timeout_s: 150.0                  # [s] READ 시작부터 신호 확정까지 (한 사이클 약 27초 · 두 사이클 같아야 확정 — 중간부터 보면 3사이클)
     signal_error_cycles: 2                   # 오류 사이클(count·unknown·range)이 이만큼 이어지면 ERROR — 한 번은 잡음일 수 있어 다음 사이클을 봄
     home_hold_s: 3.0                         # [s] 출발 구역에서 정지 (발제: 3초)
