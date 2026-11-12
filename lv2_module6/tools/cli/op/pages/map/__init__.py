@@ -130,8 +130,13 @@ class MapPage(Menu):
             self.msg = '취소'
             return
         try:
-            with self.ui.capture():
-                self.bus.nav.set_robot_pose(pose['x'], pose['y'], pose['yaw_deg'])
+            self.ui.busy('초기 위치 지정')
+            self.ui.progress('로봇 위치 이동 + odom·EKF 리셋 중…')
+            try:
+                with self.ui.capture():
+                    self.bus.nav.set_robot_pose(pose['x'], pose['y'], pose['yaw_deg'])
+            finally:
+                self.ui._busy = None
             self.msg = f'초기 위치 {fmt_pose(pose)}'
         except Exception as exc:
             self.msg = f'FAIL: {exc}'
