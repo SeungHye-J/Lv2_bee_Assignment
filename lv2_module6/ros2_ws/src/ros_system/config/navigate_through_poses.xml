@@ -1,12 +1,14 @@
 
 <!--
   bt_navigator through-poses 행동 트리 — Nav2 기본 navigate_through_poses_w_replanning_and_recovery.xml(Lyrical) 복사본.
-  바꾼 곳 둘:
+  바꾼 곳 셋:
   ① RemovePassedGoals radius 0.7 → 0.40 m. 기본 0.7은 출발점에서 0.7 m 안의 첫 웨이포인트를
      '이미 지나갔다'고 지워 버린다. 반대로 0.15는 컨트롤러 추종 오차(0.2~0.3 m)로 지나친 점을
      체크하지 못해 같은 웨이포인트로 되돌아가며 맴돈다 (테스트베드 실측) → 0.40으로 절충.
-  ② BackUp 후진 0.30 → 0.10 m. pole_front_cam이 뒤를 못 봐서 0.30 m 후진은 벽에 박힌다
-     (navigate_to_pose.xml과 같은 이유).
+  ② 복구 순서: [코스트맵 지우기 + (멈춰 있을 때만) 후진] → 회전 → 대기.
+     기본 through-poses BT는 후진이 마지막이라 벽에 걸린 로봇이 스핀·대기만 반복했다.
+     navigate_to_pose.xml과 같은 순서로 후진을 첫 번째로 올린다.
+  ③ BackUp 후진 0.10 m / 0.05 m/s. pole_front_cam이 뒤를 못 봐서 0.30 m 후진은 벽에 박힌다.
   ros_system.launch.py가 bt_navigator의 default_nav_through_poses_bt_xml로 넘긴다.
 -->
 <root BTCPP_format="4" main_tree_to_execute="NavigateThroughPosesWReplanningAndRecovery">
@@ -56,13 +58,19 @@
         <ReactiveFallback name="RecoveryFallback">
           <GoalUpdated/>
           <RoundRobin name="RecoveryActions">
-            <Sequence name="ClearingActions">
+            <Sequence name="ClearAndBackUp">
               <ClearEntireCostmap name="ClearLocalCostmap-Subtree" service_name="local_costmap/clear_entirely_local_costmap"/>
               <ClearEntireCostmap name="ClearGlobalCostmap-Subtree" service_name="global_costmap/clear_entirely_global_costmap"/>
+              <Fallback name="BackUpOnlyIfStopped">
+                <Sequence name="StoppedThenBackUp">
+                  <CheckStopStatus velocity_threshold="0.02" duration_stopped="1000"/>
+                  <BackUp backup_dist="0.10" backup_speed="0.05" error_code_id="{backup_error_code}" error_msg="{backup_error_msg}"/>
+                </Sequence>
+                <AlwaysSuccess/>
+              </Fallback>
             </Sequence>
-            <Spin name="SpinRecovery" spin_dist="1.57" error_code_id="{spin_error_code}" error_msg="{spin_error_msg}"/>
-            <Wait name="WaitRecovery" wait_duration="5.0" error_code_id="{wait_error_code}" error_msg="{wait_error_msg}"/>
-            <BackUp name="BackUpRecovery" backup_dist="0.10" backup_speed="0.15" error_code_id="{backup_error_code}" error_msg="{backup_error_msg}"/>
+            <Spin spin_dist="1.57" error_code_id="{spin_error_code}" error_msg="{spin_error_msg}"/>
+            <Wait wait_duration="5.0" error_code_id="{wait_error_code}" error_msg="{wait_error_msg}"/>
           </RoundRobin>
         </ReactiveFallback>
       </Sequence>

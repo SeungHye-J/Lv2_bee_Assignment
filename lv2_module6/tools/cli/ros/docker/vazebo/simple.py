@@ -164,13 +164,23 @@ class OrbitCamera:
             self.target = np.array([x, y, 0.3]) + self.pan
 
     def reset(self, sim):
-        x, y, yaw, _ = sim.robot_xy_yaw()
-        self.target = np.array([x, y, 0.3])
+        # 기본은 로봇 추적(3.2 m)이 아니라 미로 전체 — 벽 상자 bounds의 중앙에서 내려다본다.
+        #   로봇이 벽에 붙어 있으면 3.2 m 화면에는 벽 몇 개만 보여 'maze가 안 보인다' (실측).
+        #   F = 로봇 따라가기, R = 다시 미로 전체.
+        walls = np.asarray(getattr(sim, 'walls', []), float)
+        if len(walls):
+            lo = (walls[:, :2] - walls[:, 3:5] / 2).min(axis=0)
+            hi = (walls[:, :2] + walls[:, 3:5] / 2).max(axis=0)
+            center = (lo + hi) / 2
+            extent = float(np.max(hi - lo))
+        else:
+            center, extent = np.zeros(2), 6.0
+        self.target = np.array([center[0], center[1], 0.3])
         self.pan[:] = 0.0
-        self.yaw = yaw + math.pi          # 로봇 뒤
+        self.yaw = math.radians(45.0)      # 미로를 비스듬히 내려다보는 3/4 뷰
         self.pitch = math.radians(38.0)
-        self.distance = 3.2
-        self.follow = True
+        self.distance = float(np.clip(extent * 0.9, 3.2, 8.0))
+        self.follow = False
         self.dirty = True
 
     def eye(self):
@@ -375,6 +385,14 @@ def _gui(sim):
     label = tk.Label(root, bd=0)
     label.pack()
     root.focus_set()
+    # macOS에서 터미널 뒤에 숨어 안 보이는 경우가 있다 — 앞으로 올리고 로그에도 남긴다.
+    print(f'SIL simple view GUI — {root.winfo_screenwidth()}x{root.winfo_screenheight()}', flush=True)
+    try:
+        root.attributes('-topmost', True)
+        root.after(500, lambda: root.attributes('-topmost', False))
+    except Exception:
+        pass
+    root.after(100, root.lift)
 
     cam = OrbitCamera()
     cam.reset(sim)
