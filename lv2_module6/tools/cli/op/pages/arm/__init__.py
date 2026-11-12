@@ -19,7 +19,8 @@ from ...terminal import RED, YELLOW
 from ...menus import ActionItem, Menu
 
 # 이름 있는 자세 — coordinator pose_names(plan.yaml)가 받는 것만. scan은 미션에서 빼는 중이라 안 넣음
-POSES = [('5', 'stow', '접기 (주행·시작 자세)'), ('6', 'carry_left', '왼쪽으로 들기 (운반)'), ('7', 'carry_right', '오른쪽으로 들기 (운반)')]
+POSES = [('5', 'stow', '접기 (주행·시작 자세)'), ('6', 'carry_left', '왼쪽으로 들기 (운반)'), ('7', 'carry_right', '오른쪽으로 들기 (운반)'),
+         ('8', 'barcode', '앞으로 뻗어 손 카메라로 바코드 (벽 앞 공간 확인)')]
 BIG_MOVE = math.radians(30.0)   # 한 관절이 이만큼 넘게 움직이면 확인창에 경고
 
 
