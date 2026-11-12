@@ -8,6 +8,7 @@ from __future__ import annotations
 import json
 import math
 import os
+import subprocess
 import time
 from pathlib import Path
 
@@ -419,6 +420,109 @@ class RobotNav:
             return
         self._last_result_poll = now
         self._poll_docker_result()
+
+    def preview_path(self, poses: list[dict], frame_id: str = 'map') -> list[tuple[float, float]]:
+        """이동 없이 planner에 경로만 계산 — [(x, y), …]. 1개면 ComputePathToPose · 여러 개면 ComputePathThroughPoses."""
+        if not poses:
+            raise RuntimeError('웨이포인트 없음')
+        if os.environ.get('CLI_SOURCE') == 'docker':
+            return self._preview_path_docker(poses, frame_id)
+        return self._preview_path_real(poses, frame_id)
+
+    def _preview_path_real(self, poses: list[dict], frame_id: str) -> list[tuple[float, float]]:
+        from geometry_msgs.msg import PoseStamped
+        from nav2_msgs.action import ComputePathThroughPoses, ComputePathToPose
+        from rclpy.action import ActionClient
+
+        stamp = self.node.get_clock().now().to_msg()
+        def ps(p):
+            m = PoseStamped()
+            m.header.frame_id = frame_id
+            m.header.stamp = stamp
+            m.pose.position.x, m.pose.position.y = float(p['x']), float(p['y'])
+            yaw = math.radians(float(p.get('yaw_deg', 0.0)))
+            m.pose.orientation.z, m.pose.orientation.w = math.sin(yaw / 2.0), math.cos(yaw / 2.0)
+            return m
+
+        if len(poses) > 1:
+            cli = ActionClient(self.node, ComputePathThroughPoses, '/compute_path_through_poses')
+            if not cli.wait_for_server(timeout_sec=5.0):
+                raise RuntimeError('/compute_path_through_poses 서버 없음 — planner_server 확인')
+            goal = ComputePathThroughPoses.Goal()
+            goal.goals.header.frame_id = frame_id
+            goal.goals.header.stamp = stamp
+            goal.goals.goals = [ps(p) for p in poses]
+            goal.use_start = False
+        else:
+            cli = ActionClient(self.node, ComputePathToPose, '/compute_path_to_pose')
+            if not cli.wait_for_server(timeout_sec=5.0):
+                raise RuntimeError('/compute_path_to_pose 서버 없음 — planner_server 확인')
+            goal = ComputePathToPose.Goal()
+            goal.goal = ps(poses[0])
+            goal.use_start = False
+
+        send = cli.send_goal_async(goal)
+        rclpy.spin_until_future_complete(self.node, send, timeout_sec=5.0)
+        handle = send.result()
+        if handle is None or not handle.accepted:
+            raise RuntimeError('planner가 goal을 거부')
+        res = handle.get_result_async()
+        rclpy.spin_until_future_complete(self.node, res, timeout_sec=15.0)
+        out = res.result()
+        if out is None:
+            raise RuntimeError('planner 응답 없음')
+        return [(p.pose.position.x, p.pose.position.y) for p in out.result.path.poses]
+
+    def _preview_path_docker(self, poses: list[dict], frame_id: str) -> list[tuple[float, float]]:
+        """도커: 컨테이너 안에서 ros2 action send_goal → 결과 YAML의 path를 읽는다 (로봇은 안 움직임)."""
+        container = os.environ.get('BEEBOT_CONTAINER', 'lv2_module6')
+        stamp = {'sec': 0, 'nanosec': 0}
+        pss = [{'header': {'stamp': stamp, 'frame_id': frame_id},
+                'pose': {'position': {'x': float(p['x']), 'y': float(p['y']), 'z': 0.0},
+                         'orientation': {'x': 0.0, 'y': 0.0, 'z': 0.0, 'w': 1.0}}}
+               for p in poses]
+        if len(poses) > 1:
+            action, typ = '/compute_path_through_poses', 'nav2_msgs/action/ComputePathThroughPoses'
+            goal = {'goals': {'header': {'stamp': stamp, 'frame_id': frame_id}, 'goals': pss}, 'use_start': False}
+        else:
+            action, typ = '/compute_path_to_pose', 'nav2_msgs/action/ComputePathToPose'
+            goal = {'goal': pss[0], 'use_start': False}
+        import shlex
+        script = ('source /opt/ros/lyrical/setup.bash && '
+                  f'ros2 action send_goal {action} {typ} {shlex.quote(json.dumps(goal, separators=(",", ":")))}')
+        try:
+            run = subprocess.run(['docker', 'exec', container, 'bash', '-lc', script],
+                                 text=True, capture_output=True, timeout=40)
+        except (OSError, subprocess.TimeoutExpired) as exc:
+            raise RuntimeError(f'도커 미리보기 실패: {exc}') from exc
+        if run.returncode != 0:
+            err = (run.stderr or run.stdout or '').strip().splitlines()[-1:]
+            raise RuntimeError('planner 미리보기 실패: ' + (err[0] if err else 'send_goal 오류'))
+        return self._parse_path_yaml(run.stdout)
+
+    @staticmethod
+    def _parse_path_yaml(text: str) -> list[tuple[float, float]]:
+        """`ros2 action send_goal` 결과에서 path.poses[].pose.position 만 읽는다.
+
+        ros2cli가 path 아래 중첩 필드를 2칸으로 내어 유효한 YAML이 아니다 (path: 4칸 · header: 2칸) —
+        Result: 이후의 position 블록을 줄 단위로 훑어 x·y만 모은다 (orientation은 position 밖이라 무시)."""
+        cut = text.find('Result:')
+        body = text[cut + len('Result:'):] if cut >= 0 else text
+        pts: list[tuple[float, float]] = []
+        in_pos, x = False, None
+        for line in body.splitlines():
+            s = line.strip()
+            if s == 'position:':
+                in_pos, x = True, None
+                continue
+            if not in_pos:
+                continue
+            if s.startswith('x:'):
+                x = float(s.split(':', 1)[1])
+            elif s.startswith('y:') and x is not None:
+                pts.append((x, float(s.split(':', 1)[1])))
+                in_pos, x = False, None
+        return pts
 
     def nav_progress(self) -> dict | None:
         """웨이포인트 진행 상황 — index(1부터) · total · state · 회복/남은 거리. 보낸 적 없으면 None."""
