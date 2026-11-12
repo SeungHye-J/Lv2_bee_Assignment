@@ -6,6 +6,7 @@
 from __future__ import annotations
 
 import math
+import time
 
 from ...defs import STAY
 from ...menus import InfoItem, Menu, MenuItem
@@ -66,7 +67,7 @@ def object_lines(o, now_s: float | None = None) -> list[str]:
 
 class ScrollView(View):
     """줄 목록을 창 높이만큼 잘라 보여주는 본문 — 포커스(Tab)하면 ↑↓ · PgUp/PgDn · Home/End로 스크롤."""
-    hints = '↑↓ 스크롤 · PgUp/PgDn 한 쪽 · Home/End 처음/끝 · Tab/Esc 목록으로 · q 종료'
+    hints = '↑↓ 스크롤 · PgUp/PgDn 한 쪽 · Home/End 처음/끝'   # 뒤에 Window가 'Tab/Esc 메뉴로 · q 종료'를 붙인다
 
     def __init__(self):
         super().__init__()
@@ -134,11 +135,11 @@ class ObjectsPage(Page):
             return [InfoItem(self.app, '보이는 물체 없음 (2초 안에 본 것이 없거나 인지가 꺼져 있음)')]
         return [ObjectItem(self.app, str(i + 1), i, o) for i, o in enumerate(objs)]
 
-    def _now_s(self):
+    def _now_s(self) -> float:
         try:
             return self.app.get_clock().now().nanoseconds * 1e-9
-        except Exception:
-            return None
+        except Exception:   # docker·fake 모드는 ROS 시계가 없다 — 실기·시뮬 모두 last_seen이 시스템 시각이라 벽시계로 대신한다
+            return time.time()
 
     def center(self):
         item = self.ui.window.menu_bar.focused_item
