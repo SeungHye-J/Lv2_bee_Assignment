@@ -145,6 +145,9 @@ def setup_map(context):
     # 인지(YOLO 등)는 지도 만들 때(MAPPING) 쓰이지 않는다 — 실기에서는 CPU 코어 하나의 절반을 먹어 주행이 끊겼다 (2026-11-09).
     #   perception:=auto(기본) = 매핑이면 끔 · true/false = 강제. faker 테스트베드(fake_slam)는 그대로 켠다.
     pm = LaunchConfiguration('perception').perform(context).lower()
+    up = LaunchConfiguration('use_perception').perform(context).lower()   # use_perception:=true|false가 perception:=보다 우선 (use_* 인자와 같은 모양)
+    if up in ('true', 'false'):
+        pm = up
     if pm not in ('auto', 'true', 'false'):
         raise RuntimeError(f'perception:={pm} — auto | true | false')
     use_perception = 'false' if (pm == 'false' or (pm == 'auto' and effective == 'slam' and not fake_slam)) else 'true'
@@ -169,6 +172,8 @@ def generate_launch_description():
                               description='false면 ros_system(📦)을 띄우지 않음'),
         DeclareLaunchArgument('use_mission_manager', default_value='true',
                               description='false면 mission_manager를 띄우지 않음 — 도면 벽(/arena/walls)이 /map에 안 겹침 (매핑·주행 시험용, 미션 불가)'),
+        DeclareLaunchArgument('use_perception', default_value='auto',
+                              description='false면 인지 노드(perception_node · signal_decoder · hand_relative)를 안 띄움 · true면 항상 · auto(기본)면 perception:=를 따름 (body_filter는 Nav2용이라 늘 뜸)'),
         DeclareLaunchArgument('use_ml', default_value='true',
                               description='false면 ml 노드(grasp_scorer)를 띄우지 않음'),
         *[DeclareLaunchArgument(f'use_{n}', default_value=LaunchConfiguration('use_ml'),
