@@ -18,7 +18,7 @@
                      → /cmd_vel_mux → velocity_smoother → /cmd_vel_smoothed → collision_monitor → /cmd_vel
           map→odom·/map은 SLAM (faker는 map_server + fake_cuvslam)
 TODO(권형중) 아직 자리만 있는 것 — 설정 패키지가 필요:
-  - move_group (+ MTC capability): config/moveit 으로 해소 (use_moveit:=true) — pick_ik·octomap 센서(pole_front_cam 점구름)는 아직
+  - move_group (+ MTC capability): config/moveit 으로 해소 (use_moveit:=true) — IK는 pick_ik (kinematics.yaml) · octomap 센서는 sensors_3d.yaml (pole_front_cam points_no_floor — body_filter가 몸·바닥 뺀 것)
 테스트베드에서는 faker가 이 패키지들 대신 같은 토픽·액션을 낸다 (ros2 launch faker faker.launch.py).
 """
 
@@ -150,6 +150,7 @@ def move_group_node():
                  'default_planning_pipeline': 'ompl',
                  'ompl': load_yaml('config', 'moveit', 'ompl_planning.yaml')},
                 load_yaml('config', 'moveit', 'moveit_controllers.yaml'),
+                load_yaml('config', 'moveit', 'sensors_3d.yaml'),  # octomap 센서 — 점구름 장애물을 피해 계획 (이슈 #126)
             ])
 
 
