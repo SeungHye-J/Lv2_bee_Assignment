@@ -7,7 +7,9 @@
 #   POLE_FRONT_CAM_SERIAL=... GRIPPER_CAM_SERIAL=... ./start.sh  # RealSense serial 고정 (권장)
 #   RCUTILS_DEFAULT_LOGGER_DEFAULT_LEVEL=WARN ./start.sh  # 로그 소음 줄이기 (기본 INFO — 전 노드 적용)
 #   ./start.sh learning_enabled:=false      # 학습 노드 끄고 (비교 기준)
-#   ./start.sh map:=slam                    # 지도 매핑 (새 폴더 map/<날짜_시각>/) — 기본 map:=saved = 저장 지도로 위치추정
+#   ./start.sh map:=saved map_name:=kk      # 저장 지도로 위치추정 (미션·Nav2는 이걸로) · map_name 비우면 가장 최근 지도
+#   ./start.sh map:=slam                    # 지도 매핑 (새 폴더 map/<날짜_시각>/)
+#   (map 인자 없으면 bringup 기본 map:=none — 지도·SLAM·Nav2 없이 뜸. 주행·미션 안 됨)
 #   ./start.sh --build [launch 인자]        # 저장소에서 실행할 때 colcon build 후 실행
 #   LAUNCH_FILE=stand_test.launch.py ./start.sh  # 팔 테스트용 가벼운 실행
 #
@@ -276,7 +278,9 @@ if ! ros2 pkg prefix moveit_ros_move_group >/dev/null 2>&1; then
   echo "WARN: moveit_ros_move_group 없음 → use_moveit:=false (팔 pick/place는 사용 불가)"
 fi
 
-# 지도 폴더 기본 = 이 워크스페이스의 map/ (테스트베드 /ws/map 과 같은 자리) — map:=slam(새 폴더 매핑) · saved(저장 지도, 기본)
+# 지도 인자 없이 켜면 bringup 기본 map:=none — Nav2·SLAM이 안 떠서 미션 첫 이동이 nav_unavailable로 멈춤 (실기 11-12) → 크게 알림
+case " $* " in *" map:="*) ;; *) echo "WARN: map 인자 없음 → 지도 없이(map:=none) 시작 — Nav2·SLAM 안 뜸 (미션·주행 불가). 저장 지도: ./start.sh map:=saved [map_name:=이름]" ;; esac
+# 지도 폴더 기본 = 이 워크스페이스의 map/ (테스트베드 /ws/map 과 같은 자리) — map:=slam(새 폴더 매핑) · saved(저장 지도)
 case " $* " in *" map_dir:="*) ;; *) set -- "$@" "map_dir:=$HERE/map" ;; esac
 # Foxglove 접속 안내 — 같은 와이파이의 아이패드(mDNS 이름)를 찾아 보여 주고, 아이패드에서 열 링크(qrencode가 있으면 QR)를 찍음
 #   아이패드 앱을 로봇이 대신 열 수는 없음 → 아이패드 카메라로 QR을 찍거나 링크를 열면 Foxglove가 로봇에 바로 붙음
