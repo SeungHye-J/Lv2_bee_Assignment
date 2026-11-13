@@ -1,4 +1,4 @@
-// skill_pose — /skills/pose: 이름 있는 관절 자세로 (stow · carry_left · carry_right · look) — MoveIt 관절 목표. 학습 정책 없음 (move_pose 기준선 100 %)
+// skill_pose — /skills/pose: 이름 있는 관절 자세로 (stow · carry_left · carry_right · look · gaze) — MoveIt 관절 목표. 학습 정책 없음 (move_pose 기준선 100 %)
 //   팔을 맡는 기본 일도 이 노드 (예전 coordinator):
 //   - 시작 자세: bringup 직후 한 번 팔을 initial_pose로 — MoveIt 없이 /arm_controller/joint_trajectory 토픽.
 //     못 가면 initial_pose_retries번만 다시 보내고 지금 자세로 멈춤 (걸린 채 계속 밀면 과부하). initial_pose_enabled는 실행 중에도 바꿈
@@ -22,7 +22,7 @@ class PoseSkill : public SkillNode {
 public:
   explicit PoseSkill(const rclcpp::NodeOptions & options)
   : SkillNode("skill_pose", options), arm_(*this) {
-    for (const char * n : {"stow", "carry_left", "carry_right", "look"})  // look = inspect 상자 보기 1차 자세 (skill_inspect도 같은 pose_look)
+    for (const char * n : {"stow", "carry_left", "carry_right", "look", "gaze"})  // look = inspect 상자 보기 1차 자세 (skill_inspect도 같은 pose_look) · gaze = 손 카메라로 정면을 가까이 봄 (바코드 등)
       poses_[n] = declare_parameter<std::vector<double>>(std::string("pose_") + n, std::vector<double>{});
     initial_enabled_ = declare_parameter<bool>("initial_pose_enabled", true);
     initial_joints_ = declare_parameter<std::vector<std::string>>("initial_pose_joints", {"joint1", "joint2", "joint3", "joint4", "joint5"});
