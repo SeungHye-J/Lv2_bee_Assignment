@@ -105,7 +105,10 @@ controller_server:
     general_goal_checker:
       plugin: "nav2_controller::SimpleGoalChecker"
       stateful: true     # goal_checker와 같게 (위 설명)
-      xy_goal_tolerance: 0.10
+      # through-poses 웨이포인트는 정밀 접근이 아니라 통과 지점이다. 0.10은 너무 좁아
+      # collision_monitor가 벽 앞에서 0.11 m 남기고 멈추면 영원히 도착 판정이 안 났다
+      # (2026-11-12 테스트베드: 최종점 0.11 m 앞에서 스핀 복구만 7회 반복 → 105).
+      xy_goal_tolerance: 0.20
       yaw_goal_tolerance: 0.15
 
     # 경로 추종 플러그인 — ml::RlNavController (RL 정책, ONNX) + inner 바이패스
@@ -408,8 +411,10 @@ local_costmap:
       # 로봇 외곽 = 실제 몸 직사각형 (base_footprint 기준 [m]: 앞 0.069 · 뒤 -0.245 · 옆 ±0.151 — beebot.usda 충돌 도형,
       #   faker/config/robot_footprint.yaml과 같은 값). 기준점이 앞 바퀴축 쪽이라 몸이 뒤로 길다 → 원(0.16)은 뒤를 0.13 m 덜 봐서
       #   경로가 벽에 붙고 제자리 회전 때 뒤가 벽에 걸렸다 (테스트베드 실측 2026-11-11: 105 반복·Spin "Collision Ahead").
+      #   padding 0.01은 컨트롤러 추종 오차로 상쇄돼 뒤 모서리가 벽 픽셀에 닿았다 → 0.06으로
+      #   fake_opencr 충돌("막힘 bumped") 없이 지나가게 (2026-11-12: (0.97,-1.46) 뒤 모서리 (1.253,-1.513) 벽).
       footprint: "[[0.069, 0.151], [0.069, -0.151], [-0.245, -0.151], [-0.245, 0.151]]"
-      footprint_padding: 0.01
+      footprint_padding: 0.06
       always_send_full_costmap: true
       plugins: ["voxel_layer", "inflation_layer"]
       voxel_layer:
@@ -457,8 +462,10 @@ global_costmap:
       # 로봇 외곽 = 실제 몸 직사각형 (base_footprint 기준 [m]: 앞 0.069 · 뒤 -0.245 · 옆 ±0.151 — beebot.usda 충돌 도형,
       #   faker/config/robot_footprint.yaml과 같은 값). 기준점이 앞 바퀴축 쪽이라 몸이 뒤로 길다 → 원(0.16)은 뒤를 0.13 m 덜 봐서
       #   경로가 벽에 붙고 제자리 회전 때 뒤가 벽에 걸렸다 (테스트베드 실측 2026-11-11: 105 반복·Spin "Collision Ahead").
+      #   padding 0.01은 컨트롤러 추종 오차로 상쇄돼 뒤 모서리가 벽 픽셀에 닿았다 → 0.06으로
+      #   fake_opencr 충돌("막힘 bumped") 없이 지나가게 (2026-11-12: (0.97,-1.46) 뒤 모서리 (1.253,-1.513) 벽).
       footprint: "[[0.069, 0.151], [0.069, -0.151], [-0.245, -0.151], [-0.245, 0.151]]"
-      footprint_padding: 0.01
+      footprint_padding: 0.06
       resolution: 0.05
       track_unknown_space: true
       always_send_full_costmap: true
