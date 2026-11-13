@@ -290,6 +290,18 @@ PerceptionNode::PerceptionNode(const rclcpp::NodeOptions & options) : rclcpp::No
   //   둘 다 네모 안. 본 모델에 'box' 종류가 없거나(장소 태그를 놓침) 이번 영상에 퍽·상자 네모가 없으면 예전처럼 화면 전체
   tag_roi_ = pb("tag_roi", false);  // 기본 끔 — 로봇에서 결과가 같은지 확인한 뒤 켬 (11/12)
   tag_roi_margin_ = pd("tag_roi_margin", 0.3);          // 네모를 변 길이의 이 비율 + 12 px만큼 넓혀서 (태그가 네모 가장자리에 걸려도)
+  // AprilTag 장치: auto = GPU(cuAprilTags)판으로 빌드됐고 GPU가 있으면 GPU · cuda = GPU (안 되면 경고 후 OpenCV) · opencv = 예전 그대로
+  //   GPU는 화면 전체를 한 번 (감마·반 크기·tag_roi는 OpenCV 때만) — 젯슨 640×360 한 장 ≈ 2 ms (OpenCV 3번 24~95 ms)
+  const std::string tag_backend = ps("tag_backend", "auto");
+  if (tag_backend != "opencv") {
+    tag_cuda_ = std::make_unique<CudaTagDetector>();
+    if (!tag_cuda_->available()) {
+      if (tag_backend == "cuda") RCLCPP_WARN(get_logger(), "AprilTag GPU 못 씀 — OpenCV로: %s", tag_cuda_->error().c_str());
+      else RCLCPP_INFO(get_logger(), "AprilTag GPU 없음 — OpenCV로: %s", tag_cuda_->error().c_str());
+      tag_cuda_.reset();
+    }
+  }
+  RCLCPP_INFO(get_logger(), "AprilTag: %s", tag_cuda_ ? "GPU (cuAprilTags)" : "OpenCV aruco");
   // 상자 깊이 찾기를 본 모델 'box' 네모 안에서만 (상자 전용 모델이 없을 때) — 해상도는 그대로라 위치·방향 정밀도는 같음
   //   이번 영상에 'box' 네모가 없으면 예전처럼 화면 전체
   box_roi_yolo_ = pb("box_roi_yolo", false);  // 기본 끔 — 로봇에서 상자가 같은지 확인한 뒤 켬 (11/12)
@@ -508,14 +520,18 @@ void PerceptionNode::update_tracks(const std::string & cam, Frame & s, const std
   const auto [rot, trans] = *tf;
   const double t_tag = mono_s();
   std::vector<Box> tag_rois;  // 퍽·상자 네모 (tag_roi) — 본 모델에 상자 종류가 있을 때만 (없으면 장소 태그를 놓침)
-  if (tag_roi_ && model_has_box_)
+  if (tag_roi_ && model_has_box_ && !tag_cuda_)  // GPU는 화면 전체가 더 빠름
     for (const auto & b : res) {
       const auto it = names_.find(b.cls);
       if (it == names_.end()) continue;
       const auto cls = split_class(it->second).first;
       if (cls == "puck" || cls == "box") tag_rois.push_back(clip_box(b.x0, b.y0, b.x1, b.y1, w, h));
     }
-  const auto tags = tag_rois.empty()
+  std::optional<std::vector<Tag>> gpu_tags = tag_cuda_ ? tag_cuda_->detect(s.bgr, tag_min_px_) : std::nullopt;
+  if (tag_cuda_ && !gpu_tags)
+    RCLCPP_WARN_THROTTLE(get_logger(), *get_clock(), 10000, "AprilTag GPU 실패 — 이번 영상은 OpenCV로: %s", tag_cuda_->error().c_str());
+  const auto tags = gpu_tags ? *gpu_tags
+    : tag_rois.empty()
     ? detect_tags(&tag_det_, s.bgr, tag_gamma_, tag_half_, tag_min_px_, tag_half_min_px_)
     : detect_tags_in(&tag_det_, s.bgr, merge_rois(tag_rois, tag_roi_margin_, 12, w, h), tag_gamma_, tag_half_, tag_min_px_,
                      tag_half_min_px_);
@@ -1439,7 +1455,8 @@ void PerceptionNode::on_diag() {
               kv("동기화 프레임", sy.empty() ? "0" : sy), kv("TF 최신 대체", std::to_string(fallback)),
               kv("자기 몸이라 버린 검출", std::to_string(dropped)), kv("발행한 /tracked_objects", std::to_string(pub)),
               kv("YOLO", model_ ? model_path_ + " · " + model_->provider() : "없음"),
-              kv("AprilTag (퍽 번호·장소)", std::string("OpenCV ") + CV_VERSION + (tag_det_.ok() ? " aruco 있음" : " aruco 없음")),
+              kv("AprilTag (퍽 번호·장소)", tag_cuda_ ? std::string("GPU cuAprilTags") + (tag_cuda_->error().empty() ? "" : " · 마지막 실패: " + tag_cuda_->error())
+                                           : std::string("OpenCV ") + CV_VERSION + (tag_det_.ok() ? " aruco 있음" : " aruco 없음")),
               kv("바코드 (장소 작업 지시)", barcode_ ? "zxing-cpp (1D)" + (barcode_text_.empty() ? std::string() : " · 읽음: " + barcode_text_)
                                                   : "없음 — zxing-cpp 없이 빌드됨 (libzxing-dev)")};
   s.values.insert(s.values.end(), main_values.begin(), main_values.end());

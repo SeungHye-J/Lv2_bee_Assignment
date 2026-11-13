@@ -18,6 +18,7 @@
 #include <opencv2/imgproc.hpp>
 
 #include "perception/perception_core.hpp"
+#include "perception/tag_cuda.hpp"
 
 using namespace perception;  // NOLINT
 namespace {
@@ -230,6 +231,29 @@ TEST(Core, TagFilesAndMinPerimeter) {  // 반사 태그(감마) · 크게 찍힌
   EXPECT_EQ(tag_in_box(tags, front, ids, {front, back})->first, 2);
   EXPECT_FALSE(tag_in_box(tags, back, ids, {front, back}));
   EXPECT_EQ(tag_in_box(tags, back, ids)->first, 2);
+}
+
+TEST(Core, TagCudaSameAsOpenCV) {  // GPU(cuAprilTags) 한 번 = OpenCV 원본·감마·반 크기 3번 — 번호 · aruco 꼭짓점 순서 (GPU 없으면 건너뜀)
+  CudaTagDetector gpu;
+  if (!gpu.available()) GTEST_SKIP() << gpu.error();
+  TagDetector det;
+  cv::Mat img = full(360, 640, {255, 255, 255});
+  marker(5, 80).copyTo(img(cv::Rect(280, 140, 80, 80)));
+  const cv::Mat rot = cv::getRotationMatrix2D({320, 180}, 30, 1.0);
+  cv::warpAffine(img, img, rot, img.size(), cv::INTER_LINEAR, cv::BORDER_CONSTANT, cv::Scalar(255, 255, 255));
+  const cv::Mat glare = cv::imread(data_dir() + "/glare_tag0.png"), big = cv::imread(data_dir() + "/big_tag7.png");
+  ASSERT_FALSE(glare.empty());
+  ASSERT_FALSE(big.empty());
+  for (const cv::Mat & m : {img, glare, big}) {
+    const auto want = detect_tags(&det, m, 2.5, true, 16.0, 24.0);
+    const auto got = gpu.detect(m, 16.0);
+    ASSERT_TRUE(got) << gpu.error();
+    ASSERT_EQ(got->size(), want.size());
+    for (size_t i = 0; i < want.size(); ++i) {
+      EXPECT_EQ((*got)[i].id, want[i].id);
+      for (int k = 0; k < 4; ++k) EXPECT_LT(cv::norm((*got)[i].corners[k] - want[i].corners[k]), 3.0) << "꼭짓점 " << k;
+    }
+  }
 }
 
 TEST(Core, PuckYaw) {

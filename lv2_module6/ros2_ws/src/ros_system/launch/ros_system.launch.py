@@ -204,6 +204,7 @@ def generate_launch_description():
         flag('use_nav2', 'true', '진짜 Nav2 서버 (planner · controller · behavior · bt_navigator) — 바퀴 명령 체인(velocity_smoother · collision_monitor)은 use_cmd_chain'),
         flag('nav2_composition', 'true', 'Nav2 서버·관리자를 한 프로세스(nav2_container, 컴포넌트)로 — 메모리 절약 · false면 서버마다 프로세스 (예전)'),
         flag('py_helpers_one_process', 'true', 'python 보조 노드(pole_depth_gate · nvblox_map · rewind)를 한 프로세스(py_helpers)로 — 메모리 절약 · false면 따로 (예전)'),
+        flag('depth_gate_cpp', 'true', 'pole_depth_gate를 C++(perception depth_gate)로 — 파이썬판은 15 Hz depth를 매번 복사 (bag 재생 11-14: 파이썬 6 % → C++ 2 %) · false면 예전 파이썬(scan_cam_gate)'),
         flag('nav2_params_file', share('config', 'nav2_params.yaml'), 'Nav2 파라미터 파일'),
         flag('use_moveit', 'false', 'true면 진짜 move_group (config/moveit) — spawner 완료 후 기동 (동시 기동 레이스 회피)'),
         OpaqueFunction(function=check_slam),
@@ -384,6 +385,9 @@ def slam_nodes():
     #   python 노드마다 ~120 MB PSS(인터프리터·rclpy·DDS)를 한 번만 냄 (젯슨 8 GB 바닥 → 재부팅, 11-14). false = 예전처럼 따로
     separate = IfCondition(PythonExpression(["'", LaunchConfiguration('use_slam'), "'.lower() == 'true' and '",
         LaunchConfiguration('map_backend'), "' == 'nvblox' and '", LaunchConfiguration('py_helpers_one_process'), "'.lower() != 'true'"]))
+    slam_nvblox = ["'", LaunchConfiguration('use_slam'), "'.lower() == 'true' and '", LaunchConfiguration('map_backend'), "' == 'nvblox'"]
+    gate_cpp = ["'", LaunchConfiguration('depth_gate_cpp'), "'.lower() == 'true'"]
+    one_proc = ["'", LaunchConfiguration('py_helpers_one_process'), "'.lower() == 'true'"]
 
     def camera_remaps(i, cam):
         return [(f'camera_{i}/depth/image', f'/{cam}/aligned_depth_to_color/image_nvblox'),
@@ -393,8 +397,12 @@ def slam_nodes():
     return [
         Node(package='ros_system', executable='cuvslam_slam', name='cuvslam_slam', output='screen', condition=on,
              parameters=[{'publish_map_tf': True}]),
-        Node(package='ros_system', executable='scan_cam_gate', name='pole_depth_gate', output='screen', condition=separate,
+        Node(package='ros_system', executable='scan_cam_gate', name='pole_depth_gate', output='screen',
+             condition=IfCondition(PythonExpression([*slam_nvblox, ' and not ', *one_proc, ' and not ', *gate_cpp])),
              parameters=[gate_params('pole_front_cam')]),
+        # C++판 (기본) — py_helpers 한 프로세스 여부와 상관없이 따로 (파이썬 py_helpers에는 nvblox_map · rewind만)
+        Node(package='perception', executable='depth_gate', name='pole_depth_gate', output='screen',
+             condition=IfCondition(PythonExpression([*slam_nvblox, ' and ', *gate_cpp])), parameters=[gate_params('pole_front_cam')]),
         Node(package='nvblox_ros', executable='nvblox_node', name='nvblox_node', output='screen', condition=nvblox_on,
              parameters=[LaunchConfiguration('nvblox_params_file'),
                          {'after_shutdown_map_save_path': ParameterValue(save_path, value_type=str)}],
@@ -407,10 +415,10 @@ def slam_nodes():
                                                      LaunchConfiguration('map_backend'), "' == 'nvblox' and '",
                                                      LaunchConfiguration('py_helpers_one_process'), "'.lower() == 'true')"]))),
         # 셋을 한 프로세스로 — 이름 없이 띄움 (name을 주면 __node 리매핑이 세 노드 모두에 걸림). 노드 이름은 인자로
-        Node(package='ros_system', executable='py_helpers', output='screen',
-             condition=IfCondition(PythonExpression(["'", LaunchConfiguration('use_slam'), "'.lower() == 'true' and '",
-                 LaunchConfiguration('map_backend'), "' == 'nvblox' and '", LaunchConfiguration('py_helpers_one_process'), "'.lower() == 'true' "])),
-             arguments=['pole_depth_gate', 'nvblox_map', 'rewind'], parameters=[gate_params('pole_front_cam'), nvblox_map_params]),
+        *[Node(package='ros_system', executable='py_helpers', output='screen',
+               condition=IfCondition(PythonExpression([*slam_nvblox, ' and ', *one_proc, (' and ' if cpp else ' and not '), *gate_cpp])),
+               arguments=(['nvblox_map', 'rewind'] if cpp else ['pole_depth_gate', 'nvblox_map', 'rewind']),
+               parameters=[gate_params('pole_front_cam'), nvblox_map_params]) for cpp in (True, False)],
         Node(package='nav2_map_server', executable='map_server', name='map_server', output='screen', condition=static_on,
              **QUICK_STOP, parameters=[{'yaml_filename': LaunchConfiguration('static_map_yaml'), 'frame_id': 'map', 'topic_name': 'map'}]),
         # static_2d엔 nvblox가 없어 RL 주행 controller 입력(/nvblox_node/combined_esdf_pointcloud)이 끊김 → 바이패스.

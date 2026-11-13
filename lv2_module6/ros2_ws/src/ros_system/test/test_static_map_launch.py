@@ -64,8 +64,9 @@ class StaticMapTests(unittest.TestCase):
         self.assertEqual(list(params['node_names']), ['map_server'])
 
     def test_original_backend_and_no_map(self):
-        # nvblox 기본 — pole_depth_gate · nvblox_map · rewind는 py_helpers 한 프로세스 (#214)
-        self.assertEqual(set(self.active(self.context())), {'cuvslam_slam', 'nvblox_node', 'py_helpers'})
+        # nvblox 기본 — nvblox_map · rewind는 py_helpers 한 프로세스 (#214) · pole_depth_gate는 C++(perception depth_gate) 따로
+        self.assertEqual(set(self.active(self.context())), {'cuvslam_slam', 'nvblox_node', 'py_helpers', 'pole_depth_gate'})
+        self.assertEqual(set(self.active(self.context(depth_gate_cpp='false'))), {'cuvslam_slam', 'nvblox_node', 'py_helpers'})
         self.assertEqual(set(self.active(self.context(py_helpers_one_process='false'))),
                          {'cuvslam_slam', 'nvblox_node', 'nvblox_map', 'pole_depth_gate', 'rewind'})
         self.assertEqual(set(self.active(self.context(use_slam='false', map_backend='static_2d'))), {'rewind'})

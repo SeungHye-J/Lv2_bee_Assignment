@@ -33,6 +33,7 @@
 #include "perception/msg/tracked_object_array.hpp"
 #include "perception/perception_core.hpp"
 #include "perception/inference_schedule.hpp"
+#include "perception/tag_cuda.hpp"
 #include "perception/yolo_onnx.hpp"
 #include "rclcpp/rclcpp.hpp"
 #include "sensor_msgs/msg/camera_info.hpp"
@@ -92,6 +93,7 @@ private:
   std::map<int, std::string> names_;
   std::string model_path_;
   TagDetector tag_det_;
+  std::unique_ptr<CudaTagDetector> tag_cuda_;  // tag_backend auto·cuda이고 GPU판으로 빌드됐을 때만 (없으면 OpenCV)
   struct Barcode;
   std::shared_ptr<Barcode> barcode_;  // zxing-cpp (빌드에 없으면 nullptr)
 

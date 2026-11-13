@@ -36,6 +36,23 @@ def nodes(**args):
     return on
 
 
+def py_helpers_args(**args):
+    """켜지는 py_helpers의 인자 (띄울 python 노드 이름들) — 안 켜지면 빈 목록"""
+    import importlib.util
+    spec = importlib.util.spec_from_file_location('ros_system_launch', LAUNCH)
+    mod = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(mod)
+    ctx = LaunchContext()
+    for e in mod.generate_launch_description().entities:
+        if isinstance(e, DeclareLaunchArgument):
+            ctx.launch_configurations.setdefault(e.name, perform_substitutions(ctx, e.default_value))
+            continue
+        ctx.launch_configurations.update(args)
+        if isinstance(e, Node) and e.node_executable == 'py_helpers' and e.condition.evaluate(ctx):
+            return [perform_substitutions(ctx, a) for a in e.cmd[1:] if not perform_substitutions(ctx, a).startswith('--')]
+    return []
+
+
 def params(node_name, **args):
     """켜지는 노드 하나의 dict 파라미터 (yaml 파일 경로는 빼고) — 인자에 따라 바뀌는 값 확인용"""
     import importlib.util
@@ -89,6 +106,8 @@ def main():
     nav = {**base, 'use_nav2': 'true'}
     one = {**base, 'py_helpers_one_process': 'true'}
     helpers, helpers_off = nodes(**one), nodes(**one, use_slam='false')
+    helpers_args = py_helpers_args(**one)
+    helpers_py, helpers_py_args = nodes(**one, depth_gate_cpp='false'), py_helpers_args(**one, depth_gate_cpp='false')
     helpers_loc = params('py_helpers', **one, nvblox_map='/maps/a/nvblox.nvblx', localization='true')
     composed, separate = nodes(**nav), nodes(**nav, nav2_composition='false')
     checks = [
@@ -100,7 +119,10 @@ def main():
         ('매핑: 불러오기 없음', load_map == ''),
         ('위치추정: 시작할 때 불러옴', load_loc == '/maps/a/nvblox.nvblx'),
         ('위치추정: 저장 안 함', save_loc == ''),
-        ('python 보조 노드 한 프로세스(py_helpers)', 'py_helpers' in helpers and not ({'pole_depth_gate', 'nvblox_map', 'rewind'} & helpers)),
+        ('python 보조 노드 한 프로세스(py_helpers) · depth gate는 C++ 따로', 'py_helpers' in helpers and 'pole_depth_gate' in helpers
+                                                                and not ({'nvblox_map', 'rewind'} & helpers)),
+        ('py_helpers가 depth gate를 안 띄움 (C++판과 겹치지 않게)', 'pole_depth_gate' not in helpers_args),
+        ('depth_gate_cpp:=false = 예전 파이썬 (py_helpers 안)', 'pole_depth_gate' in helpers_py_args and 'pole_depth_gate' not in helpers_py),
         ('py_helpers에 depth gate·지도 불러오기 파라미터', helpers_loc.get('load_path') == '/maps/a/nvblox.nvblx'
                                                           and helpers_loc.get('depth_min_range') == 0.5),
         ('SLAM 없으면 rewind만 따로', 'rewind' in helpers_off and 'py_helpers' not in helpers_off),

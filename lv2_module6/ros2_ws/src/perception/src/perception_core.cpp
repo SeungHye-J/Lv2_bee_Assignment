@@ -594,8 +594,7 @@ void TagDetector::detect(const cv::Mat & gray, std::optional<double> min_px, std
 
 std::vector<Tag> detect_tags(TagDetector * det, const cv::Mat & bgr, double gamma, bool half, std::optional<double> min_px,
                              std::optional<double> half_min_px) {
-  std::vector<Tag> out;
-  if (!det || !det->ok()) return out;
+  if (!det || !det->ok()) return {};
   cv::Mat gray;
   cv::cvtColor(bgr, gray, cv::COLOR_BGR2GRAY);
   struct Pass { cv::Mat img; double scale; std::optional<double> px; };
@@ -619,21 +618,20 @@ std::vector<Tag> detect_tags(TagDetector * det, const cv::Mat & bgr, double gamm
     det->detect(ps.img, ps.px, corners, ids);
     for (size_t k = 0; k < ids.size(); ++k) {
       std::array<cv::Point2d, 4> pts;
-      cv::Point2d mean(0, 0);
-      for (int j = 0; j < 4; ++j) {
-        pts[j] = cv::Point2d(corners[k][j].x, corners[k][j].y) * ps.scale;
-        mean += pts[j] * 0.25;
-      }
-      bool dup = false;  // 두 영상 모두 찾은 태그는 한 번만 (같은 번호, 중심 8 px 안)
-      for (const auto & [j, p] : found) {
-        cv::Point2d m2(0, 0);
-        for (const auto & q : p) m2 += q * 0.25;
-        if (j == ids[k] && cv::norm(m2 - mean) < 8.0) { dup = true; break; }
-      }
-      if (!dup) found.emplace_back(ids[k], pts);
+      for (int j = 0; j < 4; ++j) pts[j] = cv::Point2d(corners[k][j].x, corners[k][j].y) * ps.scale;
+      found.emplace_back(ids[k], pts);
     }
   }
+  return make_tags(found);
+}
+
+std::vector<Tag> make_tags(const std::vector<std::pair<int, std::array<cv::Point2d, 4>>> & found) {
+  std::vector<Tag> out;
   for (const auto & [id, pts] : found) {
+    const cv::Point2d c = (pts[0] + pts[1] + pts[2] + pts[3]) * 0.25;
+    bool dup = false;  // 여러 번 찾은 태그는 처음 것만 (같은 번호, 중심 8 px 안)
+    for (const auto & o : out) dup = dup || (o.id == id && cv::norm(o.c - c) < 8.0);
+    if (dup) continue;
     Tag t;
     t.id = id;
     t.corners = pts;
