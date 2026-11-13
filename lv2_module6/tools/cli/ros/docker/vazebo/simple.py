@@ -368,7 +368,9 @@ def _setup(args):
     bgs = vazebo.scene.backgrounds(bg_dir)
     sim.renderer.set_background(bgs[0] if bgs else None)
     floors = [p for p in vazebo.scene.backgrounds(floor_dir) if p.name != 'FLOOR_CREDITS.txt']
-    sim.renderer.set_floor(floors[0] if floors else None)
+    # 기본은 체크무늬 바닥(빠르고 미로가 잘 보임). 교실 텍스처는 BEEBOT_SIM_FLOOR=classroom.
+    floor_mode = os.environ.get('BEEBOT_SIM_FLOOR', 'checker')
+    sim.renderer.set_floor(None if floor_mode == 'checker' else (floors[0] if floors else None))
     walls = [p for p in vazebo.scene.backgrounds(wall_dir) if p.suffix == '.jpg']
     sim.renderer.set_wall(walls[0] if walls else None)
     return sim
