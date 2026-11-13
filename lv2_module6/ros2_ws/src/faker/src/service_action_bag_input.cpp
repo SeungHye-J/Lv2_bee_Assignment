@@ -15,7 +15,8 @@ namespace {
 
 const char * kServices[] = {"score_grasps", "clear_octomap", "apply_planning_scene",
   "diff_drive_controller/set_odometry", "reset", "fake_opencr/set_parameters",
-  "map_saver/save_map", "controller_server/FollowPath/toggle", "collision_monitor/toggle", "set_parameters",
+  "map_saver/save_map", "controller_server/FollowPath/toggle", "controller_server/FollowPath/set_fallback",
+  "collision_monitor/toggle", "set_parameters",
   "controller_server/set_parameters"};
 const char * kActions[] = {"navigate_to_pose", "navigate_through_poses", "execute_task_solution", "move_action"};
 
@@ -61,6 +62,7 @@ ServiceActionBagInput::ServiceActionBagInput()
   scene_cli_ = create_client<moveit_msgs::srv::ApplyPlanningScene>("/apply_planning_scene");
   odom_cli_ = create_client<control_msgs::srv::SetOdometry>("/diff_drive_controller/set_odometry");
   rl_toggle_cli_ = create_client<std_srvs::srv::SetBool>("/controller_server/FollowPath/toggle");
+  rl_fallback_cli_ = create_client<ml::srv::SetFallback>("/controller_server/FollowPath/set_fallback");
   opencr_params_cli_ = create_client<rcl_interfaces::srv::SetParameters>("/fake_opencr/set_parameters");
   save_map_cli_ = create_client<nav2_msgs::srv::SaveMap>("/map_saver/save_map");
   collision_toggle_cli_ = create_client<nav2_msgs::srv::Toggle>("/collision_monitor/toggle");
@@ -497,6 +499,14 @@ void ServiceActionBagInput::poll_service(const std::string & name) {
       sent = call<std_srvs::srv::SetBool>(st, rl_toggle_cli_, req, [](const auto & res) {
         return std::string("{\"success\": ") + (res.success ? "true" : "false") +
                ", \"message\": \"" + escape_json(res.message) + "\"}";
+      });
+    } else if (name == "controller_server/FollowPath/set_fallback") {
+      // data: {"controller": "dwb"|"mppi"|...} → RL 컨트롤러의 inner fallback 교체
+      auto req = std::make_shared<ml::srv::SetFallback::Request>();
+      req->controller = get_str(data, "controller", "dwb");
+      sent = call<ml::srv::SetFallback>(st, rl_fallback_cli_, req, [](const auto & res) {
+        return std::string("{\"success\": ") + (res.success ? "true" : "false") +
+               ", \"message\": \"" + escape_json(res.message) + "\", \"active\": \"" + escape_json(res.active) + "\"}";
       });
     } else if (name == "collision_monitor/toggle") {
       // data: {"enable": true|false} → collision_monitor 켜기/끄기 (충돌 감시)
