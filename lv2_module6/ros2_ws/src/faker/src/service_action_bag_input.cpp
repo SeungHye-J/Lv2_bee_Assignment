@@ -815,14 +815,23 @@ void ServiceActionBagInput::poll_cancel(const std::string & name) {
         "\", \"status\": \"unknown_goal\", \"ok\": false}");
     return;
   }
-  if (name == "navigate_to_pose" && nav_handle_) {
-    nav_cli_->async_cancel_goal(nav_handle_);
-  } else if (name == "navigate_through_poses" && through_handle_) {
-    through_cli_->async_cancel_goal(through_handle_);
-  } else if (name == "execute_task_solution" && mtc_handle_) {
-    mtc_cli_->async_cancel_goal(mtc_handle_);
-  } else if (name == "move_action" && move_handle_) {
-    move_cli_->async_cancel_goal(move_handle_);
+  // 이미 끝난 goal 핸들을 취소하면 rclcpp_action이 UnknownGoalHandleError를 던져
+  // 프로세스가 죽는다. 취소는 best-effort로 보내고 실패하면 결과만 알린다.
+  try {
+    if (name == "navigate_to_pose" && nav_handle_) {
+      nav_cli_->async_cancel_goal(nav_handle_);
+    } else if (name == "navigate_through_poses" && through_handle_) {
+      through_cli_->async_cancel_goal(through_handle_);
+    } else if (name == "execute_task_solution" && mtc_handle_) {
+      mtc_cli_->async_cancel_goal(mtc_handle_);
+    } else if (name == "move_action" && move_handle_) {
+      move_cli_->async_cancel_goal(move_handle_);
+    }
+  } catch (const std::exception & e) {
+    RCLCPP_WARN(get_logger(), "/%s cancel 실패(무시): %s", name.c_str(), e.what());
+    reply("action", name, "result", "{\"goal_id\": \"" + escape_json(id) +
+        "\", \"status\": \"cancel_failed\", \"ok\": false}");
+    return;
   }
   RCLCPP_INFO(get_logger(), "/%s cancel id=%s", name.c_str(), id.c_str());
 }

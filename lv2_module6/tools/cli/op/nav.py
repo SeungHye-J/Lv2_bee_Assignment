@@ -255,14 +255,15 @@ class RobotNav:
 
     def send_nav_waypoints(self, poses: list[dict], frame_id: str = 'map') -> None:
         """웨이포인트 여러 개 — 2개 이상이면 NavigateThroughPoses 한 번에 보낸다 (중간에 안 끊김).
-        1개면 예전처럼 NavigateToPose. 각 구간 경로는 Nav2 planner가 채운다."""
+        1개면 예전처럼 NavigateToPose. 각 구간 경로는 Nav2 planner가 채운다.
+        도커 testbed는 through-poses가 경로 검증/컨트롤러에서 103·105로 끊겨서 한 점씩 보낸다."""
         poses = [dict(p) for p in poses]
         if not poses:
             raise RuntimeError('웨이포인트 없음')
         if self._seq_state == 'running':
             raise RuntimeError('이미 Nav2 주행 중 — 먼저 취소(x)하세요')
         self._seq, self._seq_frame = poses, frame_id
-        self._seq_through = len(poses) > 1
+        self._seq_through = len(poses) > 1 and os.environ.get('CLI_SOURCE') != 'docker'
         self._seq_i = 0 if not self._seq_through else len(poses) - 1
         self._seq_remaining = len(poses) if self._seq_through else None
         self._seq_state, self._seq_error = 'running', ''

@@ -84,9 +84,10 @@ controller_server:
     progress_checker:
       plugin: "nav2_controller::SimpleProgressChecker"
       # 이 거리(m) 이상 움직여야 "진행 중"으로 본다. (실측)
-      required_movement_radius: 0.3
+      # 0.3은 좁은 미로의 마지막 접근(남은 거리 < 0.3)에서 10초마다 105를 냈다 — 0.15로 낮춘다.
+      required_movement_radius: 0.15
       # 이 시간(초) 안에 위 거리만큼 못 움직이면 막힘 → 컨트롤러 실패 → BT가 복구(Spin·BackUp·Wait).
-      movement_time_allowance: 10.0
+      movement_time_allowance: 15.0
 
     # 도착 판단 — 목표 위치·방향 허용 오차 안에 들어오면 성공.
     goal_checker:
@@ -98,15 +99,16 @@ controller_server:
       #   안 나아지면 false로 되돌리고(이 줄만) 위치 흔들림(cuVSLAM 보정 잠금)을 본다.
       stateful: true
       # 목표 위치 허용 오차(m). 퍽 앞 접근 정확도 — 팔 도달 범위가 좁아 기본 0.25보다 작게 (00-overview "도달 범위 주의"). (실측)
-      xy_goal_tolerance: 0.10
-      # 목표 방향 허용 오차(rad). 0.15 ≈ 8.6°. (실측)
-      yaw_goal_tolerance: 0.15
+      # 0.10은 좁은 미로에서 벽/inflation에 막혀 12 cm 앞에서 105가 났다 — 0.15로 넓힌다.
+      xy_goal_tolerance: 0.15
+      # 목표 방향 허용 오차(rad). 0.25 ≈ 14.3°. (실측)
+      yaw_goal_tolerance: 0.25
     # through-poses 기본 BT의 GoalCheckerSelector가 찾는 이름 — 값은 goal_checker와 같게.
     general_goal_checker:
       plugin: "nav2_controller::SimpleGoalChecker"
       stateful: true     # goal_checker와 같게 (위 설명)
-      xy_goal_tolerance: 0.10
-      yaw_goal_tolerance: 0.15
+      xy_goal_tolerance: 0.15
+      yaw_goal_tolerance: 0.25
 
     # 경로 추종 플러그인 — ml::RlNavController (RL 정책, ONNX) + inner 바이패스
     #   enable=false → inner(MPPI — fallback_controller) 그대로. ~/FollowPath/toggle 서비스로 정책 ON/OFF.
