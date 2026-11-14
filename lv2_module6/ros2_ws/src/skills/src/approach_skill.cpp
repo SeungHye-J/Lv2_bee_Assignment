@@ -19,6 +19,7 @@
 //     정책 보정 없음 · 뒤는 카메라가 못 보므로 느리게 (기준 제어 후진 상한 0.05 m/s)
 #include <algorithm>
 #include <cmath>
+#include <deque>
 #include <map>
 
 #include "geometry_msgs/msg/twist_stamped.hpp"
@@ -47,6 +48,7 @@ public:
     timeout_s_ = declare_parameter<double>("approach_timeout_s", 30.0);
     res_v_ = declare_parameter<double>("residual_v", 0.02);          // 시뮬 res_v · res_w (행동 1 = 이만큼)
     res_w_ = declare_parameter<double>("residual_w", 0.1);
+    min_speed_ = declare_parameter<double>("approach_min_speed", 0.03);  // [m/s] 실기 바퀴 데드밴드 위 (sim 모드 기준 제어)
     exit_m_ = declare_parameter<double>("approach_exit_m", 0.165);  // exit 기본 후진 거리 [m] (= standoff 0.25 − gap 0.085)
     release_m_ = declare_parameter<double>("approach_release_m", 0.03);  // sim: 도착(tol_m×0.6) 뒤 이만큼 벗어나야 다시 위치 맞춤
     carrot_m_ = declare_parameter<double>("approach_carrot_m", 0.05);    // sim: 목표 직선 위 이만큼 앞 점을 향해 조향
@@ -56,6 +58,7 @@ public:
     box_match_m_ = declare_parameter<double>("box_match_m", 0.35);  // 상자 도킹: 힌트(도면) 상자 가운데에서 이만큼 안의 상자만
     box_wait_s_ = declare_parameter<double>("box_wait_s", 8.0);     // 첫 측정까지 기다림 (그동안 정지)
     box_stale_s_ = declare_parameter<double>("box_stale_s", 1.0);   // last_seen이 이보다 오래된 측정은 버림
+    box_seed_s_ = declare_parameter<double>("box_seed_s", 3.0);    // 첫 측정만 이만큼 지난 것도 받음 (도착 직전 pole_front_cam)
     box_jump_m_ = declare_parameter<double>("box_jump_m", 0.08);    // 추정에서 이만큼 넘게 튄 측정은 버림
     box_alpha_ = declare_parameter<double>("box_alpha", 0.3);       // 새 측정을 섞는 비율
     box_rate_mps_ = declare_parameter<double>("box_rate_mps", 0.02);  // 목표를 옮기는 최대 속도 [m/s]
@@ -133,6 +136,7 @@ private:
       bx_ = hint_x_;
       by_ = hint_y_;
       bh_ = gyaw_;
+      seed_from_memory();
       if (arm_.moveit_ready())
         arm_.move_joints(look_q_, [this](bool ok) { if (!ok) RCLCPP_WARN(get_logger(), "look 자세 실패 — pole_front_cam만으로 봄"); });
       else RCLCPP_WARN(get_logger(), "MoveIt 없음 — look 자세 없이 pole_front_cam만으로 봄");
@@ -169,6 +173,12 @@ private:
 
   // 상자 측정 → 걸러서 목표 갱신 (헤더 설명)
   void on_objects(const perception::msg::TrackedObjectArray & m) {
+    // 시작 전에도 온전한 상자 측정을 기억 (map, 관측 시각) — 시작하며 팔이 올라가면 pole_front_cam이 가려지고, 같은 추적이
+    //   gripper_cam의 잘린 크기로 덮여 도착 직전의 좋은 측정이 사라짐 (11-13 headless: 240×214 → 232×185로 바뀌어 다 걸러짐)
+    for (const auto & o : m.objects)
+      if ((o.class_name == "start_box" || o.class_name == "location_box") && std::min(o.size.x, o.size.y) >= box_min_side_)
+        seen_.push_back({o, rclcpp::Time(o.last_seen, RCL_ROS_TIME)});
+    while (!seen_.empty() && (now() - seen_.front().second).seconds() > box_seed_s_) seen_.pop_front();
     if (!box_mode_ || frozen_ || !timer_ || timer_->is_canceled()) return;
     const auto t = now();
     const double ref_x = have_box_ ? bx_ : hint_x_, ref_y = have_box_ ? by_ : hint_y_;
@@ -177,7 +187,9 @@ private:
     double mx = 0, my = 0, psi = 0, best_d = box_match_m_;
     for (const auto & o : m.objects) {
       if (o.class_name != "start_box" && o.class_name != "location_box") continue;
-      if ((t - rclcpp::Time(o.last_seen, t.get_clock_type())).seconds() > box_stale_s_) continue;
+      // 첫 측정은 box_seed_s까지 지난 것도 받음: 시작하며 팔이 올라가면 pole_front_cam이 가려져 도착 직전에 본 상자가
+      //   곧 오래된 것이 되고, standoff 0.25 m에선 gripper_cam에 상자가 잘려 보여 걸러짐 (11-13 headless approach_box_unseen)
+      if ((t - rclcpp::Time(o.last_seen, t.get_clock_type())).seconds() > (have_box_ ? box_stale_s_ : box_seed_s_)) continue;
       if (std::min(o.size.x, o.size.y) < box_min_side_) continue;
       const auto & q = o.pose.pose.orientation;
       double x = o.pose.pose.position.x, y = o.pose.pose.position.y, a = 2.0 * std::atan2(q.z, q.w);
@@ -215,6 +227,27 @@ private:
     gx_ = bx_ - (half_ + gap_) * std::cos(bh_);
     gy_ = by_ - (half_ + gap_) * std::sin(bh_);
     gyaw_ = bh_;
+  }
+
+  // 시작 직전(box_seed_s 안) 기억한 측정 중 힌트에 가장 가까운 것으로 첫 목표 (없으면 그대로 — 측정을 기다림)
+  void seed_from_memory() {
+    double best = box_match_m_;
+    const perception::msg::TrackedObject * pick = nullptr;
+    rclcpp::Time when;
+    for (const auto & [o, t] : seen_) {
+      double x = o.pose.pose.position.x, y = o.pose.pose.position.y, a = 0.0;
+      if (!from_map(t, x, y, a)) continue;
+      const double d = std::hypot(x - hint_x_, y - hint_y_);
+      if (d < best) { best = d; pick = &o; when = t; }
+    }
+    if (!pick) return;
+    perception::msg::TrackedObjectArray one;
+    one.objects.push_back(*pick);
+    const bool timer_was = timer_ && !timer_->is_canceled();
+    if (!timer_was) timer_ = create_wall_timer(std::chrono::hours(1), []() {});  // on_objects는 타이머가 돌 때만 받음
+    on_objects(one);
+    if (!timer_was) timer_->cancel();
+    if (have_box_) RCLCPP_INFO(get_logger(), "시작 전 %.1f s의 측정으로 시작", (now() - when).seconds());
   }
 
   std::string fmt_box(const char * what, double x, double y) const {
@@ -349,14 +382,22 @@ private:
     double v = 0.0, w = 0.0;
     if (pos_done_) {
       w = std::clamp(3.0 * gyaw, -w_max_, w_max_);
+      // 방향을 맞추다 tol_m 밖(release 안)으로 밀리면 갇힘 (11-14: 남은 11 mm · v 0 · approach_blocked)
+      //   → 방향이 거의 맞으면 목표 방향 직선으로만 앞뒤 (당근 조향 없음 — 1~2 cm에서 돌던 문제 안 생김)
+      if (dist > tol_m_ && std::abs(along) > latch && std::abs(gyaw) < 0.1)  // 옆 어긋남만이면 안 움직임 (앞으로 밀기만 됨)
+        v = along > 0.0 ? std::clamp(1.5 * along, min_speed_, 0.05) : std::clamp(1.5 * along, -0.05, -min_speed_);
     } else if (along < -0.003) {
       v = std::max(-0.05, 1.5 * along);
+      if (v > -min_speed_) v = -min_speed_;  // 실기 바퀴 데드밴드 (develop 11-12 approach_min_speed)
       w = std::clamp(1.5 * gyaw, -0.3, 0.3);
     } else if (std::abs(head_c) > 45.0 * M_PI / 180.0 && dist > release) {
-      w = std::clamp(3.0 * head_c, -w_max_, w_max_);
+      // 당근이 거의 뒤(150° 넘게)면 좌우가 몇 mm 차로 갈림 → 마지막 방향 쪽으로 돎 (11-14: 등진 채 시작해 245° 먼 쪽으로 돎)
+      const double turn = std::abs(head_c) > 150.0 * M_PI / 180.0 ? std::copysign(std::abs(head_c), gyaw) : head_c;
+      w = std::clamp(3.0 * turn, -w_max_, w_max_);
     } else {
       v = std::clamp(1.5 * along, 0.0, v_max_) * std::max(0.0, std::cos(head_c));
-      if (along > 0.003) v = std::max(v, 0.01);
+      // 실기 바퀴는 약 2~3 cm/s 아래 명령엔 안 움직임 (데드밴드) — 도착 전이면 min_speed 아래로 안 내림 (develop 11-12)
+      if (along > 0.003) v = std::max(v, min_speed_);
       w = std::clamp(3.0 * head_c, -w_max_, w_max_);
     }
     if (dist <= tol_m_ && std::abs(gyaw) < tol_yaw_) still_s_ += 0.05;
@@ -374,10 +415,10 @@ private:
       end(false, "approach_blocked");
       return;
     }
-    double dv, dw;
-    if (exit_) dv = dw = 0.0;
-    else residual(x, y, yaw, dv, dw);
-    send(v + dv, w + dw);
+    double dv = 0.0, dw = 0.0;
+    if (!exit_ && along >= -0.003) residual(x, y, yaw, dv, dw);  // 학습 보정은 전진으로만 배움 · exit은 보정 없음
+    // 정책 보정이 마지막 몇 mm의 최소 전진을 지우면 멈춰서 approach_blocked (11-13: 남은 13 mm에서 0.001 m/s)
+    send(v >= min_speed_ ? std::max(v + dv, min_speed_) : v + dv, w + dw);
   }
 
   void tick_legacy() {
@@ -422,14 +463,16 @@ private:
   }
 
   std::string mode_;
+  double min_speed_ = 0.03;
   double speed_, pre_m_, pos_tol_, yaw_tol_, timeout_s_, res_v_, res_w_, release_m_, carrot_m_, v_max_, w_max_;
   bool pos_done_ = false;
   bool exit_ = false;
+  std::deque<std::pair<perception::msg::TrackedObject, rclcpp::Time>> seen_;  // 시작 전 온전한 상자 측정 (box_seed_s 동안)
   double exit_m_ = 0.165;
   std::string frame_ = "map";  // 목표·로봇 자세 프레임 — 상자 도킹은 odom
   ArmIO arm_;
   std::vector<double> look_q_;
-  double box_match_m_, box_wait_s_, box_stale_s_, box_jump_m_, box_alpha_, box_rate_mps_, box_rate_dps_, box_min_side_, box_freeze_m_;
+  double box_match_m_, box_wait_s_, box_stale_s_, box_seed_s_, box_jump_m_, box_alpha_, box_rate_mps_, box_rate_dps_, box_min_side_, box_freeze_m_;
   rclcpp::Time last_meas_{0, 0, RCL_ROS_TIME};
   bool box_mode_ = false, have_box_ = false, frozen_ = false;
   double gap_ = 0, half_ = 0, hint_x_ = 0, hint_y_ = 0, bx_ = 0, by_ = 0, bh_ = 0;
