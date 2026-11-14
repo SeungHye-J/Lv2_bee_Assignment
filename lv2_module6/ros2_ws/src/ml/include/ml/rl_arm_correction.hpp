@@ -9,7 +9,9 @@
 // update (update_rate, 100Hz): command = q_ref + 처짐 적분 corr + 학습 보정 Δ
 //   - corr = 처짐 보정 적분 (송정혁, isaac/rl/bee_isaac/tasks place_env._sag_step과 같은 법칙, 시간 기준): reference가 멈춰 있을 때만
 //     (모든 관절 |d ref/dt| < still_rate) corr += sag_gain·dt·(reference + Δ − 현재각), ±sag_max. 움직이는 동안은 유지.
-//     학습은 85 ms마다 오차 30 % 제거 → sag_gain = −ln(0.7)/0.085 ≈ 4.2 /s. 스킬 시작마다 ~/reset_sag 로 0.
+//     학습은 85 ms마다 오차 30 % 제거 → sag_gain = −ln(0.7)/0.085 ≈ 4.2 /s. 닿는 구간 시작마다 0 (~/reset_sag도 0) —
+//     pick·load·unload·place(cell)는 앞 MoveIt 이동 동안 ~/fade_sag로 미리 0까지 풂 (한 번에 0이면 팔이 툭 처짐 · 11-13).
+//     닿는 구간이 끝나면 Δ도 다음 이동 동안 같은 속도로 풂 (delta_fade)
 //     skill과 상관없이 늘 돈다 (sag_enabled). 발열 방지: stow(rest_pose)에선 0으로 풂 · 상한에 windup_s 붙으면 풀고 쉼
 //   - Δ: skill_context에 정책 파일(policy · layout)이 있을 때만 (닿는 구간). 아니면 Δ = 0
 //     정책은 skill 노드가 갖고 관리 (models/skills/<skill>/) — 처음 받은 경로는 구독 콜백(실시간 루프 밖)에서 정책을 읽고 검산해 둠 (경로별 한 번).
@@ -55,9 +57,13 @@ inline double sag_step(double corr, double ref, double delta, double q, double d
 //   rest    = reference가 쉬는 자세(stow) → 적분 안 하고 0으로 풂 (주행 내내 접힌 팔을 밀지 않음)
 //   blocked = 적분이 상한(±max)에 windup_s 넘게 붙어 있음 → 처짐이 아니라 무언가에 닿아 못 감 → 0으로 풀고 다음 reset까지 쉼
 //   moving  = reference가 움직이는 중 → 그대로 유지 (송정혁 방식)
+//   fading  = ~/fade_sag 받음 (pick·load 시작) → 적분 안 하고 reference가 움직이는 동안만 같은 속도로 0까지 풂.
+//             닿는 구간 시작에서 한 번에 0으로 되돌릴 때 팔이 툭 처지던 것을 앞 MoveIt 이동 안에 녹임.
+//             멈춰 있을 땐 그대로 둠 — 계획 중 팔이 움직이면 MoveIt 실행 시작 검사(0.01 rad)에서 거부. 끝 = 다음 닿는 구간(새 run_id)
+//             또는 fade_hold_s(10 s) 동안 닿는 구간이 안 옴 (skill 실패 등) → 다시 적분
 struct SagJoint {
   double corr = 0.0, sat_s = 0.0;
-  bool blocked = false;
+  bool blocked = false, fading = false;
 };
 inline void sag_joint_step(SagJoint & j, bool still, bool rest, double ref, double delta, double q, double dt,
                            double gain, double max, double windup_s) {
@@ -66,11 +72,39 @@ inline void sag_joint_step(SagJoint & j, bool still, bool rest, double ref, doub
     j.sat_s = 0.0;
     return;
   }
+  if (j.fading) {
+    if (!still) j.corr -= j.corr * std::min(1.0, gain * dt);
+    j.sat_s = 0.0;
+    return;
+  }
   if (!still) return;
   j.corr = sag_step(j.corr, ref, delta, q, dt, gain, max);
   j.sat_s = std::abs(j.corr) >= max - 1e-9 ? j.sat_s + dt : 0.0;
   if (windup_s > 0.0 && j.sat_s >= windup_s) j.blocked = true;
 }
+
+// 손 카메라 튄 값 거르기 (11-14 실기 slot 8·10: 바닥에 닿은 뒤 퍽이 50 mm 안이면 rel이 한 프레임에 7~11 mm 뜀 → Δ 30 mrad 툭)
+//   from_phase 이상 단계에서 새 검출 rel(x, y)이 마지막으로 받은 값과 jump_m 넘게 다르면 버림 (hand_ 그대로 → 오래되면 정책 멈춤).
+//   버린 값끼리 jump_m 안으로 confirm개 연속이면 진짜 이동으로 보고 받음. jump_m 0이면 끔
+struct HandJumpGate {
+  double cand_x = 0.0, cand_y = 0.0;
+  int cand_n = 0;
+  // true = 받음
+  bool take(bool have_prev, double prev_x, double prev_y, double x, double y, int phase, int from_phase, double jump_m, int confirm) {
+    if (jump_m <= 0.0 || !have_prev || phase < from_phase || std::hypot(x - prev_x, y - prev_y) <= jump_m) {
+      cand_n = 0;
+      return true;
+    }
+    if (cand_n > 0 && std::hypot(x - cand_x, y - cand_y) <= jump_m) {
+      ++cand_n;
+    } else {
+      cand_x = x; cand_y = y; cand_n = 1;
+    }
+    if (cand_n < confirm) return false;
+    cand_n = 0;
+    return true;
+  }
+};
 
 // 팔 평면(joint2~4, 피치 축)의 점질량 모델 — 값은 URDF(beebot.urdf), URDF가 바뀌면 여기를 갱신 (isaac/loops/arm_model.py가 같은 값)
 namespace gravity {
@@ -178,6 +212,9 @@ private:
 
   ml::msg::SkillContext ctx_;            // 마지막으로 받은 것 (실시간 쪽 복사본)
   perception::msg::HandRelative hand_;
+  HandJumpGate hand_gate_;
+  double hand_jump_m_ = 0.0;
+  int hand_jump_confirm_ = 3, hand_jump_phase_ = 2;
   uint32_t run_id_ = 0;
   J5 corr_{}, delta_{}, prev_act_{}, act1_{}, act2_{}, prev_ref_{};
   std::array<SagJoint, 5> sag_{};
@@ -187,19 +224,21 @@ private:
   double debug_dt_ = 0.05, since_debug_ = 0.0;
   std::vector<double> rest_pose_;  // 비면 쉬는 자세 판정 안 함
   bool have_prev_ = false;
-  std::atomic<bool> reset_sag_{false};
+  std::atomic<bool> reset_sag_{false}, fade_sag_{false};
+  double fade_hold_s_ = 10.0, fade_left_s_ = 0.0;  // fade_sag 유효 시간 (헤더 SagJoint fading)
   std::atomic<bool> gravity_enabled_{true};  // 파라미터 콜백이 씀 — 실행 중 켜고 끔
+  std::atomic<bool> delta_fade_{true};       // 같은 콜백 — 닿는 구간 끝 Δ fade
   std::atomic<bool> twist_state_{true};      // 같은 콜백 — 상태 = 실제 각 (헤더 설명)
   rclcpp::node_interfaces::OnSetParametersCallbackHandle::SharedPtr gravity_cb_;
   double gravity_c2_ = 0.0, gravity_c3_ = 0.0, gravity_c4_ = 0.0, gravity_z_offset_ = 0.0, gravity_ramp_s_ = 2.0, gravity_max_ = 0.2;
   double gravity_scale_ = 0.0;  // 앞먹임 세기 0..1 (켜고 끌 때 서서히)
-  rclcpp::Service<std_srvs::srv::Trigger>::SharedPtr reset_srv_;
+  rclcpp::Service<std_srvs::srv::Trigger>::SharedPtr reset_srv_, fade_srv_;
   double since_policy_ = 0.0;
   std::vector<double> obs_, act_;
   // 파라미터 (on_configure에서 읽음 — 실시간 루프에서 get_parameter 안 함)
   bool enabled_ = true, sag_enabled_ = true;
   std::array<bool, 5> sag_joint_{false, true, true, true, true};  // 관절별 처짐 적분 (sag_joints)
-  double max_delta_ = 0.05, residual_rad_ = 0.05, max_delta_step_ = 0.0, sag_gain_ = 4.2, sag_max_ = 0.2, still_rate_ = 0.005;
+  double max_delta_ = 0.05, residual_rad_ = 0.05, max_delta_step_ = 0.0, settle_delta_step_ = 0.0, sag_gain_ = 4.2, sag_max_ = 0.2, still_rate_ = 0.005;
   double rest_tol_ = 0.03, windup_s_ = 2.0;
   double policy_dt_ = 0.02, max_cam_age_s_ = 0.45;
   std::string gripper_joint_ = "gripper_left_joint";

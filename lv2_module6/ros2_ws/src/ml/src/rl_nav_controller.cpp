@@ -380,6 +380,7 @@ void RlNavController::publish_diagnostics() {
   else if (recent && reason == 2) why = "enable=false";
   else if (recent && reason == 3) why = "센서 없음/stale";
   else if (recent && reason == 4) why = "추론 실패";
+  else if (recent && reason == 5) why = "도착 뒤 목표 방향 회전";
 
   diagnostic_msgs::msg::DiagnosticStatus st;
   st.name = "controller_server: FollowPath";
@@ -527,6 +528,30 @@ geometry_msgs::msg::TwistStamped RlNavController::computeVelocityCommands(
     publish_status(0, reason, cmd);
     return cmd;
   };
+  // 위치 도착 뒤 제자리 회전 — 정책 관측에 목표 방향이 없어 경로 끝에서 출력이 0이 되고 못 돈다
+  //   (11-14 시뮬 approach: 목표 3~5 cm 앞에서 52~122° 틀린 채 멈춰 nav_no_progress 3/3)
+  //   바이패스(RPP 등)도 같은 자리를 지나게 함 — RPP는 끝 방향을 안 맞춰 73° 틀어진 채 navigate 성공 → approach_blocked (11-15)
+  if (goal_checker) {
+    geometry_msgs::msg::Pose tol;
+    geometry_msgs::msg::Twist vel_tol;
+    double path_tol = 0.0;
+    try {
+      const auto g = global_goal.header.frame_id == pose.header.frame_id
+                       ? global_goal : tf_->transform(global_goal, pose.header.frame_id);
+      if (goal_checker->getTolerances(tol, vel_tol, path_tol) &&
+          std::hypot(g.pose.position.x - pose.pose.position.x, g.pose.position.y - pose.pose.position.y) <= tol.position.x) {
+        const double err = std::remainder(tf2::getYaw(g.pose.orientation) - tf2::getYaw(pose.pose.orientation), 2 * M_PI);
+        geometry_msgs::msg::TwistStamped cmd;
+        cmd.header.frame_id = costmap_ros_->getBaseFrameID();
+        cmd.header.stamp = pose.header.stamp;
+        // ponytail: P 제어 (게인 2, 최소 0.3 rad/s) — 회전 중 충돌 검사 없음, 상자에 붙어 돌다 부딪히면 footprint 검사 추가
+        cmd.twist.angular.z = std::copysign(std::clamp(2.0 * std::abs(err), 0.3, 1.0), err);
+        publish_status(0, 5, cmd);
+        return cmd;
+      }
+    } catch (const std::exception &) {  // TF 없음 → 정책 그대로
+    }
+  }
   if (!on || !sensor_ok) {
     if (on) {
       RCLCPP_WARN_THROTTLE(logger_, *node_.lock()->get_clock(), 2000,

@@ -72,7 +72,10 @@ Coordinator::Coordinator(const rclcpp::NodeOptions & options)
   pick_far_min_m_ = declare_parameter<double>("pick_far_min_m", 0.25);
   // 박스 위 퍽이 이 안이면 pick 전에 다가가지 않음 — 박스에 붙은 로봇은 더 못 감 (Nav2가 막혀 계획 실패) · pick이 못 닿으면 pick_far
   //   (pick_far 팔 한계: 퍽 x 약 0.285 m · 11-13 실기). 바닥 퍽은 reach_m 그대로
-  pick_far_max_m_ = declare_parameter<double>("pick_far_max_m", 0.29);
+  pick_far_max_m_ = declare_parameter<double>("pick_far_max_m", 0.50);
+  // 박스 위 누운 퍽 stand도 이 안이면 다가가지 않음 (박스에 붙은 로봇은 더 못 감 · 11-15 실기: 퍽 0.204 m에서 nav_unavailable).
+  //   쥐는 먼 끝은 중심 + 최대 30 mm — 팔 한계 0.31 m 안. 못 닿으면 stand가 IK에서 실패
+  stand_box_max_m_ = declare_parameter<double>("stand_box_max_m", 0.50);
   place_spacing_ = declare_parameter<double>("place_spacing", 0.08);
   box_margin_m_ = declare_parameter<double>("box_margin_m", 0.03);
   for (const auto & p : declare_parameter<std::vector<std::string>>("pose_names", {"stow", "carry_left", "carry_right", "gaze", "look"}))
@@ -302,6 +305,9 @@ void Coordinator::start_plan(PlanRequest request) {
   ++gen_;  // 이전 계획·취소 callback이 새 계획을 건드리지 않게
   idx_ = 0;
   approached_ = static_cast<size_t>(-1);
+  looked_ = static_cast<size_t>(-1);
+  jam_retried_ = static_cast<size_t>(-1);
+  look_pending_ = false;
   placed_.clear();
   running_ = true;
   current_plan_pub_->publish(plan_);
@@ -446,6 +452,23 @@ void Coordinator::send(const std::string & action, const Skill::Goal & goal, Ok 
     if (action == "pick" && far_fallback(why, goal.target) && skills_.at("pick_far")->action_server_is_ready()) {
       RCLCPP_INFO(get_logger(), "pick %s: 팔이 안 닿음 (%s) — pick_far로 다시", goal.target.c_str(), why.c_str());
       send("pick_far", goal, ok, on_fail);
+      return;
+    }
+    // 닿는 구간 막힘 (skill이 위로 빼고 실패) — pick은 같은 단계를 한 번 더 (손 카메라로 다시 잼). load는 다시 하지 않음:
+    //   칸 위에서 다시 시작하면 carry로 되돌아가며 쥔 퍽이 옆 칸 퍽에 부딪혀 손 안에서 돌아감 → 누운 채 적재 (11-15 실기).
+    //   실패를 올려 보내 계획 쪽이 상자에 되돌려 놓고 다시 집게 함 (pick_coord put back · mission 상자 제자리)
+    if (why == "arm_jam" && action != "load" && jam_retried_ != idx_) {
+      jam_retried_ = idx_;
+      RCLCPP_WARN(get_logger(), "%s: 막힘 — 위로 뺀 뒤 한 번 더", action.c_str());
+      ++gen_;
+      run_step();
+      return;
+    }
+    if (action == "inspect" && look_pending_) {  // 방향 다시 보기(look_if_no_yaw)는 실패해도 계획을 끝내지 않고 원래 단계로
+      look_pending_ = false;
+      RCLCPP_WARN(get_logger(), "다시 보기 실패 (%s) — 본 그대로 진행", why.c_str());
+      ++gen_;
+      run_step();
       return;
     }
     if (on_fail) on_fail(why);
@@ -610,6 +633,46 @@ geometry_msgs::msg::PoseStamped map_pose(double x, double y, double z, double ya
 }
 }  // namespace
 
+bool Coordinator::look_if_no_yaw(const SubGoal & g) {
+  // 방향이 모호한 퍽(누운 퍽 긴 축 · 사각 퍽 면)은 한 번 그 퍽 바로 위(inspect <id>: 손 카메라가 윗면을 봄)에서 다시 본 뒤 같은 단계를
+  //   다시 함 (11-15 실기: 태그 안 보인 선 퍽을 yaw 0°로 모서리를 쥠 · 누운 퍽 방향 없음 → stand_no_yaw). 다시 봐도 모르면 원래대로
+  if (looked_ == idx_ || !is_id(g.target)) return false;
+  const auto * o = find(std::stoul(g.target));
+  if (!o) return false;
+  const bool has_yaw = std::any_of(o->details.begin(), o->details.end(), [](const auto & kv) { return kv.key == "yaw_period"; });
+  // 선 퍽은 원기둥이 아니면 (사각 · 모양 모름 — 11-15: 적재 중 팔 너머로 처음 본 퍽이 모양·방향 없이 yaw 0°로)
+  const bool need = o->class_name == "puck_lying" || (o->class_name == "puck" && shape_of(*o) != "cyl");
+  if (has_yaw || !need || !skills_.at("inspect")->action_server_is_ready()) return false;
+  looked_ = idx_;
+  RCLCPP_INFO(get_logger(), "%s %s: 방향 모름 — 퍽 위에서 다시 봄", g.skill.c_str(), g.target.c_str());
+  Skill::Goal sg;
+  sg.pose.header.frame_id = "map";
+  sg.pose.pose.position = o->pose.pose.position;
+  sg.pose.pose.position.z += o->size.z / 2;
+  sg.pose.pose.orientation.w = 1.0;
+  const double px = o->pose.pose.position.x, py = o->pose.pose.position.y;
+  look_pending_ = true;
+  send("inspect", sg, [this, px, py](const Skill::Result &) {
+    look_pending_ = false;
+    // 다시 본 사이 트랙 id가 바뀌었으면 같은 자리(4 cm 안) 퍽으로 대상을 바꿈
+    auto & tg = plan_.goals[idx_];
+    const perception::msg::TrackedObject * best = nullptr;
+    double best_d = 0.04;
+    if (objects_) for (const auto & p : objects_->objects)
+      if (p.class_name.rfind("puck", 0) == 0) {
+        const double d = std::hypot(p.pose.pose.position.x - px, p.pose.pose.position.y - py);
+        if (d < best_d) { best_d = d; best = &p; }
+      }
+    if (best && std::to_string(best->id) != tg.target) {
+      RCLCPP_INFO(get_logger(), "다시 본 퍽: id %s → %u", tg.target.c_str(), best->id);
+      tg.target = std::to_string(best->id);
+    }
+    ++gen_;
+    run_step();  // 같은 단계를 다시 (이번엔 다시 보기를 건너뜀)
+  }, [this](const std::string &) {});
+  return true;
+}
+
 bool Coordinator::approach_if_far(const SubGoal & g) {
   if (approached_ == idx_ || !is_id(g.target)) return false;  // 이 단계는 이미 다가감 → 그대로 실행 (안 닿으면 그 단계가 실패)
   const auto * o = find(std::stoul(g.target));
@@ -617,12 +680,20 @@ bool Coordinator::approach_if_far(const SubGoal & g) {
   if (!o || !robot_xy(rx, ry)) return false;  // 로봇 위치를 모르면 판단 못 함 — 그대로 실행
   const double ox = o->pose.pose.position.x, oy = o->pose.pose.position.y;
   const double d = std::hypot(ox - rx, oy - ry);
+  // 거리 기준은 매번 읽음 — ros2 param set이 바로 먹게 (예전엔 시작 때 한 번만 읽어 실행 중 바꿔도 안 바뀌었음)
+  reach_m_ = get_parameter("reach_m").as_double();
+  pick_far_max_m_ = get_parameter("pick_far_max_m").as_double();
+  stand_box_max_m_ = get_parameter("stand_box_max_m").as_double();
   if (d <= reach_m_) return false;
   // 박스 위 퍽(인지 z > 0.09 m — skills stand::standing_grasp_z와 같은 기준)을 집을 때 pick_far가 닿는 거리면 다가가지 않음:
   //   로봇이 박스에 붙어 있으면(도킹 1~1.5 cm) 앞이 막혀 navigate가 실패하고 계획 전체가 끝남 (11-13 실기: "다가감"만 뜨고 멈춤).
   //   pick이 못 닿으면 send()가 pick_far로 넘김 (far_fallback)
   if (g.skill == "pick" && o->pose.pose.position.z > 0.09 && d <= pick_far_max_m_ && skills_.at("pick_far")->action_server_is_ready()) {
     RCLCPP_INFO(get_logger(), "pick %s: 박스 위 퍽 %.2fm — 다가가지 않고 바로 (못 닿으면 pick_far)", g.target.c_str(), d);
+    return false;
+  }
+  if (g.skill == "stand" && o->pose.pose.position.z > 0.09 && d <= stand_box_max_m_) {
+    RCLCPP_INFO(get_logger(), "stand %s: 박스 위 퍽 %.2fm — 다가가지 않고 바로", g.target.c_str(), d);
     return false;
   }
   if (skills_.at("navigate")->action_server_is_ready()) approached_ = idx_;  // 서버를 기다리는 동안은 다시 이 길로
@@ -685,6 +756,8 @@ void Coordinator::approach(const SubGoal & g) {
 void Coordinator::pick(const SubGoal & g) {
   if (!is_id(g.target) || !find(std::stoul(g.target))) { fail("pick_no_target"); return; }
   if (approach_if_far(g)) return;  // 집을 퍽이 팔 밖이면 먼저 다가감 (계획에 navigate가 빠져 있어도)
+  if (look_if_no_yaw(g)) return;    // 사각 퍽 면을 모르면 퍽 위에서 한 번 다시 봄
+  if (!find(std::stoul(g.target))) { fail("pick_no_target"); return; }
   const auto o = *find(std::stoul(g.target));
   Skill::Goal sg;
   sg.target = g.target;
@@ -798,6 +871,16 @@ void Coordinator::load(const SubGoal & g) {
     held_ = PuckInfo{};
     basket_changed();
     next();
+  }, [this, slot, shape = sg.shape](const std::string & reason) {
+    // 놓은 뒤 실패 (skill_load load_released_*) — 퍽은 칸에 있다고 보고 장부에 적되 '확인 필요' · 손 비움
+    //   (그대로 두면 장부상 빈 칸에 다음 퍽을 넣다 부딪히고, mission은 빈손으로 상자에 되돌리기를 함)
+    if (reason.rfind("load_released", 0) != 0) return;
+    basket_[slot] = held_;
+    basket_[slot].shape = shape;
+    basket_[slot].check = true;
+    basket_order_.push_back(slot);
+    held_ = PuckInfo{};
+    basket_changed();
   });
 }
 
@@ -826,11 +909,14 @@ void Coordinator::stand(const SubGoal & g) {
   const auto * o = is_id(g.target) ? find(std::stoul(g.target)) : nullptr;
   if (!o) { fail("stand_no_target"); return; }
   if (o->class_name != "puck_lying") { fail("stand_not_lying"); return; }
+  if (approach_if_far(g)) return;
+  if (look_if_no_yaw(g)) return;  // 긴 축 방향을 모르면 퍽 위에서 한 번 다시 봄
+  o = find(std::stoul(g.target));
+  if (!o) { fail("stand_no_target"); return; }
   if (!std::any_of(o->details.begin(), o->details.end(), [](const auto & kv) { return kv.key == "yaw_period"; })) {
-    fail("stand_no_yaw");  // 긴 축 방향을 못 구함 — 다른 자리에서 다시 보기
+    fail("stand_no_yaw");  // 다시 봐도 긴 축 방향을 못 구함
     return;
   }
-  if (approach_if_far(g)) return;
   Skill::Goal sg;
   sg.pose.header.frame_id = objects_->header.frame_id.empty() ? "map" : objects_->header.frame_id;
   sg.pose.pose = o->pose.pose;  // 가운데 · 긴 축 = orientation

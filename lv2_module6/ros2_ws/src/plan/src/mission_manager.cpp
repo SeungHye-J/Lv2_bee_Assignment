@@ -129,6 +129,7 @@ MissionManager::MissionManager()
   retries_ = static_cast<int>(declare_parameter<int64_t>("retries", 2));
   match_radius_ = declare_parameter<double>("match_radius", 0.04);
   stand_check_s_ = declare_parameter<double>("stand_check_s", 1.0);
+  stand_find_m_ = declare_parameter<double>("stand_find_m", 0.10);  // [m] stand 뒤 선 퍽을 누운 가운데에서 이 안에서 찾음 → pick
   verify_radius_ = declare_parameter<double>("verify_radius", 0.15);
   // 방문 순서 (1부터) — 경기장 고정이라 오프라인 A*(tools/plan/route_order.py, 도면 벽)로 정한 값. 비거나 틀리면 1, 2, 3, …
   survey_order_ = visit_order(declare_parameter<std::vector<int64_t>>("survey_order", std::vector<int64_t>{}), start_boxes_.size());
@@ -698,6 +699,8 @@ void MissionManager::survey(size_t k) {  // k = 방문 순서 인덱스 (survey_
         RCLCPP_INFO(get_logger(), "퍽 %d: %s %s (박스 %zu)", tag, best->color.c_str(), detail(*best, "shape").c_str(), b + 1);
       }
       publish_state();
+      // 선 퍽 먼저 싣고 누운 퍽은 나중에 (세우다 옆 퍽을 칠 수 있음 · 11-15 사용자)
+      std::stable_partition(found.begin(), found.end(), [this](int tag) { return !lying_.count(tag); });
       load(b, found, 0);
     });
   });
@@ -714,6 +717,8 @@ void MissionManager::load(size_t b, std::vector<int> found, size_t k) {
     if (!ok) { result("puck " + str(tag) + ": load_pick_failed " + why + " (직접 운반)"); load(b, found, k + 1); return; }
     run_retry({SubGoal().set__skill("load").set__target("next")}, [this, b, found, k, tag](bool ok2, const std::string & why2) {
       if (ok2) { load(b, found, k + 1); return; }
+      // 놓은 뒤 실패 — 퍽은 칸에 있음 (coordinator 장부 '확인 필요'). 상자에 되돌리지 않고 다음 퍽
+      if (why2.rfind("load_released", 0) == 0) { result("puck " + str(tag) + ": " + why2 + " (칸에 둔 것으로 봄)"); load(b, found, k + 1); return; }
       // 적재함에 못 실음 — 손에 든 퍽을 박스 제자리에 되돌려 두고 BUILD 때 직접 운반
       const auto [bb, dx] = puck_at_[tag];
       run({SubGoal().set__skill("place").set__target(point(start_boxes_[bb].x + dx, start_boxes_[bb].y, box_top_z_))},
@@ -824,8 +829,9 @@ void MissionManager::bring(size_t i) {
         if (ok3) { correct(job.loc); place_check(i, 0); return; }
         // 장소에 못 감 — 손에 든 퍽은 적재함 빈 칸에 (다음 퍽을 집을 수 있게)
         if (!basket_has_room()) { skip("place_approach_failed " + why3 + " (퍽을 든 채)"); return; }
-        run({SubGoal().set__skill("load").set__target("next")}, [why3, skip](bool ok4, const std::string &) {
-          skip("place_approach_failed " + why3 + (ok4 ? " (적재함에 둠)" : " (퍽을 든 채)"));
+        run({SubGoal().set__skill("load").set__target("next")}, [why3, skip](bool ok4, const std::string & why4) {
+          const bool in = ok4 || why4.rfind("load_released", 0) == 0;
+          skip("place_approach_failed " + why3 + (in ? " (적재함에 둠)" : " (퍽을 든 채)"));
         });
       });
     });
@@ -1162,7 +1168,13 @@ void MissionManager::run(std::vector<SubGoal> goals, Done done) {
 void MissionManager::run_retry(std::vector<SubGoal> goals, Done done, int tries) {
   attempt_ = tries;
   run(goals, [this, goals, done, tries](bool ok, const std::string & why) {
-    if (ok || tries >= retries_) { done(ok, why); return; }
+    // load_released: 이미 칸에 놓고 손이 빔 — 다시 하면 빈손으로 다음 칸에 넣음
+    // arm_jam (load): 칸 위에서 바로 다시 하면 carry로 되돌아가며 쥔 퍽이 옆 칸 퍽에 부딪혀 돌아감 (11-15) — 다시 하지 않고
+    //   위로 올려 보내 상자 제자리에 되돌려 놓게 함
+    if (ok || tries >= retries_ || why.rfind("load_released", 0) == 0 || (why == "arm_jam" && goals.front().skill == "load")) {
+      done(ok, why);
+      return;
+    }
     RCLCPP_WARN(get_logger(), "%s %s 실패 (%s) — 다시 (%d/%d)", goals.front().skill.c_str(), goals.front().target.c_str(),
                 why.c_str(), tries + 1, retries_);
     run_retry(goals, done, tries + 1);
@@ -1214,13 +1226,6 @@ void MissionManager::go_near(const Box & box, double px, double py, Done done, s
       if (blocked) RCLCPP_INFO(get_logger(), "다가설 자리 (%.2f, %.2f) — 벽에서 %.2f m 안이라 뺌", p.x, p.y, wall_clearance_);
       return blocked;
     }), poses.end());
-    if (!box.sides.empty()) {  // 지정한 변만 — 다가설 자리 yaw로 변을 앎 (서쪽 변에 서면 +x를 봄 → "-x")
-      poses.erase(std::remove_if(poses.begin(), poses.end(), [&box](const Pose2 & p) {
-        const double c = std::cos(p.yaw), s = std::sin(p.yaw);
-        const std::string side = std::abs(c) > std::abs(s) ? (c > 0 ? "-x" : "+x") : (s > 0 ? "-y" : "+y");
-        return std::find(box.sides.begin(), box.sides.end(), side) == box.sides.end();
-      }), poses.end());
-    }
   }
   if (k >= poses.size() || static_cast<int>(k) >= approach_tries_) { done(false, "approach_failed"); return; }
   // Nav2로 변 앞 standoff까지 → approach로 approach_gap까지 직선으로 붙음 (Nav2 원형 footprint로는 못 붙는 거리)
@@ -1293,9 +1298,9 @@ bool MissionManager::basket_has_room() const {
   return false;
 }
 
-const perception::msg::TrackedObject * MissionManager::puck_near(double mx, double my) const {
+const perception::msg::TrackedObject * MissionManager::puck_near(double mx, double my, double r) const {
   const TrackedObject * best = nullptr;
-  double best_d = match_radius_;
+  double best_d = r > 0 ? r : match_radius_;
   if (objects_) for (const auto & o : objects_->objects) {
     if (!is_puck(o)) continue;
     const double d = std::hypot(o.pose.pose.position.x - mx, o.pose.pose.position.y - my);
@@ -1352,20 +1357,26 @@ void MissionManager::locate(int tag, bool memory, std::function<void(const Track
 void MissionManager::stand_up(uint32_t id, double mx, double my, int tries, Done done) {
   note("누운 퍽 세우기 (" + str(tries + 1) + "/" + str(retries_ + 1) + ")");
   attempt_ = tries;
-  run({SubGoal().set__skill("stand").set__target(std::to_string(id))}, [this, mx, my, tries, done](bool ok, const std::string & why) {
+  // stand 뒤 look 자세에서 섰는지 봄 — 손을 뺀 자리(퍽 위)에서는 인지가 선 퍽을 '누움'으로 봄 (11-15 실기 bag 3번:
+  //   그 자리에서 lying → 선 퍽에 stand를 또 보냄 · stow/look에서는 같은 트랙이 standing)
+  run({SubGoal().set__skill("stand").set__target(std::to_string(id)), SubGoal().set__skill("pose").set__target("look")},
+      [this, mx, my, tries, done](bool ok, const std::string & why) {
     if (!ok) { done(false, "stand_failed " + why); return; }
-    // 손은 퍽 위 80mm로 비켜 있음 — 인지가 선 퍽을 다시 볼 시간
+    // look 자세 — 인지가 선 퍽을 다시 볼 시간
     timer_ = create_wall_timer(std::chrono::duration<double>(stand_check_s_), [this, mx, my, tries, done]() {
       timer_->cancel();
       if (!active_) return;
-      const TrackedObject * o = puck_near(mx, my);
-      if (o && is_lying(*o)) {  // 아직 누움 — 같은 퍽을 다시 세움
+      // stand_find_m(10 cm) 안: 실패한 stand는 퍽을 6~7 cm 던짐 (11-15 실기 6.6 cm — 4 cm로 찾다 '섰음'으로 보고 빈손 stand_pick)
+      const TrackedObject * o = puck_near(mx, my, stand_find_m_);
+      if (!o) { done(false, "stand_lost"); return; }  // look에서도 안 보임 — 빈손으로 집지 않음 (잡기 판정이 빈손을 못 가림: 0.0048 m · 0.09 A)
+      if (is_lying(*o)) {  // 아직 누움 — 같은 퍽을 다시 세움
         if (tries >= retries_) { done(false, "stand_still_lying"); return; }
         stand_up(o->id, o->pose.pose.position.x, o->pose.pose.position.y, tries + 1, done);
         return;
       }
-      // 섰음 (또는 손 그늘로 못 봄 — stand_pick 잡기 판정이 가림). 같은 손목으로 바로 아래로
-      run({SubGoal().set__skill("stand_pick").set__target("last")}, done);
+      // 섰음: 선 퍽을 일반 pick (인지 위치 · 손 카메라 · pick 정책). 선 퍽은 누운 가운데에서 약 45 mm 옆에 섬
+      //   (11-15 실기: 세운 그 자리에서 같은 손목으로 바로 내려가는 stand_pick은 세우며 밀린 만큼 빗나감)
+      run({SubGoal().set__skill("pick").set__target(std::to_string(o->id))}, done);
     });
   });
 }

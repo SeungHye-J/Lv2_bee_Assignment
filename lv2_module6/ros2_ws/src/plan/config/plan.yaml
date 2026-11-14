@@ -34,6 +34,8 @@ coordinator:
     #   (k 1.1~1.74 — 여유가 아니라 완전 불능). 0.20으로 낮춰 이 한계 아래로 안전 여유를 둠.
     #   pick도 0.273m에서 특이점 근처라 grasp_failed_all 재현 — 같은 값으로 보호.
     reach_m: 0.20
+    stand_box_max_m: 0.50                    # [m] 박스 위 누운 퍽 stand는 이 안이면 다가가지 않음 (11-15 사용자 0.5 — 실기 스택엔 Nav2 없음 · 박스에 붙은 로봇은 더 못 감). 멀면 skill_stand가 끌어오기(stand_pull_min_m) · 그래도 못 닿으면 IK에서 실패
+    pick_far_max_m: 0.50                     # [m] 박스 위 선 퍽 pick은 이 안이면 다가가지 않고 바로 (못 닿으면 pick_far · 그래도 못 닿으면 실패) — 11-15 사용자 0.5 · 이전 0.29 (pick_far 팔 한계 퍽 x 약 0.285 m)
     approach_m: 0.20         # [m] 다가간 뒤 로봇 중심 ~ 물체 중심 (stand 궤적 실측 안전 한계 0.234m 아래로 여유를 둠)
 mission_manager:             # 주사위 기억 미션 (documents/mission/README.md) — 좌표는 경기장(arena) m · 왼쪽 아래 기둥 원점 · +Y 위
   ros__parameters:
@@ -99,7 +101,8 @@ mission_manager:             # 주사위 기억 미션 (documents/mission/README
     place_tol: 0.010                         # [m] 놓은 뒤 확인 · 재검증 — 칸 중심에서 이 안이어야 성공
     place_search: 0.05                       # [m] 놓은 뒤 확인 때 칸에서 이 안의 퍽만 그 퍽으로 봄
     match_radius: 0.04                       # [m] 조사 때 퍽 자리와 트랙을 짝짓는 거리
-    stand_check_s: 1.0                       # [s] 누운 퍽 stand 뒤 인지가 섰는지 볼 때까지 기다림 → 섰으면 stand_pick, 아직 누웠으면 stand 다시 (retries번)
+    stand_check_s: 1.0                       # [s] 누운 퍽 stand 뒤 인지가 섰는지 볼 때까지 기다림 → 섰으면 선 퍽을 pick (못 보면 stand_pick), 아직 누웠으면 stand 다시 (retries번)
+    stand_find_m: 0.10                       # [m] stand 뒤 look에서 누운 가운데 이 안의 퍽: 누움 → 다시 stand · 섬 → pick · 없음 → stand_lost (선 퍽은 약 45 mm 옆 · 실패하면 6~7 cm 튐) — 11-15
     verify_radius: 0.15                      # [m] 재검증 때 장소 중심에서 이 안의 퍽만
     # 바코드 보는 자세 [x, y, yaw] (출발 구역 안) — 비우면 출발(관측) 자리에서 그대로 봄 (이동 없음)
     #   실기 11-12: 출발 자리에서 신호등·바코드 둘 다 인지됨 → 이동 안 함. 예전 시뮬 값 [0.950, 0.800, 3.3126]은

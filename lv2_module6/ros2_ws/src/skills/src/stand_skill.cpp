@@ -80,8 +80,23 @@ public:
     declare_parameter<double>("stand_score_far", 0.2);       //   먼 끝 (동점이면 기존대로)
     objects_sub_ = create_subscription<perception::msg::TrackedObjectArray>("/tracked_objects", rclcpp::QoS(5).reliable(),
       [this](perception::msg::TrackedObjectArray::ConstSharedPtr m) { objects_ = m; });
+    declare_parameter<double>("stand_puck_dy_m", 0.0);         // [m] inspect 퍽 위치에 더함 (base_footprint y, 왼쪽 +) — 손가락 사이 가운데 맞추기 (11-15)
+    declare_parameter<double>("stand_pinch_from_end_m", 0.0);  // [m] 쥘 끝에서 퍽 안쪽으로 이만큼 들어와 쥠 (퍽 축 방향) — 0 = 끝 모서리
     declare_parameter<double>("stand_puck_dx_m", -0.010);      // [m] inspect 퍽 위치에 더함 (base_footprint x) — 실기 11/08 inspect가 손 카메라보다 10 mm 앞
     declare_parameter<double>("stand_arc_k", 1.0);           // 호의 퍽 축 방향 배율 (1 원 · 0 그대로 위로)
+    declare_parameter<double>("stand_release_deg", -1.0);
+    // 먼 누운 퍽: 세우기 대신 로봇 쪽 끝을 쥐고 로봇 쪽으로 끌어옴 (11-15 실기: 0.287 m 퍽은 세우기 IK가 안 풀리고, 먼 자리에서
+    //   세우면 상자 밖으로 떨어짐). 가운데가 base_footprint에서 stand_pull_min_m보다 멀거나 세우기 IK가 안 풀리면 →
+    //   stand_pull_to_m까지 끌고(3~10 cm) 놓은 뒤 성공으로 끝 (계획 쪽이 look에서 아직 누움을 보고 다시 stand). 0 = 끔
+    // 쥠 확인 뒤 호를 도는 동안의 목표 [m] — stand_pinch_m(0.0050, 퍽 안쪽)은 빈손을 가리려고 퍽을 누르는 목표라, 확인 뒤엔
+    //   퍽 폭(0.0062 = 간격 30 mm)으로 풀어 낮은 전류(stand_pinch_current_a)로만 받침 → 퍽이 손가락 사이에서 돎 (11-15 사용자: 세게 쥠)
+    declare_parameter<double>("stand_hold_m", 0.0062);
+    declare_parameter<double>("stand_pull_min_m", 0.26);
+    // 거리에 따라 쥐는 높이 보정 [m/m]: (가운데 거리 − stand_contact_ref_m) × 이 값만큼 손가락을 낮춤 (±10 mm 상한) · 매 goal마다 읽음
+    declare_parameter<double>("stand_contact_dz_per_m", 0.0625);
+    declare_parameter<double>("stand_contact_ref_m", 0.20);
+    declare_parameter<double>("stand_pull_to_m", 0.20);
+    declare_parameter<double>("stand_pull_vel_scale", 0.2);  // 끌기 속도 × 팀 관절 한계 (천천히 — 퍽이 손에서 빠지지 않게)   // [deg] 호가 이 각도를 지날 때 그리퍼를 벌림 (팔은 호를 계속) · ≤ 0 = 호 끝에서 (기존)
     // 호 방식: 내려가기 전 멈춰 손 카메라로 퍽을 다시 재고 경유점을 다시 풂 — 쥐는 높이 근처는 카메라–퍽 10 cm 안이라 depth가 비어서
     declare_parameter<bool>("stand_cam", true);
     declare_parameter<double>("stand_cam_above_m", 0.06);    // [m] 잴 때 손끝 높이 (쥐는 자리 위) — 6 cm면 카메라–퍽 10 cm 넘음
@@ -105,6 +120,7 @@ public:
 protected:
   void stop() override {
     if (cam_timer_) cam_timer_->cancel();
+    if (release_timer_) release_timer_->cancel();
     arm_.stop();
   }
 
@@ -127,13 +143,29 @@ private:
     const tf2::Vector3 c = t * tf2::Vector3(pp.x, pp.y, pp.z);
     const tf2::Vector3 ax = t.getBasis() * tf2::Vector3(1.0 - 2 * (q.y * q.y + q.z * q.z), 2 * (q.x * q.y + q.w * q.z), 0.0);
     double yaw = stand::away_yaw(std::atan2(ax.y(), ax.x()));
-    const stand::V3 centre = {c.x() + get_parameter("stand_puck_dx_m").as_double(), c.y(), box_top_m_};
+    const stand::V3 centre = {c.x() + get_parameter("stand_puck_dx_m").as_double(),
+                              c.y() + get_parameter("stand_puck_dy_m").as_double(), box_top_m_};
     const bool is_box = g.shape != "cyl";
+    {  // 멀수록 더 깊게: 손가락 높이를 (가운데 거리 − stand_contact_ref_m) × stand_contact_dz_per_m만큼 낮춤 (가까우면 올림)
+      //   11-15 실기: 먼 퍽일수록 얕게 쥐는 느낌 (사용자) — 팔을 뻗을수록 실제 손이 TF보다 높게 감. 0 = 끔
+      const double k = get_parameter("stand_contact_dz_per_m").as_double(), ref = get_parameter("stand_contact_ref_m").as_double();
+      // 11-15 실측 (goto --pose x 0.10, 손 수직): 손끝이 상자 위 0.16 m 25 · 0.20 m 25 · 0.28 m 30 mm (계획 30) — 0.20 m 안은 같고
+      //   그 너머로 8 cm에 5 mm 높아짐 → 0.20 m 너머만 0.0625 m/m로 낮춤 (가까운 쪽은 안 바꿈)
+      const double dz = std::clamp(k * std::max(0.0, std::hypot(centre[0], centre[1]) - ref), 0.0, 0.010);
+      sp_.contact_h_box -= dz;
+      sp_.contact_h_cyl -= dz;
+      if (std::abs(dz) > 0.0005) RCLCPP_INFO(get_logger(), "stand: 거리 보정 — 손가락 높이 %+.1f mm", -dz * 1000);
+    }
     std::vector<stand::Q5> qs;
     std::string why;
     const bool ok = waypoints_ == "table" ? stand::plan_table(table_, centre, yaw, is_box, qs, why)
                                           : stand::plan_ik(centre, yaw, is_box, sp_, qs, why);
     if (waypoints_ == "ik") choose_end(centre, is_box, ok, yaw, qs);
+    const double pull_min = get_parameter("stand_pull_min_m").as_double(), dist = std::hypot(centre[0], centre[1]);
+    if (waypoints_ == "ik" && pull_min > 0.0 && (dist > pull_min || qs.empty())) {
+      pull(centre, yaw, is_box, dist, done);
+      return;
+    }
     if (qs.empty()) { done(false, why); return; }
     if (waypoints_ == "table" && std::abs(centre[0] - table_.box_cx) > 0.02)
       RCLCPP_WARN(get_logger(), "stand 표: 퍽이 표 기준 x에서 %.0fmm — dock 자리 확인", (centre[0] - table_.box_cx) * 1000);
@@ -143,7 +175,7 @@ private:
     done_qs_.clear();
     arm_.clear_flags();
     arm_.reset_sag();
-    const double open = open_m_, pinch = pinch_m_;
+    const double open = open_m_, pinch = pinch_m_, hold_m = get_parameter("stand_hold_m").as_double();
     const double vs = vs_, avs = arc_vs_;
     const stand::Params sp = waypoints_ == "table" ? stand::Params{} : sp_;  // 표는 right_env 호 그대로
     // 경유점은 손 카메라로 다시 잰 뒤 바뀔 수 있어서 뒤 단계들은 run->qs를 실행 때 읽음
@@ -192,9 +224,35 @@ private:
     steps->insert(steps->end(), {
       arm_.grip_timed_step(pinch, close_a_, 0.0),
       arm_.grip_settle_step(grip_a_, empty_m_, grip_timeout_s_),
-      arm_.grip_timed_step(pinch, pinch_a_, STAND_PINCH_S)});  // 퍽이 손가락 사이에서 돌 만큼 낮춤
+      arm_.grip_timed_step(hold_m, pinch_a_, STAND_PINCH_S)});  // 퍽이 손가락 사이에서 돌 만큼 낮춤 — 목표도 퍽 폭으로 풀어 누르지 않음
     if (learned) steps->push_back(ctx(4, false, false));
-    steps->push_back(arm_.traj_step([wp, sp, avs](const stand::Q5 &) { return stand::sample_arc(wp(), sp, avs, STAND_HANG_S, TRAJ_DT); }));
+    const auto arc = arm_.traj_step([wp, sp, avs](const stand::Q5 &) { return stand::sample_arc(wp(), sp, avs, STAND_HANG_S, TRAJ_DT); });
+    const double rel_deg = get_parameter("stand_release_deg").as_double();
+    if (rel_deg > 0 && sp.drag_m <= 0 && rel_deg < sp.arc_end_deg) {
+      // 호 도중 놓기: 호 경유점 wp[1 + i]가 i × arc_step_deg — 그 경유점에 가장 가까운 표본 시각에 벌림 (궤적은 그대로 끝까지)
+      steps->push_back([this, arc, wp, sp, avs, rel_deg, open](ArmIO::Cb cb) {
+        const auto q = wp();
+        const auto smp = stand::sample_arc(q, sp, avs, STAND_HANG_S, TRAJ_DT);
+        const auto & target = q[1 + static_cast<size_t>(std::ceil(rel_deg / sp.arc_step_deg))];
+        size_t best = 0;
+        double best_d = 1e9;
+        for (size_t k = 0; k < smp.size(); ++k) {
+          double dk = 0;
+          for (int j = 0; j < 5; ++j) dk = std::max(dk, std::abs(smp[k][j] - target[j]));
+          if (dk < best_d) { best_d = dk; best = k; }
+        }
+        const double t_rel = (best + 1) * TRAJ_DT;
+        stage("호 " + std::to_string(static_cast<int>(rel_deg)) + "°에서 벌림 (" + std::to_string(t_rel).substr(0, 4) + " s)");
+        if (release_timer_) release_timer_->cancel();
+        release_timer_ = create_wall_timer(std::chrono::duration<double>(t_rel), [this, open]() {
+          release_timer_->cancel();
+          arm_.set_gripper(open, [](bool) {});
+        });
+        arc(cb);
+      });
+    } else {
+      steps->push_back(arc);
+    }
     if (learned) steps->push_back(ctx(5, true, false));
     steps->insert(steps->end(), {
       arm_.wait_step(STAND_SETTLE_S),
@@ -249,6 +307,60 @@ private:
   //   w_margin × 선 자리 여유 (상자 가장자리, stand_end_margin_m에서 포화 · 상자를 못 보면 0) +
   //   w_slack × 관절 한계 여유 (0.35 rad에서 포화 — 해가 넓은 쪽) + w_cam × (stand_flip_roll대로 = 카메라가 퍽 몸통 쪽) + w_far × 먼 끝
   // 풀리지 않는 후보는 뺀다. 고른 roll은 이번 실행의 sp_에 반영 (재계획이 같은 자세로 가게)
+  // 먼 누운 퍽을 로봇 쪽으로 끌어옴: 로봇에 가까운 끝을 세우기와 같은 높이·방향으로 쥐고, 로봇 쪽(수평)으로 끈 뒤 놓고 위로
+  void pull(const stand::V3 & centre, double yaw, bool is_box, double dist, Done done) {
+    const double to = get_parameter("stand_pull_to_m").as_double();
+    const double d = std::clamp(dist - to, 0.03, 0.10);
+    stand::V3 u = {std::cos(yaw), std::sin(yaw), 0.0};
+    const stand::V3 e1 = {centre[0] + u[0] * 0.03, centre[1] + u[1] * 0.03, 0.0}, e2 = {centre[0] - u[0] * 0.03, centre[1] - u[1] * 0.03, 0.0};
+    const bool first_near = std::hypot(e1[0], e1[1]) < std::hypot(e2[0], e2[1]);
+    if (!first_near) u = {-u[0], -u[1], 0.0};  // u = 가운데 → 로봇 쪽 끝
+    const double inset = 0.008;  // 끝에서 손가락 반쯤 안쪽 (패드가 퍽 위에)
+    const double h = (is_box ? sp_.contact_h_box : sp_.contact_h_cyl) + stand::GRASP_Z - stand::PUCK_H + stand::GRIP_DEPTH / 2;
+    const stand::V3 g = {centre[0] + u[0] * (0.03 - inset), centre[1] + u[1] * (0.03 - inset), box_top_m_ + h};
+    const double gr = std::hypot(g[0], g[1]);
+    const stand::V3 dir = {-g[0] / gr, -g[1] / gr, 0.0};  // 로봇 쪽 수평
+    const stand::V3 above = {g[0], g[1], g[2] + sp_.above_m}, pulled = {g[0] + dir[0] * d, g[1] + dir[1] * d, g[2] + 0.002};
+    const stand::V3 up = {pulled[0], pulled[1], pulled[2] + sp_.lift_away_m};
+    const double close_yaw = yaw + M_PI / 2 + (sp_.flip_roll ? M_PI : 0.0);
+    std::vector<stand::Q5> qs;
+    stand::Q5 near = {std::atan2(above[1], above[0]), -0.2, 0.7, 1.0, 0.0}, q;
+    const stand::V3 pts[] = {above, g, pulled, up};
+    for (int i = 0; i < 4; ++i) {
+      bool ok = stand::ik_down_sym(pts[i], close_yaw, near, q);
+      // 손 빼기 높이(stand_lift_away_m 0.13)는 먼 자리에서 손을 아래로 향한 채 못 감 — 세우기처럼 6 → 4 → 3 cm로 낮춤
+      //   (11-15 실기: 0.287 m 퍽에서 위·쥐기·끌기는 풀리고 위로만 실패)
+      if (!ok && i == 3)
+        for (double hh : {0.06, 0.04, 0.03})
+          if ((ok = stand::ik_down_sym({up[0], up[1], pulled[2] + hh}, close_yaw, near, q))) break;
+      if (!ok) { done(false, "stand_pull_unreachable"); return; }
+      qs.push_back(q);
+      near = q;
+    }
+    stage("먼 퍽 끌어오기: 로봇에서 " + std::to_string(static_cast<int>(dist * 1000)) + " mm → " + std::to_string(static_cast<int>(d * 1000)) +
+          " mm 당김 (세우기는 다음 stand)");
+    arm_.clear_flags();
+    const double vs = vs_, pvs = get_parameter("stand_pull_vel_scale").as_double();
+    const auto to_q = [](const stand::Q5 & a, double v) {
+      return [a, v](const stand::Q5 & now) { return stand::sample_move(now, a, v, TRAJ_DT); };
+    };
+    auto steps = std::make_shared<std::vector<ArmIO::Step>>(std::vector<ArmIO::Step>{
+      arm_.gripper_step(open_m_),
+      arm_.joints_step(std::vector<double>(qs[0].begin(), qs[0].end())),  // 위 (MoveIt — 충돌 확인)
+      arm_.wait_step(hold_s_),
+      arm_.traj_step(to_q(qs[1], vs)),                                    // 내려감
+      arm_.grip_timed_step(pinch_m_, close_a_, 0.0),
+      arm_.grip_settle_step(grip_a_, empty_m_, grip_timeout_s_),          // 쥠 (stand와 같은 판정)
+      arm_.traj_step(to_q(qs[2], pvs)),                                   // 로봇 쪽으로 끎
+      arm_.grip_timed_step(open_m_, -1.0, STAND_OPEN_S),
+      arm_.traj_step(to_q(qs[3], vs))});                                  // 위로
+    arm_.run_steps(steps, 0, [this, done](bool ok) {
+      if (ok) { done(true, ""); return; }
+      const std::string why = !arm_.grip_fail().empty() ? arm_.grip_fail() : arm_.contact() ? "arm_contact" : "stand_pull_failed";
+      arm_.set_gripper(open_m_, [done, why](bool) { done(false, why); });
+    });
+  }
+
   void choose_end(const stand::V3 & centre, bool is_box, bool /*ok*/, double & yaw, std::vector<stand::Q5> & qs) {
     const double need = get_parameter("stand_end_margin_m").as_double();
     const double w_m = get_parameter("stand_score_margin").as_double(), w_s = get_parameter("stand_score_slack").as_double();
@@ -385,7 +497,8 @@ private:
       arm_.traj_step([grasp, vs](const stand::Q5 & now) { return stand::sample_move(now, grasp, vs, TRAJ_DT); }),  // 바로 아래로
       arm_.wait_step(hold_s_),                                                                                // 처짐 보정 쌓임
       arm_.grip_timed_step(arm_.grip_close_m(), arm_.grip_current_a(), REGRASP_CLOSE_S), arm_.held_step(),
-      arm_.traj_step([lift, vs](const stand::Q5 & now) { return stand::sample_move(now, lift, vs, TRAJ_DT); })});
+      arm_.traj_step([lift, vs](const stand::Q5 & now) { return stand::sample_move(now, lift, vs, TRAJ_DT); }),
+      arm_.held_step()});  // 들어 올린 뒤 한 번 더 — 모서리만 물었다 놓치면 여기서 빈손 (11-15: 닫을 때 0.0048 m · 0.09 A로 '쥠' 뒤 놓침)
     arm_.run_steps(steps, 0, [this, done](bool ok) {
       if (!ok) {
         if (arm_.grasp_empty()) arm_.set_gripper(open_m_, [](bool) {});
@@ -400,18 +513,19 @@ private:
   void refresh_params() {
     const auto d = [this](const char * n) { return get_parameter(n).as_double(); };
     open_m_ = d("stand_open_m"); pinch_m_ = d("stand_pinch_m");
-    close_a_ = d("stand_close_current_a"); pinch_a_ = d("stand_pinch_current_a"); grip_a_ = d("stand_grip_current_a");
+    close_a_ = d("stand_close_current_a"); pinch_a_ = d("stand_pinch_current_a"); grip_a_ = d("stand_grip_current_a"); empty_m_ = d("stand_empty_m");
     sp_.drag_m = d("stand_drag_m"); sp_.drag_lift_m = d("stand_drag_lift_m"); sp_.arc_end_deg = d("stand_arc_end_deg");
     sp_.set_dz_m = d("stand_set_dz_m"); sp_.tilt_over_m = d("stand_tilt_over_m"); sp_.arc_return = get_parameter("stand_arc_return").as_bool(); sp_.flip_roll = get_parameter("stand_flip_roll").as_bool();
     sp_.above_m = d("stand_above_m"); sp_.lift_away_m = d("stand_lift_away_m"); sp_.arc_k = d("stand_arc_k");
     sp_.contact_h_box = d("stand_contact_h_box_m"); sp_.contact_h_cyl = d("stand_contact_h_cyl_m");
+    sp_.pinch_from_end_m = d("stand_pinch_from_end_m");
     vs_ = d("stand_vel_scale"); arc_vs_ = d("stand_arc_vel_scale"); hold_s_ = d("stand_hold_s");
   }
 
   ArmIO arm_;
   SkillModel policy_, grasp_model_;
   rclcpp::Publisher<trajectory_msgs::msg::JointTrajectory>::SharedPtr traj_pub_;
-  rclcpp::TimerBase::SharedPtr cam_timer_;
+  rclcpp::TimerBase::SharedPtr cam_timer_, release_timer_;
   rclcpp::Subscription<perception::msg::HandRelative>::SharedPtr hr_sub_;
   perception::msg::HandRelative::ConstSharedPtr hr_;
   rclcpp::Subscription<perception::msg::TrackedObjectArray>::SharedPtr objects_sub_;

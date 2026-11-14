@@ -152,6 +152,7 @@ def move_group_node():
                 {'robot_description': ParameterValue(Command(urdf_xacro(
                     ' mock_hardware:=false port:=/dev/opencr')), value_type=str),
                  'robot_description_semantic': robot_description_semantic,
+                 'publish_robot_description_semantic': True,  # RViz Trajectory·MotionPlanning display가 토픽으로 SRDF를 받음
                  'robot_description_kinematics': load_yaml('config', 'moveit', 'kinematics.yaml'),
                  'robot_description_planning': load_yaml('config', 'moveit', 'joint_limits.yaml'),
                  'planning_pipelines': ['ompl'],

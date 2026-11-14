@@ -5,6 +5,7 @@
 //   닿는 구간: plan()이 정한 above(지금 자세) → down → 쥐기/놓기 → above, 시뮬 place_env·pick_env와 같은 단계·시간
 //     (정지 0.3 s · 팀 한계 0.3배 부드러운 보간 · 안정 0.3 s · 쥐기 0.5 s / 놓기 0.4 s · 대기). 단계마다 /skill_context에
 //     skill 이름 + 그 skill 노드의 정책 파일(SkillModel) → rl_arm_correction이 그 정책으로 Δ를 계산 (100 Hz 루프 안). 끝나면 skill "" (보정 끔)
+#include <deque>
 #include <functional>
 #include <limits>
 #include <map>
@@ -15,6 +16,7 @@
 #include "control/msg/arm_safety_event.hpp"
 #include "control_msgs/action/parallel_gripper_command.hpp"
 #include "geometry_msgs/msg/pose_stamped.hpp"
+#include "ml/msg/arm_correction_debug.hpp"
 #include "ml/msg/skill_context.hpp"
 #include "moveit_msgs/action/execute_trajectory.hpp"
 #include "moveit_msgs/srv/get_motion_plan.hpp"
@@ -60,7 +62,8 @@ public:
   double velocity_scale() const;  // arm_velocity_scale 파라미터 (MoveIt 속도·가속도 비율)
   // 진행 중 MoveIt·그리퍼 goal 취소 · 늦은 결과 버림 · 보정 끔 (skill 취소 · 새 goal 전)
   void stop();
-  void clear_flags() { contact_ = false; grasp_empty_ = false; grip_fail_.clear(); }
+  void clear_flags() { contact_ = false; grasp_empty_ = false; jam_ = false; grip_fail_.clear(); }
+  bool jam() const { return jam_; }                  // 이번 실행 중 닿는 구간 막힘 (jam_current_a) — 위로 뺀 뒤 실패
   bool contact() const { return contact_; }          // 이번 실행 중 /arm_safety_event (과전류 접촉)
   bool grasp_empty() const { return grasp_empty_; }  // 마지막 잡기 판정이 빈손
   const std::string & grip_fail() const { return grip_fail_; }  // grip_settle_step 실패 이유
@@ -82,6 +85,9 @@ public:
   Step traj_step(std::function<std::vector<Q5>(const Q5 &)> make);  // 지금 관절값 + 샘플(TRAJ_DT 간격) → /execute_trajectory
   Step grip_timed_step(double joint_m, double effort_a, double secs);  // 보내고 secs 뒤 다음 (가볍게 쥐면 '도착'을 안 할 수 있음)
   Step wait_step(double secs);
+  // min_s 기다린 뒤 정책 Δ(/rl_arm_correction/debug)가 멈출 때까지 (상한 max_s) — 손 카메라가 늦게 다시 잡혀 Δ가 몰려 나오는
+  //   중에 쥐면 팔이 움직이며 퍽을 침 (11/13 실기 pick: 닫기 0.2 s 전 joint1 Δ −3 → +24 mrad). debug가 안 오면 min_s만
+  Step delta_settle_step(double min_s, double max_s);
   // grip_state가 정해질 때까지 기다림 — 빈손 stand_no_grip · 시간 초과 stand_grip_timeout으로 실패 (grasp_check 끄면 통과)
   Step grip_stop_step(double timeout_s);  // 손가락이 멈출 때까지 기다림 (시간이 넘어도 다음으로 — 판정은 held_step)
   Step grip_settle_step(double min_current, double empty_m, double timeout_s);
@@ -102,6 +108,8 @@ public:
   // /rl_arm_correction/reset_sag — 팔 skill 시작 때 한 번 (없으면 WARN 한 번).
   //   보정이 0이 되면 팔이 처졌다 다시 올라옴 → 다음 move_arm·move_joints·traj_step은 팔이 멈출 때까지 기다린 뒤 계획 (settle)
   void reset_sag();
+  // /rl_arm_correction/fade_sag — pick·load 시작 때 (멈춰 기다리지 않음: 팔이 움직일 때만 풂)
+  void fade_sag();
   // 다음 move_arm·move_joints·traj_step은 팔이 멈출 때까지 기다린 뒤 (settle) — 앞 skill이 끝나며 보정 Δ가 0으로 빠져
   //   팔이 ~0.1 s 움직이는 동안 궤적을 보내면 start point deviates. 처짐 적분은 안 건드림 (닿는 구간 시작에서 rl_arm_correction이 0으로)
   void settle_next() { settle_ = true; }
@@ -120,7 +128,10 @@ private:
   rclcpp::Node & node_;
   int arm_plan_tries_ = 3;
   double grip_current_a_ = 0.1, grasp_min_pos_m_ = 0.003, grasp_min_effort_ = 0.25;
-  bool grasp_check_ = true, contact_ = false, grasp_empty_ = false, sag_warned_ = false;
+  bool grasp_check_ = true, contact_ = false, grasp_empty_ = false, sag_warned_ = false, jam_ = false;
+  rclcpp::TimerBase::SharedPtr jam_timer_;  // 내려가는 중 막힘 감시
+  std::deque<std::pair<double, double>> jam_hist_;  // (시각 [s], joint2+joint3 전류 [A]) — 최근 1 s
+  double jam_mean(double window_s) const;
   std::string contact_mode_ = "sim", grip_fail_;
   uint64_t gen_ = 0;
   uint32_t run_ = 0;
@@ -128,11 +139,13 @@ private:
   rclcpp::Client<GetMotionPlan>::SharedPtr plan_;
   rclcpp_action::Client<ExecuteTrajectory>::SharedPtr exec_;
   rclcpp_action::Client<Gripper>::SharedPtr gripper_;
-  rclcpp::Client<std_srvs::srv::Trigger>::SharedPtr reset_sag_;
+  rclcpp::Client<std_srvs::srv::Trigger>::SharedPtr reset_sag_, fade_sag_;
   rclcpp::Publisher<ml::msg::SkillContext>::SharedPtr ctx_pub_;
   rclcpp::Publisher<perception::msg::HandTarget>::SharedPtr hand_pub_;
   rclcpp::Subscription<sensor_msgs::msg::JointState>::SharedPtr joints_sub_;
   rclcpp::Subscription<control::msg::ArmSafetyEvent>::SharedPtr safety_sub_;
+  rclcpp::Subscription<ml::msg::ArmCorrectionDebug>::SharedPtr debug_sub_;
+  std::deque<std::pair<double, Q5>> delta_hist_;  // (받은 시각 [s, 노드 시계], Δ) — 최근 1 s
   rclcpp::TimerBase::SharedPtr timer_, settle_timer_;
   bool settle_ = false;  // reset_sag 뒤 아직 안 기다림
   std::unique_ptr<tf2_ros::Buffer> tf_buffer_;

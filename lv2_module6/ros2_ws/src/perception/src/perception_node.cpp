@@ -261,7 +261,7 @@ PerceptionNode::PerceptionNode(const rclcpp::NodeOptions & options) : rclcpp::No
   }
   puck_tag_size_ = pd("puck_tag_size_m", 0.016);
   yaw_min_points_ = pi("yaw_min_points", 30);
-  yaw_min_elong_ = pd("yaw_min_elong", 1.8);
+  yaw_min_elong_ = pd("yaw_min_elong", 1.5);  // 누운 퍽 윗면 60×30 = 2.0 · 실기 depth 1.9 (11-15) — 1.8은 여유 없음
   location_tag_size_ = pd("location_tag_size_m", 0.048);
   box_detect_ = pb("box_detect", true);                 // depth로 상자 윗면 찾기
   {
@@ -294,6 +294,9 @@ PerceptionNode::PerceptionNode(const rclcpp::NodeOptions & options) : rclcpp::No
   //   이번 영상에 'box' 네모가 없으면 예전처럼 화면 전체
   box_roi_yolo_ = pb("box_roi_yolo", false);  // 기본 끔 — 로봇에서 상자가 같은지 확인한 뒤 켬 (11/12)
   robot_front_x_ = pd("robot_front_x", 0.069);  // base_footprint → 로봇 앞면 [m] (상자 face_dist_m 기준 · 시뮬 pick_env ROBOT_FRONT_X)
+  // 실물 gripper_cam 깊이가 바닥·상자를 12 mm 높게 봄 (11-14 실측 9자세: 바닥 +10~14 · 상자 +11~13 · 상자−바닥 70 그대로 · 팔 토크·카메라 높이와 무관)
+  //   → 퍽 자세·상자 윗면 판정의 바닥 높이만 올림 (위치·손 카메라 상대값은 그대로). Isaac 깊이는 정확해서 use_sim_time이면 0
+  gripper_floor_offset_ = get_parameter("use_sim_time").as_bool() ? 0.0 : pd("gripper_floor_offset_m", 0.0);
   barcode_once_ = pb("barcode_once", true);             // 바코드를 한 번 읽으면 더 안 찾고 읽은 내용만 0.5초마다 다시 냄
   barcode_once_re_ = std::regex(declare_parameter<std::string>("barcode_once_pattern", "P2-0[1-4]"));  // 이 형식일 때만 고정 — 잘못 읽은 값에 묶이지 않게
   // 바코드는 미션 시작(start · start:BARCODE) 뒤 barcode_window_s 동안만 찾음 — 찾는 데 한 장 4~180 ms(보조 읽기)라 늘 돌리면
@@ -525,8 +528,18 @@ void PerceptionNode::update_tracks(const std::string & cam, Frame & s, const std
   std::vector<Det> dets;
   // 바닥 높이 = base_footprint 높이 (없으면 0) — 퍽 자세(높이)와 상자 윗면 찾기에 같이 씀
   const auto base_now = lookup_tf(base_frame_, now_stamp, true);
-  const double floor_z = base_now ? base_now->second[2] : 0.0;
+  const double floor_z = (base_now ? base_now->second[2] : 0.0) + (cam == "gripper_cam" ? gripper_floor_offset_ : 0.0);
   const bool side_view = view_from_side(rot);
+  std::optional<double> start_top;  // 가장 최근 추적한 시작 상자 윗면의 바닥 위 높이 (퍽 자세 받침)
+  {
+    std::lock_guard<std::mutex> lk(mutex_);
+    double newest = -1.0;
+    for (const auto & [id, tr] : tracks_)
+      if (tr.class_name == "start_box" && tr.t > newest && tr.p[2] - floor_z > 0.03) {
+        newest = tr.t;
+        start_top = tr.p[2] - floor_z;
+      }
+  }
   s.drops.clear();
   std::vector<Box> puck_boxes;  // 태그를 겹친 퍽 중 어디에 붙일지
   for (const auto & b : res) {
@@ -572,8 +585,12 @@ void PerceptionNode::update_tracks(const std::string & cam, Frame & s, const std
       posture = post;
       // 자세: 윗면 높이 먼저 (카메라 각도와 상관없음) · 모르면 옆에서 볼 때만 가로·세로 비율
       if (ok && zm > 0 && !clipped) {
-        const auto h_post = posture_from_height(depth_m, bx, zm, rot, trans, s.fx, s.fy, s.cx, s.cy, floor_z,
-                                                {0.0, location_box_size_[2]}).first;
+        auto h_post = posture_from_height(depth_m, bx, zm, rot, trans, s.fx, s.fy, s.cx, s.cy, floor_z,
+                                          {0.0, location_box_size_[2]}).first;
+        // 모르면 받침 = 같은 카메라가 잰 시작 상자 윗면으로 다시 — 11-14 실기: 상자 윗면을 0.085로 재는데 고정 0.07과 비교해
+        //   누운 퍽 윗면 0.115가 누움 0.10 · 섬 0.13 한가운데 → 자세 모름 → 누운 퍽을 못 찾음
+        if (h_post.empty() && start_top)
+          h_post = posture_from_height(depth_m, bx, zm, rot, trans, s.fx, s.fy, s.cx, s.cy, floor_z, {0.0, *start_top}).first;
         posture = !h_post.empty() ? h_post : (side_view ? posture : "");
       }
       const bool fine = std::max(bx.x1 - bx.x0, bx.y1 - bx.y0) >= fine_min_px_;  // 멀어 작으면 모양·자세를 픽셀로 못 가림
@@ -966,28 +983,31 @@ std::pair<std::optional<double>, double> PerceptionNode::puck_yaw(const Frame & 
                                                                   const std::string & posture, std::optional<double> tag_y,
                                                                   const std::string & face, const cv::Matx33d & rot,
                                                                   const cv::Vec3d & trans) {
-  // 누운 퍽: 퍽 색 화소의 바닥 위 점들의 긴 축 (주기 180°) · 서있는 원기둥: 방향 없음 · 그 밖: 태그 자세 (주기 90°)
+  // 누운 퍽: 윗면 점들의 긴 축 (주기 180°) · 서있는 원기둥: 방향 없음 · 그 밖: 태그 자세 (주기 90°)
   if (posture == "lying") {
-    std::vector<cv::Vec2d> pts;  // puck_points_xy — 퍽 색이고 깊이 있는 화소 (최대 400점)
+    // 누운 퍽: 윗면(60×30) 점들의 긴 축. 윗면 높이 = 퍽 색 화소 높이 p90, 그 높이 ±8 mm 안의 박스 안 화소는 색과 상관없이 (윗면 태그도)
+    //   11-15 실기: 퍽 색 화소마다 depth 점 → 반사 테이프 모서리의 번진 depth(높이가 윗면·상자 사이)가 시선 방향으로 퍼져
+    //   실제 축 약 75°를 −28°로 (직각으로 쥠) · 색 화소를 윗면 평면에 투영하면 옆면이 섞여 길이비 1.6 (< yaw_min_elong)
+    //   → 높이로 윗면만 남기면 번진 점은 빠짐 (같은 판 depth: 75°, 65×33 mm, 길이비 1.9)
+    std::vector<cv::Vec2d> pts;
     if (is_hue_name(color)) {
       cv::Mat hsv;
       cv::cvtColor(s.bgr(cv::Range(box.y0, box.y1), cv::Range(box.x0, box.x1)), hsv, cv::COLOR_BGR2HSV);
-      std::vector<cv::Point> idx;
-      for (int y = 0; y < hsv.rows; ++y)
-        for (int x = 0; x < hsv.cols; ++x) {
-          const auto & p = hsv.at<cv::Vec3b>(y, x);
+      std::vector<double> col_z;
+      std::vector<cv::Vec3d> all;
+      for (int y = 0; y < hsv.rows; y += 2)
+        for (int x = 0; x < hsv.cols; x += 2) {
           const float z = depth_m(box.y0 + y, box.x0 + x);
-          if (hue_dist(p[0], color) <= hue_tol_ && p[1] > 80 && p[2] > 50 && z > 0.05f && z < 3.0f) idx.emplace_back(x, y);
+          if (!(z > 0.05f && z < 3.0f)) continue;
+          const cv::Vec3d p = rot * cv::Vec3d((x + box.x0 - s.cx) * z / s.fx, (y + box.y0 - s.cy) * z / s.fy, z) + trans;
+          all.push_back(p);
+          const auto & h = hsv.at<cv::Vec3b>(y, x);
+          if (hue_dist(h[0], color) <= hue_tol_ && h[1] > 80 && h[2] > 50) col_z.push_back(p[2]);
         }
-      if (idx.size() > 400) {  // np.linspace(0, n−1, 400).astype(int)
-        std::vector<cv::Point> sub;
-        for (int k = 0; k < 400; ++k) sub.push_back(idx[static_cast<size_t>(k * (idx.size() - 1.0) / 399.0)]);
-        idx = sub;
-      }
-      for (const auto & q : idx) {
-        const float z = depth_m(box.y0 + q.y, box.x0 + q.x);
-        const cv::Vec3d p = rot * cv::Vec3d((q.x + box.x0 - s.cx) * z / s.fx, (q.y + box.y0 - s.cy) * z / s.fy, z) + trans;
-        pts.emplace_back(p[0], p[1]);
+      if (col_z.size() >= 8) {
+        const double zt = np_percentile(col_z, 90);
+        for (const auto & p : all)
+          if (std::abs(p[2] - zt) < 0.008) pts.emplace_back(p[0], p[1]);
       }
     }
     auto yaw = axis_yaw(pts, yaw_min_points_, yaw_min_elong_);
@@ -996,6 +1016,35 @@ std::pair<std::optional<double>, double> PerceptionNode::puck_yaw(const Frame & 
     return {std::nullopt, 0.0};
   }
   if (shape == "cyl" && posture == "standing") return {std::nullopt, 0.0};
+  if (!tag_y && shape == "box" && posture == "standing" && is_hue_name(color)) {
+    // 태그가 안 보이는 선 사각 퍽: depth 윗면(30×30) 사각형 방향 (90° 주기). 윗면 높이 = 퍽 색 화소 높이 p90, ±6 mm 안 화소
+    //   (11-15 실기: 반쯤 가린 퍽 · 막 세운 퍽이 태그 없이 yaw 0°로 → 모서리를 쥠)
+    cv::Mat hsv;
+    cv::cvtColor(s.bgr(cv::Range(box.y0, box.y1), cv::Range(box.x0, box.x1)), hsv, cv::COLOR_BGR2HSV);
+    std::vector<double> col_z;
+    std::vector<cv::Vec3d> all;
+    for (int y = 0; y < hsv.rows; y += 2)
+      for (int x = 0; x < hsv.cols; x += 2) {
+        const float z = depth_m(box.y0 + y, box.x0 + x);
+        if (!(z > 0.05f && z < 3.0f)) continue;
+        const cv::Vec3d p = rot * cv::Vec3d((x + box.x0 - s.cx) * z / s.fx, (y + box.y0 - s.cy) * z / s.fy, z) + trans;
+        all.push_back(p);
+        const auto & h = hsv.at<cv::Vec3b>(y, x);
+        if (hue_dist(h[0], color) <= hue_tol_ && h[1] > 80 && h[2] > 50) col_z.push_back(p[2]);
+      }
+    if (col_z.size() >= 8) {
+      const double zt = np_percentile(col_z, 90);
+      std::vector<cv::Point2f> top;  // [mm]
+      for (const auto & p : all)
+        if (std::abs(p[2] - zt) < 0.006) top.emplace_back(static_cast<float>(p[0] * 1000), static_cast<float>(p[1] * 1000));
+      if (static_cast<int>(top.size()) >= yaw_min_points_) {
+        const cv::RotatedRect r = cv::minAreaRect(top);
+        const double a = std::min(r.size.width, r.size.height), b = std::max(r.size.width, r.size.height);
+        if (a >= 20.0 && b <= 45.0 && b / a < 1.4)  // 윗면 30×30만 (옆 퍽 · 상자가 섞이면 안 믿음)
+          return {wrap_yaw(r.angle * PI / 180.0, PI / 2), PI / 2};
+      }
+    }
+  }
   if (!tag_y || (shape == "cyl" && face == "top")) return {std::nullopt, 0.0};  // 원기둥 윗면 태그는 방향이 없음
   return {wrap_yaw(*tag_y, PI / 2), PI / 2};
 }
@@ -1043,12 +1092,21 @@ std::vector<int> PerceptionNode::fuse(const std::string & cam, const builtin_int
     if (d.tag) tr.tag = d.tag;  // 태그 번호는 한 번 읽으면 남김
     if (!d.content.empty()) tr.content = d.content;
     if (!d.shape.empty()) tr.shape = d.shape;
-    if (d.yaw && tr.yaw && d.yaw_period < tr.yaw_period) {
-      // 장소 상자: 태그로 구한 방향(360°)을 윗면 사각형 방향(90°)으로 덮지 않음
+    if (d.yaw && tr.yaw && d.yaw_period < tr.yaw_period && tr.yaw_period > PI + 1e-6) {
+      // 장소 상자: 태그로 구한 방향(360°)을 윗면 사각형 방향(90°)으로 덮지 않음 — 360°만 지킴. 누운 퍽 축(180°)은 선 퍽 윗면(90°)이
+      //   덮어야 함 (11-15 실기: 세운 퍽이 누운 축 27°를 들고 있어 그 방향으로 쥐어 모서리를 묾 · 그리퍼 0.0080 m)
     } else if (d.yaw) {
-      tr.yaw = d.yaw; tr.yaw_period = d.yaw_period;  // 방향은 구한 관측의 최신값
-    } else if (!d.posture.empty() && d.posture != tr.yaw_posture) {
-      tr.yaw.reset();  // 자세가 바뀜 → 옛 방향은 뜻이 없음
+      // 방향은 구한 관측의 최신값 — 다만 지금 방향과 15° 넘게 다른 한 장은 다음 관측이 같은 값으로 확인할 때만 바꿈
+      //   (11-14 22:51 실기: 45° 퍽이 44° 사이 딱 한 장 5°(위치도 15 mm 빗나감) → 그 순간 찍은 기억으로 집어 면을 틀리게 쥠)
+      const auto near = [&](double a, double b) { return std::abs(wrap_yaw(a - b, d.yaw_period)) < 15.0 * PI / 180.0; };
+      if (!tr.yaw || tr.yaw_period != d.yaw_period || near(*d.yaw, *tr.yaw) || (tr.yaw_cand && near(*d.yaw, *tr.yaw_cand))) {
+        tr.yaw = d.yaw; tr.yaw_period = d.yaw_period;
+        tr.yaw_cand.reset();
+      } else {
+        tr.yaw_cand = d.yaw;
+      }
+    } else if (!d.posture.empty() && !tr.yaw_posture.empty() && d.posture != tr.yaw_posture) {
+      tr.yaw.reset(); tr.yaw_cand.reset();  // 자세가 바뀜 → 옛 방향은 뜻이 없음 · 자세를 처음 안 관측("" → standing)은 바뀐 게 아님 (11-14 r05: 45° 퍽 방향이 지워져 모서리를 쥠)
     }
     if (!d.posture.empty()) tr.yaw_posture = d.posture;
     if (tr.class_name == "start_box" || tr.class_name == "location_box") {  // 상자: 잘림 · 로봇 쪽 면은 최신 관측

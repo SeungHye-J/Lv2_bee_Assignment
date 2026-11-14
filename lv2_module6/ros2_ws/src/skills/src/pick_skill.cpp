@@ -56,6 +56,7 @@ private:
     // 처짐 적분은 여기서 0으로 안 함 — 닿는 구간 시작(ctx phase 0, 새 run_id)에서 rl_arm_correction이 0으로 되돌림 (시뮬 에피소드와 같음).
     //   여기서도 되돌리면 팔이 처졌다 다시 올라올 때까지(~0.45 s) 한 번 더 멈춤 (11/08 실기 pick → load 사이). 앞 skill의 Δ가 빠지는 것만 기다림
     arm_.settle_next();
+    arm_.fade_sag();  // 앞 MoveIt 이동 동안 처짐 적분을 0으로 풂 → 닿는 구간 시작에서 안 튐
     stage("파지 후보");
     clear_octomap_->async_send_request(std::make_shared<std_srvs::srv::Empty::Request>(),
       [this, id, tag, objects, done](rclcpp::Client<std_srvs::srv::Empty>::SharedFuture) {
@@ -77,7 +78,7 @@ private:
 
   void try_grasp(const ScoreGrasps::Response::SharedPtr & cands, size_t i, int tag, Done done) {
     if (i >= cands->grasps.size() || static_cast<int>(i) >= max_tries_) {
-      done(false, arm_.contact() ? "arm_contact" : arm_.grasp_empty() ? "grasp_empty" : "grasp_failed_all");
+      done(false, arm_.contact() ? "arm_contact" : arm_.jam() ? "arm_jam" : arm_.grasp_empty() ? "grasp_empty" : "grasp_failed_all");
       return;
     }
     stage("후보 " + std::to_string(i) + " (점수 " + std::to_string(cands->scores[i]).substr(0, 4) + ")");

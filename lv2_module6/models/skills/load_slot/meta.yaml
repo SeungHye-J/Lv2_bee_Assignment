@@ -3,11 +3,10 @@
 skill: load_slot
 kind: arm            # arm (rl_arm_correction이 계산) | base (skill_approach가 계산)
 layout: place          # 정책 입력 모양 (ml/arm_obs.hpp place 39 · pick 41)
-use: true
+use: false
 runtime: onnx         # onnx (기본, ONNX Runtime) | policy (같은 정책의 .policy · 실측에서 ONNX가 나쁘면)
 node: skill_load
-sim_baseline: 94.8      # [%] 학습 없이 기준 동작만 (1024판)
-sim_policy: 99.0        # [%] 학습 뒤
-irreversible: 0.49      # [%] 되돌릴 수 없는 실패 (놓침·넘어뜨림)
-source: isaac/rl/policies/load_slot/v01 (.pt 없음) · isaac/lab slot_env LoadEnv · 재학습 w_fail 20 (feature/skill-envs 700a86f, 11-03)
-note: 놓침 5/1024
+sim_baseline: 94.0      # [%] 학습 없이 기준 동작만 (1024판, seed 7, twist=1 · 도착 ±3 mm · 손 안 숨은 오프셋 ±3 mm)
+sim_policy: 99.9        # [%] 같은 조건 (v01 11-03본 92.3 %)
+source: isaac/rl/policies/load_slot/v04 (load_rtA2, 11-11 재학습, w_act 0.02 — Δ 상한 도달 99.9 → 5.3 %) · bee_isaac/tasks/slot_env.py LoadEnvCfg
+note: 학습 delta_step_rad 0.004 — rl_arm_correction max_delta_step 0.004로 돌려야 함

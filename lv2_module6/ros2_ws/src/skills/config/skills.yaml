@@ -70,6 +70,8 @@ skill_load:
     server_wait_s: 30.0
     load_lift_m: 0.03        # [m] 박스 앞에서 시작하면 손을 곧게 이만큼 올린 뒤 carry로 · 0 = 안 올림
                              #   pick 끝 손 안 퍽 바닥 = 박스 위 5 cm (pick_above_m) → +3 cm = 8 cm, 옆 퍽 윗면(6 cm)보다 2 cm 위 (11/08 5 cm는 너무 높음)
+    load_end_pose: over      # 싣고 나서 칸 위 그대로 (11-15: stow는 다음 pick이 stow를 거쳐 감) — 다음 pick은 carry를 멈추지 않고 지나 퍽 위로 (pick_via_carry) · 주행 전 stow는 mission이 따로 보냄 · stow | carry | over
+    jam_current_a: 0.3       # [A] 닿는 구간 막힘 기준 (arm_io) — load만 (pick 0.5): 11-15 bag 정상 load 끝 −0.21 ~ +0.06 A · 걸린 load +0.42 ~ +1.03 A (j3 21~48 mrad 못 따라감). 0.5는 +0.42/+0.45 걸림을 놓침 · 1.3은 더 놓침
     load_over_lift_m: 0.04   # [m] 옆 칸 위는 칸 위(q_over)보다 이만큼 높게 지나고 곧게 내려옴 — 손 안 퍽 바닥이 적재된 옆 퍽 윗면 위 약 4 cm (11/12 시뮬 옆 퍽 침) · 0 = 예전
 skill_unload:
   ros__parameters:
@@ -80,21 +82,27 @@ skill_stand:
     stand_box_top_m: 0.07          # 시작 박스 윗면 높이 (바닥 기준) — 누운 퍽 바닥
     # 위치형 쥐기 (실기 11/04): 목표 위치를 퍽 접촉 가까이 두고 전류 상한으로 힘을 정함 — 안 닿아 빠지면 stand_pinch_m 0.0065, 세면 0.0075
     stand_open_m: 0.012            # [m] 벌림 (손가락 하나 — 간격 44 mm, 옆 퍽을 안 치게)
-    stand_pinch_m: 0.0062          # [m] 쥐는 목표 — 간격 30 mm (stand_plan GRIP_STOP, 11/08 사용자) · 이전 0.007
+    stand_pinch_m: 0.0062          # [m] 쥐는 목표 — 간격 30 mm (stand_plan GRIP_STOP, 11/08 사용자) · 이전 0.007 · 11-15 0.0050(퍽 안쪽, 빈손 판정용)으로 해봤다가 세게 쥐어 되돌림 (사용자)
     stand_close_current_a: 0.01614 # [A] 목표까지 닫을 때 (6단위) — 10.76 mA는 안 닫힌 라운드가 있었고 5.38 mA로 바로 닫으면 안 움직임
     stand_pinch_current_a: 0.00538 # [A] 쥠을 확인한 뒤 낮춰 쥐는 전류 (2단위, 환산 ≈ 0.39 N)
     stand_grip_current_a: 0.007    # [A] 이 전류 이상 + 0.2 s 안 움직임 = 쥠 (실측: 퍽을 밀 때 8~10 mA)
-    stand_empty_m: 0.003           # [m] 이보다 닫히면 빈손 → stand_no_grip
+    stand_empty_m: 0.003           # [m] 이보다 닫히면 빈손 → stand_no_grip (목표가 퍽 폭이라 빈손도 0.0062에서 멈춤 — 빈손은 못 가림, look에서 확인)
     stand_grip_timeout_s: 4.0      # [s] 넘으면 stand_grip_timeout
     stand_hold_s: 0.3              # [s] 퍽 위(stand 첫 자세 · stand_pick 쥐는 자리)에서 멈춤 — 처짐 보정 쌓임
     # 대각선 끌기 (실기 11/03~04 — 큰 호는 퍽을 너무 높이 듦, 수평 끌기는 퍽이 안 들림). stand_drag_m 0이면 호 (stand_arc_end_deg)
     stand_drag_m: 0.0              # [m] 잡은 채 로봇 쪽으로 곧게 끎 — 0 = 호 (11/08 사용자: 끌기 안 씀 · 이전 0.04)
-    stand_drag_lift_m: 0.035       # [m] 끌면서 올리는 양 — 약 41° 대각선
+    stand_drag_lift_m: 0.0         # [m] 끌면서 올리는 양 (stand_drag_m > 0일 때만) — 11-15 실기 0 · 이전 0.035 (약 41° 대각선)
     stand_arc_end_deg: 100.0       # [deg] 호 끝 각도 (11/08 사용자 · 이전 60)
-    stand_set_dz_m: -0.020         # [m] 끝점에서 눌러 놓음
+    stand_set_dz_m: 0.0            # [m] 끝점에서 눌러 놓음 — 11-15 실기 0 · 이전 −0.020
+    stand_arc_k: 0.5               # 호의 퍽 축 방향 배율 (1 원 · 0 그대로 위로) — 11-15 실기 0.5 · 코드 기본 1.0
+    stand_tilt_over_m: 0.030       # [m] 호 끝까지 더 올림 — 11-15 실기 0.030 (같은 날 0.020도 시험)
+    stand_release_deg: 80.0        # [deg] 호가 이 각도를 지날 때 그리퍼를 벌림 (팔은 호 끝까지) — 11-15 실기 80 · ≤ 0 = 호 끝에서
+    stand_flip_roll: true          # 손목 roll 180° — 손 카메라가 퍽 몸통 쪽. stand_grasp 정책이 이 방향으로 학습됨 (11-15 실기 true · 코드 기본 false)
+    stand_cam: false               # 내려가기 전 손 카메라로 퍽을 다시 재고 고침 — 11-15 실기: 앞쪽으로 약 12 mm를 고쳐 퍽 끝 밖을 쥠(헛손질) · 옆 14~15 mm 어긋남, 안 고친 판은 끝을 정확히 쥠 → 끔 (코드 기본 true)
+    stand_puck_dx_m: 0.0           # [m] inspect 퍽 x 보정 — 11-15 실기 0 (손 카메라가 다시 잼) · 코드 기본 −0.010
     stand_above_m: 0.04            # [m] 대기 높이 (못 닿으면 3 → 2 → 1 cm)
-    stand_lift_away_m: 0.08        # [m] 손 빼기 높이 (못 닿으면 6 → 4 → 3 cm)
-    stand_contact_h_box_m: 0.030   # [m] 손가락 중심 높이 (상자 윗면 기준) — 실기는 두 모양 공통
+    stand_lift_away_m: 0.13        # [m] 손 빼기 높이 (못 닿으면 6 → 4 → 3 cm) — 11-15: 0.08이면 손 카메라가 선 퍽 윗면에서 약 0.10 m (D435 최소 거리 안) → 0.13으로 올려 그 자리에서 depth 판정 (stand_loop) · 이전 0.08
+    stand_contact_h_box_m: 0.037   # [m] 손가락 중심 높이 (상자 윗면 기준) — 11-15 실기 0.037 · 이전 0.030 (원기둥은 0.030 그대로)
     stand_contact_h_cyl_m: 0.030
     stand_vel_scale: 0.7           # 내려가기·위로 × 팀 관절 한계 (실기 11/04)
-    stand_arc_vel_scale: 1.0       # (11/10 실기 1.0 · 이전 0.7) 끌기·호 × 팀 관절 한계 (실기 11/04 · 시뮬 호 실험: 0.3 → 63 %, 0.5 → 100 %)
+    stand_arc_vel_scale: 1.0       # 끌기·호 × 팀 관절 한계 — 11-15 사용자 1.0 고정 (같은 날 1.5 · 2.0도 시험) · 이전 0.7 (시뮬 호 실험: 0.3 → 63 %, 0.5 → 100 %)

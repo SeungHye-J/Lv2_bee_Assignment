@@ -2,11 +2,11 @@
 
 skill: pick_standing_puck
 kind: arm            # arm (rl_arm_correction이 계산) | base (skill_approach가 계산)
-layout: pick          # 정책 입력 모양 (ml/arm_obs.hpp place 39 · pick 41)
+layout: pick_box      # 정책 입력 모양 (ml/arm_obs.hpp pick_box 67 = pick 41 + 측정 유효·나이·검사 위치·행동 기록·부하)
 use: true
 runtime: onnx         # onnx (기본, ONNX Runtime) | policy (같은 정책의 .policy · 실측에서 ONNX가 나쁘면)
 node: skill_pick
-sim_baseline: 99.1      # [%] 학습 없이 기준 동작만 (1024판)
-sim_policy: 100.0        # [%] 학습 뒤
-source: 팀원 pick_residual_sag (pick_env, feature/isaac-lab)
-note: 평가 pa27 1024판 (11-04)
+sim_baseline: 53.1      # [%] 학습 없이 기준 동작만 (1024판 seed 7, 설계 환경 B 조건, 손 안 어긋남 < 4 mm)
+sim_policy: 98.7        # [%] 같은 조건 (v02 A본 97.8 % · 이전 11-04본 95.0 %) — 중심 오차 median 2.2 · p90 3.9 mm
+source: isaac/rl/policies/pick_standing_puck/v03 (pick_rtB, 11-10 방식 B 설계 환경 stage 5 · 상황 3~5 · 태그 놓침 45~70 mm · 검출 지연 0.05~0.2 s, 11-14 저녁 실기 배포: v02는 실기에서 태그를 rel z −44~−68 mm에서 놓쳐 보정이 앞 0.4~1.1 s에만 걸림) · bee_isaac/tasks/pick_env.py
+note: 학습 delta_step_rad 0.004 — rl_arm_correction max_delta_step 0.004로 돌려야 함

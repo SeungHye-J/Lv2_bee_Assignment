@@ -33,6 +33,7 @@ public:
         // 처짐 적분은 여기서 0으로 안 함 — 닿는 구간 시작(ctx phase 0, 새 run_id)에서 rl_arm_correction이 0으로 되돌림 (시뮬 에피소드와 같음).
         //   여기서도 되돌리면 팔이 처졌다 다시 올라올 때까지(~0.45 s) 한 번 더 멈춤 (11/08 실기 pick → load 사이). 앞 skill의 Δ가 빠지는 것만 기다림
         if (policy_.use) arm_.settle_next();  // 정책이 꺼져 있으면 Δ도 없음 — 바로 (place → unload 무정지)
+        arm_.fade_sag();  // 앞 MoveIt 이동 동안 처짐 적분을 0으로 풂 → 닿는 구간 시작에서 안 튐
         const auto q5 = [](const std::vector<double> & v) { ArmIO::Q5 q{}; std::copy_n(v.begin(), 5, q.begin()); return q; };
         const auto a = q5(over), d = q5(grasp);
         auto steps = std::make_shared<std::vector<ArmIO::Step>>(arm_.sim_contact()

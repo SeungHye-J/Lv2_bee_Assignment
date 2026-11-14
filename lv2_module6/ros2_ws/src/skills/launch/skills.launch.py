@@ -49,7 +49,9 @@ def launch_setup(context):
             composable_node_descriptions=[
                 skill('PoseSkill', 'skill_pose', arm, basket),
                 skill('InspectSkill', 'skill_inspect', arm),
-                skill('PickSkill', 'skill_pick', arm, basket),  # basket: pose_carry_* (적재함 쪽에서 퍽으로 갈 때 경유)
+                # sag_fade: pick만 켬 (arm.yaml false를 덮음) — 끄면 닿는 구간 시작에서 처짐 적분이 한 번에 0 → j3 −33 mrad 툭 (11-14 실기 6/12회).
+                #   load는 끈 채로 (fade로 칸 위에 처진 채 도착 → 놓을 때 +x, arm.yaml 설명)
+                skill('PickSkill', 'skill_pick', arm, basket, {'sag_fade': True}),  # basket: pose_carry_* (적재함 쪽에서 퍽으로 갈 때 경유)
                 skill('PickFarSkill', 'skill_pick_far', arm, basket),  # 박스 먼 쪽 퍽 (pick이 pick_unreachable일 때) · basket: pick과 같음
                 skill('PlaceSkill', 'skill_place', arm, basket),  # basket: pose_carry_* (적재함 쪽에서 놓을 자리로 갈 때 경유)
                 skill('LoadSkill', 'skill_load', arm, basket),

@@ -25,6 +25,8 @@ CallbackReturn RlArmCorrection::on_init() {
   auto_declare<double>("debug_hz", 20.0);          // ~/debug (ml/ArmCorrectionDebug) 주기 — 0 = 안 냄
   auto_declare<double>("windup_s", 2.0);            // [s] 0 = 막힘 감지 끔
   auto_declare<bool>("gravity_enabled", true);      // 중력 앞먹임 (헤더 설명)
+  auto_declare<double>("fade_hold_s", 10.0);       // [s] fade_sag 뒤 이 안에 닿는 구간이 안 오면 (실패 · 다른 경로) fade를 풀고 다시 적분
+  auto_declare<bool>("delta_fade", true);           // 닿는 구간 끝 Δ를 다음 이동 동안 0으로 풂 (false = 한 번에 0) · 실행 중 바꿈
   auto_declare<bool>("twist_state", true);          // 상태 = 엔코더 + d (헤더 설명) — 하드웨어 twist_state와 같이
   auto_declare<double>("gravity_compliance_j2", 0.0817);  // [rad/Nm] = 1/강성 12.2 Nm/rad
   auto_declare<double>("gravity_compliance_j3", 0.0532);  // [rad/Nm] = 1/강성 18.8 Nm/rad
@@ -34,6 +36,14 @@ CallbackReturn RlArmCorrection::on_init() {
   auto_declare<double>("gravity_max", 0.2);         // [rad] 한 관절 상한
   auto_declare<double>("policy_hz", 50.0);          // 시뮬 정책 주기
   auto_declare<double>("max_cam_age_s", 0.45);      // 손 카메라 값이 이보다 오래되면 정책을 안 돌림 → Δ 그대로 (시뮬 pick_env meas_age_max)
+  // 손 카메라 튄 값 거르기 (헤더 HandJumpGate): 이 단계부터 (2 = 바닥에 닿아 멈춤) rel이 hand_jump_m 넘게 뛰면 confirm개 연속일 때만 받음
+  auto_declare<double>("hand_jump_m", 0.005);
+  auto_declare<int>("hand_jump_confirm", 3);
+  auto_declare<int>("hand_jump_phase", 2);
+  // 닿는 구간(phase ≥ hand_jump_phase, 기준 동작은 멈춤)에서 Δ 한 스텝 상한 [rad] — 0 = max_delta_step 그대로.
+  //   11-15 실기 pick: 손 카메라 값은 매끈한데(오차 5 mm) 정책이 이 구간에서 j3·j4·j5를 상한(0.003 = 0.15 rad/s)으로
+  //   0.2 s 몰아 움직여 끝에서 '툭' → 이 구간만 더 천천히
+  auto_declare<double>("settle_delta_step", 0.0);
   // pick_box · unload_slot 입력의 부하 비 = |effort| / 한계 (시뮬은 토크 / 토크 한계). 실기 effort는 전류 [A]
   auto_declare<std::string>("gripper_joint", "gripper_left_joint");
   // [A] XM430-W350 정지 전류 (eManual: 4.1 N·m @ 2.3 A, 12 V · 3.8 N·m @ 2.1 A, 11.1 V — 토크 상수 약 1.78 N·m/A).
@@ -67,6 +77,8 @@ CallbackReturn RlArmCorrection::on_configure(const rclcpp_lifecycle::State &) {
   }
   gravity_enabled_ = node->get_parameter("gravity_enabled").as_bool();
   twist_state_ = node->get_parameter("twist_state").as_bool();
+  delta_fade_ = node->get_parameter("delta_fade").as_bool();
+  fade_hold_s_ = node->get_parameter("fade_hold_s").as_double();
   gravity_c2_ = node->get_parameter("gravity_compliance_j2").as_double();
   gravity_c3_ = node->get_parameter("gravity_compliance_j3").as_double();
   gravity_c4_ = node->get_parameter("gravity_compliance_j4").as_double();
@@ -77,6 +89,7 @@ CallbackReturn RlArmCorrection::on_configure(const rclcpp_lifecycle::State &) {
     for (const auto & p : params)
       if (p.get_name() == "gravity_enabled") gravity_enabled_ = p.as_bool();
       else if (p.get_name() == "twist_state") twist_state_ = p.as_bool();
+      else if (p.get_name() == "delta_fade") delta_fade_ = p.as_bool();
     rcl_interfaces::msg::SetParametersResult result;
     result.successful = true;
     return result;
@@ -88,6 +101,13 @@ CallbackReturn RlArmCorrection::on_configure(const rclcpp_lifecycle::State &) {
       reset_sag_ = true;
       res->success = true;
     });
+  // pick·load 시작: 처짐 적분을 앞 MoveIt 이동 동안 0으로 풂 (SagJoint fading) — 닿는 구간 시작의 0 되돌리기가 튀지 않게
+  fade_srv_ = node->create_service<std_srvs::srv::Trigger>(
+    "~/fade_sag", [this](const std::shared_ptr<std_srvs::srv::Trigger::Request>,
+                         std::shared_ptr<std_srvs::srv::Trigger::Response> res) {
+      fade_sag_ = true;
+      res->success = true;
+    });
   const double debug_hz = node->get_parameter("debug_hz").as_double();
   if (debug_hz > 0.0) {  // 실기 디버깅: 보정이 무엇을 했는지 bag에 남김 (실시간 루프는 try_publish — 못 보내면 건너뜀)
     debug_dt_ = 1.0 / debug_hz;
@@ -96,6 +116,10 @@ CallbackReturn RlArmCorrection::on_configure(const rclcpp_lifecycle::State &) {
   }
   policy_dt_ = 1.0 / node->get_parameter("policy_hz").as_double();
   max_cam_age_s_ = node->get_parameter("max_cam_age_s").as_double();
+  hand_jump_m_ = node->get_parameter("hand_jump_m").as_double();
+  hand_jump_confirm_ = static_cast<int>(node->get_parameter("hand_jump_confirm").as_int());
+  hand_jump_phase_ = static_cast<int>(node->get_parameter("hand_jump_phase").as_int());
+  settle_delta_step_ = node->get_parameter("settle_delta_step").as_double();
   gripper_joint_ = node->get_parameter("gripper_joint").as_string();
   arm_effort_limit_ = node->get_parameter("arm_effort_limit").as_double();
   gripper_effort_limit_ = node->get_parameter("gripper_effort_limit").as_double();
@@ -201,21 +225,39 @@ void RlArmCorrection::reset_run() {  // 보정 Δ만 (처짐 적분은 ~/reset_s
   act1_.fill(0.0);
   act2_.fill(0.0);
   since_policy_ = 0.0;
+  hand_gate_ = HandJumpGate{};
 }
 
 return_type RlArmCorrection::update_and_write_commands(const rclcpp::Time & time, const rclcpp::Duration & period) {
   if (reset_sag_.exchange(false) || !sag_enabled_) sag_.fill(SagJoint{});
+  if (fade_sag_.exchange(false)) {
+    for (auto & j : sag_) j.fading = true;
+    fade_left_s_ = fade_hold_s_;
+  } else if (fade_left_s_ > 0.0 && (fade_left_s_ -= period.seconds()) <= 0.0) {
+    for (auto & j : sag_) j.fading = false;  // 닿는 구간 시작(SagJoint{})이 안 옴 — 처짐 보정을 다시 켬
+  }
   if (auto c = ctx_box_.try_get()) {  // 못 잡으면 (콜백이 쓰는 중) 지난 값으로
     if (c->msg.run_id != ctx_.run_id || c->msg.skill != ctx_.skill) {
       // 새 닿는 구간: 시뮬 에피소드처럼 보정·처짐 적분 0부터 (skill이 꺼질 때는 처짐 적분 유지)
       if (!c->msg.skill.empty()) sag_.fill(SagJoint{});
       run_id_ = c->msg.run_id;
+      // 닿는 구간 끝 (skill ""): 고정된 Δ를 한 번에 0으로 빼면 팔이 툭 움직임 → Δ만 남기고 아래 !it에서 풂
+      const J5 keep = delta_;
       reset_run();
+      if (c->msg.skill.empty() && delta_fade_) delta_ = keep;
     }
     ctx_ = c->msg;
     skill_ = c->skill;
   }
-  if (auto h = hand_box_.try_get()) hand_ = *h;
+  if (auto h = hand_box_.try_get()) {
+    // hand_relative는 같은 검출을 새 검출이 올 때까지 다시 보냄 — 영상 시각이 바뀐 것만 거르기 대상
+    const bool fresh = h->header.stamp.sec != hand_.header.stamp.sec || h->header.stamp.nanosec != hand_.header.stamp.nanosec;
+    const bool have_prev = hand_.valid && hand_.kind == h->kind && !ctx_.skill.empty();
+    if (!fresh || !h->valid ||
+        hand_gate_.take(have_prev, hand_.rel.x, hand_.rel.y, h->rel.x, h->rel.y, ctx_.phase, hand_jump_phase_, hand_jump_m_,
+                        hand_jump_confirm_))
+      hand_ = *h;
+  }
 
   J5 q{}, qd{}, ref{};
   bool ok = joints_.size() == 5;
@@ -257,7 +299,14 @@ return_type RlArmCorrection::update_and_write_commands(const rclcpp::Time & time
   bool cam_ok = false;
   double cam_age = -1.0;
   if (!it) {  // 보정 꺼짐: 닿는 구간이 아니거나 이 skill 정책이 없음 → Δ = 0 (처짐 적분은 계속)
-    if (delta_ != J5{}) reset_run();
+    if (delta_fade_ && ctx_.skill.empty() && ok) {
+      // 남은 Δ는 reference가 움직이는 동안만 처짐 적분 fade와 같은 속도로 풂 (멈춰 있으면 그대로 — MoveIt 실행 시작 검사)
+      if (!still)
+        for (auto & d : delta_) d -= d * std::min(1.0, sag_gain_ * dt);
+      if (std::all_of(delta_.begin(), delta_.end(), [](double d) { return std::abs(d) < 1e-4; })) delta_.fill(0.0);
+    } else if (delta_ != J5{}) {
+      reset_run();
+    }
   } else {
     since_policy_ += dt;
     const bool cam_kind = it->layout == ArmLayout::Pick || it->layout == ArmLayout::PickBox || it->layout == ArmLayout::PickFar
@@ -299,11 +348,12 @@ return_type RlArmCorrection::update_and_write_commands(const rclcpp::Time & time
       }
       act2_ = act1_;
       act1_ = prev_act_;  // 행동 기록은 정책이 돈 스텝에만 (시뮬 pick_env와 같음)
+      const double step = settle_delta_step_ > 0.0 && ctx_.phase >= hand_jump_phase_ ? settle_delta_step_ : max_delta_step_;
       for (int i = 0; i < 5; ++i) {
         const double a = std::clamp(act_[i], -1.0, 1.0);
         if (ctx_.residual_live) {
           const double want = std::clamp(residual_rad_ * a, -max_delta_, max_delta_);
-          delta_[i] = max_delta_step_ > 0.0 ? delta_[i] + std::clamp(want - delta_[i], -max_delta_step_, max_delta_step_) : want;
+          delta_[i] = step > 0.0 ? delta_[i] + std::clamp(want - delta_[i], -step, step) : want;
         }
         prev_act_[i] = a;
       }

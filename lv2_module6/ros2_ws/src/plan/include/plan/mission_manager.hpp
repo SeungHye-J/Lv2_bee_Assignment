@@ -113,7 +113,7 @@ private:
   // 장소 상자로 장소 li 칸 보정 — 지금 /tracked_objects에 그 태그의 location_box가 있으면 corr_[li]를 갱신
   void correct(size_t li);
   std::pair<double, double> cell_target(size_t li, int cell) const;  // 보정을 더한 칸 중심 (arena)
-  const TrackedObject * puck_near(double mx, double my) const;  // map 점에서 match_radius 안 가장 가까운 퍽 (tag 상관없이)
+  const TrackedObject * puck_near(double mx, double my, double r = 0.0) const;  // map 점에서 r(0이면 match_radius) 안 가장 가까운 퍽 (tag 상관없이)
   // 누운 퍽을 세워서 손에 쥠: stand → stand_check_s 뒤 인지로 섰나 → stand_pick. 아직 누웠으면 그 퍽으로 stand 다시 (retries번)
   void stand_up(uint32_t id, double mx, double my, int tries, Done done);
   // 그 퍽(tag)을 손에 — 집기 직전에 locate로 트랙을 다시 찾고, 누웠으면 stand_up · 아니면 pick. pick이 실패하면 다시 찾아서 (retries번)
@@ -263,6 +263,7 @@ private:
   void job_done(size_t i, bool ok);  // 퍽 하나 끝 → rule: 다음 job · plan_next: 상태 갱신 후 다시 고르기
   std::set<int> lying_;                          // 조사 때 누워 있던 퍽 tag — 집을 때 세워서 (stand → stand_pick)
   double stand_check_s_ = 1.0;                   // stand 뒤 인지가 선 퍽을 볼 때까지 기다림
+  double stand_find_m_ = 0.10;                   // stand 뒤 선 퍽을 찾는 반경 → pick (못 찾으면 stand_pick)
   int placed_ = 0, photo_n_ = 0;
   std::string back_;   // 박스에 붙어 있을 때 물러날 standoff 자세 "x,y,yaw" (map) — 다음 go_near가 먼저 씀
   std::string run_dir_;

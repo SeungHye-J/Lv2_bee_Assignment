@@ -86,3 +86,29 @@ TEST(SagGuard, NormalSagNotBlocked) {  // 보통 처짐 (상한 안에서 따라
   EXPECT_FALSE(j.blocked);
   EXPECT_NEAR(j.corr, 0.05, 1e-3);
 }
+
+TEST(SagGuard, FadeOnlyWhileMoving) {  // fade_sag: 멈춰 있으면 그대로 (MoveIt 시작 검사), 움직이는 동안 0까지 · 적분 안 함
+  ml::SagJoint j{0.04, 0.0, false, true};
+  for (int k = 0; k < 100; ++k) ml::sag_joint_step(j, true, false, 0.5, 0.0, 0.40, 0.01, 4.2, 0.2, 2.0);
+  EXPECT_DOUBLE_EQ(j.corr, 0.04);  // 멈춤 1 s: 안 풀고 쌓지도 않음 (오차 0.1 rad인데도)
+  for (int k = 0; k < 100; ++k) ml::sag_joint_step(j, false, false, 0.5, 0.0, 0.40, 0.01, 4.2, 0.2, 2.0);
+  EXPECT_NEAR(j.corr, 0.04 * std::exp(-4.2), 1e-3);  // 움직임 1 s: exp(−gain·t)
+  for (int k = 0; k < 100; ++k) ml::sag_joint_step(j, true, false, 0.5, 0.0, 0.40, 0.01, 4.2, 0.2, 2.0);
+  EXPECT_LT(j.corr, 0.001);  // 다시 멈춰도 쌓지 않음 — 다음 닿는 구간(SagJoint{})까지
+  EXPECT_TRUE(j.fading);
+}
+
+// 11-14 slot 10 실기 순서: 바닥(2)에서 (−7,+3) 뒤 (−1,−2) (+3,−3) (+7,−4) (+9,−3) — 한 프레임씩 뛰는 값은 버림, 같은 값이 3개 연속이면 받음
+TEST(HandJumpGate, DropsSingleJumpsKeepsConfirmed) {
+  ml::HandJumpGate g;
+  const double J = 0.005;
+  EXPECT_TRUE(g.take(true, 0.0, 0.0, 0.020, 0.0, 1, 2, J, 3));     // 내려가는 중(1)은 그대로
+  EXPECT_TRUE(g.take(false, 0.0, 0.0, 0.020, 0.0, 2, 2, J, 3));    // 앞 값 없음
+  EXPECT_TRUE(g.take(true, -0.007, 0.003, -0.006, 0.002, 2, 2, J, 3));  // 작은 변화
+  EXPECT_FALSE(g.take(true, -0.007, 0.003, -0.001, -0.002, 2, 2, J, 3));
+  EXPECT_FALSE(g.take(true, -0.007, 0.003, 0.003, -0.003, 2, 2, J, 3));
+  EXPECT_FALSE(g.take(true, -0.007, 0.003, 0.007, -0.004, 2, 2, J, 3));  // 첫 후보와 8 mm → 새 후보
+  EXPECT_FALSE(g.take(true, -0.007, 0.003, 0.009, -0.003, 2, 2, J, 3));
+  EXPECT_TRUE(g.take(true, -0.007, 0.003, 0.008, -0.004, 2, 2, J, 3));   // 3개 연속 → 받음
+  EXPECT_TRUE(g.take(true, 0.0, 0.0, 0.1, 0.0, 2, 2, 0.0, 3));            // jump_m 0 = 끔
+}

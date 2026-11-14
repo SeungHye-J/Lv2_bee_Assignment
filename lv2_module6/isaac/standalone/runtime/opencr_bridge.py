@@ -57,25 +57,19 @@ LINK = "/tmp/opencr"
 WHEELS = ["wheel_left_joint", "wheel_right_joint"]
 ARM = ["joint1", "joint2", "joint3", "joint4", "joint5", "gripper_left_joint"]  # protocol order
 FINGERS = ["gripper_left_joint", "gripper_right_joint"]  # right finger mimics left (URDF mimic, multiplier 1)
-# servo value = joint value + offset (URDF <param name="offset">, real servo zero error).
+# servo value = joint value + offset (urdf/<model>/calib.yaml joint_offset, real servo zero error).
 # The sim has no zero error, so the board undoes the same offsets: USD angle = servo value - offset = joint value.
-# Read from the URDF the ROS side loads (BEE_URDF = folder under lv2_module6/urdf, ros_system urdf:= default).
+# Read from the calib.yaml the ROS side's urdf.xacro loads (BEE_URDF = folder under lv2_module6/urdf, ros_system urdf:= default).
 def _urdf_offsets():
-    import re
+    import yaml
     path = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "..", "..", "urdf",
-                        os.environ.get("BEE_URDF", "default"), "urdf.xacro")
+                        os.environ.get("BEE_URDF", "default"), "calib.yaml")
     try:
-        text = open(path).read()
+        with open(path) as f:
+            return {k: float(v) for k, v in (yaml.safe_load(f).get("joint_offset") or {}).items()}
     except OSError:
         print(f"[opencr_bridge] {path} not found, offsets 0")
         return {}
-    ctrl = text[text.find("<ros2_control"):]
-    out = {}
-    for name, body in re.findall(r'<joint name="(\w+)">(.*?)</joint>', ctrl, re.S):
-        m = re.search(r'<param name="offset">([-0-9.eE]+)</param>', body)
-        if m:
-            out[name] = float(m.group(1))
-    return out
 
 
 REAL = os.environ.get("BEE_SIM_REAL", "1") != "0"
@@ -88,7 +82,7 @@ if REAL:
     OFFSET.update({k: v for k, v in _urdf_offsets().items() if k in OFFSET})
 print("[opencr_bridge] servo zero offsets (rad):", OFFSET)
 RAW_PER_RAD = 4096 / (2 * math.pi)  # firmware RAW_PER_RAD
-GOAL_HYSTERESIS_RAW = 0.8  # firmware config.h
+GOAL_HYSTERESIS_RAW = 0.8  # firmware config.h (11-13: back from 0.0 - at 0.0 Isaac joint4 oscillated 1.84-1.97 rad in the look pose)
 LATENCY = dict(zip(ARM, (0.045, 0.062, 0.052, 0.045, 0.045, 0.020) if REAL else (0.0,) * 6))  # [s] = common.py LATENCY_S, _GRIP_S
 GRIP_N_PER_A = 29.0 / 0.4  # per finger, = common.py GRIP_FORCE at the team current 0.4 A
 GRIP_A_DEFAULT, GRIP_A_MIN, GRIP_A_MAX = 0.6, 0.00269, 1.2  # firmware GRIPPER_GOAL_CURRENT_MA, _CURRENT_MIN_MA, _MAX_MA

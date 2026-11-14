@@ -1,6 +1,7 @@
 # 팔 skill 노드 공통 (skills.launch.py가 arm_skills 컨테이너의 팔 skill 노드 모두에 넘김 — 값 하나로 같이 바꿈)
 arm_velocity_scale: 1.0  # MoveIt 팔 계획 속도·가속도 비율 (0~1] — 실행 중 ros2 param set으로 바꿀 수 있음
 arm_plan_tries: 3        # 팔 계획 실패 시 같은 목표로 다시 (IK·OMPL이 무작위라 닿는 곳도 가끔 못 찾음)
+sag_fade: false          # pick·load·unload·place 시작 fade_sag — 11-14 실기 켬: 처짐 보정이 풀린 채 칸 위에 도착 → 내려가는 동안 다시 쌓느라 j2가 놓을 때까지 덜 섬 (40 → 5 mrad) → 퍽이 +x로 · 6 mm 높이서 떨어짐 (끈 20:14 run rel x −1.4 mm) · 실행 중 ros2 param set
 contact_mode: "sim"      # sim: 퍽·칸에 닿는 구간은 시뮬과 같은 기준 동작 + 학습 보정 (2026-11-03 배포 결정) · moveit: 예전처럼 MoveIt만
 # 잡기 판정 (닫은 뒤 gripper_left_joint 위치 + 전류) — 실기에서 다시 맞출 값. grasp_check는 bringup 인자 (faker는 false)
 grip_current_a: 0.1      # [A] 닫을 때 쥐는 힘 상한 (goal effort → Goal Current) — 실기 11/08: grip_close_gap_m 0.026과 같이 0.1 A (약 7 N)

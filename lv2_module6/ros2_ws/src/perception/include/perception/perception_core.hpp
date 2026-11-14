@@ -67,6 +67,7 @@ struct Track {
   std::optional<int> tag;
   std::optional<double> yaw;
   double yaw_period{0.0};
+  std::optional<double> yaw_cand;  // 지금 방향과 크게 다른 새 관측 — 다음 관측이 확인하면 방향으로 (perception_node fuse)
   std::optional<double> distance;  // 발행 순간 로봇까지 바닥 위 거리 [m]
   bool cut{false};                     // 상자: 마지막 관측이 화면에 잘림 → 가운데·크기·모서리를 믿지 말 것
   std::optional<cv::Vec2d> face_pt, face_dir;  // 상자: 로봇 쪽 면 (Det와 같음, 추적 좌표 — 발행 때 map으로)

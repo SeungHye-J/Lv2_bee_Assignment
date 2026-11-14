@@ -21,13 +21,15 @@ import os
 import numpy as np
 import rclpy
 from message_filters import ApproximateTimeSynchronizer, Subscriber
-from geometry_msgs.msg import PoseStamped, PoseWithCovarianceStamped, TransformStamped
+from geometry_msgs.msg import Point, PoseStamped, PoseWithCovarianceStamped, TransformStamped
 from nav_msgs.msg import Odometry, Path
 from rclpy.node import Node
 from rclpy.qos import qos_profile_sensor_data
 from rclpy.duration import Duration
 from rclpy.time import Time
-from sensor_msgs.msg import CameraInfo, Image
+from sensor_msgs.msg import CameraInfo, Image, PointCloud2
+from sensor_msgs_py import point_cloud2
+from visualization_msgs.msg import Marker, MarkerArray
 from tf2_ros import Buffer, TransformBroadcaster, TransformListener
 
 
@@ -40,6 +42,15 @@ def mat(q, t):
                  [2 * (x * z - y * w), 2 * (y * z + x * w), 1 - 2 * (x * x + y * y)]]
     m[:3, 3] = t
     return m
+
+
+def quat(r):
+    """3x3 회전 → 쿼터니언 [x, y, z, w] (mat의 역)"""
+    w = math.sqrt(max(0.0, 1 + r[0, 0] + r[1, 1] + r[2, 2])) / 2
+    x = math.copysign(math.sqrt(max(0.0, 1 + r[0, 0] - r[1, 1] - r[2, 2])) / 2, r[2, 1] - r[1, 2])
+    y = math.copysign(math.sqrt(max(0.0, 1 - r[0, 0] + r[1, 1] - r[2, 2])) / 2, r[0, 2] - r[2, 0])
+    z = math.copysign(math.sqrt(max(0.0, 1 - r[0, 0] - r[1, 1] + r[2, 2])) / 2, r[1, 0] - r[0, 1])
+    return [x, y, z, w]
 
 
 def planar(m):
@@ -170,6 +181,9 @@ class CuvslamSlam(Node):
         self.map = self.declare_parameter('map_frame', 'map').value
         # true = 단독 SLAM(루프 클로저 + TF map→odom) · false = 시각 오도메트리만 (SLAM이 map→odom)
         self.publish_map_tf = bool(self.declare_parameter('publish_map_tf', True).value)
+        # BEE_CUVSLAM_NO_MAP_TF=1 — 다른 위치 추정(AMCL 스캔 매칭 등)이 map→odom을 낼 때 (시뮬 비교용, 11-15)
+        if os.environ.get('BEE_CUVSLAM_NO_MAP_TF') == '1':
+            self.publish_map_tf = False
         # map→odom을 이만큼 미래 시각으로 냄 (0.5 s — 영상 지연 + 발행 간격 최대 0.33 s 때문에 0.2로는 Nav2 controller가 '미래 외삽'으로 목표를 중단함, 실기 2026-11-09)
         # 최신 map→odom이 방금 들어온 depth 영상보다 옛 시각이라, nvblox가 그 영상 시각으로 TF를 찾으면 '미래 외삽'으로 실패해
         # depth를 버렸음 (실기 2026-10-29: 지도가 시작 몇 프레임 뒤로 안 자람). map→odom은 천천히 바뀌어 미래로 내도 안전
@@ -221,6 +235,18 @@ class CuvslamSlam(Node):
         self.create_timer(10.0, lambda: self.get_logger().info(
             f'추적 {self.ok} · 잃음 {self.lost}' + (f' · 경로 {len(self.path.poses)}' if self.publish_map_tf else '')
             + (f' · 보정 거름 {self.gate.rejected}' + (' · 잠금' if self.gate.locked else '') if self.gate else '')))
+        # BEE_CUVSLAM_VIS=1 (보기용, 11-15): 특징점·랜드마크·포즈 그래프를 RViz용으로 냄 — isaac_ros_visual_slam의 visual_slam/vis/*에 해당.
+        #   트래커에 export를 켜야 해서 시작 때만 정함 · GPU→CPU 복사가 늘어 실기(Orin)에서는 끔
+        self.vis = os.environ.get('BEE_CUVSLAM_VIS') == '1'
+        self.last_gray = None
+        if self.vis:
+            self.vis_obs = self.create_publisher(Image, '/cuvslam/vis/observations_image', 1)
+            self.vis_lm = self.create_publisher(PointCloud2, '/cuvslam/vis/landmarks_cloud', 1)
+            self.vis_map = self.create_publisher(PointCloud2, '/cuvslam/vis/map_landmarks_cloud', 1)
+            self.vis_loop = self.create_publisher(PointCloud2, '/cuvslam/vis/loop_closure_cloud', 1)
+            self.vis_graph = self.create_publisher(MarkerArray, '/cuvslam/vis/pose_graph', 1)
+            self.create_timer(1.0 / float(self.declare_parameter('vis_rate_hz', 2.0).value), self.publish_vis)
+            self.get_logger().info('BEE_CUVSLAM_VIS=1 — /cuvslam/vis/* 냄 (특징점 영상 · 랜드마크 · 포즈 그래프)')
 
     def on_info(self, m):
         self.info = m
@@ -260,8 +286,21 @@ class CuvslamSlam(Node):
         r = t.rotation
         self.base_from_cam = mat((r.x, r.y, r.z, r.w), (t.translation.x, t.translation.y, t.translation.z))
         k = self.info.k
+        extra = {}
+        # BEE_CUVSLAM_LEVEL=1 (시험, 11-15): rig를 바닥과 수평(OpenCV 축: z 앞 · x 오른쪽 · y 아래)으로 두고 카메라는 그 안에서 숙인 것으로 알림.
+        #   planar_constraints는 'rig가 수평면에서 움직임'으로 자세를 고치는데, rig = 카메라(19° 숙임)면 그 면이 바닥보다 19° 기울어
+        #   코너에서 돌 때부터 SLAM 랜드마크가 진행 방향으로 기울어 쌓임 (11-15 시뮬: 지도 랜드마크 주축 12° 상승 · yaw 보정 8°)
+        #   이후 self.base_from_cam = base_from_rig (cuVSLAM world·자세가 rig 기준이므로 같은 변환을 그대로 씀)
+        if os.environ.get('BEE_CUVSLAM_LEVEL') == '1':
+            base_from_rig = np.eye(4)
+            base_from_rig[:3, :3] = [[0, 0, 1], [-1, 0, 0], [0, -1, 0]]
+            base_from_rig[:3, 3] = self.base_from_cam[:3, 3]
+            rig_from_cam = np.linalg.inv(base_from_rig) @ self.base_from_cam
+            extra['rig_from_camera'] = cuvslam.Pose(rotation=quat(rig_from_cam[:3, :3]), translation=rig_from_cam[:3, 3].tolist())
+            self.base_from_cam = base_from_rig
+            self.get_logger().warning('BEE_CUVSLAM_LEVEL=1 — rig 수평, 카메라는 rig 안에서 숙임 (rig_from_camera)')
         cam = cuvslam.Camera(size=(self.info.width, self.info.height), principal=(k[2], k[5]), focal=(k[0], k[4]),
-                             distortion=cuvslam.Distortion(cuvslam.Distortion.Model.Pinhole))
+                             distortion=cuvslam.Distortion(cuvslam.Distortion.Model.Pinhole), **extra)
         rgbd = cuvslam.Tracker.OdometryRGBDSettings()
         rgbd.depth_scale_factor = self.depth_scale
         rgbd.depth_camera_id = 0
@@ -269,6 +308,10 @@ class CuvslamSlam(Node):
         odom_cfg = cuvslam.Tracker.OdometryConfig(odometry_mode=cuvslam.Tracker.OdometryMode.RGBD, async_sba=True,
                                                   rgbd_settings=rgbd)
         slam_cfg = cuvslam.Tracker.SlamConfig(planar_constraints=True) if self.publish_map_tf else None
+        if self.vis:
+            odom_cfg.enable_observations_export = odom_cfg.enable_landmarks_export = True
+            if slam_cfg is not None:
+                slam_cfg.enable_reading_internals = True  # get_slam_landmarks · get_pose_graph
         self.tracker = cuvslam.Tracker(cuvslam.Rig([cam]), odom_cfg, slam_cfg)
         self.get_logger().info(f'cuVSLAM {cuvslam.get_version()[0]} 시작 ({"단독 SLAM" if slam_cfg else "시각 오도메트리"}) · '
                                f'{self.info.width}x{self.info.height} · 카메라 {frame}')
@@ -291,6 +334,8 @@ class CuvslamSlam(Node):
         depth = image(d, np.uint16, 1)
         mask = near_mask(depth, self.near_raw)  # 0이 아닌 픽셀 = 추적에서 뺌
         est, slam = self.tracker.track(ns, [rgb], masks=[mask], depths=[depth])
+        if self.vis:
+            self.last_gray = (c.header.stamp, rgb[..., 1] if rgb.ndim == 3 else rgb)
         if est.world_from_rig is None:
             self.lost += 1
             self.prev = None
@@ -308,6 +353,53 @@ class CuvslamSlam(Node):
             self.pending_initialpose = None
         if self.publish_map_tf:
             self.publish_map(c.header.stamp, slam if slam is not None else p)  # 루프 클로저 반영된 SLAM 위치 우선
+
+    def publish_vis(self):
+        """BEE_CUVSLAM_VIS: 마지막 프레임 특징점(영상 위 점) · 그 프레임 랜드마크 · SLAM 지도 랜드마크 · 루프 클로저 랜드마크 · 포즈 그래프.
+        cuVSLAM world(출발 때 카메라, OpenCV 축) 점 p → map(출발 때 base_footprint) = B·p (B = base_from_cam, base_pose와 같은 기준)"""
+        if self.tracker is None or self.last_gray is None:
+            return
+        import cv2
+        import cuvslam  # start()처럼 지역 import (모듈 맨 위에서 안 읽음)
+        stamp, gray = self.last_gray
+        img = cv2.cvtColor(np.ascontiguousarray(gray), cv2.COLOR_GRAY2BGR)
+        obs = self.tracker.get_last_observations(0)
+        for o in obs:
+            cv2.circle(img, (int(o.u), int(o.v)), 3, (0, 255, 0), -1)
+        cv2.putText(img, f'{len(obs)} features', (10, 30), cv2.FONT_HERSHEY_SIMPLEX, 1.0, (0, 0, 255), 2)
+        m = Image(height=img.shape[0], width=img.shape[1], encoding='bgr8', step=img.shape[1] * 3, data=img.tobytes())
+        m.header.stamp, m.header.frame_id = stamp, 'pole_front_cam_color_optical_frame'
+        self.vis_obs.publish(m)
+        B = self.base_from_cam
+        hdr = Image().header
+        hdr.stamp, hdr.frame_id = stamp, self.map
+
+        def cloud(pub, lms):
+            if not lms:
+                return
+            p = np.array([l.coords for l in lms], np.float64)
+            p = (B[:3, :3] @ p.T).T + B[:3, 3]
+            pub.publish(point_cloud2.create_cloud_xyz32(hdr, p.astype(np.float32).tolist()))
+        cloud(self.vis_lm, self.tracker.get_last_landmarks())
+        if self.publish_map_tf:
+            L = cuvslam.Tracker.SlamDataLayer
+            cloud(self.vis_map, self.tracker.get_slam_landmarks(L.Map).landmarks)
+            cloud(self.vis_loop, self.tracker.get_slam_landmarks(L.LoopClosure).landmarks)
+            g = self.tracker.get_pose_graph()
+            xy = {n.id: base_pose(B, mat(n.node_pose.rotation, n.node_pose.translation))[:2] for n in g.nodes}
+            nodes, edges = Marker(), Marker()
+            for mk, ns, typ, sc, col in ((nodes, 'nodes', Marker.SPHERE_LIST, 0.04, (1.0, 0.6, 0.0)),
+                                         (edges, 'edges', Marker.LINE_LIST, 0.01, (0.2, 0.8, 1.0))):
+                mk.header, mk.ns, mk.type, mk.action = hdr, ns, typ, Marker.ADD
+                mk.scale.x = mk.scale.y = mk.scale.z = sc
+                mk.color.r, mk.color.g, mk.color.b, mk.color.a = (*col, 1.0)
+                mk.pose.orientation.w = 1.0
+            nodes.points = [Point(x=float(x), y=float(y), z=0.05) for x, y in xy.values()]
+            for e in g.edges:
+                if e.node_from in xy and e.node_to in xy:
+                    for i in (e.node_from, e.node_to):
+                        edges.points.append(Point(x=float(xy[i][0]), y=float(xy[i][1]), z=0.05))
+            self.vis_graph.publish(MarkerArray(markers=[nodes, edges]))
 
     def publish_odom(self, stamp, v):
         """속도만 (자세는 안 씀 — cuVSLAM 좌표는 추적을 잃으면 새로 시작해 자세를 EKF에 그대로 넣으면 튐)"""

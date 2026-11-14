@@ -73,7 +73,8 @@ private:
     track_merge_m_, pixel_sigma_, depth_sigma0_, depth_sigma_k_, q_, q_dyn_, self_radius_, body_radius_, body_height_,
     yaw_min_aspect_, fine_min_px_, depth_min_valid_, puck_tag_size_, yaw_min_elong_, location_tag_size_, box_min_side_,
     box_max_side_, box_cell_, box_tag_margin_, box_edge_px_, box_conf_, box_roi_margin_, dice_margin_, tag_gamma_,
-    tag_min_px_, tag_half_min_px_, tag_roi_margin_, robot_front_x_;
+    tag_min_px_, tag_half_min_px_, tag_roi_margin_, robot_front_x_,
+    gripper_floor_offset_;
   int imgsz_, cpu_threads_, self_arm_hits_, hue_tol_, edge_px_, near_px_, yaw_min_points_, dice_px_;
   bool tag_center_, self_filter_, agnostic_nms_, trust_model_posture_, box_detect_, tag_half_, barcode_once_, tag_roi_, box_roi_yolo_;
   std::string device_, track_frame_, base_frame_;

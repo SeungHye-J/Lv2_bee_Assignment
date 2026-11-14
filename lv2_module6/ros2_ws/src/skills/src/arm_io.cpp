@@ -21,8 +21,14 @@ bool hand_yaw(const geometry_msgs::msg::Quaternion & q, double & psi) {
 }
 
 int grip_state(double pos, double current, double still_s, double t, double min_current, double empty_m, double timeout_s) {
-  if (still_s > 0.2 && pos < empty_m) return 0;
+  // 빈손: 목표(stand_pinch_m 0.0050) 근처까지 닫힘 — 0.5 mm 여유. 그 사이(empty_m − 0.5 mm ~ empty_m)는 전류로 가림:
+  //   11-15 실기 끌어오기: 퍽을 쥐었는데 손가락 패드가 눌려 0.0054~0.0055 · 10.8~21.5 mA → empty_m 0.0056보다 닫혀 빈손으로 놓침
+  if (still_s > 0.2 && pos < empty_m - 0.0005) return 0;
   if (still_s > 0.2 && current >= min_current) return 1;
+  if (still_s > 0.2 && pos < empty_m) return 0;
+  // 목표(stand_pinch_m 0.0062 = 간격 30 mm)가 퍽 폭과 같아 쥐어도 전류가 0 근처 — 빈손으로 닫히지 않고 0.5 s 멈춰 있으면 쥠
+  //   (11-15 실기: 잘 쥐었는데 위치 0.0062 · 0 mA로 4 s 기다려 stand_grip_timeout → 벌리고 실패)
+  if (still_s > 0.5 && pos >= empty_m) return 1;
   return t > timeout_s ? -1 : 2;
 }
 
@@ -30,6 +36,8 @@ namespace {
 constexpr double CONTACT_VS = 0.3;  // 팀 관절 한계 × (시뮬 vel_scale)
 constexpr double CONTACT_STOP_S = 3.0;  // 닫기 시작 뒤 손가락이 멈출 때까지 더 기다리는 상한 (실행 속도·그리퍼 속도가 시뮬과 달라도)
 constexpr double CONTACT_HOLD_S = 0.3, CONTACT_SETTLE_S = 0.3, CONTACT_CLOSE_S = 0.5, CONTACT_RELEASE_S = 0.4;
+constexpr double CONTACT_SETTLE_MAX_S = 0.8;  // 안정 구간 상한 — Δ가 계속 움직여도 이만큼 뒤엔 쥠 (기본 0.3 s + 최대 0.5 s)
+constexpr double DELTA_WINDOW_S = 0.15, DELTA_SPREAD = 0.002;  // 최근 0.15 s 동안 관절마다 Δ 최대 − 최소 ≤ 2 mrad = 멈춤
 const char * ARM[] = {"joint1", "joint2", "joint3", "joint4", "joint5"};
 }  // namespace
 
@@ -38,6 +46,14 @@ ArmIO::ArmIO(rclcpp::Node & node)
   arm_plan_tries_ = node.declare_parameter<int>("arm_plan_tries", 3);
   // MoveIt 계획 속도·가속도 비율 (0~1] — 계획할 때마다 읽음 → `ros2 param set /skill_<이름> arm_velocity_scale 1.0`으로 바로 바뀜
   node.declare_parameter<double>("arm_velocity_scale", 0.3);
+  // 닿는 구간 2(바닥 안정)에서도 보정 Δ를 계속 바꿀지 — false면 바닥 도착 때 Δ 고정 (3 쥐기와 같음) · 매번 읽음.
+  //   11-14 실기 pick: 손 카메라가 ~1 s 못 보다 바닥에서 퍽을 다시 잡으면 v03이 쥐기 0.1~0.4 s 전에 Δ를 17~31 mrad 급히 바꿈 (툭 · 6/12회)
+  node.declare_parameter<bool>("contact_bottom_live", true);
+  // 닿는 구간 막힘: 쥐기·놓기 직전 joint2+joint3 전류가 위에서 멈췄을 때보다 이만큼 [A] 넘게 오르면 막힘 → 쥐지·놓지 않고 위로
+  //   빼고 실패 arm_jam (pick은 다음 후보, coordinator는 단계를 한 번 더). 0 = 끔. 11-08 실기 pick 62판: 막힘 최솟값 +0.64 A ·
+  //   정상 최댓값 +0.40 A (arm_safety_monitor 3.0 A는 막혀도 안 닿음 — 실측 최대 0.9~1.1 A)
+  node.declare_parameter<double>("jam_current_a", 0.5);
+  node.declare_parameter<bool>("sag_fade", true);  // pick·load 시작 fade_sag (false = 예전처럼 닿는 구간 시작에서 한 번에 0) · 매번 읽음
   grip_current_a_ = node.declare_parameter<double>("grip_current_a", 0.1);  // 닫을 때 쥐는 힘 상한 [A] — 실기 11/08: gap 26 mm와 같이 0.1 A (약 7 N)
   grasp_check_ = node.declare_parameter<bool>("grasp_check", true);
   grasp_min_pos_m_ = node.declare_parameter<double>("grasp_min_pos_m", 0.003);
@@ -52,17 +68,32 @@ ArmIO::ArmIO(rclcpp::Node & node)
   exec_ = rclcpp_action::create_client<ExecuteTrajectory>(&node, "/execute_trajectory");
   gripper_ = rclcpp_action::create_client<Gripper>(&node, "/gripper_controller/gripper_cmd");
   reset_sag_ = node.create_client<std_srvs::srv::Trigger>("/rl_arm_correction/reset_sag");
+  fade_sag_ = node.create_client<std_srvs::srv::Trigger>("/rl_arm_correction/fade_sag");
   ctx_pub_ = node.create_publisher<ml::msg::SkillContext>("/skill_context", rclcpp::QoS(10).reliable());
   hand_pub_ = node.create_publisher<perception::msg::HandTarget>("/hand_relative/target", rclcpp::QoS(1).reliable().transient_local());
   joints_sub_ = node.create_subscription<sensor_msgs::msg::JointState>("/joint_states", rclcpp::QoS(10),
     [this](sensor_msgs::msg::JointState::ConstSharedPtr m) {
       for (size_t i = 0; i < m->name.size() && i < m->position.size(); ++i) pos_[m->name[i]] = m->position[i];
       for (size_t i = 0; i < m->name.size() && i < m->effort.size(); ++i) effort_[m->name[i]] = m->effort[i];
+      const auto e2 = effort_.find("joint2"), e3 = effort_.find("joint3");
+      if (e2 != effort_.end() && e3 != effort_.end()) {
+        const double now = node_.now().seconds();
+        jam_hist_.emplace_back(now, e2->second + e3->second);
+        while (!jam_hist_.empty() && jam_hist_.front().first < now - 1.0) jam_hist_.pop_front();
+      }
     });
   safety_sub_ = node.create_subscription<control::msg::ArmSafetyEvent>("/arm_safety_event", rclcpp::QoS(10).reliable(),
     [this](control::msg::ArmSafetyEvent::ConstSharedPtr m) {
       RCLCPP_WARN(node_.get_logger(), "팔 접촉 %s %.2fA", m->joint_name.c_str(), m->current_a);
       contact_ = true;  // 진행 중 결과가 실패로 오면 reason을 arm_contact로
+    });
+  debug_sub_ = node.create_subscription<ml::msg::ArmCorrectionDebug>("/rl_arm_correction/debug", rclcpp::QoS(10),
+    [this](ml::msg::ArmCorrectionDebug::ConstSharedPtr m) {
+      const double now = node_.now().seconds();
+      Q5 d{};
+      std::copy_n(m->delta.begin(), 5, d.begin());
+      delta_hist_.emplace_back(now, d);
+      while (!delta_hist_.empty() && delta_hist_.front().first < now - 1.0) delta_hist_.pop_front();
     });
   tf_buffer_ = std::make_unique<tf2_ros::Buffer>(node.get_clock());
   tf_listener_ = std::make_shared<tf2_ros::TransformListener>(*tf_buffer_);
@@ -313,6 +344,37 @@ ArmIO::Step ArmIO::traj_step(std::function<std::vector<Q5>(const Q5 &)> make) {
   };
 }
 
+ArmIO::Step ArmIO::delta_settle_step(double min_s, double max_s) {
+  return [this, min_s, max_s](Cb cb) {
+    const uint64_t gen = gen_;
+    const double t0 = node_.now().seconds();
+    timer_ = node_.create_timer(std::chrono::duration<double>(0.05), [this, cb, gen, t0, min_s, max_s]() {
+      if (gen != gen_) { timer_->cancel(); return; }
+      const double now = node_.now().seconds(), t = now - t0;
+      if (t < min_s) return;
+      // 최근 DELTA_WINDOW_S 안의 Δ가 2개 넘게 있고 관절마다 흩어짐이 DELTA_SPREAD 안이면 멈춤 · debug가 안 오면(정책 없음) 기다릴 것 없음
+      bool fresh = !delta_hist_.empty() && delta_hist_.back().first > now - 2 * DELTA_WINDOW_S;
+      bool still = true;
+      if (fresh) {
+        Q5 lo = delta_hist_.back().second, hi = lo;
+        int n = 0;
+        for (const auto & [ts, d] : delta_hist_) {
+          if (ts < now - DELTA_WINDOW_S) continue;
+          ++n;
+          for (int i = 0; i < 5; ++i) { lo[i] = std::min(lo[i], d[i]); hi[i] = std::max(hi[i], d[i]); }
+        }
+        for (int i = 0; i < 5; ++i) still = still && hi[i] - lo[i] <= DELTA_SPREAD;
+        still = still && n >= 2;
+      }
+      if (!still && t < max_s) return;
+      timer_->cancel();
+      if (t > min_s + 0.06)
+        RCLCPP_INFO(node_.get_logger(), "닿는 구간: 보정 Δ가 멈출 때까지 %.2f s 더 기다림%s", t - min_s, still ? "" : " (상한 — 아직 움직이는 채로 쥠)");
+      cb(true);
+    });
+  };
+}
+
 ArmIO::Step ArmIO::grip_timed_step(double joint_m, double effort_a, double secs) {
   return [this, joint_m, effort_a, secs](Cb cb) {
     Gripper::Goal goal;
@@ -434,6 +496,11 @@ void ArmIO::reset_sag() {
   }
 }
 
+void ArmIO::fade_sag() {
+  // 닿는 구간이 있을 때만 (contact_mode moveit이면 fade가 끝나지 않아 처짐 보정이 꺼진 채로 남음)
+  if (sim_contact() && node_.get_parameter("sag_fade").as_bool() && fade_sag_->service_is_ready()) fade_sag_->async_send_request(std::make_shared<std_srvs::srv::Trigger::Request>());
+}
+
 bool ArmIO::ik_ee(const geometry_msgs::msg::PoseStamped & ee, const Q5 & near, Q5 & out) {
   geometry_msgs::msg::TransformStamped tf;
   try {
@@ -465,6 +532,16 @@ bool ArmIO::ik_ee_yaw(const geometry_msgs::msg::PoseStamped & ee, double psi, co
   return stand::ik_down_sym({p.x(), p.y(), p.z()}, psi + base_yaw - M_PI / 2, near, out);
 }
 
+double ArmIO::jam_mean(double window_s) const {
+  if (jam_hist_.empty()) return 0.0;
+  const double t0 = jam_hist_.back().first - window_s;
+  double sum = 0.0;
+  int n = 0;
+  for (const auto & [t, e] : jam_hist_)
+    if (t >= t0) { sum += e; ++n; }
+  return n ? sum / n : 0.0;
+}
+
 ArmIO::Step ArmIO::contact_step(const SkillModel & policy, std::function<bool(Q5 &, Q5 &)> plan, bool close,
                                 double open_m, bool lift_on_empty) {
   return [this, policy, plan, close, open_m, lift_on_empty](Cb cb) {
@@ -483,13 +560,42 @@ ArmIO::Step ArmIO::contact_step(const SkillModel & policy, std::function<bool(Q5
     const auto ctx = [this, p, above, down](uint8_t phase, bool holding, bool live) -> Step {
       return [this, p, phase, holding, live, above, down](Cb c) { skill_ctx(p.get(), phase, holding, live, above, down); c(true); };
     };
+    const bool bottom_live = node_.get_parameter("contact_bottom_live").as_bool();
     const auto move = [this](Q5 from, Q5 to) {  // 시뮬처럼 from→to 부드러운 보간 (팀 한계 × 0.3)
       return traj_step([from, to](const Q5 &) { return stand::sample_move(from, to, CONTACT_VS, TRAJ_DT); });
     };
+    // 막힘 판정 (jam_current_a): 위에서 멈춘 마지막 0.3 s의 joint2+joint3 전류 → 쥐기·놓기 직전 0.3 s와 비교
+    const auto base = std::make_shared<double>(0.0);
+    const Step jam_base = [this, base](Cb c) { *base = jam_mean(0.3); c(true); };
+    const Step jam_check = [this, base, name = policy.name](Cb c) {
+      const double lim = node_.get_parameter("jam_current_a").as_double(), d = jam_mean(0.3) - *base;
+      if (lim <= 0.0 || d <= lim) { c(true); return; }
+      jam_ = true;
+      RCLCPP_WARN(node_.get_logger(), "%s: 막힘 (바닥) — joint2+3 전류 %+.2f A (> %.2f) · 쥐지·놓지 않고 위로", name.c_str(), d, lim);
+      c(false);  // 위로 빼기는 끝 callback에서
+    };
+    // 내려가는 도중 막힘: 같은 기준을 50 ms마다 보다 넘으면 궤적을 취소 (막힌 채 바닥까지 밀지 않게)
+    const Step descend = [this, base, mv = move(above, down), name = policy.name](Cb c) {
+      const uint64_t gen = gen_;
+      jam_timer_ = node_.create_timer(std::chrono::milliseconds(50), [this, base, gen, name]() {
+        if (gen != gen_) { jam_timer_->cancel(); return; }
+        const double lim = node_.get_parameter("jam_current_a").as_double(), d = jam_mean(0.3) - *base;
+        if (lim <= 0.0 || d <= lim) return;
+        jam_timer_->cancel();
+        jam_ = true;
+        RCLCPP_WARN(node_.get_logger(), "%s: 막힘 (내려가는 중) — joint2+3 전류 %+.2f A (> %.2f) · 멈추고 위로", name.c_str(), d, lim);
+        exec_->async_cancel_all_goals();
+      });
+      mv([this, c](bool ok) {
+        if (jam_timer_) jam_timer_->cancel();
+        c(ok && !jam_);
+      });
+    };
     auto steps = std::make_shared<std::vector<Step>>(std::vector<Step>{
-      ctx(0, true, true), wait_step(CONTACT_HOLD_S),       // 0 위에서 멈춤 (처짐 적분)
-      ctx(1, false, true), move(above, down),             // 1 내려가기
-      ctx(2, true, true), wait_step(CONTACT_SETTLE_S),    // 2 안정
+      ctx(0, true, true), wait_step(CONTACT_HOLD_S), jam_base,  // 0 위에서 멈춤 (처짐 적분) · 막힘 기준 전류
+      ctx(1, false, true), descend,                       // 1 내려가기 (막히면 멈춤)
+      ctx(2, true, bottom_live), delta_settle_step(CONTACT_SETTLE_S, CONTACT_SETTLE_MAX_S),  // 2 안정 (+ Δ가 멈출 때까지 · contact_bottom_live false면 고정)
+      jam_check,                                          // 막혔으면 위로 빼고 실패 (arm_jam)
       ctx(3, true, false),                                // 3 쥐기 · 놓기 (보정 고정)
       close ? grip_timed_step(grip_close_m(), grip_current_a(), CONTACT_CLOSE_S)
             : grip_timed_step(open_m, -1.0, CONTACT_RELEASE_S)});
@@ -504,11 +610,23 @@ ArmIO::Step ArmIO::contact_step(const SkillModel & policy, std::function<bool(Q5
     }
     steps->push_back(ctx(4, false, false));               // 4 올리기
     steps->push_back(move(down, above));
+    if (close && !lift_on_empty) steps->push_back(held_step());  // 들어 올린 뒤 한 번 더 — 올리다 놓치면 빈손 (11-15 stand_pick 빈손)
     // 5 대기 (시뮬 판정 구간) — 실기에선 안 기다림: 보정이 고정돼(live false) 하는 일이 없고 다음 이동만 늦춤 (11/08 사용자 — pick 0.3 · load 0.5 s)
     steps->push_back(ctx(5, !close, false));
     RCLCPP_INFO(node_.get_logger(), "%s: 닿는 구간 (시뮬 기준 동작 + %s) run %u", policy.name.c_str(),
                 policy.use ? "학습 보정" : "보정 없음", run_);
-    run_steps(steps, 0, [this, cb, close, use = policy.use](bool ok) {
+    run_steps(steps, 0, [this, cb, close, use = policy.use, above, ctx](bool ok) {
+      if (jam_) {  // 막힘 (내려가는 중 · 바닥): 지금 자리에서 위로 뺀 뒤 실패 (arm_jam)
+        ctx(4, false, false)([](bool) {});
+        traj_step([above](const Q5 & now) { return stand::sample_move(now, above, CONTACT_VS, TRAJ_DT); })(
+          [this, cb](bool) {
+            ctx_off();
+            hand_target("none", -1, -1);
+            settle_ = true;
+            cb(false);
+          });
+        return;
+      }
       ok = ok && !(close && grasp_empty_);
       ctx_off();  // 보정 끔
       hand_target("none", -1, -1);

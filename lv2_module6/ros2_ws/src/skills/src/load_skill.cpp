@@ -32,6 +32,11 @@ public:
     // 칸 위(q_over)보다 이만큼 높은 곳으로 옆 칸들을 지나간 뒤 곧게 내려옴 — q_over 손끝 ≈ 205 mm라 손 안 퍽 바닥(손끝 − 60.6 mm)이
     //   적재된 옆 퍽 윗면(≈ 163 mm)보다 겨우 몇 mm 위로 쓸고 감 (11/12 시뮬: 칸 5에 넣을 때 칸 4 퍽 바로 위를 손끝 230 mm로 지나며 침). 0 = 예전처럼
     declare_parameter<double>("load_over_lift_m", 0.04);
+    // 실패 때 gripper_left_joint가 이 이상이면 놓은 뒤의 실패로 봄 — 쥔 30 mm 퍽 0.0062 (GRIP_STOP) · 놓기 LOAD_OPEN_M 0.015의 가운데
+    declare_parameter<double>("load_released_joint", 0.0105);
+    // 옮기는 동안 쥐는 힘 = grip_current_a × 이 배수 — 칸에 걸리면 약하게(0.1 A) 쥔 퍽이 손 안에서 돌아감 (11-15 실기 → 누운 채 적재).
+    //   1 = 집을 때 힘 그대로 · 매 goal마다 읽음
+    declare_parameter<double>("load_grip_scale", 2.0);
     policy_ = load_model("load_slot");
     serve("load", [this](const SkillGoal & g, Done done) {
       const std::string shape = g.shape.empty() ? "box" : g.shape;  // 모름 — 사각 표 (손 방향을 칸 벽에 맞춘 자세라 원기둥도 들어감)
@@ -44,20 +49,35 @@ public:
         // 처짐 적분은 여기서 0으로 안 함 — 닿는 구간 시작(ctx phase 0, 새 run_id)에서 rl_arm_correction이 0으로 되돌림 (시뮬 에피소드와 같음).
         //   여기서도 되돌리면 팔이 처졌다 다시 올라올 때까지(~0.45 s) 한 번 더 멈춤 (11/08 실기 pick → load 사이). 앞 skill의 Δ가 빠지는 것만 기다림
         arm_.settle_next();
+        arm_.fade_sag();  // 앞 MoveIt 이동 동안 처짐 적분을 0으로 풂 → 닿는 구간 시작에서 안 튐
         const auto q5 = [](const std::vector<double> & v) { ArmIO::Q5 q{}; std::copy_n(v.begin(), 5, q.begin()); return q; };
         const auto a = q5(over), d = q5(low);
         const int slot = g.slot;
+        const double grip_a = arm_.grip_current_a() * get_parameter("load_grip_scale").as_double();
+        const auto squeeze = arm_.grip_timed_step(arm_.grip_close_m(), grip_a, 0.0);  // 출발 전 세게 쥠 (같은 닫는 목표 · 전류 상한만 올림)
         auto steps = std::make_shared<std::vector<ArmIO::Step>>(arm_.sim_contact()
           ? std::vector<ArmIO::Step>{
-            to_over(carry, over),
+            squeeze, to_over(carry, over),
             [this, slot](ArmIO::Cb c) { arm_.hand_target("slot", -1, slot); c(true); },
             arm_.contact_step(policy_, [a, d](ArmIO::Q5 & x, ArmIO::Q5 & y) { x = a; y = d; return true; }, false, LOAD_OPEN_M),
             end_step(stow, carry)}
           : std::vector<ArmIO::Step>{
-            to_over(carry, over), arm_.joints_step(low), arm_.gripper_step(LOAD_OPEN_M),
+            squeeze, to_over(carry, over), arm_.joints_step(low), arm_.gripper_step(LOAD_OPEN_M),
             arm_.joints_step(table_.slot_q(shape, "q_lift", slot)), end_step(stow, carry)});
         stage("칸 " + std::to_string(slot) + " (" + shape + " · carry_" + table_.carry[slot] + ")");
-        arm_.run_steps(steps, 0, [this, done](bool ok) { done(ok, ok ? "" : arm_.contact() ? "arm_contact" : "load_failed"); });
+        arm_.run_steps(steps, 0, [this, done](bool ok) {
+          if (ok) { done(true, ""); return; }
+          const std::string why = arm_.contact() ? "arm_contact" : arm_.jam() ? "arm_jam" : "load_failed";
+          // 벌린 뒤의 실패 (손 뺄 때 칸에 걸림 · 끝 자세 거부 …) — 퍽은 칸에 놓였을 가능성이 큼 → load_released_* 로 알림
+          //   (coordinator: 칸을 채우되 '확인 필요' · 손 비움 / mission: 상자에 되돌리지 않음). 판정은 그리퍼가 벌어져 있는지만
+          double g = 0.0;
+          if (arm_.joint("gripper_left_joint", g) && g >= get_parameter("load_released_joint").as_double()) {
+            RCLCPP_WARN(get_logger(), "%s — 그리퍼가 벌어져 있음 (%.4f): 퍽은 칸에 놓인 것으로 봄", why.c_str(), g);
+            done(false, "load_released_" + why);
+            return;
+          }
+          done(false, why);
+        });
       });
     });
   }

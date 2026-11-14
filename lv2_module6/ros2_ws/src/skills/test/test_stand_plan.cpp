@@ -170,9 +170,9 @@ TEST(StandPlan, SymmetricCloseAxisPicksNearestWrist) {  // 손가락 대칭 — 
 }
 
 TEST(StandPlan, StandingGraspHeightIgnoresPerceivedFace) {  // 인지 z가 윗면 위·앞면이어도 상자 윗면 + GRASP_Z
-  EXPECT_NEAR(standing_grasp_z(0.152), 0.07 + GRASP_Z, 1e-12);
-  EXPECT_NEAR(standing_grasp_z(0.104), 0.07 + GRASP_Z, 1e-12);
-  EXPECT_NEAR(standing_grasp_z(0.05), GRASP_Z, 1e-12);  // 바닥
+  EXPECT_NEAR(standing_grasp_z(0.152), 0.07 + GRASP_Z - PICK_EXTRA_DEPTH, 1e-12);
+  EXPECT_NEAR(standing_grasp_z(0.104), 0.07 + GRASP_Z - PICK_EXTRA_DEPTH, 1e-12);
+  EXPECT_NEAR(standing_grasp_z(0.05), GRASP_Z - PICK_EXTRA_DEPTH, 1e-12);  // 바닥
 }
 
 TEST(StandPlan, SampleViaPassesCarryWithoutStopping) {
@@ -191,4 +191,19 @@ TEST(StandPlan, SampleViaPassesCarryWithoutStopping) {
   EXPECT_LT(best, 0.02);   // carry를 지남 (표본 간격 안)
   EXPECT_LT(jump, 0.05);   // 20 ms 사이 관절 변화 — 튀지 않음
   for (int j = 0; j < 5; ++j) EXPECT_NEAR(qs.back()[j], to[j], 1e-9);
+}
+
+TEST(StandPull, FarPuckNearEndReachable) {  // 11-15 실기: 0.287 m 누운 퍽 — 세우기 IK는 안 되지만 로봇 쪽 끝을 쥐고 끄는 경로는 풀려야 함
+  using namespace skills::stand;
+  const double yaw = 45 * M_PI / 180, h = 0.037 + GRASP_Z - PUCK_H + GRIP_DEPTH / 2;
+  const V3 c = {0.283, 0.040, 0.07};
+  V3 u = {-std::cos(yaw), -std::sin(yaw), 0.0};  // 가운데 → 로봇 쪽 끝
+  const V3 g = {c[0] + u[0] * 0.022, c[1] + u[1] * 0.022, 0.07 + h};
+  const double gr = std::hypot(g[0], g[1]), d = 0.08;
+  const V3 pts[] = {{g[0], g[1], g[2] + 0.04}, g, {g[0] - g[0] / gr * d, g[1] - g[1] / gr * d, g[2] + 0.002}};
+  Q5 near = {std::atan2(g[1], g[0]), -0.2, 0.7, 1.0, 0.0}, q;
+  for (const auto & p : pts) {
+    EXPECT_TRUE(ik_down_sym(p, yaw + M_PI / 2, near, q)) << p[0] << "," << p[1] << "," << p[2];
+    near = q;
+  }
 }

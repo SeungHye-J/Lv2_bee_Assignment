@@ -23,7 +23,8 @@ constexpr double GRIP_DEPTH = 0.020, FINGER_TIP = 0.0206;
 constexpr double GRASP_Z = PUCK_H - GRIP_DEPTH + FINGER_TIP;  // 쥘 때 손끝(end_effector_link)이 퍽 바닥 위 0.0606
 constexpr double GRIP_STOP = 0.0062;                          // 30mm 퍽에서 손가락이 멈추는 gripper_left_joint
 // 서 있는 퍽을 쥘 손끝 높이 — 인지 z는 보이는 면 쪽이라 믿지 않고 받침만 가림 (상자 위 실측 0.10~0.15 · 바닥이면 0.09 아래)
-inline double standing_grasp_z(double perceived_z) { return (perceived_z > 0.09 ? 0.07 : 0.0) + GRASP_Z; }
+constexpr double PICK_EXTRA_DEPTH = 0.005;  // pick만 더 깊게 (stand는 GRASP_Z 그대로) — 11-13 실기 10 mm(30 mm 파지) → 11-14 5 mm(25 mm 파지, 손끝→퍽 바닥 55.6 mm · basket.yaml q_low와 맞춤)
+inline double standing_grasp_z(double perceived_z) { return (perceived_z > 0.09 ? 0.07 : 0.0) + GRASP_Z - PICK_EXTRA_DEPTH; }
 inline double gap_joint(double gap_m) { return GRIP_STOP + (gap_m - 0.030) / 2; }  // 손가락 사이 → gripper_left_joint
 
 struct Params {               // right_env RightEnvCfg 값 (tilt)

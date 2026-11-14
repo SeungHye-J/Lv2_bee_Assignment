@@ -56,6 +56,7 @@ perception:
     box_roi_yolo: false     # 상자 깊이 찾기를 YOLO 'box' 네모 안에서만 (해상도 그대로 — 위치·방향 정밀도 같음) · 'box' 네모가 없으면 화면 전체
                             #   로봇에서 상자 위치·방향이 끔과 같은지 확인한 뒤 true로 (ros2 param set /perception box_roi_yolo true)
     robot_front_x: 0.069    # [m] base_footprint → 로봇 앞면 — 상자 details face_dist_m (로봇 앞면 → 상자 로봇 쪽 면) 기준
+    gripper_floor_offset_m: 0.012   # [m] 실물 gripper_cam 깊이가 바닥·상자를 이만큼 높게 봄 — 퍽 자세·상자 윗면 판정의 바닥 높이에 더함 (use_sim_time이면 0)
     body_box: [-0.25, 0.08, 0.15]  # 차체 직사각형 [x_min, x_max, y_half] base_footprint 기준 [m] — 있으면 body_radius 대신
                             #   URDF base_link 상자 x −0.2325~0.0688 · y ±0.133 + 여유 1~2 cm. 반경 0.2는 차체 앞 13 cm까지 지워
                             #   inspect 자세에서 상자 앞쪽(차체에서 2~5 cm) 퍽을 자기 몸으로 버렸음 (11/07 Isaac 시험)

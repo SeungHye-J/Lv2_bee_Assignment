@@ -3,7 +3,7 @@
 skill: stand_grasp
 kind: arm            # arm (rl_arm_correction이 계산) — 누운 퍽 먼 끝 도달 보정 (v1: 위 멈춤·내려가기, 쥘 높이 도달에서 끝). 닫기·원호는 기준 동작
 layout: pick         # 정책 입력 모양 (ml/arm_obs.hpp pick 41) — 카메라 = 쥘 끝 − 손끝 (hand_relative box_tag −2)
-use: true
+use: true           # 11-15: 한때 끔(손 카메라 쥘 끝 − 손끝 10~30 mm 어긋남) → 다시 켬 (사용자)
 node: skill_stand
 sim_baseline: 2.9      # [%] Δ = 0, 학습 조건 (계획 위치 1~4 mm · yaw ±6°), 1024판 — 닫는 순간 옆·축·높이 모두 ±1 mm 안 · 옆 p90 5.27 mm
 sim_policy: 20.8     # [%] v1 정책 같은 조건 (옆 p90 3.62 · 축 p90 1.88 · 높이 p90 0.47 mm) · 4~8 mm: 1.9 % (Δ = 0 0.0 %) · 인식 오차 0: 20.9 % (Δ = 0 29.8 %) — 옆 오차는 계획 yaw 오차(±6°)가 바닥

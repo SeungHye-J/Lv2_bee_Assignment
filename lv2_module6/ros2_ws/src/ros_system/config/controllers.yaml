@@ -56,7 +56,8 @@ rl_arm_correction:
     joints: [joint1, joint2, joint3, joint4, joint5]
     enabled: true
     max_delta: 0.05
-    max_delta_step: 0.004  # swap_policies.sh (sim A/B) — remove before commit
+    max_delta_step: 0.003  # [rad/정책 스텝] 학습 0.004 → 11-14 실기 0.003: 바닥 근처에서 퍽을 다시 잡을 때 쥐기 직전 Δ 급변(툭)을 부드럽게 (고정은 맞는 보정까지 막음)
+    settle_delta_step: 0.001  # [rad/정책 스텝] 닿는 구간(phase ≥ hand_jump_phase)만 — 11-15 실기 pick 끝 '툭': 이 구간에 Δ가 0.003 상한으로 0.2 s 몰려 j3·j4·j5 15~18 mrad · 0 = max_delta_step 그대로
     sag_enabled: true          # 처짐 보정 적분 (reference가 멈춰 있을 때만)
     sag_joints: [false, true, true, true, true]  # 관절별 적분 — joint1 끔 (중력 처짐 없음, 5~6 Hz 공진 유지시킴 — 11/11 팔 교체 후 켜 봄: D 1500에서도 look 5.7 Hz osc 0.44° · 3 s 안 멈춤 → 다시 끔)
     gravity_enabled: true      # 중력 앞먹임 (관절 비틀림 d = c·τ를 미리 뺌 — 엔코더는 목표에서 d만큼 벗어나 보임)

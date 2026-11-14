@@ -115,6 +115,7 @@ private:
   void on_execute_accepted(const std::shared_ptr<ExecuteHandle> &);
   bool robot_xy(double & x, double & y) const;
   bool far_fallback(const std::string & why, const std::string & target) const;  // pick 실패 → pick_far로 다시 할지
+  bool look_if_no_yaw(const SubGoal & g);  // 방향 모르는 퍽이면 퍽 위에서 inspect를 맡기고 true (끝나면 같은 단계를 다시, 단계마다 한 번)
   bool approach_if_far(const SubGoal & g);  // 대상이 reach_m 밖이면 다가가는 navigate를 맡기고 true (끝나면 같은 단계를 다시)
   void navigate(const SubGoal & g);
   void approach(const SubGoal & g);
@@ -136,7 +137,7 @@ private:
 
   void status(uint32_t step, uint8_t state, const std::string & reason);
 
-  double server_wait_s_, waited_s_ = 0, reach_m_, approach_m_, place_spacing_, box_margin_m_, pick_far_min_m_, pick_far_max_m_;
+  double server_wait_s_, waited_s_ = 0, reach_m_, approach_m_, place_spacing_, box_margin_m_, pick_far_min_m_, pick_far_max_m_, stand_box_max_m_;
   std::set<std::string> pose_names_;
   std::map<std::string, rclcpp_action::Client<Skill>::SharedPtr> skills_;  // action 이름 → 클라이언트
   std::map<std::string, double> step_timeout_s_;                            // action 이름 → 단계 시간 제한 [s] (0 = 없음)
@@ -155,6 +156,9 @@ private:
   rclcpp::TimerBase::SharedPtr action_terminal_timer_;
   std::unique_ptr<tf2_ros::Buffer> tf_buffer_;
   std::shared_ptr<tf2_ros::TransformListener> tf_listener_;
+  bool look_pending_ = false;                    // look_if_no_yaw의 inspect가 도는 중 — 실패해도 계획을 끝내지 않음
+  size_t jam_retried_ = static_cast<size_t>(-1);  // arm_jam 재시도를 한 단계 (idx_) — 단계마다 한 번만
+  size_t looked_ = static_cast<size_t>(-1);     // 방향 모름으로 다시 보기를 한 단계 (idx_) — 단계마다 한 번만
   size_t approached_ = static_cast<size_t>(-1);  // 다가가기를 이미 한 단계 (idx_) — 단계마다 한 번만
   std::map<std::string, int> placed_;            // 계획 안에서 물체(구역) id별로 내려놓은 수 — 겹치지 않게 비킴
   std::vector<PuckInfo> basket_;                 // 칸마다 (장부 — 이 노드만 씀)
