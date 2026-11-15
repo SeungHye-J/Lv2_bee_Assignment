@@ -9,6 +9,11 @@
 //         ✉️ photo_topic (사진 찍을 때만 잠깐 구독) · TF map → base_footprint
 //   출력: 🎬 /task/execute_plan (SubGoal[] + plan_id = PLAN_ID_BASE + n) → coordinator
 //         ✉️ /mission/state (plan/MissionState, latched) · /mission/markers (RViz)
+//         ✉️ /nvblox_node/static_occupancy_grid (nvblox 원본 격자 — 벽 정합, arena_corr_wall_fit)
+//         ✉️ /arena/correction (std_msgs/String JSON {"dx", "dy", "dth", "n", "src" (none | boxes | walls), "boxes",
+//           "marks": {"S3": [x, y, 본 횟수]}},
+//           latched) — 도면 보정 · 상자별 인지 위치 (미션이 없어도
+//           arena_corr_idle이면 계속 — isaac/loops/approach_loop.py --real이 같은 보정으로 목표를 잡음)
 //         ✉️ 기록 log_dir/<시작 시각>/ signal · allocation · build · verify · return · error .json + photos/ · /diagnostics
 //            + steps.jsonl (계획 단계마다 한 줄: 시각·걸린 시간·skill·결과·이유·다시 시도 번호·퍽/박스/장소)
 //            + phases.jsonl (단계마다 한 줄 + 끝에 MISSION 한 줄) — 모아 보기: tools/plan/step_stats.py
@@ -238,6 +243,7 @@ private:
   //   켜면 to_map · to_arena 전부에 들어감 (다가설 자리 · 장소 · 복귀 · /arena/walls). 회차 시작마다 0부터
   struct Mark { double qx = 0, qy = 0; int hits = 0; };  // 도면 상자 하나에 짝지은 인지 위치 (map, 지수 평균)
   bool acorr_on_ = true;
+  bool acorr_idle_ = true;            // 미션이 없을 때도 보정 (approach_loop 실기 시험) — 미션 시작하면 0부터
   double acorr_gate_ = 0.6, acorr_max_shift_ = 0.8, acorr_max_rot_ = 0.35, acorr_min_sep_ = 1.0;
   double acorr_alpha_ = 0.3, acorr_range_ = 2.5, acorr_outlier_ = 0.15;
   int acorr_min_hits_ = 3;
@@ -246,6 +252,24 @@ private:
   double acorr_step_m_ = 0.03, acorr_step_rad_ = 0.017;     // 보정을 바꾸는 최소 변화 (그 안은 버림 — 목표·기록 흔들림 막음)
   double acorr_walls_m_ = 0.15, acorr_walls_rad_ = 0.087;   // /arena/walls를 다시 보내는 최소 변화 (0이면 안 보냄)
   std::vector<Mark> marks_;           // 시작 박스 0..5 · 장소 상자 6..8
+  std::map<uint32_t, std::pair<int32_t, uint32_t>> acorr_seen_;  // 트랙 id → 마지막으로 센 last_seen (같은 관측을 다시 세지 않게)
+  rclcpp::Publisher<std_msgs::msg::String>::SharedPtr corr_pub_;  // /arena/correction
+  std::string acorr_used_;            // 마지막으로 알린 근거 상자 이름들
+  std::string acorr_src_ = "none";    // 지금 보정의 근거: none | boxes | walls
+  // 벽 정합 (arena_corr_wall_fit) — nvblox 격자 ↔ 도면 벽. 맞으면 보정은 벽으로, 상자는 marks만 (fit_walls 설명)
+  bool wall_fit_ = true, wall_ok_ = false;
+  double wall_gate_ = 0.3, wall_min_eig_ = 0.03;
+  int wall_min_cells_ = 60;
+  WallFit wall_;                      // 마지막으로 맞은 벽 정합
+  std::string wall_why_;              // 마지막 실패 이유 (바뀔 때만 로그)
+  nav_msgs::msg::OccupancyGrid::ConstSharedPtr grid_;
+  rclcpp::Subscription<nav_msgs::msg::OccupancyGrid>::SharedPtr grid_sub_;
+  rclcpp::TimerBase::SharedPtr wall_timer_;
+  void wall_tick();
+  void commit_corr(const ArenaCorr & c, const char * src, const std::string & why);
+  static bool corr_moved(const ArenaCorr & a, const ArenaCorr & b, double m, double r);
+  std::vector<std::pair<double, double>> acorr_sent_;  // 마지막으로 알린 상자별 인지 위치 (marks)
+  void publish_corr(const std::string & used);
   void update_corr(const perception::msg::TrackedObjectArray & m);
   std::vector<std::string> results_;
   std::string build_json_, verify_json_;

@@ -7,7 +7,7 @@ nvblox_node:
     #   ponytail: cuVSLAM 루프 클로저로 map→odom이 튀면 이미 쌓은 복셀은 안 옮겨짐 — 튐이 크면 global_frame odom + 격자만 map으로 옮기는 방식 검토
     global_frame: map
     use_tf_transforms: true
-    num_cameras: 1                 # camera_0 = pole_front_cam — gripper_cam은 스캔 자세가 없어져(11-09) 지도에 안 넣음
+    num_cameras: 1                 # camera_0 = pole_front_cam (use_pole_back_cam이면 launch가 2 — camera_1 = pole_back_cam) — gripper_cam은 스캔 자세가 없어져(11-09) 지도에 안 넣음
     voxel_size: 0.05               # [m] Nav2 costmap 해상도와 같게 (퍽 60 mm는 지도 대상 아님 — 인지가 따로)
     mapping_type: "dynamic"
     esdf_mode: "2d"

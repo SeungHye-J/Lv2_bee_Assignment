@@ -5,6 +5,7 @@
 #   ./start.sh mock_hardware:=true          # OpenCR 없이 (명령을 상태로 되돌림 — launch 인자는 그대로 전달)
 #   ./start.sh port:=/dev/ttyACM1           # OpenCR 포트 지정 (기본 /dev/opencr — udev 규칙 99-opencr.rules)
 #   POLE_FRONT_CAM_SERIAL=... GRIPPER_CAM_SERIAL=... ./start.sh  # RealSense serial 고정 (권장)
+#   POLE_BACK_CAM_SERIAL=... ./start.sh     # 폴 뒤 캠(주행 전용 — nvblox camera_1)도 — serial 장치가 감지될 때만 켬 (bringup use_pole_back_cam:=auto)
 #   RCUTILS_DEFAULT_LOGGER_DEFAULT_LEVEL=WARN ./start.sh  # 로그 소음 줄이기 (기본 INFO — 전 노드 적용)
 #   ./start.sh learning_enabled:=false      # 학습 노드 끄고 (비교 기준)
 #   ./start.sh map:=saved map_name:=kk      # 저장 지도로 위치추정 (미션·Nav2는 이걸로) · map_name 비우면 가장 최근 지도
@@ -73,11 +74,12 @@ source "$HERE/install/setup.bash"
 # 같은 libonnxruntime.so.1 이름이라 LD_LIBRARY_PATH 순서가 곧 우선순위. 없으면 vendor(CPU)로 계속.
 [ -f /opt/onnxruntime/lib/libonnxruntime_providers_cuda.so ] &&
   export LD_LIBRARY_PATH="/opt/onnxruntime/lib:${LD_LIBRARY_PATH:-}"
-# 기본: Jetson Orin Nano 로컬 전용 — SHM만 사용해 DDS가 네트워크로 나가지도 들어오지도 않는다.
-# PC에서 토픽/RViz를 봐야 할 때만 FASTDDS_DEFAULT_PROFILES_FILE=$HERE/fastdds.xml 로 덮어쓴다.
+# 기본: fastdds.xml(SHM + UDP) — 기기 안은 SHM, PC에서도 토픽/RViz를 볼 수 있다.
+#   부트캠프 Wi-Fi는 멀티캐스트가 막혀 있어 PC 쪽은 ROS_STATIC_PEERS=<상대 IP>가 필요 (SETTING.md 5).
+# 기기 안 격리(네트워크로 안 나감)가 필요하면 FASTDDS_DEFAULT_PROFILES_FILE=$HERE/fastdds_local_only.xml 로 덮어쓴다.
 export ROS_DOMAIN_ID="${ROS_DOMAIN_ID:-88}"
 export ROS_AUTOMATIC_DISCOVERY_RANGE="${ROS_AUTOMATIC_DISCOVERY_RANGE:-SUBNET}"
-export FASTDDS_DEFAULT_PROFILES_FILE="${FASTDDS_DEFAULT_PROFILES_FILE:-$HERE/fastdds_local_only.xml}"
+export FASTDDS_DEFAULT_PROFILES_FILE="${FASTDDS_DEFAULT_PROFILES_FILE:-$HERE/fastdds.xml}"
 [ -f "$FASTDDS_DEFAULT_PROFILES_FILE" ] || echo "WARN: Fast DDS 프로파일 없음: $FASTDDS_DEFAULT_PROFILES_FILE — 기본 전송으로 실행 (UDP 폭주 가능)"
 # 로컬 전용 프로파일이면 외부 discovery 변수를 지운다 (실수로 네트워크로 새는 것 방지)
 case "$(basename "$FASTDDS_DEFAULT_PROFILES_FILE")" in
@@ -178,7 +180,9 @@ if [ "$use_cameras" = true ]; then
     devices=$(rs-enumerate-devices -s 2>/dev/null || true)
     count=$(grep -c "Intel RealSense" <<<"$devices" || true)
     rs_count=$count
-    if [ "$count" -ge 2 ]; then
+    if [ -n "${POLE_BACK_CAM_SERIAL:-}" ] && [ "$count" -ge 3 ]; then
+      echo "ok: RealSense ${count}대 (pole_front_cam · gripper_cam · pole_back_cam)"
+    elif [ "$count" -ge 2 ]; then
       echo "ok: RealSense ${count}대 (pole_front_cam · gripper_cam)"
     else
       echo "WARN: RealSense ${count}대 — 2대(pole_front_cam · gripper_cam) 필요 (USB 3 포트·udev 규칙 확인)"
@@ -190,7 +194,7 @@ fi
 
 # RealSense serial_no를 정한다.
 #   우선순위: 명령줄 인자 > 환경변수
-#   환경변수: POLE_FRONT_CAM_SERIAL · GRIPPER_CAM_SERIAL
+#   환경변수: POLE_FRONT_CAM_SERIAL · GRIPPER_CAM_SERIAL · POLE_BACK_CAM_SERIAL (뒤 캠은 아래 한 대만 규칙에 안 들어감 — bringup auto가 감지로 끔)
 # RealSense ROS 드라이버는 /dev 경로가 아니라 serial_no를 받는다.
 front_present=0
 gripper_present=0
@@ -198,7 +202,8 @@ front_env_serial=''
 gripper_env_serial=''
 for spec in \
   "pole_front_cam_serial:POLE_FRONT_CAM_SERIAL" \
-  "gripper_cam_serial:GRIPPER_CAM_SERIAL"; do
+  "gripper_cam_serial:GRIPPER_CAM_SERIAL" \
+  "pole_back_cam_serial:POLE_BACK_CAM_SERIAL"; do
   key=${spec%%:*}
   env_name=${spec#*:}
 

@@ -7,6 +7,10 @@ skill_navigate:
     nav_near_m: 0.20         # [m] goal.target "near": 멈추거나 실패해도 목표에서 이 안이면 성공 (상자 앞 자리 — approach가 마저 맞춤)
     nav_near_yaw: 0.8        # [rad] "near" 성공은 방향 차도 이 안일 때만 (11-14: 등진 채 성공 처리 → approach가 크게 돌다 실패)
     nav_look_m: 0.6          # [m] goal.target "look": 남은 경로가 이만큼 안이면 팔을 pose_look으로 (상자 도킹 앞, 11-13)
+    # [s] 남은 거리가 이 동안 nav_stall_gain_m도 안 줄면 취소 (nav_no_progress). Nav2 progress_checker(15 s)보다 길어야 함 —
+    #   같으면 Nav2 복구(후진 0.10 m · 회전 · costmap 비우기)가 돌기 전에 끊음 (11-15 실기 approach_1115_112020~113543: 문 모서리
+    #   21 cm 앞에서 collision_monitor가 멈춘 채 15 s → 복구 없이 실패 ×4). 코드 기본값 15 위에 덮음
+    nav_stall_s: 25.0
 skill_approach:
   ros__parameters:
     approach_mode: "sim"     # sim: 목표 방향 직선 따라가기 (carrot 조향 ≤ approach_v_max → 마지막 방향) + 주행 정책 보정 · legacy: 예전

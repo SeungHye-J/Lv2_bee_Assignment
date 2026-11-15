@@ -112,9 +112,9 @@ controller_server:
       # through-poses 웨이포인트는 정밀 접근이 아니라 통과 지점이다. 0.10은 너무 좁아
       # collision_monitor가 벽 앞에서 0.11 m 남기고 멈추면 영원히 도착 판정이 안 났다
       # (2026-11-12 테스트베드: 최종점 0.11 m 앞에서 스핀 복구만 7회 반복 → 105).
-      # 단일 goal(g)은 goal_checker(0.15/0.5), through(G)는 이 값(0.20/0.15)을 쓴다.
+      # 단일 goal(g)은 goal_checker(0.15/0.5), through(G)는 이 값(0.20/0.2)을 쓴다.
       xy_goal_tolerance: 0.20
-      yaw_goal_tolerance: 0.5    # goal_checker와 같게 (11-13 상자 옆 비스듬한 도착)
+      yaw_goal_tolerance: 0.2    # ≈ 11° — 통과 지점이라 단일 goal(0.5)보다 좁게 (11-15 사용자)
 
     # 경로 추종 플러그인 — ml::RlNavController (RL 정책, ONNX) + inner 바이패스
     #   enable=false → inner(MPPI — fallback_controller) 그대로. ~/FollowPath/toggle 서비스로 정책 ON/OFF.

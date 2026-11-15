@@ -64,17 +64,22 @@ ROS_SYSTEM_ARGS = {
     'use_cameras': ('true', 'RealSense 2대 (테스트베드는 faker의 fake_camera가 대신 → false)'),
     'use_pole_front_cam': ('true', 'pole_front_cam만 끄기/켜기 (한 대만 연결할 때)'),
     'use_gripper_cam': ('auto', 'gripper_cam: auto = gripper_cam_serial 장치가 USB에 감지될 때만 켬(뽑아 두면 노드·의존 노드 안 띄움) · true/false = 강제'),
+    'use_pole_back_cam': ('auto', 'pole_back_cam (폴 뒤, 주행 전용 — nvblox camera_1): auto = pole_back_cam_serial 장치가 USB에 감지될 때만 켬 (serial 비면 끔) · true/false = 강제'),
     'pole_front_cam_serial': ('', 'pole_front_cam RealSense serial_no — 빈 값이면 첫 장치 (2대면 반드시 지정)'),
+    'pole_back_cam_serial': ('', 'pole_back_cam RealSense serial_no (start.sh: POLE_BACK_CAM_SERIAL)'),
     'gripper_cam_serial': ('', 'gripper_cam RealSense serial_no — 빈 값이면 첫 장치 (2대면 반드시 지정)'),
     'pole_front_cam_profile': ('640x360x15', 'pole_front_cam RGB/depth 프로파일 (WxHxFPS)'),
     'gripper_cam_profile': ('640x360x15', 'gripper_cam RGB/depth 프로파일 (WxHxFPS)'),
+    'pole_back_cam_profile': ('640x360x15', 'pole_back_cam RGB/depth 프로파일 (WxHxFPS)'),
     'camera_decimation_enable': ('true', 'RealSense depth decimation 필터 (점군 밀도 감소)'),
     'camera_decimation_magnitude': ('2', 'decimation 배율 (2=1/4 점, 3=1/9 점)'),
     'pole_front_cam_pointcloud': ('true', 'pole_front_cam PointCloud2 발행 (body_filter/Nav2)'),
     'gripper_cam_pointcloud': ('false', 'gripper_cam PointCloud2 발행 (grasp_scorer용, 필요할 때만 true)'),
+    'pole_back_cam_pointcloud': ('false', 'pole_back_cam PointCloud2 발행 (nvblox는 depth 영상을 받아 필요 없음)'),
     'use_ekf': ('true', 'robot_localization EKF'),
     'ekf_imu': ('true', 'EKF yaw 회전속도 = IMU 자이로 · false면 바퀴'),
     'use_nav2': ('true', '진짜 Nav2 서버'),
+    'nav2_container_params': ('false', 'true = costmap이 nav2_params.yaml 값으로 (진짜 몸 · voxel) · false = 예전 그대로 (costmap Nav2 기본값) — ros_system nav2_nodes 설명'),
     'nav2_composition': ('true', 'Nav2 서버·관리자(+ map_saver)를 한 프로세스(nav2_container)로 — 메모리 절약 · false면 서버마다 프로세스 (예전)'),
     'py_helpers_one_process': ('true', 'python 보조 노드(pole_depth_gate · nvblox_map · rewind)를 한 프로세스로 — 메모리 절약 · false면 따로 (예전)'),
     'depth_gate_cpp': ('true', 'pole_depth_gate를 C++(perception depth_gate)로 — CPU 절약 (bag 재생 11-14: 파이썬 6 % → C++ 2 %) · false면 예전 파이썬'),
@@ -161,6 +166,16 @@ def setup_map(context):
         ug = 'true' if (found is None or serial in found) else 'false'   # 못 알아내면 예전처럼 켬
         if ug == 'false':
             print(f'WARN: gripper_cam serial {serial} 감지 안 됨 — gripper_cam · hand_relative를 안 띄움', file=sys.stderr)
+    # 폴 뒤 캠 (주행 전용): serial이 없거나 감지 안 되면 끔 — 그립퍼 캠과 같은 이유 (respawn이 장치를 계속 훑음)
+    ub = LaunchConfiguration('use_pole_back_cam').perform(context).lower()
+    if ub not in ('auto', 'true', 'false'):
+        raise RuntimeError(f'use_pole_back_cam:={ub} — auto | true | false')
+    if ub == 'auto':
+        serial = LaunchConfiguration('pole_back_cam_serial').perform(context)
+        found = detected_serials() if serial else None
+        ub = 'true' if serial and (found is None or serial in found) else 'false'
+        if serial and ub == 'false':
+            print(f'WARN: pole_back_cam serial {serial} 감지 안 됨 — pole_back_cam을 안 띄움 (nvblox는 앞 카메라만)', file=sys.stderr)
     # 인지(YOLO 등)는 지도 만들 때(MAPPING) 쓰이지 않는다 — 실기에서는 CPU 코어 하나의 절반을 먹어 주행이 끊겼다 (2026-11-09).
     #   perception:=auto(기본) = 매핑이면 끔 · true/false = 강제. faker 테스트베드(fake_slam)는 그대로 켠다.
     pm = LaunchConfiguration('perception').perform(context).lower()
@@ -187,6 +202,7 @@ def setup_map(context):
                 or os.path.join(get_package_share_directory('ros_system'), 'config', 'nvblox.yaml')),
             SetLaunchConfiguration('use_perception', use_perception),
             SetLaunchConfiguration('use_gripper_cam', ug),
+            SetLaunchConfiguration('use_pole_back_cam', ub),
             SetLaunchConfiguration('use_hand_relative', 'true' if use_perception == 'true' and ug == 'true' else 'false')]
 
 

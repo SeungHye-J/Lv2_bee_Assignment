@@ -27,7 +27,7 @@ public:
   explicit NavigateSkill(const rclcpp::NodeOptions & options)
   : SkillNode("skill_navigate", options), arm_(*this) {
     nav_ = rclcpp_action::create_client<NavigateToPose>(this, "/navigate_to_pose");
-    stall_s_ = declare_parameter<double>("nav_stall_s", 25.0);       // 0이면 감시 안 함
+    stall_s_ = declare_parameter<double>("nav_stall_s", 15.0);       // 0이면 감시 안 함
     stall_gain_m_ = declare_parameter<double>("nav_stall_gain_m", 0.10);
     look_m_ = declare_parameter<double>("nav_look_m", 0.6);
     near_m_ = declare_parameter<double>("nav_near_m", 0.15);
@@ -83,7 +83,23 @@ public:
             finish(false, "nav_no_progress");
           };
         }
-        opt.result_callback = [finished, finish](const rclcpp_action::ClientGoalHandle<NavigateToPose>::WrappedResult & r) {
+        // 이 goal만 취소하려고 손잡이를 보관 — stop()이 cancel_all을 보내면 바로 뒤 새 계획의 Nav2 goal까지 취소돼
+        //   새 navigate가 시작하자마자 nav_failed였음 (실기 11-15 approach_loop 재계획)
+        const uint64_t seq = ++nav_seq_;
+        opt.goal_response_callback = [this, seq, finished, finish](
+            const rclcpp_action::ClientGoalHandle<NavigateToPose>::SharedPtr & h) {
+          if (seq != nav_seq_) {  // 응답 전에 멈춤 — 늦게 받아진 goal도 취소
+            if (h) nav_->async_cancel_goal(h);
+            return;
+          }
+          if (h) { nav_goal_ = h; return; }
+          if (*finished) return;  // 거절되면 결과가 오지 않음 — 여기서 끝내야 skill이 안 멈춤
+          *finished = true;
+          finish(false, "nav_rejected");
+        };
+        opt.result_callback = [this, seq, finished, finish](
+            const rclcpp_action::ClientGoalHandle<NavigateToPose>::WrappedResult & r) {
+          if (seq == nav_seq_) nav_goal_.reset();
           if (*finished) return;
           *finished = true;
           const bool ok = r.code == rclcpp_action::ResultCode::SUCCEEDED;
@@ -96,12 +112,16 @@ public:
 
 protected:
   void stop() override {
-    nav_->async_cancel_all_goals();
+    ++nav_seq_;  // 응답 전인 goal은 goal_response_callback이 취소
+    if (nav_goal_) nav_->async_cancel_goal(nav_goal_);
+    nav_goal_.reset();
     arm_.stop();
   }
 
 private:
   rclcpp_action::Client<NavigateToPose>::SharedPtr nav_;
+  rclcpp_action::ClientGoalHandle<NavigateToPose>::SharedPtr nav_goal_;  // 지금 보낸 Nav2 goal (stop이 이것만 취소)
+  uint64_t nav_seq_ = 0;  // 보낸 goal 번호 — stop하면 올라가 옛 응답·결과를 가려냄
   static double yaw_of(const geometry_msgs::msg::Quaternion & q) {
     return std::atan2(2 * (q.w * q.z + q.x * q.y), 1 - 2 * (q.y * q.y + q.z * q.z));
   }

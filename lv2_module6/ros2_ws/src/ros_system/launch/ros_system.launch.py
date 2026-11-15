@@ -184,14 +184,18 @@ def generate_launch_description():
         flag('use_cameras', 'true', 'RealSense 2대 (pole_front_cam·gripper_cam) 전체 스위치'),
         flag('use_pole_front_cam', 'true', 'pole_front_cam 개별 스위치 (use_cameras와 AND)'),
         flag('use_gripper_cam', 'true', 'gripper_cam 개별 스위치 (use_cameras와 AND)'),
+        flag('use_pole_back_cam', 'false', 'pole_back_cam (폴 뒤, 주행 전용 — nvblox camera_1) 개별 스위치 (use_cameras와 AND)'),
         flag('pole_front_cam_serial', "''", 'pole_front_cam serial_no (빈 값이면 첫 장치)'),
         flag('gripper_cam_serial', "''", 'gripper_cam serial_no'),
+        flag('pole_back_cam_serial', "''", 'pole_back_cam serial_no'),
         flag('pole_front_cam_profile', '640x360x15', 'pole_front_cam RGB/depth 프로파일 (WxHxFPS)'),
         flag('gripper_cam_profile', '640x360x15', 'gripper_cam RGB/depth 프로파일 (WxHxFPS)'),
+        flag('pole_back_cam_profile', '640x360x15', 'pole_back_cam RGB/depth 프로파일 (WxHxFPS)'),
         flag('camera_decimation_enable', 'true', 'RealSense depth decimation 필터 (점군 밀도 감소)'),
         flag('camera_decimation_magnitude', '2', 'decimation 배율 (2=1/4 점, 3=1/9 점)'),
         flag('pole_front_cam_pointcloud', 'true', 'pole_front_cam PointCloud2 발행 (body_filter/Nav2용)'),
         flag('gripper_cam_pointcloud', 'false', 'gripper_cam PointCloud2 발행 (grasp_scorer용, 필요할 때만 true)'),
+        flag('pole_back_cam_pointcloud', 'false', 'pole_back_cam PointCloud2 발행 (nvblox는 depth 영상을 받아 필요 없음)'),
         flag('use_ekf', 'true', 'robot_localization EKF'),
         flag('ekf_imu', 'true', 'EKF yaw 회전속도 = IMU 자이로 · false면 바퀴 (자이로 영점이 틀어지면 서 있어도 yaw가 돎 — 11/08 실기 0.2~2.3°/s)'),
         flag('use_slam', 'true', 'SLAM(cuVSLAM + nvblox) — false면 map→odom·/map 없음 (테스트베드 faker map:=course는 map_server가 대신)'),
@@ -206,6 +210,7 @@ def generate_launch_description():
         flag('py_helpers_one_process', 'true', 'python 보조 노드(pole_depth_gate · nvblox_map · rewind)를 한 프로세스(py_helpers)로 — 메모리 절약 · false면 따로 (예전)'),
         flag('depth_gate_cpp', 'true', 'pole_depth_gate를 C++(perception depth_gate)로 — 파이썬판은 15 Hz depth를 매번 복사 (bag 재생 11-14: 파이썬 6 % → C++ 2 %) · false면 예전 파이썬(scan_cam_gate)'),
         flag('nav2_params_file', share('config', 'nav2_params.yaml'), 'Nav2 파라미터 파일'),
+        flag('nav2_container_params', 'false', 'true = nav2_container 전체에 Nav2 파라미터 파일 (costmap이 yaml 값으로 — nav2_nodes 설명) · false = 예전 (costmap 기본값)'),
         flag('use_moveit', 'false', 'true면 진짜 move_group (config/moveit) — spawner 완료 후 기동 (동시 기동 레이스 회피)'),
         OpaqueFunction(function=check_slam),
         OpaqueFunction(function=check_slam),
@@ -236,6 +241,8 @@ def generate_launch_description():
                'pole_front_cam_pointcloud', 'use_pole_front_cam'),
         camera('gripper_cam', 'gripper_cam_serial', 'gripper_cam_profile',
                'gripper_cam_pointcloud', 'use_gripper_cam'),
+        camera('pole_back_cam', 'pole_back_cam_serial', 'pole_back_cam_profile',
+               'pole_back_cam_pointcloud', 'use_pole_back_cam'),
 
         *[Node(
             package='robot_localization', executable='ekf_node', name='ekf_filter_node', output='screen',
@@ -303,11 +310,16 @@ def nav2_nodes():
     lm = ('nav2_lifecycle_manager', 'lifecycle_manager', 'nav2_lifecycle_manager::LifecycleManager')
     return [
         *[server(pkg, exe, exe, r, x, on) for pkg, exe, _, r, x, on in servers],
-        Node(package='rclcpp_components', executable='component_container_isolated', name='nav2_container', output='screen',
-             condition=IfCondition(PythonExpression(["'", LaunchConfiguration('nav2_composition'), "'.lower() == 'true' and ('",
-                                                     LaunchConfiguration('use_nav2'), "'.lower() == 'true' or '",
-                                                     LaunchConfiguration('use_cmd_chain'), "'.lower() == 'true')"])),
-             **QUICK_STOP),
+        # nav2_container_params:=true면 컨테이너 프로세스 전체에 --params-file — 서버가 안에서 만드는 자식 노드(local_costmap/local_costmap ·
+        #   global_costmap/global_costmap)는 컴포넌트 파라미터(서버 이름 구역만)를 못 받아, false(기본)면 costmap이 Nav2 기본값으로 뜸
+        #   (voxel_layer 대신 빈 obstacle_layer · rolling_window false · footprint [] — local costmap 안 보임). nav2_bringup은 true와 같음.
+        #   11-15: true로 켜니 전역 경로가 바뀌어(진짜 몸 · 팽창 · 전역 카메라 층) 실기 주행이 이상해져 기본은 예전(false) 그대로
+        *[Node(package='rclcpp_components', executable='component_container_isolated', name='nav2_container', output='screen',
+               condition=IfCondition(PythonExpression(["'", LaunchConfiguration('nav2_composition'), "'.lower() == 'true' and ('",
+                                                       LaunchConfiguration('use_nav2'), "'.lower() == 'true' or '",
+                                                       LaunchConfiguration('use_cmd_chain'), "'.lower() == 'true') and '",
+                                                       LaunchConfiguration('nav2_container_params'), f"'.lower() {op} 'true'"])),
+               parameters=p, **QUICK_STOP) for op, p in (('==', params), ('!=', []))],
         *[component(pkg, plugin, exe, r, x, on) for pkg, exe, plugin, r, x, on in servers],
         TimerAction(period=LIFECYCLE_DELAY_S, actions=[
             *[server(lm[0], lm[1], name, [], [], on) for name, on in managers],
@@ -362,9 +374,11 @@ def slam_nodes():
     """SLAM = cuVSLAM(위치) + nvblox(지도) — use_slam일 때. 위쪽이 받는 것: map→odom TF(cuVSLAM) · /map latched(nvblox_map) · 원점 = 출발 자리
       cuvslam_slam   pole_front_cam RGB-D → map→odom (루프 클로저) + /cuvslam/odom (EKF odom1)
       depth gate     scan_cam_gate 재사용 — nvblox에 줄 depth에서 카메라 0.5 m 안(자기 팔·손가락·폴대)을 0(측정 없음)으로.
-                     pole_front_cam만 — gripper_cam(팔 끝)은 스캔 자세가 없어져(11-09) 지도에 안 넣음.
+                     pole_front_cam (+ use_pole_back_cam이면 pole_back_cam — pole_back_depth_gate) — gripper_cam(팔 끝)은
+                     스캔 자세가 없어져(11-09) 지도에 안 넣음.
                      Nav2 costmap은 몸 뺀 점구름(body_filter)을 쓰지만 nvblox는 depth 영상을 받으므로 영상에서 뺌
-      nvblox_node    depth(pole_front_cam) + TF(map→카메라) → TSDF → 2D 점유 격자 (config/nvblox.yaml). 매핑이면 끌 때 nvblox_map 파일에 저장
+      nvblox_node    depth(pole_front_cam = camera_0 · pole_back_cam = camera_1, num_cameras 2) + TF(map→카메라) → TSDF → 2D 점유 격자
+                     (config/nvblox.yaml). 매핑이면 끌 때 nvblox_map 파일에 저장
       nvblox_map     ~/static_occupancy_grid → /map (latched, 1 Hz) · 위치추정이면 시작할 때 저장 지도를 load_map"""
     on = IfCondition(LaunchConfiguration('use_slam'))
     nvblox_on = IfCondition(PythonExpression(["'", LaunchConfiguration('use_slam'), "'.lower() == 'true' and '",
@@ -388,6 +402,8 @@ def slam_nodes():
     slam_nvblox = ["'", LaunchConfiguration('use_slam'), "'.lower() == 'true' and '", LaunchConfiguration('map_backend'), "' == 'nvblox'"]
     gate_cpp = ["'", LaunchConfiguration('depth_gate_cpp'), "'.lower() == 'true'"]
     one_proc = ["'", LaunchConfiguration('py_helpers_one_process'), "'.lower() == 'true'"]
+    back = ["'", LaunchConfiguration('use_cameras'), "'.lower() == 'true' and '", LaunchConfiguration('use_pole_back_cam'),
+            "'.lower() == 'true'"]
 
     def camera_remaps(i, cam):
         return [(f'camera_{i}/depth/image', f'/{cam}/aligned_depth_to_color/image_nvblox'),
@@ -403,10 +419,18 @@ def slam_nodes():
         # C++판 (기본) — py_helpers 한 프로세스 여부와 상관없이 따로 (파이썬 py_helpers에는 nvblox_map · rewind만)
         Node(package='perception', executable='depth_gate', name='pole_depth_gate', output='screen',
              condition=IfCondition(PythonExpression([*slam_nvblox, ' and ', *gate_cpp])), parameters=[gate_params('pole_front_cam')]),
+        # pole_back_cam (주행 전용, 11-15): 앞과 같은 depth gate 하나 더 (C++ · 파이썬판은 py_helpers에 안 넣고 따로) → nvblox camera_1
+        Node(package='perception', executable='depth_gate', name='pole_back_depth_gate', output='screen',
+             condition=IfCondition(PythonExpression([*slam_nvblox, ' and ', *back, ' and ', *gate_cpp])),
+             parameters=[gate_params('pole_back_cam')]),
+        Node(package='ros_system', executable='scan_cam_gate', name='pole_back_depth_gate', output='screen',
+             condition=IfCondition(PythonExpression([*slam_nvblox, ' and ', *back, ' and not ', *gate_cpp])),
+             parameters=[gate_params('pole_back_cam')]),
         Node(package='nvblox_ros', executable='nvblox_node', name='nvblox_node', output='screen', condition=nvblox_on,
              parameters=[LaunchConfiguration('nvblox_params_file'),
-                         {'after_shutdown_map_save_path': ParameterValue(save_path, value_type=str)}],
-             remappings=camera_remaps(0, 'pole_front_cam')),
+                         {'after_shutdown_map_save_path': ParameterValue(save_path, value_type=str),
+                          'num_cameras': ParameterValue(PythonExpression(['2 if ', *back, ' else 1']), value_type=int)}],
+             remappings=camera_remaps(0, 'pole_front_cam') + camera_remaps(1, 'pole_back_cam')),
         Node(package='ros_system', executable='nvblox_map', name='nvblox_map', output='screen', condition=separate,
              parameters=[nvblox_map_params]),
         # 주행 리와인드 — 실패(ABORTED) 뒤 실제 주행 궤적을 0.4 m 후진. 실기·테스트베드 공통 (SLAM 없어도 뜸)

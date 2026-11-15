@@ -183,6 +183,96 @@ ArenaCorr fit_arena_corr(std::vector<CorrPair> pairs, double min_sep, double max
   return c;
 }
 
+WallFit fit_walls(const std::vector<std::array<double, 4>> & segs, const std::vector<std::pair<double, double>> & pts,
+                  const ArenaCorr & init, double gate, int min_cells, double min_eig, double max_shift, double max_rot) {
+  WallFit f;
+  f.c = init;
+  if (segs.empty() || pts.empty()) { f.why = "no_walls_or_cells"; return f; }
+  // 가장 가까운 벽 위 점 (sx, sy) · 그 벽의 법선 (nx, ny) → 거리
+  auto closest = [&segs](double x, double y, double & sx, double & sy, double & nx, double & ny) {
+    double best = 1e18;
+    for (const auto & w : segs) {
+      const double ex = w[2] - w[0], ey = w[3] - w[1], l2 = ex * ex + ey * ey;
+      const double t = l2 > 0 ? std::clamp(((x - w[0]) * ex + (y - w[1]) * ey) / l2, 0.0, 1.0) : 0.0;
+      const double px = w[0] + t * ex, py = w[1] + t * ey, d = std::hypot(x - px, y - py);
+      if (d >= best) continue;
+      best = d;
+      sx = px;
+      sy = py;
+      const double l = std::sqrt(l2);
+      nx = l > 0 ? -ey / l : 1.0;
+      ny = l > 0 ? ex / l : 0.0;
+    }
+    return best;
+  };
+  const auto det3 = [](const double M[3][3]) {
+    return M[0][0] * (M[1][1] * M[2][2] - M[1][2] * M[2][1]) - M[0][1] * (M[1][0] * M[2][2] - M[1][2] * M[2][0]) +
+           M[0][2] * (M[1][0] * M[2][1] - M[1][1] * M[2][0]);
+  };
+  const double huber = 0.05;  // [m] 이보다 먼 칸은 무게를 줄임 (도면과 실제 벽이 몇 cm씩 다름)
+  for (int it = 0; it < 30; ++it) {
+    struct In { double qx, qy, r, nx, ny; };
+    std::vector<In> in;
+    double cx = 0, cy = 0;
+    for (const auto & [px, py] : pts) {
+      const auto q = unapply_corr(f.c, {px, py, 0});  // 칸을 도면 쪽으로
+      double sx = 0, sy = 0, nx = 0, ny = 0;
+      if (closest(q.x, q.y, sx, sy, nx, ny) >= gate) continue;
+      in.push_back({q.x, q.y, (q.x - sx) * nx + (q.y - sy) * ny, nx, ny});  // 점-선 거리 (법선 방향, 부호)
+      cx += q.x;
+      cy += q.y;
+    }
+    f.inliers = static_cast<int>(in.size());
+    if (f.inliers < min_cells) { f.why = "few_cells"; return f; }
+    cx /= f.inliers;
+    cy /= f.inliers;
+    double A[3][3] = {}, b[3] = {}, sq = 0;
+    for (const auto & e : in) {
+      const double w = std::abs(e.r) <= huber ? 1.0 : huber / std::abs(e.r);
+      const double J[3] = {e.nx, e.ny, -e.nx * (e.qy - cy) + e.ny * (e.qx - cx)};  // q' = q + δt + δθ·⊥(q − c)
+      for (int i = 0; i < 3; ++i) {
+        for (int j = 0; j < 3; ++j) A[i][j] += w * J[i] * J[j];
+        b[i] -= w * J[i] * e.r;
+      }
+      sq += e.r * e.r;
+    }
+    f.rms = std::sqrt(sq / f.inliers);
+    // 정규 행렬 최소 고유값 (대칭 3×3 삼각 공식) / 칸 — 0에 가까우면 그 방향(예: 벽 하나 = 벽을 따라가는 방향)을 모름
+    const double q = (A[0][0] + A[1][1] + A[2][2]) / 3;
+    const double p1 = A[0][1] * A[0][1] + A[0][2] * A[0][2] + A[1][2] * A[1][2];
+    const double pp = std::sqrt((std::pow(A[0][0] - q, 2) + std::pow(A[1][1] - q, 2) + std::pow(A[2][2] - q, 2) + 2 * p1) / 6);
+    double ev = q;
+    if (pp > 1e-12) {
+      double B[3][3];
+      for (int i = 0; i < 3; ++i) for (int j = 0; j < 3; ++j) B[i][j] = (A[i][j] - (i == j ? q : 0)) / pp;
+      ev = q + 2 * pp * std::cos(std::acos(std::clamp(det3(B) / 2, -1.0, 1.0)) / 3 + 2 * M_PI / 3);
+    }
+    f.min_eig = ev / f.inliers;
+    if (f.min_eig < min_eig) { f.why = "degenerate"; return f; }
+    double x[3];  // A x = b (Cramer)
+    const double D = det3(A);
+    for (int k = 0; k < 3; ++k) {
+      double M[3][3];
+      for (int i = 0; i < 3; ++i) for (int j = 0; j < 3; ++j) M[i][j] = j == k ? b[i] : A[i][j];
+      x[k] = det3(M) / D;
+    }
+    // 역보정 U: q = R(θu)·p + tu (θu = −dth, tu = −R(θu)·t) 에 Δ(c 둘레 δθ 회전 + δt)를 더하고 다시 뒤집음
+    const double th_u = -f.c.dth, cu = std::cos(th_u), su = std::sin(th_u);
+    const double tux = -(cu * f.c.dx - su * f.c.dy), tuy = -(su * f.c.dx + cu * f.c.dy);
+    const double cd = std::cos(x[2]), sd = std::sin(x[2]);
+    const double nux = cd * (tux - cx) - sd * (tuy - cy) + cx + x[0], nuy = sd * (tux - cx) + cd * (tuy - cy) + cy + x[1];
+    const double nth = th_u + x[2], cn = std::cos(nth), sn = std::sin(nth);
+    f.c.dth = std::remainder(-nth, 2 * M_PI);
+    f.c.dx = -(cn * nux + sn * nuy);   // t = −R(−θu')·tu'
+    f.c.dy = -(-sn * nux + cn * nuy);
+    if (std::hypot(x[0], x[1]) < 1e-4 && std::abs(x[2]) < 1e-5) break;
+  }
+  f.c.n = f.inliers;
+  if (std::hypot(f.c.dx, f.c.dy) > max_shift || std::abs(f.c.dth) > max_rot) { f.why = "over_limit"; return f; }
+  f.ok = true;
+  return f;
+}
+
 int match_landmark(double qx, double qy, const std::vector<std::pair<double, double>> & cands, double gate) {
   int best = -1;
   double d1 = std::numeric_limits<double>::infinity(), d2 = d1;

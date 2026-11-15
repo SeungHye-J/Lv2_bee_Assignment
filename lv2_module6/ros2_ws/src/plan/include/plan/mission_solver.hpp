@@ -71,6 +71,13 @@ Pose2 unapply_corr(const ArenaCorr & c, const Pose2 & m);
 //   n = 쓴 짝 수 (0 = 짝 없음 → 보정 0)
 struct CorrPair { double mx, my, qx, qy; };
 ArenaCorr fit_arena_corr(std::vector<CorrPair> pairs, double min_sep, double max_shift, double max_rot, double outlier_m);
+// 벽 정합 — 지도(nvblox 2D 점유 격자)의 점유 칸을 도면 벽(보정 전 map 선분 [x0, y0, x1, y1])에 맞춰 보정을 구함 (상자 인지 없이,
+//   앞뒤 카메라가 본 벽 전부). init에서 시작하는 점-선 ICP: 칸을 보정의 역으로 도면 쪽에 옮겨 가장 가까운 벽까지 거리(gate 안만,
+//   Huber)를 줄임. ok = 맞은 칸 min_cells 이상 · 세 방향(x, y, 회전) 다 묶임(정규 행렬 최소 고유값/칸 ≥ min_eig — 벽 한 방향만
+//   보이면 그 방향을 모름) · 이동 max_shift · 회전 max_rot 안. 결과 n = 맞은 칸 수
+struct WallFit { ArenaCorr c; int inliers = 0; double rms = 0, min_eig = 0; bool ok = false; std::string why; };
+WallFit fit_walls(const std::vector<std::array<double, 4>> & segs, const std::vector<std::pair<double, double>> & pts,
+                  const ArenaCorr & init, double gate, int min_cells, double min_eig, double max_shift, double max_rot);
 // 인지 점 q에 맞는 도면 상자 — cands(보정한 map 점) 중 gate 안 가장 가까운 것, 두 번째가 그보다 0.25 m 넘게 멀 때만 (헷갈리면 −1)
 int match_landmark(double qx, double qy, const std::vector<std::pair<double, double>> & cands, double gate);
 

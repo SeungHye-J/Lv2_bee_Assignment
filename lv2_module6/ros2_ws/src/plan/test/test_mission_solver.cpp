@@ -377,6 +377,60 @@ TEST(ArenaCorr, MatchLandmarkGateAndUnique) {
   EXPECT_EQ(match_landmark(0.0, 0.0, {}, 0.6), -1);
 }
 
+namespace {
+// 벽 선분 위를 step 간격으로 — 보정 c를 씌운 map 점 (지도 칸처럼)
+std::vector<std::pair<double, double>> wall_cells(const std::vector<std::array<double, 4>> & segs, const ArenaCorr & c, double step) {
+  std::vector<std::pair<double, double>> out;
+  for (const auto & w : segs) {
+    const int n = static_cast<int>(std::hypot(w[2] - w[0], w[3] - w[1]) / step);
+    for (int k = 0; k <= n; ++k) {
+      const double t = n ? static_cast<double>(k) / n : 0.0;
+      const auto m = apply_corr(c, {w[0] + t * (w[2] - w[0]), w[1] + t * (w[3] - w[1]), 0});
+      out.push_back({m.x, m.y});
+    }
+  }
+  return out;
+}
+const std::vector<std::array<double, 4>> kRoom{{0, 0, 4, 0}, {4, 0, 4, 6}, {4, 6, 0, 6}, {0, 6, 0, 0}, {2, 2, 2, 4}};
+}  // namespace
+
+TEST(WallFit, RecoversShiftAndRotation) {
+  const ArenaCorr truth{0.12, -0.08, 0.06, 0};  // 3.4°
+  const auto f = fit_walls(kRoom, wall_cells(kRoom, truth, 0.05), {}, 0.35, 50, 0.01, 0.8, 0.35);
+  ASSERT_TRUE(f.ok) << f.why;
+  EXPECT_NEAR(f.c.dx, truth.dx, 0.005);
+  EXPECT_NEAR(f.c.dy, truth.dy, 0.005);
+  EXPECT_NEAR(f.c.dth, truth.dth, 0.002);
+  EXPECT_LT(f.rms, 0.005);
+  // 시작값이 가까우면 그대로 수렴 (mission_manager는 지난 결과에서 시작)
+  const auto g = fit_walls(kRoom, wall_cells(kRoom, truth, 0.05), {0.1, -0.1, 0.05, 0}, 0.35, 50, 0.01, 0.8, 0.35);
+  ASSERT_TRUE(g.ok);
+  EXPECT_NEAR(g.c.dth, truth.dth, 0.002);
+}
+
+TEST(WallFit, OutliersAndPlanErrors) {
+  // 벽 하나가 도면보다 4 cm 밀려 있음 · 경기장 안 물체(사람·상자 아님) 점 덩어리 — 회전은 그래도 1° 안
+  const ArenaCorr truth{-0.05, 0.10, -0.04, 0};
+  auto segs = kRoom;
+  segs[1] = {4.04, 0, 4.04, 6};
+  auto cells = wall_cells(segs, truth, 0.05);
+  for (int i = 0; i < 40; ++i) cells.push_back({1.0 + 0.01 * i, 3.0});  // gate 밖 덩어리
+  const auto f = fit_walls(kRoom, cells, {}, 0.35, 50, 0.01, 0.8, 0.35);
+  ASSERT_TRUE(f.ok) << f.why;
+  EXPECT_NEAR(f.c.dth, truth.dth, 0.017);
+  EXPECT_NEAR(f.c.dy, truth.dy, 0.03);
+}
+
+TEST(WallFit, OneWallIsDegenerate) {
+  // 벽 한 줄만 보이면 벽을 따라가는 방향을 모름 → ok 아님 (보정을 안 바꿈)
+  const std::vector<std::array<double, 4>> one{{0, 0, 4, 0}};
+  const auto f = fit_walls(kRoom, wall_cells(one, {0.05, 0.02, 0.0, 0}, 0.05), {}, 0.35, 50, 0.01, 0.8, 0.35);
+  EXPECT_FALSE(f.ok);
+  EXPECT_EQ(f.why, "degenerate");
+  EXPECT_EQ(fit_walls(kRoom, {}, {}, 0.35, 50, 0.01, 0.8, 0.35).why, "no_walls_or_cells");
+  EXPECT_EQ(fit_walls(kRoom, wall_cells(one, {}, 0.5), {}, 0.35, 50, 0.01, 0.8, 0.35).why, "few_cells");
+}
+
 TEST(MissionFlow, ParseGoto) {  // start:GOTO:<목록> — 실기 이동 시험
   StartCmd sc;
   std::string why;

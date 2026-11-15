@@ -599,6 +599,33 @@
       </geometry>
     </collision>
   </link>
+  <!-- pole_back_cam (11-15 장착): pole_front_cam을 폴 축(base_link x −0.20945, y 0 — base_link.stl 기둥 20×20 mm 단면 가운데)으로
+       180° 돌린 자리 · 같은 높이 · 아래 기울기 0.3142 rad(18°, 실측 — 앞은 19°)로 뒤를 봄. x = 2·(−0.20945) − (−0.137869) -->
+  <joint name="pole_back_cam_joint" type="fixed">
+    <parent link="base_link"/>
+    <child link="pole_back_cam_link"/>
+    <origin rpy="0.000000 0.314159 3.141593" xyz="-0.281031 -0.000185 0.436632"/>
+  </joint>
+  <link name="pole_back_cam_link">
+    <inertial>
+      <origin rpy="0 0 0" xyz="-0.013393 0.001408 -0.000023"/>
+      <mass value="0.072000"/>
+      <inertia ixx="4.6203e-05" ixy="4.1597e-07" ixz="2.0009e-08" iyy="6.9218e-06" iyz="3.6648e-09" izz="4.6614e-05"/>
+    </inertial>
+    <visual>
+      <origin rpy="0 0 0" xyz="0 0 0"/>
+      <geometry>
+        <mesh filename="$(arg mesh_uri)/camera_rear_link.stl" scale="0.001 0.001 0.001"/>
+      </geometry>
+      <material name="aluminum_d435"/>
+    </visual>
+    <collision>
+      <origin rpy="0.000000 0.000000 0.000000" xyz="-0.012525 -0.000058 -0.000000"/>
+      <geometry>
+        <box size="0.025050 0.089714 0.025000"/>
+      </geometry>
+    </collision>
+  </link>
   <joint name="arm_mount_joint" type="fixed">
     <parent link="base_link"/>
     <child link="arm_base_link"/>
@@ -869,6 +896,21 @@
     <origin rpy="-1.570796 0.000000 -1.570796" xyz="0.000000 0.000000 0.000000"/>
   </joint>
   <link name="pole_front_cam_depth_optical_frame"/>
+  <joint name="pole_back_cam_optical_joint" type="fixed">
+    <parent link="pole_back_cam_link"/>
+    <child link="pole_back_cam_color_optical_frame"/>
+    <!-- D435 RGB lens: +32.5 mm left of body center, 4.3 mm behind front glass (realsense-ros _d435.urdf.xacro) -->
+    <origin rpy="-1.570796 0.000000 -1.570796" xyz="-0.004300 0.032500 0.000000"/>
+  </joint>
+  <link name="pole_back_cam_color_optical_frame"/>
+  <joint name="pole_back_cam_depth_optical_joint" type="fixed">
+    <parent link="pole_back_cam_link"/>
+    <child link="pole_back_cam_depth_optical_frame"/>
+    <!-- RealSense point cloud is published in the depth optical frame. publish_tf=false라
+         (publish_tf는 URDF와 중복 방지용) 이 고정 프레임을 URDF가 제공해야 한다. -->
+    <origin rpy="-1.570796 0.000000 -1.570796" xyz="0.000000 0.000000 0.000000"/>
+  </joint>
+  <link name="pole_back_cam_depth_optical_frame"/>
   <joint name="gripper_cam_optical_joint" type="fixed">
     <parent link="gripper_cam_link"/>
     <child link="gripper_cam_color_optical_frame"/>

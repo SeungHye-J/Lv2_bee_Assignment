@@ -457,7 +457,7 @@ ROS 층 선택 (모든 명령 앞에 붙임):
     estop = sub.add_parser('estop', help='비상정지 on/off/status')
     estop.add_argument('state', type=str.lower, choices=('on', 'off', 'status'))
 
-    collision = sub.add_parser('collision', help='collision_monitor 켜기/끄기/상태 (MANUAL·MAPPING이면 자동으로 꺼짐 — 직접 바꿀 때)')
+    collision = sub.add_parser('collision', help='collision_monitor 켜기/끄기/상태 (MANUAL이면 자동으로 꺼짐 — 직접 바꿀 때)')
     collision.add_argument('state', type=str.lower, choices=('on', 'off', 'status'))
 
     bag = sub.add_parser('bag', help='bag 녹화 + CPU·메모리·GPU 부하 기록 — start | stop | status (메뉴 8)')

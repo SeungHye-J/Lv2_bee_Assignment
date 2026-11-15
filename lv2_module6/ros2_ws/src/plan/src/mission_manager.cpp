@@ -140,6 +140,13 @@ MissionManager::MissionManager()
   place_search_ = declare_parameter<double>("place_search", 0.05);
   corr_max_ = declare_parameter<double>("tag_correction_max", 0.05);
   acorr_on_ = declare_parameter<bool>("arena_correction", acorr_on_);
+  acorr_idle_ = declare_parameter<bool>("arena_corr_idle", acorr_idle_);
+  wall_fit_ = declare_parameter<bool>("arena_corr_wall_fit", wall_fit_);
+  wall_gate_ = declare_parameter<double>("arena_corr_wall_gate", wall_gate_);
+  wall_min_cells_ = static_cast<int>(declare_parameter<int64_t>("arena_corr_wall_min_cells", wall_min_cells_));
+  wall_min_eig_ = declare_parameter<double>("arena_corr_wall_min_eig", wall_min_eig_);
+  const double wall_period = declare_parameter<double>("arena_corr_wall_period", 2.0);
+  const auto wall_grid = declare_parameter<std::string>("arena_corr_wall_grid", "/nvblox_node/static_occupancy_grid");
   acorr_gate_ = declare_parameter<double>("arena_corr_gate", acorr_gate_);
   acorr_max_shift_ = declare_parameter<double>("arena_corr_max_shift", acorr_max_shift_);
   acorr_max_rot_ = declare_parameter<double>("arena_corr_max_rot", acorr_max_rot_);
@@ -234,6 +241,14 @@ MissionManager::MissionManager()
   markers_pub_ = create_publisher<visualization_msgs::msg::MarkerArray>("/mission/markers", latched);
   walls_pub_ = create_publisher<nav_msgs::msg::OccupancyGrid>("/arena/walls", latched);
   publish_walls();
+  corr_pub_ = create_publisher<std_msgs::msg::String>("/arena/correction", latched);
+  if (wall_fit_) {  // nvblox 격자는 보통 토픽(주기 발행) — best effort로 받으면 reliable 발행도 받음
+    grid_sub_ = create_subscription<nav_msgs::msg::OccupancyGrid>(wall_grid, rclcpp::SensorDataQoS().keep_last(1),
+      [this](nav_msgs::msg::OccupancyGrid::ConstSharedPtr m) { grid_ = m; });
+    wall_timer_ = create_wall_timer(std::chrono::duration<double>(wall_period), [this]() { wall_tick(); });
+  }
+  marks_.assign(start_boxes_.size() + loc_boxes_.size(), Mark{});  // 미션 전(arena_corr_idle)에도 보정
+  publish_corr("");
   cmd_sub_ = create_subscription<std_msgs::msg::String>("/cmd/mission", rclcpp::QoS(10).reliable(),
     [this](std_msgs::msg::String::ConstSharedPtr m) { on_command(m->data); });
   barcode_sub_ = create_subscription<std_msgs::msg::String>("/mission/qr", latched,
@@ -262,7 +277,7 @@ MissionManager::MissionManager()
   objects_sub_ = create_subscription<perception::msg::TrackedObjectArray>("/tracked_objects", rclcpp::QoS(5).reliable(),
     [this](perception::msg::TrackedObjectArray::ConstSharedPtr m) {
       objects_ = m;
-      if (active_ && acorr_on_) update_corr(*m);
+      if (acorr_on_ && (active_ || acorr_idle_)) update_corr(*m);
       for (const auto & o : m->objects)  // 태그를 읽은 퍽의 마지막 모습 — 안 보이게 돼도 그 자리로 바로 pick (locate)
         if (is_puck(o) && !detail(o, "tag").empty()) last_seen_[std::stoi(detail(o, "tag"))] = o;
     });
@@ -320,7 +335,15 @@ void MissionManager::on_command(const std::string & cmd) {
   lying_.clear();
   corr_.assign(locations_.size(), {0.0, 0.0});
   marks_.assign(start_boxes_.size() + loc_boxes_.size(), Mark{});
+  acorr_seen_.clear();
+  acorr_used_.clear();
+  acorr_src_ = "none";
+  wall_ok_ = false;
+  wall_ = {};
+  wall_why_.clear();
+  acorr_sent_.clear();
   if (acorr_.n) { acorr_ = {}; publish_walls(); }
+  publish_corr("");  // active true
   acorr_walls_ = {};
   barcode_.clear();
   error_.clear();
@@ -1411,6 +1434,8 @@ bool MissionManager::robot_arena(Pose2 & p) const {
 // ---------- 도면 보정 — 인지 상자(윗면 가운데, map) ↔ 도면 상자 짝으로 arena → map 변환을 고침
 //   start_box는 9개 상자 전부와 (태그 못 본 장소 상자도 start_box로 나옴), location_box는 태그의 장소 상자와만 짝지음.
 //   gate 안에 하나뿐일 때만 · 로봇에서 arena_corr_range 안 · arena_corr_min_hits번 본 짝만 맞춤에 씀
+//   영상 끝에 잘린 상자(cut — 중심을 못 믿음)와 같은 관측의 재발행(last_seen 그대로)은 안 셈 — 트랙은 안 보여도 계속 나와서
+//   한 번 본 것이 min_hits를 바로 채웠음 (11-15 실기 approach_loop snap에서 확인한 거름을 여기로)
 void MissionManager::update_corr(const perception::msg::TrackedObjectArray & m) {
   const size_t ns = start_boxes_.size();
   if (marks_.size() != ns + loc_boxes_.size()) return;
@@ -1428,13 +1453,23 @@ void MissionManager::update_corr(const perception::msg::TrackedObjectArray & m) 
     if (!start_box && o.class_name != "location_box") continue;
     const auto dist = detail(o, "distance");
     if (!dist.empty() && std::stod(dist) > acorr_range_) continue;
+    if (detail(o, "cut") == "true") continue;
+    const std::pair<int32_t, uint32_t> stamp{o.last_seen.sec, o.last_seen.nanosec};
+    const auto it = acorr_seen_.find(o.id);
+    if (it != acorr_seen_.end() && it->second == stamp) continue;
+    acorr_seen_[o.id] = stamp;
     const double qx = o.pose.pose.position.x, qy = o.pose.pose.position.y;
     int k = -1;
-    if (start_box) k = match_landmark(qx, qy, cands, acorr_gate_);
-    else {
+    // 지금 보정한 자리에서 못 찾으면 도면 그대로의 자리에서도 — 상자 둘로 맞춘 회전이 먼 상자를 0.47 m 옮겨 그 상자가
+    //   gate 밖이 되면 다시는 근거가 못 됐음 (11-15 실기 bag approach_1115_094224 재생: S6·L2 → 10° · S3 영영 빠짐)
+    if (start_box) {
+      k = match_landmark(qx, qy, cands, acorr_gate_);
+      if (k < 0) k = match_landmark(qx, qy, raw, acorr_gate_);
+    } else {
       const auto t = detail(o, "tag");
       for (size_t li = 0; li < loc_tags_.size() && ns + li < cands.size(); ++li)
-        if (t == str(loc_tags_[li]) && std::hypot(cands[ns + li].first - qx, cands[ns + li].second - qy) < acorr_gate_)
+        if (t == str(loc_tags_[li]) && (std::hypot(cands[ns + li].first - qx, cands[ns + li].second - qy) < acorr_gate_ ||
+                                        std::hypot(raw[ns + li].first - qx, raw[ns + li].second - qy) < acorr_gate_))
           k = static_cast<int>(ns + li);
     }
     if (k < 0) continue;
@@ -1450,22 +1485,99 @@ void MissionManager::update_corr(const perception::msg::TrackedObjectArray & m) 
   for (size_t i = 0; i < marks_.size(); ++i)
     if (marks_[i].hits >= acorr_min_hits_) pairs.push_back({raw[i].first, raw[i].second, marks_[i].qx, marks_[i].qy});
   if (pairs.empty()) return;
-  const auto c = fit_arena_corr(pairs, acorr_min_sep_, acorr_max_shift_, acorr_max_rot_, acorr_outlier_);
-  const auto moved = [](const ArenaCorr & a, const ArenaCorr & b, double m, double r) {
-    return std::hypot(a.dx - b.dx, a.dy - b.dy) > m || std::abs(a.dth - b.dth) > r;
-  };
-  if (c.n == acorr_.n && !moved(c, acorr_, acorr_step_m_, acorr_step_rad_)) return;  // 작은 흔들림은 버림 (목표·기록이 흔들리지 않게)
-  acorr_ = c;
   std::string used;
   for (size_t i = 0; i < marks_.size(); ++i)
     if (marks_[i].hits >= acorr_min_hits_) used += (used.empty() ? "\"" : ", \"") + (i < ns ? "S" + str(static_cast<int>(i + 1)) : "L" + str(static_cast<int>(i - ns + 1))) + "\"";
-  RCLCPP_INFO(get_logger(), "도면 보정 dx %+.3f dy %+.3f dθ %+.1f° (근거 %d개 · 본 상자 %zu개)", c.dx, c.dy, c.dth * 180 / M_PI, c.n, pairs.size());
+  // 벽 정합이 맞으면 보정 자체는 벽으로 (상자 짝은 상자마다 인지 위치 marks만) — 상자 둘로 맞춘 회전은 10°씩 틀림 (bag 094224)
+  const auto c = wall_ok_ ? acorr_ : fit_arena_corr(pairs, acorr_min_sep_, acorr_max_shift_, acorr_max_rot_, acorr_outlier_);
+  if (wall_ok_ || (c.n == acorr_.n && !corr_moved(c, acorr_, acorr_step_m_, acorr_step_rad_))) {  // 작은 흔들림은 버림 (목표·기록이 흔들리지 않게)
+    // 근거 상자가 늘거나 상자 하나의 인지 위치가 step만큼 움직이면 알림 (approach_loop는 그 상자 자리를 직접 씀)
+    bool mark_moved = used != acorr_used_;
+    for (size_t i = 0; i < marks_.size() && i < acorr_sent_.size(); ++i)
+      mark_moved |= marks_[i].hits >= acorr_min_hits_ &&
+                    std::hypot(marks_[i].qx - acorr_sent_[i].first, marks_[i].qy - acorr_sent_[i].second) > acorr_step_m_;
+    if (mark_moved) { acorr_used_ = used; publish_corr(used); }
+    return;
+  }
+  acorr_used_ = used;
+  commit_corr(c, "boxes", fmt("근거 %.0f개 · 본 상자 %.0f개", c.n, static_cast<double>(pairs.size())));
+}
+
+bool MissionManager::corr_moved(const ArenaCorr & a, const ArenaCorr & b, double m, double r) {
+  return std::hypot(a.dx - b.dx, a.dy - b.dy) > m || std::abs(a.dth - b.dth) > r;
+}
+
+void MissionManager::commit_corr(const ArenaCorr & c, const char * src, const std::string & why) {
+  acorr_ = c;
+  acorr_src_ = src;
+  RCLCPP_INFO(get_logger(), "도면 보정 dx %+.3f dy %+.3f dθ %+.1f° (%s: %s)%s", c.dx, c.dy, c.dth * 180 / M_PI, src, why.c_str(),
+              active_ ? "" : " — 미션 전");
+  publish_corr(acorr_used_);
   char line[256];
-  std::snprintf(line, sizeof(line), "{\"t\": %.3f, \"phase\": \"%s\", \"dx\": %.4f, \"dy\": %.4f, \"dth_deg\": %.2f, \"n\": %d, \"boxes\": [",
-                wall_s() - mission_t0_, phase_name(phase_), c.dx, c.dy, c.dth * 180 / M_PI, c.n);
-  append_log("arena_correction.jsonl", line + used + "]}");
+  std::snprintf(line, sizeof(line), "{\"t\": %.3f, \"phase\": \"%s\", \"src\": \"%s\", \"dx\": %.4f, \"dy\": %.4f, \"dth_deg\": %.2f, \"n\": %d, "
+                "\"wall_rms\": %.4f, \"boxes\": [", wall_s() - mission_t0_, phase_name(phase_), src, c.dx, c.dy, c.dth * 180 / M_PI, c.n,
+                wall_.rms);
+  append_log("arena_correction.jsonl", line + acorr_used_ + "]}");
   // /arena/walls 다시 보내기는 크게 바뀔 때만 — 보낼 때마다 Nav2 costmap 정적 층이 다시 잡힘 (11-14: 주행 중 10번 → 벽에 부딪힘)
-  if (acorr_walls_m_ > 0 && moved(acorr_, acorr_walls_, acorr_walls_m_, acorr_walls_rad_)) { acorr_walls_ = acorr_; publish_walls(); }
+  if (acorr_walls_m_ > 0 && corr_moved(acorr_, acorr_walls_, acorr_walls_m_, acorr_walls_rad_)) { acorr_walls_ = acorr_; publish_walls(); }
+}
+
+// 벽 정합 — nvblox 2D 점유 격자(/map 말고 원본: /map에는 도면 벽이 겹쳐 있어 자기 자신에 맞춰짐)의 점유 칸을 도면 벽에 맞춤.
+//   앞뒤 카메라가 본 벽 전부가 근거라 상자 인지 없이 회전이 잡힘. 지난 결과(없으면 지금 보정)에서 시작
+void MissionManager::wall_tick() {
+  if (!acorr_on_ || !(active_ || acorr_idle_) || !grid_ || walls_.size() < 4) return;
+  const auto & g = *grid_;
+  std::vector<std::pair<double, double>> cells;
+  const double res = g.info.resolution;
+  const int w = static_cast<int>(g.info.width), h = static_cast<int>(g.info.height);
+  const auto at = [&g, w, h](int r, int k) { return r < 0 || k < 0 || r >= h || k >= w ? -1 : g.data[static_cast<size_t>(r) * w + k]; };
+  // 벽 겉면만 = 빈 칸(0)과 맞닿은 점유 칸 — nvblox 벽은 ~20 cm 두께로 뒤로 번져, 다 쓰면 한쪽 벽만 보일 때 그쪽으로 끌림
+  //   (11-15 지도 20261115_094059: 위 벽을 못 봐서 아래 벽 띠 가운데로 dy −0.35 m)
+  for (int r = 0; r < h; ++r)
+    for (int k = 0; k < w; ++k)
+      if (at(r, k) >= 50 && (at(r - 1, k) == 0 || at(r + 1, k) == 0 || at(r, k - 1) == 0 || at(r, k + 1) == 0))
+        cells.push_back({g.info.origin.position.x + (k + 0.5) * res, g.info.origin.position.y + (r + 0.5) * res});
+  std::vector<std::array<double, 4>> segs;
+  for (size_t i = 0; i + 3 < walls_.size(); i += 4) {
+    const auto a = arena_to_map({walls_[i], walls_[i + 1], 0}, start_), b = arena_to_map({walls_[i + 2], walls_[i + 3], 0}, start_);
+    segs.push_back({a.x, a.y, b.x, b.y});
+  }
+  const auto f = fit_walls(segs, cells, wall_ok_ ? wall_.c : acorr_, wall_gate_, wall_min_cells_, wall_min_eig_, acorr_max_shift_,
+                           acorr_max_rot_);
+  if (!f.ok) {
+    if (f.why != wall_why_) RCLCPP_INFO(get_logger(), "벽 정합 안 됨 (%s · 맞은 칸 %d · 고유값 %.3f)%s", f.why.c_str(), f.inliers, f.min_eig,
+                                        wall_ok_ ? " — 지난 벽 보정 유지" : " — 상자 보정");
+    wall_why_ = f.why;
+    return;
+  }
+  wall_why_.clear();
+  const bool first = !wall_ok_;
+  wall_ok_ = true;
+  wall_ = f;
+  if (first || corr_moved(f.c, acorr_, acorr_step_m_, acorr_step_rad_))
+    commit_corr(f.c, "walls", fmt("맞은 칸 %.0f · rms %.1f cm", f.inliers, f.rms * 100));
+}
+
+void MissionManager::publish_corr(const std::string & used) {
+  // used = 근거 상자 이름 '"S3", "L1"' (min_hits 채운 것)
+  //   marks = 상자마다 인지 위치 지수 평균 (map) · 본 횟수 — min_hits 넘은 것만
+  char head[160];
+  std::snprintf(head, sizeof(head), "{\"dx\": %.4f, \"dy\": %.4f, \"dth\": %.5f, \"n\": %d, \"src\": \"%s\", \"active\": %s, \"boxes\": [",
+                acorr_.dx, acorr_.dy, acorr_.dth, acorr_.n, acorr_src_.c_str(), active_ ? "true" : "false");
+  std::string marks;
+  const size_t ns = start_boxes_.size();
+  acorr_sent_.assign(marks_.size(), {1e9, 1e9});
+  for (size_t i = 0; i < marks_.size(); ++i) {
+    if (marks_[i].hits < acorr_min_hits_) continue;
+    char e[96];
+    std::snprintf(e, sizeof(e), "%s\"%s%zu\": [%.4f, %.4f, %d]", marks.empty() ? "" : ", ", i < ns ? "S" : "L",
+                  i < ns ? i + 1 : i - ns + 1, marks_[i].qx, marks_[i].qy, marks_[i].hits);
+    marks += e;
+    acorr_sent_[i] = {marks_[i].qx, marks_[i].qy};
+  }
+  std_msgs::msg::String m;
+  m.data = head + used + "], \"marks\": {" + marks + "}}";
+  corr_pub_->publish(m);
 }
 
 // 경기장 벽을 map 격자로 (/arena/walls, latched) — nvblox_map이 /map에 겹쳐 Nav2가 매핑 처음부터 벽을 앎.

@@ -72,8 +72,10 @@ mission_manager:             # 주사위 기억 미션 (documents/mission/README
     tag_correction_max: 0.05                 # [m] 놓기 직전 인지 location_box(상자 윗면 가운데)가 예상 상자 중심에서 어긋난 만큼 칸을 옮기는 최대 거리 — 넘으면 잘못 본 것으로 보고 보정 안 함
     # 도면 보정 — 경기장이 도면(위 좌표)과 100 % 같지 않고 출발 자세도 대충이라, 달리며 본 시작 박스·장소 상자(윗면 가운데)를
     #   도면 상자와 짝지어 arena → map 변환에 (dx, dy, dθ)를 더함. 다가설 자리·장소·복귀·/arena/walls 전부 (회차 시작마다 0부터)
-    #   기록: 로그 "도면 보정 dx … (근거 n개)" · <회차>/arena_correction.jsonl
+    #   기록: 로그 "도면 보정 dx … (근거 n개)" · <회차>/arena_correction.jsonl · /arena/correction (latched JSON)
+    #   영상 끝에 잘린 상자(cut)와 같은 관측의 재발행(last_seen 그대로)은 안 셈
     arena_correction: true
+    arena_corr_idle: true          # 미션이 없을 때도 보정해 /arena/correction으로 냄 (approach_loop.py --real이 그 값으로 목표를 잡음) — 미션 시작하면 0부터
     arena_corr_gate: 0.6           # [m] 인지 상자가 (지금 보정한) 도면 상자에서 이 안이고 다른 상자는 그보다 0.25 m 넘게 멀 때만 짝
     arena_corr_range: 2.5          # [m] 로봇에서 이보다 먼 상자는 안 씀 (depth 오차)
     arena_corr_min_hits: 3         # 같은 상자를 이만큼 봐야 근거로 씀 (한 프레임 오인 거름)
@@ -84,6 +86,15 @@ mission_manager:             # 주사위 기억 미션 (documents/mission/README
     arena_corr_max_rot: 0.35       # [rad] 회전 한계 (20°)
     arena_corr_step_m: 0.03        # [m] 보정을 바꾸는 최소 변화 — 그 안 흔들림은 버림 (11-14 실기: 2~3 cm씩 흔들림)
     arena_corr_step_rad: 0.017     # [rad] (1°)
+    # 벽 정합 — nvblox 2D 격자(원본 — /map은 도면 벽이 겹쳐 있어 안 씀)의 점유 칸을 arena_walls에 점-선 ICP로 맞춤. 앞뒤 카메라가 본
+    #   벽 전부가 근거라 상자 인지 없이 회전까지. 맞으면 보정(dx, dy, dθ)은 벽으로, 상자 인지는 상자마다 위치(marks)만 — 상자 둘로 맞춘
+    #   회전은 10°씩 틀림 (11-15 bag approach_1115_094224 재생). 안 맞으면(벽이 한 방향만 · 칸 부족) 예전처럼 상자로
+    #   상자(7 cm)는 격자에 없음 (esdf_slice_min_height 0.08) — 벽만
+    arena_corr_wall_fit: false     # 11-15 실기 주행이 이상해 예전(상자 보정)으로 되돌림 — 시험할 때 true
+    arena_corr_wall_gate: 0.3      # [m] 도면 벽에서 이 안의 칸만 (그 밖 = 상자·사람·도면에 없는 것)
+    arena_corr_wall_min_cells: 60  # 맞은 칸(벽 겉면 — 빈 칸과 맞닿은 점유 칸)이 이보다 적으면 안 씀 (5 cm 칸 → 벽 3 m)
+    arena_corr_wall_min_eig: 0.03  # x · y · 회전이 다 묶여야 (벽 한 줄만 보이면 그 벽을 따라가는 방향을 모름)
+    arena_corr_wall_period: 2.0    # [s] 다시 맞추는 주기 (nvblox 격자 2 Hz)
     arena_corr_walls_m: 0.15       # [m] /arena/walls(도면 벽)를 다시 보내는 최소 변화 — 보낼 때마다 Nav2 costmap이 다시 잡힘 · 0 = 안 보냄
     arena_corr_walls_rad: 0.087    # [rad] (5°)
     # 적재함: 장부(칸 → tag)는 coordinator가 씀 (/coordinator/basket) — 쓰는 칸은 coordinator basket_use. 다 차면 나머지는 시작 박스에서 직접 운반
