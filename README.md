@@ -43,12 +43,14 @@
 
 | 이름 | 기여도 | 그래프 |
 |:---|---:|:---:|
-| visualkhh (김현하) | 37.8% | `████████████████` |
-| JuneKunst (권형중) | 36.7% | `███████████████·` |
-| cowsjh (송정혁) | 19.8% | `████████········` |
-| SeungHye-J (전승혜) | 5.7% | `██··············` |
+| JuneKunst (권형중) | 44.3% | `████████████████` |
+| visualkhh (김현하) | 31.0% | `███████████·····` |
+| cowsjh (송정혁) | 19.2% | `███████·········` |
+| SeungHye-J (전승혜) | 5.3% | `██··············` |
+| git:bee-jetson (bee-jetson) | 0.1% | `█···············` |
+| git:tmp (tmp) | 0.1% | `█···············` |
 
-> 데이터: `git log --all`(merge·봇 제외) + GitHub API(이슈·PR·리뷰) · 전체 원격 브랜치 **115개** · 기간 2026-10-14 ~ 2026-11-15 · 갱신 2026-11-15 07:49 KST
+> 데이터: `git log --all`(merge·봇 제외) + GitHub API(이슈·PR·리뷰) · 전체 원격 브랜치 **172개** · 기간 2026-10-14 ~ 2026-11-16 · 갱신 2026-11-16 07:58 KST
 > 가중치: 커밋×1 + 머지 PR×3 + 리뷰×2 + 닫은 이슈×2 + 연 이슈×0.5 · 장기 정체 = 열린 이슈 + 할당됨 + 14일 이상 갱신 없음 · **댓글 없는 닫힘은 이슈 처리량에서 제외**
 
 <details>
@@ -57,10 +59,12 @@
 > 위 기여도 %는 **코드 기여(커밋·머지 PR·리뷰)**만. 아래 점수는 이슈 처리까지 포함한 참고값이다.
 
 ```text
-visualkhh (김현하)             ██████████████████████████   468
-JuneKunst (권형중)             ██████████████████████····   402
-cowsjh (송정혁)                ████████████··············   222
-SeungHye-J (전승혜)            ████······················    67
+JuneKunst (권형중)             ██████████████████████████   600
+visualkhh (김현하)             ████████████████████······   473
+cowsjh (송정혁)                ███████████···············   264
+SeungHye-J (전승혜)            ███·······················    76
+git:bee-jetson (bee-jetson)    █·························     2
+git:tmp (tmp)                  █·························     2
 ```
 
 </details>
@@ -68,41 +72,49 @@ SeungHye-J (전승혜)            ████·················
 ### 💻 커밋 (전체 브랜치)
 
 ```text
-visualkhh (김현하)             ██████████████████████████   287
-JuneKunst (권형중)             ███████████████████·······   214
-cowsjh (송정혁)                █████████████·············   141
-SeungHye-J (전승혜)            ███·······················    30
+JuneKunst (권형중)             ██████████████████████████   314
+visualkhh (김현하)             ████████████████████████··   289
+cowsjh (송정혁)                █████████████·············   159
+SeungHye-J (전승혜)            ███·······················    33
+git:bee-jetson (bee-jetson)    █·························     2
+git:tmp (tmp)                  █·························     2
 ```
 
 ### 🚀 GitHub PR (올림/머지)
 
 ```text
-visualkhh (김현하)             ████████████··············   38  (머지 35)
-JuneKunst (권형중)             ██████████████████████████   83  (머지 57)
-cowsjh (송정혁)                ████████··················   24  (머지 20)
-SeungHye-J (전승혜)            ████······················   12  (머지 10)
+JuneKunst (권형중)             ██████████████████████████  121  (머지 89)
+visualkhh (김현하)             ████████··················   39  (머지 36)
+cowsjh (송정혁)                ████████··················   39  (머지 28)
+SeungHye-J (전승혜)            ███·······················   15  (머지 12)
+git:bee-jetson (bee-jetson)    ··························    0  (머지 0)
+git:tmp (tmp)                  ··························    0  (머지 0)
 ```
 
 ### 🌿 브랜치 · develop 머지 (PR 기준)
 
 | 이름 | 브랜치 | develop 머지 PR | 머지된 커밋 | +줄 | -줄 |
 |:---|---:|---:|:---:|---:|---:|
-| visualkhh (김현하) | 8 | 28 | `████████████` 258 | +52,109 | -30,631 |
-| JuneKunst (권형중) | 83 | 54 | `███████·····` 160 | +29,191 | -5,320 |
-| cowsjh (송정혁) | 17 | 17 | `█████·······` 108 | +44,706 | -12,483 |
-| SeungHye-J (전승혜) | 5 | 9 | `█···········` 26 | +7,692 | -1,080 |
+| JuneKunst (권형중) | 121 | 86 | `███████████·` 244 | +33,865 | -5,931 |
+| visualkhh (김현하) | 9 | 29 | `████████████` 259 | +52,182 | -30,633 |
+| cowsjh (송정혁) | 31 | 25 | `█████·······` 117 | +49,656 | -12,909 |
+| SeungHye-J (전승혜) | 8 | 11 | `█···········` 28 | +7,947 | -1,109 |
+| git:bee-jetson (bee-jetson) | 0 | 0 | `█···········` 1 | +0 | -0 |
+| git:tmp (tmp) | 0 | 0 | `············` 0 | +0 | -0 |
 
 > 브랜치·develop 머지 PR 수와 +/−는 **PR 작성자**(PR diff), 머지된 커밋은 **커밋 작성자** 기준. PR 내 merge commit과 중복 커밋은 제외한다.
 
 <details>
 <summary>📅 날짜별 브랜치 생성 (최신 → 과거)</summary>
 
-| 이름 | 11-15 | 11-14 | 11-13 | 11-12 | 11-11 | 11-10 | 11-09 | 11-08 | 11-07 | 11-06 | 11-05 | 11-04 | 11-03 | 11-02 |
+| 이름 | 11-16 | 11-15 | 11-14 | 11-13 | 11-12 | 11-11 | 11-10 | 11-09 | 11-08 | 11-07 | 11-06 | 11-05 | 11-04 | 11-03 |
 |:---|:---:|:---:|:---:|:---:|:---:|:---:|:---:|:---:|:---:|:---:|:---:|:---:|:---:|:---:|
-| visualkhh (김현하) | 0 | 1 | 0 | 2 | 0 | 0 | 0 | 0 | 1 | 0 | 2 | 0 | 0 | 0 |
-| JuneKunst (권형중) | 0 | 16 | 9 | 14 | 3 | 7 | 1 | 0 | 0 | 8 | 0 | 3 | 5 | 4 |
-| cowsjh (송정혁) | 1 | 1 | 1 | 3 | 0 | 0 | 0 | 3 | 4 | 0 | 0 | 0 | 0 | 1 |
-| SeungHye-J (전승혜) | 0 | 0 | 1 | 1 | 0 | 1 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 |
+| JuneKunst (권형중) | 10 | 28 | 16 | 9 | 14 | 3 | 7 | 1 | 0 | 0 | 8 | 0 | 3 | 5 |
+| visualkhh (김현하) | 0 | 1 | 1 | 0 | 2 | 0 | 0 | 0 | 0 | 1 | 0 | 2 | 0 | 0 |
+| cowsjh (송정혁) | 10 | 5 | 1 | 1 | 3 | 0 | 0 | 0 | 3 | 4 | 0 | 0 | 0 | 0 |
+| SeungHye-J (전승혜) | 1 | 2 | 0 | 1 | 1 | 0 | 1 | 0 | 0 | 0 | 0 | 0 | 0 | 0 |
+| git:bee-jetson (bee-jetson) | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 |
+| git:tmp (tmp) | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 |
 
 > 최근 14일, 왼쪽이 최신. 셀 = PR 생성일 기준 고유 브랜치 수.
 
@@ -110,31 +122,37 @@ SeungHye-J (전승혜)            ████·················
 
 ### 📅 날짜별 머지된 커밋 (최신 → 과거)
 
-| 이름 | 11-15 | 11-14 | 11-13 | 11-12 | 11-11 | 11-10 | 11-09 | 11-08 | 11-07 | 11-06 | 11-05 | 11-04 | 11-03 | 11-02 |
+| 이름 | 11-16 | 11-15 | 11-14 | 11-13 | 11-12 | 11-11 | 11-10 | 11-09 | 11-08 | 11-07 | 11-06 | 11-05 | 11-04 | 11-03 |
 |:---|:---:|:---:|:---:|:---:|:---:|:---:|:---:|:---:|:---:|:---:|:---:|:---:|:---:|:---:|
-| visualkhh (김현하) | `·····` 0 | `█····` 1 | `█····` 9 | `██···` 27 | `██···` 23 | `████·` 43 | `█····` 3 | `███··` 33 | `·····` 0 | `█████` 61 | `█····` 1 | `·····` 0 | `·····` 0 | `█····` 5 |
-| JuneKunst (권형중) | `█····` 2 | `█····` 15 | `████·` 47 | `█····` 15 | `█····` 15 | `·····` 0 | `·····` 0 | `·····` 0 | `█····` 2 | `█····` 5 | `·····` 0 | `███··` 40 | `·····` 0 | `██···` 19 |
-| cowsjh (송정혁) | `███··` 39 | `█····` 1 | `█····` 1 | `█····` 8 | `·····` 0 | `█····` 5 | `█····` 9 | `·····` 0 | `·····` 0 | `██···` 26 | `█····` 1 | `█····` 8 | `·····` 0 | `█····` 7 |
-| SeungHye-J (전승혜) | `·····` 0 | `·····` 0 | `█····` 1 | `█····` 8 | `█····` 6 | `·····` 0 | `█····` 1 | `·····` 0 | `·····` 0 | `·····` 0 | `·····` 0 | `█····` 1 | `·····` 0 | `█····` 8 |
+| JuneKunst (권형중) | `███··` 42 | `████·` 44 | `█····` 15 | `████·` 47 | `█····` 15 | `█····` 15 | `·····` 0 | `·····` 0 | `·····` 0 | `█····` 2 | `█····` 5 | `·····` 0 | `███··` 40 | `·····` 0 |
+| visualkhh (김현하) | `·····` 0 | `█····` 1 | `█····` 1 | `█····` 9 | `██···` 27 | `██···` 23 | `████·` 43 | `█····` 3 | `███··` 33 | `·····` 0 | `█████` 61 | `█····` 1 | `·····` 0 | `·····` 0 |
+| cowsjh (송정혁) | `█····` 1 | `████·` 47 | `█····` 1 | `█····` 1 | `█····` 8 | `·····` 0 | `█····` 5 | `█····` 9 | `·····` 0 | `·····` 0 | `██···` 26 | `█····` 1 | `█····` 8 | `·····` 0 |
+| SeungHye-J (전승혜) | `·····` 0 | `█····` 2 | `·····` 0 | `█····` 1 | `█····` 8 | `█····` 6 | `·····` 0 | `█····` 1 | `·····` 0 | `·····` 0 | `·····` 0 | `·····` 0 | `█····` 1 | `·····` 0 |
+| git:bee-jetson (bee-jetson) | `·····` 0 | `█····` 1 | `·····` 0 | `·····` 0 | `·····` 0 | `·····` 0 | `·····` 0 | `·····` 0 | `·····` 0 | `·····` 0 | `·····` 0 | `·····` 0 | `·····` 0 | `·····` 0 |
+| git:tmp (tmp) | `·····` 0 | `·····` 0 | `·····` 0 | `·····` 0 | `·····` 0 | `·····` 0 | `·····` 0 | `·····` 0 | `·····` 0 | `·····` 0 | `·····` 0 | `·····` 0 | `·····` 0 | `·····` 0 |
 
 > 최근 14일, 왼쪽이 최신. 머지 PR·+/−는 **PR 작성자**, 커밋은 **커밋 작성자** 기준(merge commit·중복 제외). 막대는 전체 셀 최대값 기준.
 
 ### 🔍 PR 리뷰 참여
 
 ```text
+JuneKunst (권형중)             █████████████████████·····    9  (PR 9개)
 visualkhh (김현하)             ██████████████████████████   11  (PR 9개)
-JuneKunst (권형중)             ███████████████████·······    8  (PR 8개)
 cowsjh (송정혁)                ███████████████████·······    8  (PR 8개)
 SeungHye-J (전승혜)            ██························    1  (PR 1개)
+git:bee-jetson (bee-jetson)    ··························    0  (PR 0개)
+git:tmp (tmp)                  ··························    0  (PR 0개)
 ```
 
 ### 🧾 이슈 (열음 / 본인 이슈 닫음)
 
 ```text
-visualkhh (김현하)             열음 ██████████████████████████  51 · 본인 닫음 ██████████████████████████  14
 JuneKunst (권형중)             열음 █·························   2 · 본인 닫음 ··························   0
+visualkhh (김현하)             열음 ██████████████████████████  52 · 본인 닫음 ██████████████████████████  14
 cowsjh (송정혁)                열음 █████·····················  10 · 본인 닫음 ··························   0
 SeungHye-J (전승혜)            열음 █·························   2 · 본인 닫음 ████······················   2
+git:bee-jetson (bee-jetson)    열음 ··························   0 · 본인 닫음 ··························   0
+git:tmp (tmp)                  열음 ··························   0 · 본인 닫음 ··························   0
 ```
 
 댓글 없는 닫힘, 다른 사람이 연 이슈 닫음은 제외했습니다.
@@ -146,22 +164,22 @@ SeungHye-J (전승혜)            열음 █··················
 
 그래프는 왼쪽, 숫자는 오른쪽에 붙입니다. 막대는 항목별 최대값 기준입니다. (`█` = 큼, `·` = 작음)
 
-| 항목 | visualkhh<br>(김현하) | JuneKunst<br>(권형중) | cowsjh<br>(송정혁) | SeungHye-J<br>(전승혜) |
-|---|:---|:---|:---|:---|
-| 커밋 | `████████      287` | `██████··      214` | `████····      141` | `█·······       30` |
-| 증감 + | `█████···  106,810` | `█·······   33,544` | `████████  183,136` | `█·······   12,409` |
-| 증감 − | `████····   45,898` | `█·······    9,655` | `████████   86,066` | `█·······    1,795` |
-| 이슈 열음 | `████████       51` | `█·······        2` | `██······       10` | `█·······        2` |
-| 이슈 닫음(댓글·본인) | `████████       14` | `········        0` | `········        0` | `█·······        2` |
-| 담당 열린 | `········        0` | `████████       16` | `███·····        6` | `████····        7` |
-| 누적 할당 | `███████·       17` | `████████       18` | `███·····        7` | `████████       19` |
-| PR 올림 | `████····       38` | `████████       83` | `██······       24` | `█·······       12` |
-| PR 머지 | `█████···       35` | `████████       57` | `███·····       20` | `█·······       10` |
-| 리뷰 | `████████       11` | `██████··        8` | `██████··        8` | `█·······        1` |
-| 정체 | `········        0` | `████····        1` | `████····        1` | `████████        2` |
-| 점수 | `████████      468` | `███████·      402` | `████····      222` | `█·······       67` |
+| 항목 | JuneKunst<br>(권형중) | visualkhh<br>(김현하) | cowsjh<br>(송정혁) | SeungHye-J<br>(전승혜) | git:bee-jetson<br>(bee-jetson) | git:tmp<br>(tmp) |
+|---|:---|:---|:---|:---|:---|:---|
+| 커밋 | `████████      314` | `███████·      289` | `████····      159` | `█·······       33` | `█·······        2` | `█·······        2` |
+| 증감 + | `███·····   89,495` | `████····  106,905` | `████████  231,193` | `█·······   12,946` | `█·······    1,026` | `█·······      366` |
+| 증감 − | `█·······   10,966` | `███·····   45,915` | `████████  126,666` | `█·······    1,834` | `█·······       58` | `█·······       38` |
+| 이슈 열음 | `█·······        2` | `████████       52` | `██······       10` | `█·······        2` | `········        0` | `········        0` |
+| 이슈 닫음(댓글·본인) | `········        0` | `████████       14` | `········        0` | `█·······        2` | `········        0` | `········        0` |
+| 담당 열린 | `████████       17` | `········        0` | `███·····        6` | `████····        8` | `········        0` | `········        0` |
+| 누적 할당 | `████████       19` | `███████·       17` | `███·····        7` | `████████       20` | `········        0` | `········        0` |
+| PR 올림 | `████████      121` | `███·····       39` | `███·····       39` | `█·······       15` | `········        0` | `········        0` |
+| PR 머지 | `████████       89` | `███·····       36` | `███·····       28` | `█·······       12` | `········        0` | `········        0` |
+| 리뷰 | `███████·        9` | `████████       11` | `██████··        8` | `█·······        1` | `········        0` | `········        0` |
+| 정체 | `████····        1` | `········        0` | `████····        1` | `████████        2` | `········        0` | `········        0` |
+| 점수 | `████████      600` | `██████··      473` | `████····      264` | `█·······       76` | `█·······        2` | `█·······        2` |
 
-마지막 작업: visualkhh (김현하) 2026-11-15 · JuneKunst (권형중) 2026-11-14 · cowsjh (송정혁) 2026-11-15 · SeungHye-J (전승혜) 2026-11-13
+마지막 작업: JuneKunst (권형중) 2026-11-16 · visualkhh (김현하) 2026-11-16 · cowsjh (송정혁) 2026-11-16 · SeungHye-J (전승혜) 2026-11-16 · git:bee-jetson (bee-jetson) 2026-11-14 · git:tmp (tmp) 2026-11-13
 
 </details>
 
@@ -170,40 +188,42 @@ SeungHye-J (전승혜)            열음 █··················
 
 할당된 사람이 있는 **열린 이슈 전부**입니다. 괄호 안은 **개설 후 경과일 · 마지막 갱신 후 경과일**이고, **정체** 표시는 14일 이상 갱신이 없는 항목입니다. "이슈를 받고도 안 한다"는 뜻이 아니며, 장기 작업·블로킹·외부 대기일 수 있습니다.
 
-- **JuneKunst (권형중)** 16건 ████████████ (정체 1)
-  - [#12 플랜-미션에 맞는 플랜처리 방안](https://github.com/visualkhh/Lv2_bee_Assignment/issues/12) — 개설 20일 · 갱신 17일 전 · **정체**
-  - [#104 \[plan\]\[mission_manager\] plan_next(학습 플래너) 실기·시뮬레이터 확인](https://github.com/visualkhh/Lv2_bee_Assignment/issues/104) — 개설 4일 · 갱신 4일 전
-  - [#105 \[plan\]\[coordinator\] 재계획 제거 뒤 연속 실패 처리 확인](https://github.com/visualkhh/Lv2_bee_Assignment/issues/105) — 개설 4일 · 갱신 4일 전
-  - [#107 \[skills\]\[skill_pick·skill_unload\] ](https://github.com/visualkhh/Lv2_bee_Assignment/issues/107) — 개설 4일 · 갱신 4일 전
-  - [#110 \[skills\]\[skill_load·skill_unload\] 연동확인](https://github.com/visualkhh/Lv2_bee_Assignment/issues/110) — 개설 4일 · 갱신 4일 전
-  - [#112 \[skills\]\[skill_stand\] ](https://github.com/visualkhh/Lv2_bee_Assignment/issues/112) — 개설 4일 · 갱신 4일 전
-  - [#115 \[rl\] 잔차 RL 학습 환경 및 단계 학습 (place·pick·load·unload)](https://github.com/visualkhh/Lv2_bee_Assignment/issues/115) — 개설 4일 · 갱신 4일 전
-  - [#117 \[rl\] 누운 퍽 세우기 학습 (stand C·stand_grasp)](https://github.com/visualkhh/Lv2_bee_Assignment/issues/117) — 개설 4일 · 갱신 4일 전
-  - [#118 \[skills\] inspect 상자 보기와 load→pick 연속 동작](https://github.com/visualkhh/Lv2_bee_Assignment/issues/118) — 개설 4일 · 갱신 4일 전
-  - [#119 \[rl\] 실기 pick 정책 off·on 비교](https://github.com/visualkhh/Lv2_bee_Assignment/issues/119) — 개설 4일 · 갱신 4일 전
-  - [#130 \[plan\]\[coordinator\] skill 서버 미기동 시 reason이 nav/pick/arm 3종뿐 — 어느 skill인지 구분](https://github.com/visualkhh/Lv2_bee_Assignment/issues/130) — 개설 4일 · 갱신 4일 전
-  - [#131 \[plan\]\[coordinator\] skill이 결과를 안 줄 때를 막는 단계 타임아웃이 없음 — 확인·추가](https://github.com/visualkhh/Lv2_bee_Assignment/issues/131) — 개설 4일 · 갱신 4일 전
-  - [#135 \[skills\] skill 액션 서버 단위 테스트가 없음 (navigate·approach·pose·inspect·pick·place·load·unload·stand)](https://github.com/visualkhh/Lv2_bee_Assignment/issues/135) — 개설 4일 · 갱신 4일 전
-  - [#189 \[검토\] jetson memory 많이잡아먹으면 조치해볼만할것들](https://github.com/visualkhh/Lv2_bee_Assignment/issues/189) — 개설 1일 · 갱신 1일 전
-  - [#190 \[검토\] 네비게이션 주행모드시 벽에 어깨빵당할까봐 접근조치못하는경우](https://github.com/visualkhh/Lv2_bee_Assignment/issues/190) — 개설 1일 · 갱신 1일 전
-  - [#191 \[검토\] 맵 제작시 검토, 못지나갈자리 미리 막아두기](https://github.com/visualkhh/Lv2_bee_Assignment/issues/191) — 개설 1일 · 갱신 1일 전
+- **JuneKunst (권형중)** 17건 ████████████ (정체 1)
+  - [#12 플랜-미션에 맞는 플랜처리 방안](https://github.com/visualkhh/Lv2_bee_Assignment/issues/12) — 개설 21일 · 갱신 18일 전 · **정체**
+  - [#104 \[plan\]\[mission_manager\] plan_next(학습 플래너) 실기·시뮬레이터 확인](https://github.com/visualkhh/Lv2_bee_Assignment/issues/104) — 개설 5일 · 갱신 5일 전
+  - [#105 \[plan\]\[coordinator\] 재계획 제거 뒤 연속 실패 처리 확인](https://github.com/visualkhh/Lv2_bee_Assignment/issues/105) — 개설 5일 · 갱신 5일 전
+  - [#107 \[skills\]\[skill_pick·skill_unload\] ](https://github.com/visualkhh/Lv2_bee_Assignment/issues/107) — 개설 5일 · 갱신 5일 전
+  - [#110 \[skills\]\[skill_load·skill_unload\] 연동확인](https://github.com/visualkhh/Lv2_bee_Assignment/issues/110) — 개설 5일 · 갱신 5일 전
+  - [#112 \[skills\]\[skill_stand\] ](https://github.com/visualkhh/Lv2_bee_Assignment/issues/112) — 개설 5일 · 갱신 5일 전
+  - [#115 \[rl\] 잔차 RL 학습 환경 및 단계 학습 (place·pick·load·unload)](https://github.com/visualkhh/Lv2_bee_Assignment/issues/115) — 개설 5일 · 갱신 5일 전
+  - [#117 \[rl\] 누운 퍽 세우기 학습 (stand C·stand_grasp)](https://github.com/visualkhh/Lv2_bee_Assignment/issues/117) — 개설 5일 · 갱신 5일 전
+  - [#118 \[skills\] inspect 상자 보기와 load→pick 연속 동작](https://github.com/visualkhh/Lv2_bee_Assignment/issues/118) — 개설 5일 · 갱신 5일 전
+  - [#119 \[rl\] 실기 pick 정책 off·on 비교](https://github.com/visualkhh/Lv2_bee_Assignment/issues/119) — 개설 5일 · 갱신 5일 전
+  - [#130 \[plan\]\[coordinator\] skill 서버 미기동 시 reason이 nav/pick/arm 3종뿐 — 어느 skill인지 구분](https://github.com/visualkhh/Lv2_bee_Assignment/issues/130) — 개설 5일 · 갱신 5일 전
+  - [#131 \[plan\]\[coordinator\] skill이 결과를 안 줄 때를 막는 단계 타임아웃이 없음 — 확인·추가](https://github.com/visualkhh/Lv2_bee_Assignment/issues/131) — 개설 5일 · 갱신 5일 전
+  - [#135 \[skills\] skill 액션 서버 단위 테스트가 없음 (navigate·approach·pose·inspect·pick·place·load·unload·stand)](https://github.com/visualkhh/Lv2_bee_Assignment/issues/135) — 개설 5일 · 갱신 5일 전
+  - [#189 \[검토\] jetson memory 많이잡아먹으면 조치해볼만할것들](https://github.com/visualkhh/Lv2_bee_Assignment/issues/189) — 개설 2일 · 갱신 2일 전
+  - [#190 \[검토\] 네비게이션 주행모드시 벽에 어깨빵당할까봐 접근조치못하는경우](https://github.com/visualkhh/Lv2_bee_Assignment/issues/190) — 개설 2일 · 갱신 2일 전
+  - [#191 \[검토\] 맵 제작시 검토, 못지나갈자리 미리 막아두기](https://github.com/visualkhh/Lv2_bee_Assignment/issues/191) — 개설 2일 · 갱신 2일 전
+  - [#251 \[시연\] 시나리오에 맞게 진행 여부 체크 연습  및 시연 담당](https://github.com/visualkhh/Lv2_bee_Assignment/issues/251) — 개설 0일 · 갱신 0일 전
 - **cowsjh (송정혁)** 6건 ████········ (정체 1)
-  - [#13 학습-(보정:매니플레이터,휠), 그립팡계획, 속도limit 학습](https://github.com/visualkhh/Lv2_bee_Assignment/issues/13) — 개설 20일 · 갱신 20일 전 · **정체**
-  - [#98 \[rl\] stand_grasp 보정 실기 검증](https://github.com/visualkhh/Lv2_bee_Assignment/issues/98) — 개설 4일 · 갱신 4일 전
-  - [#115 \[rl\] 잔차 RL 학습 환경 및 단계 학습 (place·pick·load·unload)](https://github.com/visualkhh/Lv2_bee_Assignment/issues/115) — 개설 4일 · 갱신 4일 전
-  - [#117 \[rl\] 누운 퍽 세우기 학습 (stand C·stand_grasp)](https://github.com/visualkhh/Lv2_bee_Assignment/issues/117) — 개설 4일 · 갱신 4일 전
-  - [#118 \[skills\] inspect 상자 보기와 load→pick 연속 동작](https://github.com/visualkhh/Lv2_bee_Assignment/issues/118) — 개설 4일 · 갱신 4일 전
-  - [#119 \[rl\] 실기 pick 정책 off·on 비교](https://github.com/visualkhh/Lv2_bee_Assignment/issues/119) — 개설 4일 · 갱신 4일 전
-- **SeungHye-J (전승혜)** 7건 █████······· (정체 2)
-  - [#26 \[perception\] 지도 맵핑 실기기 테스트](https://github.com/visualkhh/Lv2_bee_Assignment/issues/26) — 개설 19일 · 갱신 19일 전 · **정체**
-  - [#28 \[perception\] cuVSLAM 검토](https://github.com/visualkhh/Lv2_bee_Assignment/issues/28) — 개설 18일 · 갱신 18일 전 · **정체**
-  - [#99 \[rl\] 먼 거리 퍽: 수평 진입 후 퍽 중심 축으로 손목 올리기](https://github.com/visualkhh/Lv2_bee_Assignment/issues/99) — 개설 4일 · 갱신 1일 전
-  - [#105 \[plan\]\[coordinator\] 재계획 제거 뒤 연속 실패 처리 확인](https://github.com/visualkhh/Lv2_bee_Assignment/issues/105) — 개설 4일 · 갱신 4일 전
-  - [#114 \[urdf\] 로봇 모델·Isaac 장면 셋업](https://github.com/visualkhh/Lv2_bee_Assignment/issues/114) — 개설 4일 · 갱신 4일 전
-  - [#118 \[skills\] inspect 상자 보기와 load→pick 연속 동작](https://github.com/visualkhh/Lv2_bee_Assignment/issues/118) — 개설 4일 · 갱신 4일 전
-  - [#119 \[rl\] 실기 pick 정책 off·on 비교](https://github.com/visualkhh/Lv2_bee_Assignment/issues/119) — 개설 4일 · 갱신 4일 전
+  - [#13 학습-(보정:매니플레이터,휠), 그립팡계획, 속도limit 학습](https://github.com/visualkhh/Lv2_bee_Assignment/issues/13) — 개설 21일 · 갱신 21일 전 · **정체**
+  - [#98 \[rl\] stand_grasp 보정 실기 검증](https://github.com/visualkhh/Lv2_bee_Assignment/issues/98) — 개설 5일 · 갱신 5일 전
+  - [#115 \[rl\] 잔차 RL 학습 환경 및 단계 학습 (place·pick·load·unload)](https://github.com/visualkhh/Lv2_bee_Assignment/issues/115) — 개설 5일 · 갱신 5일 전
+  - [#117 \[rl\] 누운 퍽 세우기 학습 (stand C·stand_grasp)](https://github.com/visualkhh/Lv2_bee_Assignment/issues/117) — 개설 5일 · 갱신 5일 전
+  - [#118 \[skills\] inspect 상자 보기와 load→pick 연속 동작](https://github.com/visualkhh/Lv2_bee_Assignment/issues/118) — 개설 5일 · 갱신 5일 전
+  - [#119 \[rl\] 실기 pick 정책 off·on 비교](https://github.com/visualkhh/Lv2_bee_Assignment/issues/119) — 개설 5일 · 갱신 5일 전
+- **SeungHye-J (전승혜)** 8건 ██████······ (정체 2)
+  - [#26 \[perception\] 지도 맵핑 실기기 테스트](https://github.com/visualkhh/Lv2_bee_Assignment/issues/26) — 개설 20일 · 갱신 20일 전 · **정체**
+  - [#28 \[perception\] cuVSLAM 검토](https://github.com/visualkhh/Lv2_bee_Assignment/issues/28) — 개설 19일 · 갱신 19일 전 · **정체**
+  - [#99 \[rl\] 먼 거리 퍽: 수평 진입 후 퍽 중심 축으로 손목 올리기](https://github.com/visualkhh/Lv2_bee_Assignment/issues/99) — 개설 5일 · 갱신 2일 전
+  - [#105 \[plan\]\[coordinator\] 재계획 제거 뒤 연속 실패 처리 확인](https://github.com/visualkhh/Lv2_bee_Assignment/issues/105) — 개설 5일 · 갱신 5일 전
+  - [#114 \[urdf\] 로봇 모델·Isaac 장면 셋업](https://github.com/visualkhh/Lv2_bee_Assignment/issues/114) — 개설 5일 · 갱신 5일 전
+  - [#118 \[skills\] inspect 상자 보기와 load→pick 연속 동작](https://github.com/visualkhh/Lv2_bee_Assignment/issues/118) — 개설 5일 · 갱신 5일 전
+  - [#119 \[rl\] 실기 pick 정책 off·on 비교](https://github.com/visualkhh/Lv2_bee_Assignment/issues/119) — 개설 5일 · 갱신 5일 전
+  - [#251 \[시연\] 시나리오에 맞게 진행 여부 체크 연습  및 시연 담당](https://github.com/visualkhh/Lv2_bee_Assignment/issues/251) — 개설 0일 · 갱신 0일 전
 
-총 **29건** (정체 **4건**).
+총 **31건** (정체 **4건**).
 
 </details>
 
