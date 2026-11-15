@@ -97,6 +97,12 @@ def body_twist(prev, cur, dt):
     return (c * dx + s * dy) / dt, (-s * dx + c * dy) / dt, dyaw / dt
 
 
+def apply_map_correction(map_offset, corr):
+    """도면 보정 조각 corr (지금 map에서 도면 물체가 compose(corr, 도면)에 보임) → 새 map_offset = corr⁻¹ ∘ map_offset
+    (map 자세 = map_offset ∘ cuVSLAM 자세라, 모든 map 자세가 corr⁻¹만큼 옮겨져 도면 물체가 제자리에 옴)"""
+    return compose(inverse(corr), map_offset)
+
+
 class MapGate:
     """map→odom 보정 거르기 — cuVSLAM(RGB-D 한 대 · IMU 없음)이 벽 앞·빠른 회전에서 튀어도 지도 위치가 따라 튀지 않게.
     표준(Isaac ROS VIO)은 IMU 융합으로 버티고 map→odom은 루프 클로저 때만 바뀜 — 여기선 대신:
@@ -105,9 +111,12 @@ class MapGate:
       ③ 첫 보정 뒤 settle_s 동안(출발 자리에 서서 bringup이 뜨는 중)은 거르지 않고 그대로 받음 — 그 사이 odom이 튀어도
          (11-14 실기: 바퀴 누적 엔코더로 EKF odom이 0.75 m 튐 → 바로 잠금) map은 cuVSLAM(= 출발 자리 기준)에 맞음.
          그 사이 ① 크기로 다시 맞춘 일이 있으면 resettled에 (거리 m, 각 °)를 남김 (노드가 로그)
-    11-10 시뮬 기록 재생(정답을 odom으로 봄): 4.8 m 점프 → 최대 3.5 cm · 정상 실행은 그대로. 점진적 밀림(13→56 cm)은 못 고침 → VIO 필요"""
+    11-10 시뮬 기록 재생(정답을 odom으로 봄): 4.8 m 점프 → 최대 3.5 cm · 정상 실행은 그대로. 점진적 밀림(13→56 cm)은 못 고침 → VIO 필요
+    크기는 '지금 로봇 자세가 map에서 얼마나 옮겨지나'로 잰다 (odom 인자, 11-15). map→odom 값끼리 비교하면 odom 원점에서 멀수록
+      작은 회전 차이가 큰 이동으로 보임 — 실기 11-15: 원점에서 4.7 m, EKF·cuVSLAM yaw 11° 차 → map→odom 이동 0.9 m로 보여
+      초당 2 cm로만 따라가 map 위치가 수십 cm 늦게 붙음(보정 절반이 거름). 3~4°만 달라도 0.30 m '점프'로 잠길 수 있었음."""
 
-    def __init__(self, jump_m=0.30, jump_deg=15.0, rate_m=0.02, rate_deg=2.0, settle_s=0.0):
+    def __init__(self, jump_m=0.30, jump_deg=15.0, rate_m=0.05, rate_deg=5.0, settle_s=0.0):
         self.jump_m, self.jump_rad = jump_m, math.radians(jump_deg)
         self.rate_m, self.rate_rad = rate_m, math.radians(rate_deg)
         self.settle_s = settle_s
@@ -121,8 +130,20 @@ class MapGate:
     def reset(self):
         self.held, self.t, self.locked = None, None, False
 
-    def update(self, cand, t):
-        """후보 map→odom, 시각 t [s] → (낼 map→odom, 후보를 그대로 받았는지)"""
+    @staticmethod
+    def _compose(a, b):
+        """2D 자세 a∘b — (x, y, yaw)"""
+        c, s = math.cos(a[2]), math.sin(a[2])
+        return (a[0] + c * b[0] - s * b[1], a[1] + s * b[0] + c * b[1], a[2] + b[2])
+
+    @staticmethod
+    def _inverse(a):
+        c, s = math.cos(a[2]), math.sin(a[2])
+        return (-c * a[0] - s * a[1], s * a[0] - c * a[1], -a[2])
+
+    def update(self, cand, t, odom=(0.0, 0.0, 0.0)):
+        """후보 map→odom, 시각 t [s], 지금 odom 자세 (x, y, yaw) → (낼 map→odom, 후보를 그대로 받았는지)
+        점프·속도 한계는 로봇 자세(map→odom ∘ odom)의 변화로 잰다 — odom 원점 거리에 상관없이 같은 기준"""
         if self.t0 is None:
             self.t0 = t
         if self.held is None:
@@ -130,8 +151,9 @@ class MapGate:
             return self.held, True
         dt = max(t - self.t, 1e-3)
         self.t = t
-        d = math.hypot(cand[0] - self.held[0], cand[1] - self.held[1])
-        r = abs(math.remainder(cand[2] - self.held[2], 2 * math.pi))
+        ph, pc = self._compose(self.held, odom), self._compose(cand, odom)   # 지금 보정 · 후보 보정에서의 로봇 map 자세
+        d = math.hypot(pc[0] - ph[0], pc[1] - ph[1])
+        r = abs(math.remainder(pc[2] - ph[2], 2 * math.pi))
         if t - self.t0 < self.settle_s:  # ③ 출발 정착 중 — 그대로 받음
             if d > self.jump_m or r > self.jump_rad:
                 self.resettled = (d, math.degrees(r))
@@ -142,11 +164,14 @@ class MapGate:
             self.rejected += 1
             return self.held, False
         k = min(1.0, self.rate_m * dt / d if d > 1e-9 else 1.0, self.rate_rad * dt / r if r > 1e-9 else 1.0)
-        x, y, yaw = self.held
-        self.held = (x + k * (cand[0] - x), y + k * (cand[1] - y), yaw + k * math.remainder(cand[2] - yaw, 2 * math.pi))
-        if k < 1.0:
-            self.rejected += 1
-        return self.held, k >= 1.0
+        if k >= 1.0:
+            self.held = tuple(cand)
+            return self.held, True
+        # 로봇 자세를 k만큼 옮기고, 그 자세가 되게 하는 map→odom으로 (회전은 로봇 자리 기준 — 원점에서 멀어도 안 휘둘림)
+        p = (ph[0] + k * (pc[0] - ph[0]), ph[1] + k * (pc[1] - ph[1]), ph[2] + k * math.remainder(pc[2] - ph[2], 2 * math.pi))
+        self.held = self._compose(p, self._inverse(odom))
+        self.rejected += 1
+        return self.held, False
 
 
 def image(m, dtype, ch):
@@ -197,8 +222,8 @@ class CuvslamSlam(Node):
         # map→odom 거르기 (MapGate) — 큰 점프는 받지 않고 잠금(/initialpose로 풀림) · 그 밖은 초당 rate까지만 따라감. map_gate:=false면 끔
         self.gate = MapGate(float(self.declare_parameter('gate_jump_m', 0.30).value),
                             float(self.declare_parameter('gate_jump_deg', 15.0).value),
-                            float(self.declare_parameter('gate_rate_m', 0.02).value),
-                            float(self.declare_parameter('gate_rate_deg', 2.0).value),
+                            float(self.declare_parameter('gate_rate_m', 0.05).value),
+                            float(self.declare_parameter('gate_rate_deg', 5.0).value),
                             # [s] 첫 프레임 뒤 이만큼은 거르지 않음 — 출발 자리에 서서 bringup 중 (odom 시작 튐 흡수). 이 안에 주행 시작하지 말 것
                             float(self.declare_parameter('gate_settle_s', 15.0).value)) \
             if bool(self.declare_parameter('map_gate', True).value) else None
@@ -224,6 +249,11 @@ class CuvslamSlam(Node):
         self.create_subscription(PoseWithCovarianceStamped,
                                  self.declare_parameter('initialpose_topic', '/initialpose').value,
                                  self.on_initialpose, 10)
+        # 도면 보정 → 로봇 위치 (mission_manager arena_corr_to_localization, 11-15): [dx, dy, dth] = 보정 조각
+        #   (지금 map에서 도면 물체가 apply_corr(조각, 도면) 자리에 보임) → map 기준을 조각⁻¹만큼 옮김. MapGate가 초당 rate로 따라감
+        from std_msgs.msg import Float64MultiArray
+        self.create_subscription(Float64MultiArray, self.declare_parameter('map_correction_topic', '/localization/map_correction').value,
+                                 self.on_map_correction, 10)
         self.create_subscription(CameraInfo, self.declare_parameter('camera_info', '/pole_front_cam/color/camera_info').value,
                                  self.on_info, qos_profile_sensor_data)
         color = Subscriber(self, Image, self.declare_parameter('rgb', '/pole_front_cam/color/image_raw').value,
@@ -266,6 +296,12 @@ class CuvslamSlam(Node):
             self.get_logger().info('initialpose 대기 — 첫 추적 프레임 뒤 적용')
             return
         self.apply_initialpose(desired)
+
+    def on_map_correction(self, m):
+        if len(m.data) < 3:
+            return
+        self.map_offset = apply_map_correction(self.map_offset, (float(m.data[0]), float(m.data[1]), float(m.data[2])))
+        self.get_logger().info(f'도면 보정 받음 → map 기준 옮김 ({m.data[0]:+.3f}, {m.data[1]:+.3f}, {math.degrees(m.data[2]):+.2f}°)')
 
     def apply_initialpose(self, desired):
         if self.gate is not None:
@@ -425,7 +461,7 @@ class CuvslamSlam(Node):
         base = compose(self.map_offset, base_raw)
         x, y, yaw = map_to_odom(base, odom_from_base)
         if self.gate is not None:
-            (x, y, yaw), ok = self.gate.update((x, y, yaw), Time.from_msg(stamp).nanoseconds * 1e-9)
+            (x, y, yaw), ok = self.gate.update((x, y, yaw), Time.from_msg(stamp).nanoseconds * 1e-9, planar(odom_from_base))
             if self.gate.resettled:
                 self.get_logger().warning(
                     'map→odom 출발 정착 중 다시 맞춤 — 보정이 %.2f m · %.1f° 바뀜 (gate_settle_s 안이라 잠그지 않고 받음 · map = cuVSLAM 출발 자리 기준)'

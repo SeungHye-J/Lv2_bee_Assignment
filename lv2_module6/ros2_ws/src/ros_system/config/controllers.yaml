@@ -40,6 +40,10 @@ diff_drive_controller:
     left_wheel_names: [wheel_left_joint]
     right_wheel_names: [wheel_right_joint]
     wheel_separation: 0.287
+    # 바퀴 회전이 IMU·cuVSLAM(둘이 서로 맞음)보다 11~12% 크게 나옴 (실기 bag 11-15: 0.38/0.34 · 0.61/0.55 · 0.85/0.76 rad/s)
+    #   — 바퀴가 옆으로 끌리는 몫만큼 유효 간격이 넓음 (0.287 × 1.12 ≈ 0.32). odom 회전과 회전 명령의 바퀴 속도 둘 다에 들어감
+    #   (안 맞추면 바퀴 odom yaw가 100 s에 42° 틀어지고, 로봇이 명령보다 약 10% 덜 돎). 확인: 제자리 360° × 3을 IMU·테이프와 비교
+    wheel_separation_multiplier: 1.12
     wheel_radius: 0.033
     base_frame_id: base_footprint
     odom_frame_id: odom

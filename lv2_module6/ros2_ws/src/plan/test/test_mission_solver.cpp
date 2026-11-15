@@ -320,6 +320,26 @@ CorrPair seen(double ax, double ay, double ex = 0, double ey = 0) {  // 도면 �
 }
 }  // namespace
 
+// 보정 → 로봇 위치 (arena_corr_to_localization): 조각은 5 cm · 1°까지 · 조각을 넘긴 뒤 남은 보정과 합치면 원래 보정 그대로
+TEST(ArenaCorr, StepToLocalizationKeepsTotal) {
+  const ArenaCorr c{0.26, -0.17, -4.0 * M_PI / 180, 3};          // 11-15 실기 S3 회차 보정
+  const auto st = corr_step(c, 0.05, 1.0 * M_PI / 180);
+  EXPECT_LE(std::hypot(st.dx, st.dy), 0.05 + 1e-9);
+  EXPECT_LE(std::abs(st.dth), 1.0 * M_PI / 180 + 1e-9);
+  EXPECT_NEAR(st.dx / st.dy, c.dx / c.dy, 1e-9);                 // 방향 그대로
+  EXPECT_EQ(st.n, 3);
+  ArenaCorr r = c;
+  for (const Pose2 x : {Pose2{1.0, -2.0, 0.3}, Pose2{-3.5, 0.4, -2.0}}) {
+    const auto rem = corr_after_step(c, st);
+    const auto a = apply_corr(c, x), b = apply_corr(st, apply_corr(rem, x));
+    EXPECT_NEAR(a.x, b.x, 1e-9); EXPECT_NEAR(a.y, b.y, 1e-9); EXPECT_NEAR(std::remainder(a.yaw - b.yaw, 2 * M_PI), 0.0, 1e-9);
+  }
+  int steps = 0;                                                  // 조각을 계속 넘기면 남은 보정이 0으로
+  while ((std::hypot(r.dx, r.dy) > 0.02 || std::abs(r.dth) > 0.0087) && steps < 50) { r = corr_after_step(r, corr_step(r, 0.05, 1.0 * M_PI / 180)); ++steps; }
+  EXPECT_LT(steps, 12);
+  EXPECT_LT(std::hypot(r.dx, r.dy), 0.03);
+}
+
 TEST(ArenaCorr, ApplyUnapplyRoundTripAndToMap) {
   const auto m = arena_to_map({3.670, 3.152, 0.3}, kStart);
   const auto c = apply_corr(kTrue, m);  // mission_manager to_map = apply_corr(acorr_, arena_to_map(...))

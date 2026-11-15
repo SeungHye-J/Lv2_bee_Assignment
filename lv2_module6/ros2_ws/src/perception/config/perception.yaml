@@ -18,7 +18,7 @@ perception:
     imgsz: 640              # YOLO 입력 한 변 — .pt일 때만 씀 (.onnx는 만들 때 정한 384×640으로 고정) · 416보다 작은 퍽을 더 찾음
     # device: C++판 코드 기본 "cuda"(GPU 안 되면 저절로 CPU) · 파이썬판 기본 "cpu" — 여기 두지 않음: 노드 이름 아래 값이 launch 덮어쓰기(/**)를 이겨 stand_test perception_device가 안 먹었다 (2026-11-06)
     cpu_threads: 2          # CPU로 추론할 때 스레드 수 (C++판: ONNX Runtime · 파이썬판: torch) — 기본(코어 전부)이면 제어·Nav2가 밀림 (도커 7코어 중 5코어를 먹었음)
-    cv_threads: 0           # OpenCV 스레드 수 (0 = OpenCV 기본 = 코어 수 · 시작할 때만 읽음) — ONNX Runtime 스레드(cpu_threads)와 따로.
+    cv_threads: 2           # OpenCV 스레드 수 (0 = OpenCV 기본 = 코어 수 · 시작할 때만 읽음) — ONNX Runtime 스레드(cpu_threads)와 따로.
                             #   프로세스 전체에 걸림: AprilTag(aruco, 원본·감마·반 크기 3번) · resize · cvtColor(HSV·회색) · LUT · morphologyEx · connectedComponents
                             #   AprilTag가 거의 전부 — 젯슨 640×360 3번 CPU 시간/프레임(중앙/p90/최대): 기본 6스레드 38/66/95 ms · 2스레드 24/41/75 · 1스레드 22/37/68,
                             #   검출 같음, 걸리는 시간은 21~69 ms로 늘지만 추론 주기 250 ms 안. 나머지(작은 ROI 색 변환·격자 정리)는 작아서 스레드 줄여도 거의 그대로
@@ -53,10 +53,10 @@ perception:
                             #   젯슨 실물 392장: 태그 125개 같음 · CPU 67 → 2 ms/장 · perception_node CPU 65 → 30 % (bag 재생 11/14)
     tag_gamma: 2.5          # AprilTag를 감마로 어둡게 편 영상에서 한 번 더 찾음 (0 = 끔) — 광택 반사로 회색이 된 검은 칸 (11/07 Isaac: 판독 9→14/16)
     tag_half: true          # 반 크기 영상에서도 한 번 더 — 가까워 크게(한 변 70 px+) 찍힌 태그는 원본에서 테두리를 못 찾았음 (11/07 Isaac)
-    tag_roi: false          # AprilTag를 YOLO 퍽·상자 네모 안에서만 (젯슨 CPU 절약 11/12) — 모델에 'box' 종류가 있을 때만 · 네모가 없으면 화면 전체
+    tag_roi: true           # AprilTag를 YOLO 퍽·상자 네모 안에서만 (젯슨 CPU 절약 11/12) — 모델에 'box' 종류가 있을 때만 · 네모가 없으면 화면 전체
                             #   로봇에서 켰을 때 태그 결과가 끔과 같은지 확인한 뒤 true로 (ros2 param set /perception tag_roi true)
     tag_roi_margin: 0.3     #   네모를 변 길이의 이 비율 + 12 px만큼 넓혀서 찾음
-    box_roi_yolo: false     # 상자 깊이 찾기를 YOLO 'box' 네모 안에서만 (해상도 그대로 — 위치·방향 정밀도 같음) · 'box' 네모가 없으면 화면 전체
+    box_roi_yolo: true      # 상자 깊이 찾기를 YOLO 'box' 네모 안에서만 (해상도 그대로 — 위치·방향 정밀도 같음) · 'box' 네모가 없으면 화면 전체
                             #   로봇에서 상자 위치·방향이 끔과 같은지 확인한 뒤 true로 (ros2 param set /perception box_roi_yolo true)
     robot_front_x: 0.069    # [m] base_footprint → 로봇 앞면 — 상자 details face_dist_m (로봇 앞면 → 상자 로봇 쪽 면) 기준
     gripper_floor_offset_m: 0.012   # [m] 실물 gripper_cam 깊이가 바닥·상자를 이만큼 높게 봄 — 퍽 자세·상자 윗면 판정의 바닥 높이에 더함 (use_sim_time이면 0)
@@ -102,4 +102,6 @@ body_filter:
     input_topic: /pole_front_cam/depth/color/points
     output_topic: /pole_front_cam/depth/color/points_filtered   # Nav2 costmap·collision_monitor가 본다
     padding: 0.10            # [m] 충돌 상자를 이만큼 키워서 뺀다 — 0.03이면 기본 자세(팔 접힘)에서 손목·그리퍼 점 약 8%가 상자 밖에 남아 collision_monitor가 늘 정지시켰음(실기 2026-11-09: 0.06=14개 · 0.08/0.10/0.12=0개). 0.10 = 0.08에 여유 2cm. 더 키우면 그리퍼 앞 진짜 장애물까지 지워지니 0.12 넘기지 말 것
+    base_padding: 0.02       # [m] 차체 링크(base_links)만 — 0.10을 차체에도 붙이면 몸 둘레 앞 0.17·옆 0.25 m 점이 지워져 collision_monitor가 벽을 못 봄 (11-15)
+    base_links: [base_link, wheel_left_link, wheel_right_link, battery_link, pole_front_cam_link, pole_back_cam_link]   # 팔(arm_base_link~finger, gripper_cam)은 padding 0.10
     stride: 4                # RGBD 점구름 4점당 1점만 Nav2/collision_monitor에 전달 (성능)

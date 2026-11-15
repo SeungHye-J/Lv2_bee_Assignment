@@ -55,6 +55,7 @@
 #include "sensor_msgs/msg/image.hpp"
 #include "sensor_msgs/msg/joint_state.hpp"
 #include "diagnostic_msgs/msg/diagnostic_array.hpp"
+#include "std_msgs/msg/float64_multi_array.hpp"
 #include "std_msgs/msg/string.hpp"
 #include "tf2_ros/buffer.h"
 #include "tf2_ros/transform_listener.h"
@@ -266,6 +267,16 @@ private:
   rclcpp::Subscription<nav_msgs::msg::OccupancyGrid>::SharedPtr grid_sub_;
   rclcpp::TimerBase::SharedPtr wall_timer_;
   void wall_tick();
+  // 보정 → 로봇 위치 (arena_corr_to_localization, 11-15): 근거가 충분한 보정(벽 정합 · 상자 loc_min_n개+)을 조각(loc_step)씩
+  //   /localization/map_correction [dx, dy, dth]으로 cuvslam_slam에 넘기고 그만큼 acorr_ · marks_ · wall_.c에서 뺌 —
+  //   지도를 옮기는 대신 로봇 위치를 고쳐 벽 · 문 · costmap · nvblox · 목표가 한 좌표로 맞음 (표준: 위치 추정을 고침)
+  bool loc_on_ = false;
+  int loc_min_n_ = 3;
+  double loc_step_m_ = 0.05, loc_step_rad_ = 0.0175, loc_min_m_ = 0.02, loc_min_rad_ = 0.0087, loc_settle_s_ = 1.5;
+  double loc_last_ = -1e9;            // 마지막으로 넘긴 시각 (wall_s) — settle 동안 상자 관측은 안 셈 (좌표가 옮겨지는 중)
+  rclcpp::Publisher<std_msgs::msg::Float64MultiArray>::SharedPtr loc_pub_;
+  rclcpp::TimerBase::SharedPtr loc_timer_;
+  void loc_tick();
   void commit_corr(const ArenaCorr & c, const char * src, const std::string & why);
   static bool corr_moved(const ArenaCorr & a, const ArenaCorr & b, double m, double r);
   std::vector<std::pair<double, double>> acorr_sent_;  // 마지막으로 알린 상자별 인지 위치 (marks)

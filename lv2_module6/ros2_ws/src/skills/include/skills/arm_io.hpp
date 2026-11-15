@@ -5,10 +5,8 @@
 //   닿는 구간: plan()이 정한 above(지금 자세) → down → 쥐기/놓기 → above, 시뮬 place_env·pick_env와 같은 단계·시간
 //     (정지 0.3 s · 팀 한계 0.3배 부드러운 보간 · 안정 0.3 s · 쥐기 0.5 s / 놓기 0.4 s · 대기). 단계마다 /skill_context에
 //     skill 이름 + 그 skill 노드의 정책 파일(SkillModel) → rl_arm_correction이 그 정책으로 Δ를 계산 (100 Hz 루프 안). 끝나면 skill "" (보정 끔)
-#include <deque>
 #include <functional>
 #include <limits>
-#include <map>
 #include <memory>
 #include <string>
 #include <vector>
@@ -16,19 +14,17 @@
 #include "control/msg/arm_safety_event.hpp"
 #include "control_msgs/action/parallel_gripper_command.hpp"
 #include "geometry_msgs/msg/pose_stamped.hpp"
-#include "ml/msg/arm_correction_debug.hpp"
 #include "ml/msg/skill_context.hpp"
 #include "moveit_msgs/action/execute_trajectory.hpp"
 #include "moveit_msgs/srv/get_motion_plan.hpp"
 #include "perception/msg/hand_target.hpp"
 #include "rclcpp/rclcpp.hpp"
 #include "rclcpp_action/rclcpp_action.hpp"
-#include "sensor_msgs/msg/joint_state.hpp"
 #include "skills/model.hpp"
+#include "skills/arm_state_cache.hpp"
 #include "skills/stand_plan.hpp"
 #include "std_srvs/srv/trigger.hpp"
 #include "tf2_ros/buffer.h"
-#include "tf2_ros/transform_listener.h"
 
 namespace skills {
 
@@ -119,7 +115,7 @@ public:
   // 손 방향 ψ까지 정한 해 — 손가락 닫는 축 = ψ − 90° (ee 좌표계). MoveIt pick_ik는 위치만 맞춰 손 방향을 보장 못 함
   bool ik_ee_yaw(const geometry_msgs::msg::PoseStamped & ee, double psi, const Q5 & near, Q5 & out);
   bool joint(const std::string & name, double & pos) const;
-  tf2_ros::Buffer & tf() { return *tf_buffer_; }
+  tf2_ros::Buffer & tf() const { return state_cache_->tf(); }
 
 private:
   using ExecuteTrajectory = moveit_msgs::action::ExecuteTrajectory;
@@ -130,26 +126,20 @@ private:
   double grip_current_a_ = 0.1, grasp_min_pos_m_ = 0.003, grasp_min_effort_ = 0.25;
   bool grasp_check_ = true, contact_ = false, grasp_empty_ = false, sag_warned_ = false, jam_ = false;
   rclcpp::TimerBase::SharedPtr jam_timer_;  // 내려가는 중 막힘 감시
-  std::deque<std::pair<double, double>> jam_hist_;  // (시각 [s], joint2+joint3 전류 [A]) — 최근 1 s
   double jam_mean(double window_s) const;
   std::string contact_mode_ = "sim", grip_fail_;
   uint64_t gen_ = 0;
   uint32_t run_ = 0;
-  std::map<std::string, double> pos_, effort_;
+  std::shared_ptr<ArmStateCache> state_cache_;
   rclcpp::Client<GetMotionPlan>::SharedPtr plan_;
   rclcpp_action::Client<ExecuteTrajectory>::SharedPtr exec_;
   rclcpp_action::Client<Gripper>::SharedPtr gripper_;
   rclcpp::Client<std_srvs::srv::Trigger>::SharedPtr reset_sag_, fade_sag_;
   rclcpp::Publisher<ml::msg::SkillContext>::SharedPtr ctx_pub_;
   rclcpp::Publisher<perception::msg::HandTarget>::SharedPtr hand_pub_;
-  rclcpp::Subscription<sensor_msgs::msg::JointState>::SharedPtr joints_sub_;
   rclcpp::Subscription<control::msg::ArmSafetyEvent>::SharedPtr safety_sub_;
-  rclcpp::Subscription<ml::msg::ArmCorrectionDebug>::SharedPtr debug_sub_;
-  std::deque<std::pair<double, Q5>> delta_hist_;  // (받은 시각 [s, 노드 시계], Δ) — 최근 1 s
   rclcpp::TimerBase::SharedPtr timer_, settle_timer_;
   bool settle_ = false;  // reset_sag 뒤 아직 안 기다림
-  std::unique_ptr<tf2_ros::Buffer> tf_buffer_;
-  std::shared_ptr<tf2_ros::TransformListener> tf_listener_;
   void execute(const moveit_msgs::msg::RobotTrajectory & traj, Cb done);
   void settle(std::function<void()> go);
 };

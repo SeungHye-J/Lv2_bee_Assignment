@@ -159,6 +159,14 @@ MissionManager::MissionManager()
   acorr_walls_m_ = declare_parameter<double>("arena_corr_walls_m", acorr_walls_m_);
   acorr_walls_rad_ = declare_parameter<double>("arena_corr_walls_rad", acorr_walls_rad_);
   acorr_min_hits_ = static_cast<int>(declare_parameter<int64_t>("arena_corr_min_hits", acorr_min_hits_));
+  loc_on_ = declare_parameter<bool>("arena_corr_to_localization", loc_on_);
+  loc_min_n_ = static_cast<int>(declare_parameter<int64_t>("arena_corr_loc_min_n", loc_min_n_));
+  loc_step_m_ = declare_parameter<double>("arena_corr_loc_step_m", loc_step_m_);
+  loc_step_rad_ = declare_parameter<double>("arena_corr_loc_step_rad", loc_step_rad_);
+  loc_min_m_ = declare_parameter<double>("arena_corr_loc_min_m", loc_min_m_);
+  loc_min_rad_ = declare_parameter<double>("arena_corr_loc_min_rad", loc_min_rad_);
+  loc_settle_s_ = declare_parameter<double>("arena_corr_loc_settle_s", loc_settle_s_);
+  const double loc_period = declare_parameter<double>("arena_corr_loc_period", 2.0);
   signal_timeout_s_ = declare_parameter<double>("signal_timeout_s", 150.0);
   signal_error_cycles_ = static_cast<int>(declare_parameter<int64_t>("signal_error_cycles", 2));
   barcode_timeout_s_ = declare_parameter<double>("barcode_timeout_s", 20.0);
@@ -247,6 +255,8 @@ MissionManager::MissionManager()
       [this](nav_msgs::msg::OccupancyGrid::ConstSharedPtr m) { grid_ = m; });
     wall_timer_ = create_wall_timer(std::chrono::duration<double>(wall_period), [this]() { wall_tick(); });
   }
+  loc_pub_ = create_publisher<std_msgs::msg::Float64MultiArray>("/localization/map_correction", 10);
+  if (loc_on_) loc_timer_ = create_wall_timer(std::chrono::duration<double>(loc_period), [this]() { loc_tick(); });
   marks_.assign(start_boxes_.size() + loc_boxes_.size(), Mark{});  // 미션 전(arena_corr_idle)에도 보정
   publish_corr("");
   cmd_sub_ = create_subscription<std_msgs::msg::String>("/cmd/mission", rclcpp::QoS(10).reliable(),
@@ -1437,6 +1447,7 @@ bool MissionManager::robot_arena(Pose2 & p) const {
 //   영상 끝에 잘린 상자(cut — 중심을 못 믿음)와 같은 관측의 재발행(last_seen 그대로)은 안 셈 — 트랙은 안 보여도 계속 나와서
 //   한 번 본 것이 min_hits를 바로 채웠음 (11-15 실기 approach_loop snap에서 확인한 거름을 여기로)
 void MissionManager::update_corr(const perception::msg::TrackedObjectArray & m) {
+  if (loc_on_ && wall_s() - loc_last_ < loc_settle_s_) return;  // 로봇 위치를 옮기는 중 — 이 관측은 옛 좌표와 섞임
   const size_t ns = start_boxes_.size();
   if (marks_.size() != ns + loc_boxes_.size()) return;
   std::vector<std::pair<double, double>> raw, cands;  // 도면 상자 map 점 (보정 전 · 지금 보정)
@@ -1556,6 +1567,34 @@ void MissionManager::wall_tick() {
   wall_ = f;
   if (first || corr_moved(f.c, acorr_, acorr_step_m_, acorr_step_rad_))
     commit_corr(f.c, "walls", fmt("맞은 칸 %.0f · rms %.1f cm", f.inliers, f.rms * 100));
+}
+
+// 보정 → 로봇 위치 — 근거가 충분하면 보정 조각을 cuvslam_slam에 넘기고 (map' = 조각⁻¹ · map) 그만큼 이쪽 보정·관측에서 뺌.
+//   조각 = loc_step(5 cm · 1°)까지 · loc_period(2 s)마다 하나 — cuvslam MapGate(초당 5 cm · 5°)가 부드럽게 옮김, 잠금(0.30 m)에 안 걸림
+void MissionManager::loc_tick() {
+  if (!acorr_on_ || !(active_ || acorr_idle_) || acorr_.n == 0) return;
+  if (!(acorr_src_ == "walls" || acorr_.n >= loc_min_n_)) return;   // 상자 하나 · 둘로는 위치를 안 옮김 (11-15: 상자 1개로 dy −0.2 m)
+  if (std::hypot(acorr_.dx, acorr_.dy) < loc_min_m_ && std::abs(acorr_.dth) < loc_min_rad_) return;
+  const ArenaCorr st = corr_step(acorr_, loc_step_m_, loc_step_rad_);
+  std_msgs::msg::Float64MultiArray req;
+  req.data = {st.dx, st.dy, st.dth};
+  loc_pub_->publish(req);
+  acorr_ = corr_after_step(acorr_, st);
+  for (auto & mk : marks_) {
+    if (!mk.hits) continue;
+    const auto q = unapply_corr(st, {mk.qx, mk.qy, 0.0});   // 같은 상자가 새 좌표에서 보일 자리
+    mk.qx = q.x;
+    mk.qy = q.y;
+  }
+  if (wall_ok_) wall_.c = corr_after_step(wall_.c, st);
+  loc_last_ = wall_s();
+  RCLCPP_INFO(get_logger(), "도면 보정 → 로봇 위치 %+.3f %+.3f %+.1f° (%s) · 남은 보정 %+.3f %+.3f %+.1f°", st.dx, st.dy, st.dth * 180 / M_PI,
+              acorr_src_.c_str(), acorr_.dx, acorr_.dy, acorr_.dth * 180 / M_PI);
+  char line[200];
+  std::snprintf(line, sizeof(line), "{\"t\": %.3f, \"phase\": \"%s\", \"to_localization\": [%.4f, %.4f, %.3f]}", wall_s() - mission_t0_,
+                phase_name(phase_), st.dx, st.dy, st.dth * 180 / M_PI);
+  append_log("arena_correction.jsonl", line);
+  publish_corr(acorr_used_);
 }
 
 void MissionManager::publish_corr(const std::string & used) {

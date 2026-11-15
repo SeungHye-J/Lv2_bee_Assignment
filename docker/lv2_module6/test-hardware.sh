@@ -58,7 +58,9 @@ E_LINE="E,0,0,0,32,0,0,0,0"
  done) & FEED_PID=$!
 
 # joint1 = 서보 값 − URDF offset (BeebotSystemHardware read) — 기본 모델(urdf:=default)의 joint1 offset만큼 기대값을 옮김
-J1_OFF=$(sed -n '/<joint name="joint1">/,/<\/joint>/s/.*name="offset">\([^<]*\)<.*/\1/p' "$(ros2 pkg prefix --share ros_system)/urdf/default/urdf.xacro" | head -n 1)
+#   xacro로 펼친 값 — offset이 calib.yaml 식(${calib['joint_offset'][...]})이라 원문을 그대로 읽으면 숫자가 아님 (#223)
+J1_OFF=$(xacro "$(ros2 pkg prefix --share ros_system)/urdf/default/urdf.xacro" mock_hardware:=true 2>/dev/null \
+  | sed -n '/<joint name="joint1">/,/<\/joint>/s/.*name="offset">\([^<]*\)<.*/\1/p' | head -n 1)
 J1_WANT=$(python3 -c "print(0.5 - float('${J1_OFF:-0}'))")
 JS=$(timeout 60 ros2 topic echo --once --filter 'len(m.position) > 0 and abs(m.position[list(m.name).index("joint1")] - '"$J1_WANT"') < 1e-6 and abs(m.effort[list(m.name).index("wheel_left_joint")] - 0.25) < 1e-6' \
   /joint_states sensor_msgs/msg/JointState 2>/dev/null)

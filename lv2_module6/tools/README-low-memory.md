@@ -2,7 +2,7 @@
 
 A saved 2D map can replace nvblox during localization, but **no current real-robot map in this workspace has been validated for this mode**. The `kk` map is old; the user selected `scene_sim` as the working map. `scene_sim` is generated from the simulation scene, and physical alignment has not yet been verified. A map-server smoke test only proved that `kk/map.yaml` loads; it did not prove coordinate alignment or safe robot travel. Never select the most recent map automatically for a physical run.
 
-`low_memory.launch.py` defaults to `map:=none`, `map_backend:=nvblox`, OpenCV one thread, and YOLO/tag inference at 1 Hz while `/skills/navigate` is active. The ordinary launch defaults remain unchanged. Specify a map operation explicitly.
+`low_memory.launch.py` defaults to `map:=saved`, `map_name:=scene_sim`, and `map_backend:=static_2d`. It also uses OpenCV one thread and YOLO/tag inference at 1 Hz while `/skills/navigate` is active. The ordinary bringup defaults remain unchanged. The workspace's running `nvblox_map` process currently loads the same `scene_sim` map family, but the physical wall/start-pose overlay still needs verification before autonomous driving.
 
 To make a new **real** map with reduced scheduled nvblox work, after rebuilding while the robot is stopped:
 
@@ -16,7 +16,7 @@ The lightweight nvblox config integrates depth at 5 Hz and ESDF at 2 Hz, and dis
 For static 2D localization, use the selected `scene_sim` map explicitly. Its `start_pose.png` defines the map origin at the robot start, facing +X toward the signal light. With the robot stopped, check the actual start pose and wall alignment against that image before autonomous travel:
 
 ```sh
-LAUNCH_FILE=low_memory.launch.py ./start.sh map:=saved map_backend:=static_2d map_name:=scene_sim
+LAUNCH_FILE=low_memory.launch.py ./start.sh
 ```
 
 Static mode keeps cuVSLAM and the filtered camera point-cloud obstacle layers, and skips nvblox, its depth gate, and the map saver. The launch rejects missing/invalid map files and omitted map names. Loading `scene_sim` proves neither real wall alignment nor safe travel; check robot pose and obstacles in RViz before autonomous motion.

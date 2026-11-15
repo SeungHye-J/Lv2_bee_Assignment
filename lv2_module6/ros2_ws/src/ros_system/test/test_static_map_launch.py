@@ -90,7 +90,7 @@ class StaticMapTests(unittest.TestCase):
         (map_dir / 'default').mkdir(parents=True)
         (map_dir / 'default' / 'map.yaml').write_text(self.map.read_text())
         args = dict(map='saved', fake_slam='false', use_ros_system='true', map_dir=str(map_dir), map_name='default', map_backend='static_2d',
-                    use_gripper_cam='false', use_mission='true', perception='auto', use_perception='auto', nvblox_params_file='')
+                    use_gripper_cam='false', use_pole_back_cam='false', use_mission='true', perception='auto', use_perception='auto', nvblox_params_file='')
         ctx = LaunchContext()
         ctx.launch_configurations.update(args)
         with patch.object(mod, 'get_package_share_directory', return_value='/installed'):

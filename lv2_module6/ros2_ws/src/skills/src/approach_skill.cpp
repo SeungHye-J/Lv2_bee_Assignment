@@ -19,7 +19,7 @@
 //     정책 보정 없음 · 뒤는 카메라가 못 보므로 느리게 (기준 제어 후진 상한 0.05 m/s)
 #include <algorithm>
 #include <cmath>
-#include <deque>
+#include <iterator>
 #include <map>
 
 #include "geometry_msgs/msg/twist_stamped.hpp"
@@ -31,8 +31,6 @@
 #include "perception/msg/tracked_object_array.hpp"
 #include "skills/arm_io.hpp"
 #include "skills/skill_node.hpp"
-#include "tf2_ros/buffer.h"
-#include "tf2_ros/transform_listener.h"
 
 namespace skills {
 
@@ -55,10 +53,10 @@ public:
     v_max_ = declare_parameter<double>("approach_v_max", 0.06);          // sim: 전진 상한 [m/s]
     w_max_ = declare_parameter<double>("approach_w_max", 0.5);           // sim: 회전 상한 [rad/s]
     look_q_ = declare_parameter<std::vector<double>>("pose_look", {0.0, -1.682497, 0.324631, 1.926843, 0.0});  // arm.yaml이 덮음
-    box_match_m_ = declare_parameter<double>("box_match_m", 0.35);  // 상자 도킹: 힌트(도면) 상자 가운데에서 이만큼 안의 상자만
+    box_match_m_ = declare_parameter<double>("box_match_m", 0.45);  // 상자 도킹: 힌트(도면) 상자 가운데에서 이만큼 안의 상자만
     box_wait_s_ = declare_parameter<double>("box_wait_s", 8.0);     // 첫 측정까지 기다림 (그동안 정지)
     box_stale_s_ = declare_parameter<double>("box_stale_s", 1.0);   // last_seen이 이보다 오래된 측정은 버림
-    box_seed_s_ = declare_parameter<double>("box_seed_s", 3.0);    // 첫 측정만 이만큼 지난 것도 받음 (도착 직전 pole_front_cam)
+    box_seed_s_ = declare_parameter<double>("box_seed_s", 30.0);   // 첫 측정만 이만큼 지난 것도 받음 (도착 직전 pole_front_cam)
     box_jump_m_ = declare_parameter<double>("box_jump_m", 0.08);    // 추정에서 이만큼 넘게 튄 측정은 버림
     box_alpha_ = declare_parameter<double>("box_alpha", 0.3);       // 새 측정을 섞는 비율
     box_rate_mps_ = declare_parameter<double>("box_rate_mps", 0.02);  // 목표를 옮기는 최대 속도 [m/s]
@@ -80,8 +78,6 @@ public:
       [this](nav_msgs::msg::Odometry::ConstSharedPtr m) { odom_ = m; });
     imu_sub_ = create_subscription<sensor_msgs::msg::Imu>("/imu", rclcpp::SensorDataQoS().keep_last(1),
       [this](sensor_msgs::msg::Imu::ConstSharedPtr m) { imu_ = m; });
-    tf_buffer_ = std::make_unique<tf2_ros::Buffer>(get_clock());
-    tf_listener_ = std::make_shared<tf2_ros::TransformListener>(*tf_buffer_);
     objects_sub_ = create_subscription<perception::msg::TrackedObjectArray>("/tracked_objects", rclcpp::QoS(5).reliable(),
       [this](perception::msg::TrackedObjectArray::ConstSharedPtr m) { on_objects(*m); });
     serve("approach", [this](const SkillGoal & g, Done done) { start(g, done); });
@@ -98,6 +94,10 @@ protected:
 private:
   struct Policy { SkillModel model; ml::Policy net; };
 
+  static double yaw_of(const geometry_msgs::msg::Quaternion & q) {
+    return std::atan2(2 * (q.w * q.z + q.x * q.y), 1 - 2 * (q.y * q.y + q.z * q.z));
+  }
+
   void start(const SkillGoal & g, Done done) {
     double x, y, yaw;
     box_mode_ = false;  // 이전 goal의 측정이 끼지 않게 (아래에서 다시 정함)
@@ -109,10 +109,9 @@ private:
     const auto it = policies_.find(name);
     if (it == policies_.end()) { done(false, "approach_bad_policy"); return; }
     pol_ = &it->second;
-    const auto & q = g.pose.pose.orientation;
     gx_ = g.pose.pose.position.x;
     gy_ = g.pose.pose.position.y;
-    gyaw_ = std::atan2(2 * (q.w * q.z + q.x * q.y), 1 - 2 * (q.y * q.y + q.z * q.z));
+    gyaw_ = yaw_of(g.pose.pose.orientation);
     if (!from_map(rclcpp::Time(0, 0, RCL_ROS_TIME), gx_, gy_, gyaw_)) { done(false, "approach_no_tf"); return; }
     tol_m_ = pol_->model.num("tol_m", 0.01);
     tol_yaw_ = pol_->model.num("tol_deg", 1.5) * M_PI / 180.0;
@@ -175,18 +174,28 @@ private:
   void on_objects(const perception::msg::TrackedObjectArray & m) {
     // 시작 전에도 온전한 상자 측정을 기억 (map, 관측 시각) — 시작하며 팔이 올라가면 pole_front_cam이 가려지고, 같은 추적이
     //   gripper_cam의 잘린 크기로 덮여 도착 직전의 좋은 측정이 사라짐 (11-13 headless: 240×214 → 232×185로 바뀌어 다 걸러짐)
+    //   추적마다 마지막 온전한 측정 하나만 (잘린 측정은 안 덮음)
+    const auto t = now();
     for (const auto & o : m.objects)
-      if ((o.class_name == "start_box" || o.class_name == "location_box") && std::min(o.size.x, o.size.y) >= box_min_side_)
-        seen_.push_back({o, rclcpp::Time(o.last_seen, RCL_ROS_TIME)});
-    while (!seen_.empty() && (now() - seen_.front().second).seconds() > box_seed_s_) seen_.pop_front();
+      if (is_box(o) && std::min(o.size.x, o.size.y) >= box_min_side_) seen_[o.id] = {o, rclcpp::Time(o.last_seen, RCL_ROS_TIME)};
+    for (auto it = seen_.begin(); it != seen_.end();)
+      it = (t - it->second.second).seconds() > box_seed_s_ ? seen_.erase(it) : std::next(it);
     if (!box_mode_ || frozen_ || !timer_ || timer_->is_canceled()) return;
+    update_box(m.objects);
+  }
+
+  static bool is_box(const perception::msg::TrackedObject & o) {
+    return o.class_name == "start_box" || o.class_name == "location_box";
+  }
+
+  void update_box(const std::vector<perception::msg::TrackedObject> & objects) {
     const auto t = now();
     const double ref_x = have_box_ ? bx_ : hint_x_, ref_y = have_box_ ? by_ : hint_y_;
     // 후보마다 map → frame_ (그 관측 시각의 map→odom) 뒤에 비교 — 힌트·추정이 frame_에 있음
     bool found = false, has_yaw = false;
     double mx = 0, my = 0, psi = 0, best_d = box_match_m_;
-    for (const auto & o : m.objects) {
-      if (o.class_name != "start_box" && o.class_name != "location_box") continue;
+    for (const auto & o : objects) {
+      if (!is_box(o)) continue;
       // 첫 측정은 box_seed_s까지 지난 것도 받음: 시작하며 팔이 올라가면 pole_front_cam이 가려져 도착 직전에 본 상자가
       //   곧 오래된 것이 되고, standoff 0.25 m에선 gripper_cam에 상자가 잘려 보여 걸러짐 (11-13 headless approach_box_unseen)
       if ((t - rclcpp::Time(o.last_seen, t.get_clock_type())).seconds() > (have_box_ ? box_stale_s_ : box_seed_s_)) continue;
@@ -234,19 +243,15 @@ private:
     double best = box_match_m_;
     const perception::msg::TrackedObject * pick = nullptr;
     rclcpp::Time when;
-    for (const auto & [o, t] : seen_) {
+    for (const auto & [id, ot] : seen_) {
+      const auto & [o, t] = ot;
       double x = o.pose.pose.position.x, y = o.pose.pose.position.y, a = 0.0;
       if (!from_map(t, x, y, a)) continue;
       const double d = std::hypot(x - hint_x_, y - hint_y_);
       if (d < best) { best = d; pick = &o; when = t; }
     }
     if (!pick) return;
-    perception::msg::TrackedObjectArray one;
-    one.objects.push_back(*pick);
-    const bool timer_was = timer_ && !timer_->is_canceled();
-    if (!timer_was) timer_ = create_wall_timer(std::chrono::hours(1), []() {});  // on_objects는 타이머가 돌 때만 받음
-    on_objects(one);
-    if (!timer_was) timer_->cancel();
+    update_box({*pick});
     if (have_box_) RCLCPP_INFO(get_logger(), "시작 전 %.1f s의 측정으로 시작", (now() - when).seconds());
   }
 
@@ -281,16 +286,15 @@ private:
     if (frame_ == "map") return true;
     geometry_msgs::msg::Transform t;
     try {
-      t = tf_buffer_->lookupTransform(frame_, "map", stamp.nanoseconds() ? tf2_ros::fromRclcpp(stamp) : tf2::TimePointZero).transform;
+      t = arm_.tf().lookupTransform(frame_, "map", stamp.nanoseconds() ? tf2_ros::fromRclcpp(stamp) : tf2::TimePointZero).transform;
     } catch (const std::exception &) {
       try {
-        t = tf_buffer_->lookupTransform(frame_, "map", tf2::TimePointZero).transform;
+        t = arm_.tf().lookupTransform(frame_, "map", tf2::TimePointZero).transform;
       } catch (const std::exception &) {
         return false;
       }
     }
-    const double r = std::atan2(2 * (t.rotation.w * t.rotation.z + t.rotation.x * t.rotation.y),
-                                1 - 2 * (t.rotation.y * t.rotation.y + t.rotation.z * t.rotation.z));
+    const double r = yaw_of(t.rotation);
     const double c = std::cos(r), s = std::sin(r), x0 = x;
     x = t.translation.x + c * x0 - s * y;
     y = t.translation.y + s * x0 + c * y;
@@ -300,11 +304,10 @@ private:
 
   bool robot_pose(double & x, double & y, double & yaw) const {
     try {
-      const auto t = tf_buffer_->lookupTransform(frame_, "base_footprint", tf2::TimePointZero).transform;
+      const auto t = arm_.tf().lookupTransform(frame_, "base_footprint", tf2::TimePointZero).transform;
       x = t.translation.x;
       y = t.translation.y;
-      yaw = std::atan2(2 * (t.rotation.w * t.rotation.z + t.rotation.x * t.rotation.y),
-                       1 - 2 * (t.rotation.y * t.rotation.y + t.rotation.z * t.rotation.z));
+      yaw = yaw_of(t.rotation);
       return true;
     } catch (const std::exception &) {
       return false;
@@ -467,7 +470,7 @@ private:
   double speed_, pre_m_, pos_tol_, yaw_tol_, timeout_s_, res_v_, res_w_, release_m_, carrot_m_, v_max_, w_max_;
   bool pos_done_ = false;
   bool exit_ = false;
-  std::deque<std::pair<perception::msg::TrackedObject, rclcpp::Time>> seen_;  // 시작 전 온전한 상자 측정 (box_seed_s 동안)
+  std::map<uint32_t, std::pair<perception::msg::TrackedObject, rclcpp::Time>> seen_;  // 추적 id → 마지막 온전한 상자 측정 (box_seed_s 동안)
   double exit_m_ = 0.165;
   std::string frame_ = "map";  // 목표·로봇 자세 프레임 — 상자 도킹은 odom
   ArmIO arm_;
@@ -490,8 +493,6 @@ private:
   rclcpp::Subscription<sensor_msgs::msg::Imu>::SharedPtr imu_sub_;
   nav_msgs::msg::Odometry::ConstSharedPtr odom_;
   sensor_msgs::msg::Imu::ConstSharedPtr imu_;
-  std::unique_ptr<tf2_ros::Buffer> tf_buffer_;
-  std::shared_ptr<tf2_ros::TransformListener> tf_listener_;
 };
 
 }  // namespace skills

@@ -210,7 +210,7 @@ def generate_launch_description():
         flag('py_helpers_one_process', 'true', 'python 보조 노드(pole_depth_gate · nvblox_map · rewind)를 한 프로세스(py_helpers)로 — 메모리 절약 · false면 따로 (예전)'),
         flag('depth_gate_cpp', 'true', 'pole_depth_gate를 C++(perception depth_gate)로 — 파이썬판은 15 Hz depth를 매번 복사 (bag 재생 11-14: 파이썬 6 % → C++ 2 %) · false면 예전 파이썬(scan_cam_gate)'),
         flag('nav2_params_file', share('config', 'nav2_params.yaml'), 'Nav2 파라미터 파일'),
-        flag('nav2_container_params', 'false', 'true = nav2_container 전체에 Nav2 파라미터 파일 (costmap이 yaml 값으로 — nav2_nodes 설명) · false = 예전 (costmap 기본값)'),
+        flag('nav2_container_params', 'true', 'true(11-15부터 기본) = nav2_container 전체에 Nav2 파라미터 파일 (costmap이 yaml 값으로 — nav2_nodes 설명) · false = 예전 (costmap 기본값)'),
         flag('use_moveit', 'false', 'true면 진짜 move_group (config/moveit) — spawner 완료 후 기동 (동시 기동 레이스 회피)'),
         OpaqueFunction(function=check_slam),
         OpaqueFunction(function=check_slam),
@@ -299,6 +299,7 @@ def nav2_nodes():
         ('nav2_collision_monitor', 'collision_monitor', 'nav2_collision_monitor::CollisionMonitor', [], [], 'use_cmd_chain'),  # 입출력 토픽은 yaml
     ]
     managers = [('lifecycle_manager_base', 'use_cmd_chain'), ('lifecycle_manager_navigation', 'use_nav2')]
+    standalone = 'controller_server'  # MPPI/RL controller composition crashed on Jetson
 
     def server(package, executable, name, remaps, extra, on):
         return Node(package=package, executable=executable, name=name, output='screen', condition=when(on, '!nav2_composition'),
@@ -309,18 +310,23 @@ def nav2_nodes():
             ComposableNode(package=package, plugin=plugin, name=name, parameters=params + extra, remappings=remaps)])
     lm = ('nav2_lifecycle_manager', 'lifecycle_manager', 'nav2_lifecycle_manager::LifecycleManager')
     return [
-        *[server(pkg, exe, exe, r, x, on) for pkg, exe, _, r, x, on in servers],
+        *[server(pkg, exe, exe, r, x, on) for pkg, exe, _, r, x, on in servers if exe != standalone],
+        *[Node(package=pkg, executable=exe, name=exe, output='screen', condition=when(on),
+               parameters=params + x, remappings=r, **QUICK_STOP)
+          for pkg, exe, _, r, x, on in servers if exe == standalone],
         # nav2_container_params:=true면 컨테이너 프로세스 전체에 --params-file — 서버가 안에서 만드는 자식 노드(local_costmap/local_costmap ·
         #   global_costmap/global_costmap)는 컴포넌트 파라미터(서버 이름 구역만)를 못 받아, false(기본)면 costmap이 Nav2 기본값으로 뜸
         #   (voxel_layer 대신 빈 obstacle_layer · rolling_window false · footprint [] — local costmap 안 보임). nav2_bringup은 true와 같음.
-        #   11-15: true로 켜니 전역 경로가 바뀌어(진짜 몸 · 팽창 · 전역 카메라 층) 실기 주행이 이상해져 기본은 예전(false) 그대로
+        #   11-15 오전: true로 켜니 전역 경로가 바뀌어(진짜 몸 · 팽창 · 전역 카메라 층) 실기 주행이 이상해져 false였음.
+        #   11-15 오후: 원인(전역 카메라 층 · nvblox /map 두꺼운 벽 · 직사각형+padding)을 고친 뒤(#234) 기본 true —
+        #   전역·local costmap 정적 층 = /arena/walls(실측 벽+상자), 전역 robot_radius 0.16 · 팽창 0.25. false면 이 값들이 안 먹음
         *[Node(package='rclcpp_components', executable='component_container_isolated', name='nav2_container', output='screen',
                condition=IfCondition(PythonExpression(["'", LaunchConfiguration('nav2_composition'), "'.lower() == 'true' and ('",
                                                        LaunchConfiguration('use_nav2'), "'.lower() == 'true' or '",
                                                        LaunchConfiguration('use_cmd_chain'), "'.lower() == 'true') and '",
                                                        LaunchConfiguration('nav2_container_params'), f"'.lower() {op} 'true'"])),
                parameters=p, **QUICK_STOP) for op, p in (('==', params), ('!=', []))],
-        *[component(pkg, plugin, exe, r, x, on) for pkg, exe, plugin, r, x, on in servers],
+        *[component(pkg, plugin, exe, r, x, on) for pkg, exe, plugin, r, x, on in servers if exe != standalone],
         TimerAction(period=LIFECYCLE_DELAY_S, actions=[
             *[server(lm[0], lm[1], name, [], [], on) for name, on in managers],
             *[component(lm[0], lm[2], name, [], [], on) for name, on in managers],

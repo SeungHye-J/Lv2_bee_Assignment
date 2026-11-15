@@ -28,10 +28,15 @@ DIAG_REGEX = ('^/(tf|tf_static|joint_states|imu|odom|odometry/filtered|cuvslam/o
               'global_costmap/costmap|local_costmap/costmap)$')
 
 
+QOS_FILE = Path(__file__).with_name('bag_qos.yaml')
+
+
 def bag_command(bag: Path, topics: list[str] | None = None, regex: str | None = None,
                 extra: list[str] | None = None) -> list[str]:
     """ros2 bag record 명령줄. topics 가 있으면 그 토픽만, 아니면 regex(기본 DIAG_REGEX). extra = 덧붙일 옵션 (압축·나누기)."""
-    cmd = ['ros2', 'bag', 'record', '-s', 'mcap', '--disable-keyboard-controls', *(extra or []), '-o', str(bag)]
+    # /tf QoS 덮어쓰기 — 없으면 map→odom·odom→base가 bag에 안 남음 (op/bag_qos.yaml 머리말)
+    cmd = ['ros2', 'bag', 'record', '-s', 'mcap', '--disable-keyboard-controls',
+           '--qos-profile-overrides-path', str(QOS_FILE), *(extra or []), '-o', str(bag)]
     if topics:
         return cmd + ['--topics', *topics]
     return cmd + ['--regex', regex or DIAG_REGEX, '--include-hidden-topics']

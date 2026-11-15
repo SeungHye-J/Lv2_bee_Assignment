@@ -146,6 +146,17 @@ Pose2 unapply_corr(const ArenaCorr & c, const Pose2 & m) {
   return {co * x + si * y, -si * x + co * y, std::remainder(m.yaw - c.dth, 2 * M_PI)};
 }
 
+ArenaCorr corr_step(const ArenaCorr & c, double max_m, double max_rad) {
+  const double d = std::hypot(c.dx, c.dy), r = std::abs(c.dth);
+  const double k = std::min({1.0, d > 1e-9 ? max_m / d : 1.0, r > 1e-9 ? max_rad / r : 1.0});
+  return {k * c.dx, k * c.dy, k * c.dth, c.n};
+}
+
+ArenaCorr corr_after_step(const ArenaCorr & c, const ArenaCorr & s) {
+  const double x = c.dx - s.dx, y = c.dy - s.dy, co = std::cos(s.dth), si = std::sin(s.dth);
+  return {co * x + si * y, -si * x + co * y, std::remainder(c.dth - s.dth, 2 * M_PI), c.n};
+}
+
 ArenaCorr fit_arena_corr(std::vector<CorrPair> pairs, double min_sep, double max_shift, double max_rot, double outlier_m) {
   ArenaCorr c;
   while (!pairs.empty()) {

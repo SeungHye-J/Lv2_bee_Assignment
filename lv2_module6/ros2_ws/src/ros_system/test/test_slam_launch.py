@@ -131,8 +131,9 @@ def main():
         ('Nav2·lifecycle_manager는 끌 때 3+3초', all(stop_timeouts(n) == ('3', '3') for n in
                                                   ('nav2_container', 'planner_server', 'controller_server',
                                                    'lifecycle_manager_base', 'lifecycle_manager_navigation'))),
-        ('Nav2 기본 = 한 프로세스(nav2_container)', 'nav2_container' in composed and 'controller_server' not in composed),
-        ('nav2_composition:=false = 서버마다 프로세스', 'nav2_container' not in separate and 'controller_server' in separate),
+        ('Nav2 기본 = 한 프로세스(nav2_container) · controller_server만 따로 (젯슨 컨테이너에서 segfault)',
+         'nav2_container' in composed and 'controller_server' in composed and 'planner_server' not in composed),
+        ('nav2_composition:=false = 서버마다 프로세스', 'nav2_container' not in separate and {'controller_server', 'planner_server'} <= separate),
         ('지도 없음(use_nav2:=false)에도 바퀴 체인용 nav2_container', 'nav2_container' in on),
         ('nvblox(끌 때 지도 저장)는 launch 기본 5+5초', stop_timeouts('nvblox_node') == ('5', '5')),
     ]

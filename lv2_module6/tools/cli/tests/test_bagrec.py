@@ -40,6 +40,8 @@ def test_command():
     cmd = bagrec.bag_command(Path('/x/b'))
     assert cmd[cmd.index('--regex') + 1] == bagrec.DIAG_REGEX and '--include-hidden-topics' in cmd, cmd
     assert 'global_costmap/costmap' in bagrec.DIAG_REGEX and 'cuvslam/odom' in bagrec.DIAG_REGEX
+    q = cmd[cmd.index('--qos-profile-overrides-path') + 1]          # /tf volatile로 받기 (map→odom 녹화)
+    assert Path(q).is_file() and 'durability: volatile' in Path(q).read_text(), q
 
 
 def test_sysmon_parsers():

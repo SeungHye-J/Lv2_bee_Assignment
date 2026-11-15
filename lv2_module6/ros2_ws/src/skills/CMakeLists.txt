@@ -34,7 +34,7 @@ find_package(plan REQUIRED)
 
 # --- skill 노드: 컴포넌트 하나 = skill 하나 (src/<skill>_skill.cpp) · 공통은 skill_node(액션 틀) · arm_io(팔) · stand_plan(세우기 경유점) · look_plan(inspect 카메라 자세)
 add_library(${PROJECT_NAME} SHARED
-  src/skill_node.cpp src/arm_io.cpp src/stand_plan.cpp src/look_plan.cpp src/far_plan.cpp
+  src/skill_node.cpp src/arm_io.cpp src/arm_state_cache.cpp src/stand_plan.cpp src/look_plan.cpp src/far_plan.cpp
   src/navigate_skill.cpp src/approach_skill.cpp src/pose_skill.cpp src/inspect_skill.cpp
   src/pick_skill.cpp src/place_skill.cpp src/load_skill.cpp src/unload_skill.cpp src/stand_skill.cpp
   src/pick_far_skill.cpp)  # pick_far: 박스 먼 쪽 퍽 (far_plan 경유점)
@@ -71,6 +71,8 @@ if(BUILD_TESTING)
   ament_add_gtest(test_skills test/test_skills.cpp TIMEOUT 60)
   target_link_libraries(test_skills ${PROJECT_NAME})
   target_compile_definitions(test_skills PRIVATE MODEL_DIR="${SKILLS_MODEL_DIR}")
+  ament_add_gtest(test_arm_state_cache test/test_arm_state_cache.cpp TIMEOUT 60)
+  target_link_libraries(test_arm_state_cache ${PROJECT_NAME})
   ament_add_test(test_launch GENERATE_RESULT_FOR_RETURN_CODE_ZERO
     COMMAND ros2 launch "${CMAKE_CURRENT_SOURCE_DIR}/launch/skills.launch.py" --show-args
     TIMEOUT 60)

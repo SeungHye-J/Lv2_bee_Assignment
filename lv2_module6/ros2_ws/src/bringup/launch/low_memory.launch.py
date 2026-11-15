@@ -1,7 +1,8 @@
 """Opt-in Jetson operation profile; all robot nodes remain under normal bringup.
 
-LAUNCH_FILE=low_memory.launch.py ./start.sh map:=slam map_backend:=nvblox
-For new mapping: map:=slam map_backend:=nvblox (uses lightweight nvblox config).
+LAUNCH_FILE=low_memory.launch.py ./start.sh
+The profile uses the saved scene_sim 2D map. To create a map, override with
+map:=slam map_backend:=nvblox.
 """
 from launch import LaunchDescription
 from launch.actions import DeclareLaunchArgument, IncludeLaunchDescription
@@ -12,8 +13,9 @@ from launch_ros.substitutions import FindPackageShare
 
 def generate_launch_description():
     defaults = {
-        'map': 'none',
-        'map_backend': 'nvblox',
+        'map': 'saved',
+        'map_name': 'scene_sim',
+        'map_backend': 'static_2d',
         'navigation_throttle': 'true',
         'navigation_infer_hz': '1.0',
         'cv_threads': '1',

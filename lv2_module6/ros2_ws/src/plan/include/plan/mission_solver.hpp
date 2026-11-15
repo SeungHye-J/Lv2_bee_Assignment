@@ -66,6 +66,10 @@ Pose2 arena_to_map(const Pose2 & p, const Pose2 & start);
 struct ArenaCorr { double dx = 0, dy = 0, dth = 0; int n = 0; };
 Pose2 apply_corr(const ArenaCorr & c, const Pose2 & m);
 Pose2 unapply_corr(const ArenaCorr & c, const Pose2 & m);
+// 보정을 로봇 위치(map→odom)로 넘길 때 (arena_corr_to_localization): 한 번에 max_m · max_rad까지만 자른 조각 (방향 그대로, n 유지)
+ArenaCorr corr_step(const ArenaCorr & c, double max_m, double max_rad);
+// 조각 s를 로봇 위치로 넘긴 뒤 남는 보정 r — apply_corr(s, apply_corr(r, x)) == apply_corr(c, x) (n 유지)
+ArenaCorr corr_after_step(const ArenaCorr & c, const ArenaCorr & s);
 // 짝(도면 map 점 m ↔ 인지 map 점 q)으로 보정을 맞춤. 1개거나 도면 점끼리 min_sep보다 가까우면 이동만, 아니면 이동+회전 (2D 최소제곱).
 //   잔차가 outlier_m을 넘는 짝은 가장 큰 것부터 하나씩 빼고 다시 (2개 남을 때까지) · 회전은 ±max_rot, 이동은 max_shift로 자름
 //   n = 쓴 짝 수 (0 = 짝 없음 → 보정 0)

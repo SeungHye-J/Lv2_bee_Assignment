@@ -130,18 +130,18 @@ controller_server:
       esdf_max_distance: 0.20  # [m] ESDF intensity(장애물까지 거리)가 이보다 큰 free 점은 버린다
       z_min: 0.03              # [m] base 기준 — nvblox slice 0.03~0.30 m
       z_max: 0.30
-      cloud_timeout: 0.5       # [s] 점구름이 이보다 오래되면 바이패스
+      cloud_timeout: 1.5       # [s] 점구름이 이보다 오래되면 바이패스 — 11-15: 0.5 → 1.5 (nvblox publish_layer_rate_hz 2.0 = 0.5 s 간격이라 조금만 늦어도 DWB로 넘어가 'No valid trajectories')
       lookahead: 5             # 관측 웨이포인트 개수 (학습과 같게)
       wp_step: 0.30            # [m] 웨이포인트 간격
       wp_scale: 2.0            # 관측 정규화
       lidar_rays: 360          # nvblox 0.05 m voxel / 3.5 m → 1°(360)가 최대 의미 해상도
       lidar_max: 3.5           # [m] 스캔 최대거리 (정규화 기준)
-      lidar_inflation: 0.02    # [m] 사용자 안전 여유 — 기본 2 cm (학습 1~5 cm)
+      lidar_inflation: 0.04    # [m] 사용자 안전 여유 (학습 1~5 cm) — 11-15: 0.02 → 0.04 (스캔은 앞 바퀴축 기준인데 몸이 뒤로 0.245 m — 문틈 모서리에 붙어 돎)
       max_lin: 0.26            # [m/s] 정책 출력 ±1 스케일
       max_ang: 1.82            # [rad/s]
       extra_lin_vel: 0.0       # [m/s] 0~0.10 — 정책 출력에 더하는 추가 선속도 (max_lin 상한 유지, 0 = 끄기)
       extra_ang_vel: 0.0       # [rad/s] 0~0.50 — 정책 출력에 더하는 추가 각속도 (max_ang 상한 유지, 0 = 끄기)
-      v_min_ratio: -0.2        # 후진 허용 비율 (음수 = 후진)
+      v_min_ratio: 0.0         # 후진 허용 비율 (음수 = 후진) — 11-15: -0.2 → 0 (카메라가 뒤를 못 보고 collision_monitor backward 반원 0.20이 몸 뒤끝 -0.245 안쪽이라 후진 감시 없음)
       # 바이패스 controller — mppi(기본) · dwb · rpp · rotation_shim 또는 전체 pluginlib 클래스명.
       #   처음 쓸 것은 여기서 고르고, 실행 중에는 서비스 /controller_server/FollowPath/set_fallback 으로 바꾼다
       #   (CLI: ./run-cli controller fallback mppi). 각 inner 의 파라미터는 FollowPath.inner_<이름>.* — 아래 블록 하나씩:
@@ -205,14 +205,14 @@ controller_server:
         #   가중치(.scale)는 실행 중에 바꾸지 않는다 — 초기화 때만 읽힐 수 있음 (15-changes #2)
         #   RotateToGoal : 목표 근처에서 목표 방향으로 제자리 회전
         #   Oscillation  : 앞뒤·좌우로 왔다 갔다 하는 궤적에 벌점
-        #   BaseObstacle : costmap 비용이 높은(벽·장애물 가까운) 곳을 지나는 궤적에 벌점
+        #   ObstacleFootprint : 몸(footprint) 전체가 지나는 칸의 비용으로 벌점 — BaseObstacle은 중심 칸 하나만 봐서 뒤로 긴 몸이 벽을 긁음 (11-15)
         #   GoalAlign    : 로봇 앞쪽이 목표를 향하도록
         #   PathAlign    : 로봇 방향이 경로 방향과 나란하도록
         #   PathDist     : 경로에서 멀어지는 궤적에 벌점
         #   GoalDist     : 목표까지 거리를 줄이는 궤적을 선호
-        critics: ["RotateToGoal", "Oscillation", "BaseObstacle", "GoalAlign", "PathAlign", "PathDist", "GoalDist"]
+        critics: ["RotateToGoal", "Oscillation", "ObstacleFootprint", "GoalAlign", "PathAlign", "PathDist", "GoalDist"]
         # 장애물 벌점 가중치. 작게 두고 inflation(costmap)으로 벽과 거리를 확보한다.
-        BaseObstacle.scale: 0.02
+        ObstacleFootprint.scale: 0.02
         # 경로 방향 정렬 가중치. forward_point_distance = 로봇 앞 몇 m 지점으로 정렬을 계산할지.
         PathAlign.scale: 32.0
         PathAlign.forward_point_distance: 0.1
@@ -343,7 +343,8 @@ controller_server:
 # ═════════════════════════════════════════════════════════════════════════════
 
 # ─────────────────────────────────────────────────────────────────────────────
-# planner_server — map 위 전역 경로(/plan). SmacPlanner2D — NavFn과 달리 footprint(로봇 몸) 충돌을 검사한다.
+# planner_server — map 위 전역 경로(/plan). SmacPlanner2D — 로봇을 원(global_costmap robot_radius)으로 보고 inscribed 비용으로 막음.
+#   몸 모양(footprint) 충돌 검사는 하지 않는다 (Nav2: Hybrid-A*·Lattice만 SE2 footprint 검사) — 그래서 전역은 robot_radius 0.22 (11-15)
 #   NavFn은 로봇을 점으로 보고 팽창 비용만 보므로 벽 모서리에 몸을 붙여 지나갔다 (실측).
 #   이름 GridBased = 기본 BT(navigate_to_pose_w_replanning_and_recovery)가 부르는 planner_id
 # ─────────────────────────────────────────────────────────────────────────────
@@ -405,7 +406,7 @@ local_costmap:
       # 활성화할 때 base_footprint→map/odom TF를 기다리는 시간(초). 기본 60초 안에 안 오면 Nav2 전체 기동이 중단된다 —
       # 바퀴 컨트롤러(odom TF)가 기동 부하로 늦게 떠도 버티게 길게 (실기 부팅·테스트베드 공통)
       initial_transform_timeout: 300.0
-      update_frequency: 5.0
+      update_frequency: 10.0   # 11-15: 5 → 10 — controller가 매 주기 costmap 갱신을 기다려 20 Hz가 5~11 Hz로 떨어짐 (RL 행동이 2~4배 오래 유지돼 커브에서 크게 돎)
       publish_frequency: 2.0
       global_frame: odom
       robot_base_frame: base_footprint
@@ -419,7 +420,7 @@ local_costmap:
       #   padding 0.01은 컨트롤러 추종 오차로 상쇄돼 뒤 모서리가 벽 픽셀에 닿았다 → 0.06으로
       #   fake_opencr 충돌("막힘 bumped") 없이 지나가게 (2026-11-12: (0.97,-1.46) 뒤 모서리 (1.253,-1.513) 벽).
       footprint: "[[0.069, 0.151], [0.069, -0.151], [-0.245, -0.151], [-0.245, 0.151]]"
-      footprint_padding: 0.06
+      footprint_padding: 0.01   # 11-15: 0.06 → 0.02 → 0.01 (외접 0.306) — 문틈(빈 공간 0.59 m)에서 DWB가 몸(폭 0.42 → 0.34) 들어갈 궤적을 못 찾아 멈춤. 외접 0.315 ≤ inflation 0.38
       always_send_full_costmap: true
       # static_layer (벽 지도 /map): 카메라는 0.2 m 안·옆·뒤를 못 봐서 voxel만으로는 돌다가 옆 벽에 박음 (11-13 headless 여러 번).
       #   처음엔 inflation 0.35로 넣었다가 벽 옆 다가설 자리에 못 들어감 → 로컬 inflation 반경을 0.32로 줄여 같이 씀 (경사 6)
@@ -427,6 +428,7 @@ local_costmap:
       static_layer:
         plugin: "nav2_costmap_2d::StaticLayer"
         map_subscribe_transient_local: true
+        map_topic: /arena/walls   # 11-15: /map(nvblox 실시간 — 문 빈 공간 0.45 m로 두꺼움) 대신 실측 벽 한 칸 + 상자 (전역과 같음)
       voxel_layer:
         plugin: "nav2_costmap_2d::VoxelLayer"
         enabled: true
@@ -440,20 +442,20 @@ local_costmap:
         pole_front_cam:
           topic: /pole_front_cam/depth/color/points_filtered   # perception/body_filter가 자기 몸(팔·차체) 점을 뺀 것
           data_type: "PointCloud2"
-          min_obstacle_height: 0.03
+          min_obstacle_height: 0.06   # 11-15: 0.03 → 0.06 바닥 잡음
           max_obstacle_height: 0.6
           marking: true
           clearing: true
           obstacle_min_range: 0.2
-          obstacle_max_range: 2.5
+          obstacle_max_range: 1.5     # 11-15: 2.5 → 1.5 먼 depth 잡음·위치 오차로 문틀이 두껍게 찍히는 것 줄임
           raytrace_min_range: 0.2
           raytrace_max_range: 3.0
       inflation_layer:
         plugin: "nav2_costmap_2d::InflationLayer"
         # 직사각형 footprint의 외접 반경(≈0.30, 패딩 포함) 이상이어야 MPPI가 몸 모양으로 충돌을 본다 (작으면 경고 + 원으로 봄).
         # 6.0 = 벽에서 0.3 m면 비용 약 1/4 — 통로 가운데를 고르되 좁은 곳(절반 폭 0.25)도 지나가게
-        inflation_radius: 0.32   # 11-13: 0.35 → 0.32 (static_layer 벽과 같이). 외접 반경(0.302, padding 포함) 이상이어야 함 — 0.30이면 computeCircumscribedCost 오류
-        cost_scaling_factor: 6.0 # 11-13: 10이면 벽 0.2 m에서 비용 75로 낮아 MPPI가 벽에 붙어 감 → 6 (같은 자리 122, 전역과 같음)
+        inflation_radius: 0.33   # 외접 반경(뒤 모서리 + padding 0.01 = 0.306) 이상 — 11-15: 0.38 → 0.33이어야 MPPI·DWB가 몸 모양으로 충돌 검사 — 11-15: 0.32면 computeCircumscribedCost 오류로 '절대 충돌만' 모드 (11-13엔 0.35 → 0.32로 줄였었음: 벽 옆 다가설 자리)
+        cost_scaling_factor: 10.0 # 11-15: 6 → 10 (벽 근처만 비싸게 — 사용자 '팽창 줄여 편하게'). 11-13 기록: 10이면 MPPI가 벽에 붙어 감 → 6이었음 (같은 자리 122, 전역과 같음)
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -474,18 +476,26 @@ global_costmap:
       #   경로가 벽에 붙고 제자리 회전 때 뒤가 벽에 걸렸다 (테스트베드 실측 2026-11-11: 105 반복·Spin "Collision Ahead").
       #   padding 0.01은 컨트롤러 추종 오차로 상쇄돼 뒤 모서리가 벽 픽셀에 닿았다 → 0.06으로
       #   fake_opencr 충돌("막힘 bumped") 없이 지나가게 (2026-11-12: (0.97,-1.46) 뒤 모서리 (1.253,-1.513) 벽).
-      footprint: "[[0.069, 0.151], [0.069, -0.151], [-0.245, -0.151], [-0.245, 0.151]]"
-      footprint_padding: 0.06
+      # 11-15: 전역은 원(robot_radius 0.22) — SmacPlanner2D는 몸 모양을 안 보고 기준점(앞 바퀴축)의 inscribed 비용만 봄.
+      #   직사각형+padding이면 inscribed 0.129라 벽 0.13 m까지 경로를 냄 → 문틈 모서리를 자르고 RL이 따라가 막힘. 옆 반폭 0.151 + 5 cm
+      robot_radius: 0.16   # 11-15: 0.22 → 0.20 → 0.17 → 0.16 (반폭 0.151 + 1 cm, 사용자 '더 빡세게') (실측 벽 /arena/walls만 봐서 이중 표시 여유 불필요 · 반폭 0.151 + 2 cm) — 예전 메모: 0.20 — 문틈 빈 공간 0.57 m에서 카메라 벽이 위치 오차만큼 겹쳐도 8.5 cm까지 안 막힘 (0.22면 7 cm)
       resolution: 0.05
-      track_unknown_space: true
+      track_unknown_space: false   # 11-15: /arena/walls는 벽·상자 말고 −1(모름) — 빈칸으로 읽어야 플래너가 벽 옆 팽창을 빈 곳보다 싸게 보지 않음
       always_send_full_costmap: true
       # 전역 계획: 정적 벽 + 카메라에 보인 장애물(상자 — map.pgm에는 벽만 있음) + 팽창.
       # (11-13 obstacle_layer 추가: 없으면 Smac이 상자를 통과하는 경로를 내고 MPPI가 상자 앞에서 멈춤.
       #  예전에 뺀 이유 — 좁은 통로에서 전역 계획이 자주 실패 — 가 다시 보이면 이 줄부터 의심)
-      plugins: ["static_layer", "obstacle_layer", "inflation_layer"]
+      # 11-15 실기: 카메라 층(obstacle_layer)을 빼고 정적 벽 + 팽창만. 문 앞에 서면 카메라가 문틀을 지도 벽 옆에 한 번 더 찍어
+      #   0.57 m 문틈이 robot_radius 기준 '통과 불가'가 됨 → 플래너가 아래 통로로 7 m 돌아가는 경로를 내고 문 앞에서 돌다 멈춤.
+      #   상자(지도에 없음)는 local costmap · RL · collision_monitor가 피함. 아래 obstacle_layer 블록은 다시 켤 때를 위해 남김
+      plugins: ["static_layer", "inflation_layer"]
       static_layer:
         plugin: "nav2_costmap_2d::StaticLayer"
         map_subscribe_transient_local: true
+        # 11-15: /map(nvblox 실시간 + 벽 겹침) 대신 /arena/walls(mission_manager — plan.yaml 실측 벽 한 칸 + 시작·장소 상자, 경기장 보정 반영).
+        #   /map은 카메라 depth를 계속 쌓아 문틀이 두껍고 어긋남 (실기 bag: 왼쪽 문 빈 공간 0.57 → 0.45 m, 아래 벽 끝 2.86 → 3.05)
+        #   → robot_radius 0.20으로 문이 막혀 출발 칸 막힘(206)·7 m 우회. mission_manager가 안 뜨면(use_mission:=false) 전역 지도가 없음
+        map_topic: /arena/walls
       obstacle_layer:
         plugin: "nav2_costmap_2d::ObstacleLayer"
         enabled: true
@@ -493,20 +503,20 @@ global_costmap:
         pole_front_cam:
           topic: /pole_front_cam/depth/color/points_filtered   # perception/body_filter가 자기 몸(팔·차체) 점을 뺀 것
           data_type: "PointCloud2"
-          min_obstacle_height: 0.03
+          min_obstacle_height: 0.06   # 11-15: 0.03 → 0.06 — 바닥 depth 잡음이 전역에 남지 않게 (상자는 훨씬 높음)
           max_obstacle_height: 0.6
           marking: true
           clearing: true
           obstacle_min_range: 0.2
-          obstacle_max_range: 2.5
+          obstacle_max_range: 1.5     # 11-15: 2.5 → 1.5 — 먼 depth 잡음·위치 오차로 지도 벽 옆에 벽이 하나 더 찍혀 문틈이 좁아지는 것 줄임 (상자는 다가가면 1.5 m 안)
           raytrace_min_range: 0.2
           raytrace_max_range: 3.0
       inflation_layer:
         plugin: "nav2_costmap_2d::InflationLayer"
         # 전역 계획(NavFn)은 로봇을 점으로 본다 — 몸 안쪽 반경(앞 0.08)까지만 막히니, 비용으로 통로 가운데를 고르게 한다.
         # 0.45 · 6.0: 벽에서 0.3 m ≈ 67 · 0.15 m ≈ 166 (253 = 몸이 닿음) — 제자리 회전 반경(뒤 모서리 0.29)을 지키는 경로
-        inflation_radius: 0.45
-        cost_scaling_factor: 6.0
+        inflation_radius: 0.25    # 11-15: 0.45 → 0.40 → 0.30 → 0.25 (경로를 편하게 — 사용자) — 통로 대부분이 빨강(비용 150 안팎)이라 좁은 곳에서 경로 선택이 둔함
+        cost_scaling_factor: 8.0  # 11-15: 6 → 3 → 4 → 5 → 8 (0.3 m에서 171 → 151) — 벽 비용이 천천히 줄어 경로가 문틈 가운데로 곧게 (6이면 모서리를 대각선으로 자름)
 
 
 # ─────────────────────────────────────────────────────────────────────────────

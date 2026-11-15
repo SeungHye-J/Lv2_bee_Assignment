@@ -317,5 +317,9 @@ case "${LAUNCH_FILE:-bringup.launch.py}" in bringup.launch.py) foxglove_hint "$@
 
 # 실행할 launch (기본 전체 bringup) — isaac/loops/manipulator-launcher.sh가 LAUNCH_FILE=stand_test.launch.py로 가벼운 팔 테스트용을 고름
 LAUNCH_FILE="${LAUNCH_FILE:-bringup.launch.py}"
+if [ "$LAUNCH_FILE" = "bringup.launch.py" ] && [ -z "${ALLOW_SECOND_BRINGUP:-}" ] && pgrep -f "[r]os2 launch bringup" >/dev/null; then
+  echo "ERROR: bringup already running; stop it before starting another (set ALLOW_SECOND_BRINGUP=1 only for an intentional second instance)" >&2
+  exit 1
+fi
 echo "=== ros2 launch bringup $LAUNCH_FILE $*"
 exec ros2 launch bringup "$LAUNCH_FILE" "$@"

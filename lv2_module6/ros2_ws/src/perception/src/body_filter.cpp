@@ -98,6 +98,10 @@ BodyFilter::BodyFilter(const rclcpp::NodeOptions & options)
   const auto in = declare_parameter<std::string>("input_topic", "/pole_front_cam/depth/color/points");
   const auto out = declare_parameter<std::string>("output_topic", "/pole_front_cam/depth/color/points_filtered");
   padding_ = declare_parameter<double>("padding", 0.03);
+  // 차체(움직이지 않는 몸)는 padding을 작게 — padding 0.10을 차체에도 붙이면 몸 둘레(앞 0.17 · 옆 0.25 m) 점이 다 지워져
+  //   collision_monitor 회전·전진 영역이 거의 아무것도 못 봄 (11-15 분석). 팔 점을 빼려고 키운 padding은 팔 링크에만.
+  base_padding_ = declare_parameter<double>("base_padding", padding_);
+  base_links_ = declare_parameter<std::vector<std::string>>("base_links", std::vector<std::string>{});
   stride_ = declare_parameter<int>("stride", 1);
   if (stride_ < 1) stride_ = 1;
   // 바닥 뺀 출력 (MoveIt octomap용, 이슈 #126) — 기존 output_topic은 그대로
@@ -128,8 +132,8 @@ BodyFilter::BodyFilter(const rclcpp::NodeOptions & options)
     s.add("뺀 점 (누적)", removed_);
     s.add("바닥이라 뺀 점 (누적, no_floor 출력)", floor_removed_);
   });
-  RCLCPP_INFO(get_logger(), "%s → %s (padding %.2fm, stride %d) · 바닥 뺀 출력 %s (%s z ≤ %.2fm 뺌)",
-              in.c_str(), out.c_str(), padding_, stride_, no_floor.c_str(), floor_frame_.c_str(), floor_z_);
+  RCLCPP_INFO(get_logger(), "%s → %s (padding %.2fm · 차체 %zu개 링크 %.2fm, stride %d) · 바닥 뺀 출력 %s (%s z ≤ %.2fm 뺌)",
+              in.c_str(), out.c_str(), padding_, base_links_.size(), base_padding_, stride_, no_floor.c_str(), floor_frame_.c_str(), floor_z_);
 }
 
 void BodyFilter::on_cloud(const PointCloud2 & in) {
@@ -165,7 +169,9 @@ void BodyFilter::on_cloud(const PointCloud2 & in) {
     tf2::Transform cam_link;
     tf2::fromMsg(ts.transform, cam_link);
     to_box.push_back((cam_link * b.origin).inverse());
-    half.push_back(b.half + tf2::Vector3(padding_, padding_, padding_));
+    const bool base = std::find(base_links_.begin(), base_links_.end(), b.link) != base_links_.end();
+    const double pad = base ? base_padding_ : padding_;
+    half.push_back(b.half + tf2::Vector3(pad, pad, pad));
   }
   // 팔·차체는 로봇 주변 좁은 영역 — 그 전체를 감싸는 구 하나(카메라 좌표)를 먼저 본다.
   // 구 밖의 점은 어느 상자에도 못 들어가므로 77개 상자 검사를 건너뛴다 (결과는 같고, 대부분의 점이 여기서 끝남).

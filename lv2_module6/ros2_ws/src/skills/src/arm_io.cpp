@@ -1,5 +1,6 @@
 // 팔 skill 공통 — 설명은 include/skills/arm_io.hpp (예전 coordinator.cpp move_arm · move_joints · set_gripper · contact_step …)
 #include "skills/arm_io.hpp"
+#include "skills/arm_state_cache.hpp"
 
 #include <algorithm>
 #include <cmath>
@@ -71,32 +72,12 @@ ArmIO::ArmIO(rclcpp::Node & node)
   fade_sag_ = node.create_client<std_srvs::srv::Trigger>("/rl_arm_correction/fade_sag");
   ctx_pub_ = node.create_publisher<ml::msg::SkillContext>("/skill_context", rclcpp::QoS(10).reliable());
   hand_pub_ = node.create_publisher<perception::msg::HandTarget>("/hand_relative/target", rclcpp::QoS(1).reliable().transient_local());
-  joints_sub_ = node.create_subscription<sensor_msgs::msg::JointState>("/joint_states", rclcpp::QoS(10),
-    [this](sensor_msgs::msg::JointState::ConstSharedPtr m) {
-      for (size_t i = 0; i < m->name.size() && i < m->position.size(); ++i) pos_[m->name[i]] = m->position[i];
-      for (size_t i = 0; i < m->name.size() && i < m->effort.size(); ++i) effort_[m->name[i]] = m->effort[i];
-      const auto e2 = effort_.find("joint2"), e3 = effort_.find("joint3");
-      if (e2 != effort_.end() && e3 != effort_.end()) {
-        const double now = node_.now().seconds();
-        jam_hist_.emplace_back(now, e2->second + e3->second);
-        while (!jam_hist_.empty() && jam_hist_.front().first < now - 1.0) jam_hist_.pop_front();
-      }
-    });
+  state_cache_ = ArmStateCache::for_node(node);
   safety_sub_ = node.create_subscription<control::msg::ArmSafetyEvent>("/arm_safety_event", rclcpp::QoS(10).reliable(),
     [this](control::msg::ArmSafetyEvent::ConstSharedPtr m) {
       RCLCPP_WARN(node_.get_logger(), "팔 접촉 %s %.2fA", m->joint_name.c_str(), m->current_a);
       contact_ = true;  // 진행 중 결과가 실패로 오면 reason을 arm_contact로
     });
-  debug_sub_ = node.create_subscription<ml::msg::ArmCorrectionDebug>("/rl_arm_correction/debug", rclcpp::QoS(10),
-    [this](ml::msg::ArmCorrectionDebug::ConstSharedPtr m) {
-      const double now = node_.now().seconds();
-      Q5 d{};
-      std::copy_n(m->delta.begin(), 5, d.begin());
-      delta_hist_.emplace_back(now, d);
-      while (!delta_hist_.empty() && delta_hist_.front().first < now - 1.0) delta_hist_.pop_front();
-    });
-  tf_buffer_ = std::make_unique<tf2_ros::Buffer>(node.get_clock());
-  tf_listener_ = std::make_shared<tf2_ros::TransformListener>(*tf_buffer_);
 }
 
 bool ArmIO::moveit_ready() const { return plan_->service_is_ready() && exec_->action_server_is_ready(); }
@@ -111,10 +92,7 @@ void ArmIO::stop() {
 }
 
 bool ArmIO::joint(const std::string & name, double & pos) const {
-  const auto it = pos_.find(name);
-  if (it == pos_.end()) return false;
-  pos = it->second;
-  return true;
+  return state_cache_->position(name, pos);
 }
 
 bool ArmIO::arm_now(Q5 & q) const {
@@ -307,10 +285,8 @@ ArmIO::Step ArmIO::gripper_step(double width_m, double effort_a) {
 ArmIO::Step ArmIO::held_step() {
   return [this](Cb cb) {
     if (!grasp_check_) { cb(true); return; }
-    const auto p = pos_.find("gripper_left_joint");
-    const auto e = effort_.find("gripper_left_joint");
-    const double pos = p == pos_.end() ? 0.0 : p->second;
-    const double eff = e == effort_.end() ? std::nan("") : e->second;
+    double pos = 0.0, eff = std::nan("");
+    state_cache_->joint("gripper_left_joint", pos, eff);
     // 쥠 = 손가락이 닫는 목표 앞에서 멈춤 (약한 전류) 또는 전류가 하한 이상 (센 전류면 퍽이 눌려 목표 근처까지 들어감 —
     //   11/08 실기 0.35 A: 30 mm 퍽에서 4.7 mm까지 · 0.34 A, 목표 4.2 mm). 빈손은 목표까지 가고 전류 ~0
     const bool stopped = grasp_held(pos, eff, std::max(grasp_min_pos_m_, grip_close_m() + node_.get_parameter("grasp_stop_margin_m").as_double()), 0.0);
@@ -353,19 +329,7 @@ ArmIO::Step ArmIO::delta_settle_step(double min_s, double max_s) {
       const double now = node_.now().seconds(), t = now - t0;
       if (t < min_s) return;
       // 최근 DELTA_WINDOW_S 안의 Δ가 2개 넘게 있고 관절마다 흩어짐이 DELTA_SPREAD 안이면 멈춤 · debug가 안 오면(정책 없음) 기다릴 것 없음
-      bool fresh = !delta_hist_.empty() && delta_hist_.back().first > now - 2 * DELTA_WINDOW_S;
-      bool still = true;
-      if (fresh) {
-        Q5 lo = delta_hist_.back().second, hi = lo;
-        int n = 0;
-        for (const auto & [ts, d] : delta_hist_) {
-          if (ts < now - DELTA_WINDOW_S) continue;
-          ++n;
-          for (int i = 0; i < 5; ++i) { lo[i] = std::min(lo[i], d[i]); hi[i] = std::max(hi[i], d[i]); }
-        }
-        for (int i = 0; i < 5; ++i) still = still && hi[i] - lo[i] <= DELTA_SPREAD;
-        still = still && n >= 2;
-      }
+      const bool still = state_cache_->delta_stable(now, 2 * DELTA_WINDOW_S, DELTA_WINDOW_S, DELTA_SPREAD, 2);
       if (!still && t < max_s) return;
       timer_->cancel();
       if (t > min_s + 0.06)
@@ -405,9 +369,10 @@ ArmIO::Step ArmIO::grip_stop_step(double timeout_s) {
     auto last = std::make_shared<double>(-1.0);
     timer_ = node_.create_wall_timer(std::chrono::milliseconds(50), [=, this]() {
       if (gen != gen_) { timer_->cancel(); return; }
-      const auto p = pos_.find("gripper_left_joint");
       const auto now = std::chrono::steady_clock::now();
-      if (p != pos_.end() && (*last < 0 || std::abs(p->second - *last) > 0.0002)) { *still_from = now; *last = p->second; }
+      double position = 0.0;
+      if (state_cache_->position("gripper_left_joint", position) &&
+          (*last < 0 || std::abs(position - *last) > 0.0002)) { *still_from = now; *last = position; }
       if (std::chrono::duration<double>(now - *still_from).count() < 0.2 && std::chrono::duration<double>(now - t0).count() < timeout_s) return;
       timer_->cancel();
       cb(true);
@@ -424,10 +389,9 @@ ArmIO::Step ArmIO::grip_settle_step(double min_current, double empty_m, double t
     auto last = std::make_shared<double>(-1.0);
     timer_ = node_.create_wall_timer(std::chrono::milliseconds(50), [=, this]() {
       if (gen != gen_) { timer_->cancel(); return; }
-      const auto p = pos_.find("gripper_left_joint");
-      const auto e = effort_.find("gripper_left_joint");
-      if (p == pos_.end()) return;
-      const double pos = p->second, cur = e == effort_.end() ? 0.0 : std::abs(e->second);
+      double pos = 0.0, effort = 0.0;
+      if (!state_cache_->joint("gripper_left_joint", pos, effort)) return;
+      const double cur = std::abs(effort);
       const auto now = node_.now();
       if (*last < 0 || std::abs(pos - *last) > 0.0002) *still_from = now;  // 움직이는 중
       *last = pos;
@@ -504,7 +468,7 @@ void ArmIO::fade_sag() {
 bool ArmIO::ik_ee(const geometry_msgs::msg::PoseStamped & ee, const Q5 & near, Q5 & out) {
   geometry_msgs::msg::TransformStamped tf;
   try {
-    tf = tf_buffer_->lookupTransform("base_footprint", ee.header.frame_id, tf2::TimePointZero);
+    tf = state_cache_->tf().lookupTransform("base_footprint", ee.header.frame_id, tf2::TimePointZero);
   } catch (const std::exception &) {
     return false;
   }
@@ -520,7 +484,7 @@ bool ArmIO::ik_ee(const geometry_msgs::msg::PoseStamped & ee, const Q5 & near, Q
 bool ArmIO::ik_ee_yaw(const geometry_msgs::msg::PoseStamped & ee, double psi, const Q5 & near, Q5 & out) {
   geometry_msgs::msg::TransformStamped tf;
   try {
-    tf = tf_buffer_->lookupTransform("base_footprint", ee.header.frame_id, tf2::TimePointZero);
+    tf = state_cache_->tf().lookupTransform("base_footprint", ee.header.frame_id, tf2::TimePointZero);
   } catch (const std::exception &) {
     return false;
   }
@@ -533,13 +497,7 @@ bool ArmIO::ik_ee_yaw(const geometry_msgs::msg::PoseStamped & ee, double psi, co
 }
 
 double ArmIO::jam_mean(double window_s) const {
-  if (jam_hist_.empty()) return 0.0;
-  const double t0 = jam_hist_.back().first - window_s;
-  double sum = 0.0;
-  int n = 0;
-  for (const auto & [t, e] : jam_hist_)
-    if (t >= t0) { sum += e; ++n; }
-  return n ? sum / n : 0.0;
+  return state_cache_->jam_mean(window_s);
 }
 
 ArmIO::Step ArmIO::contact_step(const SkillModel & policy, std::function<bool(Q5 &, Q5 &)> plan, bool close,

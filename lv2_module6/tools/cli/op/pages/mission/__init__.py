@@ -519,10 +519,34 @@ class GotoItem(MenuItem):
         if text is None or not text.strip():
             return STAY
         cmd = 'start:GOTO:' + text.strip().replace(' ', '')
-        if not self.ui.confirm(f'"{cmd}" — 로봇이 주행합니다. 시작할까요?', default=False):
+        from ... import bagrec
+        if not self.ui.confirm(f'"{cmd}" — 로봇이 주행합니다. 시작할까요?', default=False,
+                               body=[f'녹화도 같이 켬: {bagrec.BAG_DIR}/<시각>_goto (끝나면 끔 · 이미 녹화 중이면 그대로 둠)']):
             return STAY
-        self.bus.cmd_mission(cmd)
+        start_with_bag(self, cmd, 'goto')
         return STAY
+
+
+def start_with_bag(item, cmd: str, label: str):
+    """미션 명령을 보내며 bag 녹화를 켜고 미션이 끝나면 끔 (DiagRunItem과 같은 토픽·옵션). 이미 녹화 중이면 건드리지 않음 ·
+    녹화를 못 켜도 미션은 보냄 (상자로 가기는 시험 주행이라 녹화 실패로 막지 않음)"""
+    import threading
+    from ... import bagrec
+    rec = None
+    cur = bagrec.current()
+    if cur:
+        print(f'이미 녹화 중 — 그대로 둠: {cur["bag"]}')
+    else:
+        try:
+            regex = subprocess.run([str(RECORD_RUN), '--regex'], capture_output=True, text=True, check=True).stdout.strip()
+            rec = bagrec.start(label, regex=regex, extra=RECORD_OPTS)
+        except (OSError, subprocess.CalledProcessError, RuntimeError) as e:
+            print(f'녹화를 못 켬 — 녹화 없이 진행: {str(e)[-200:]}')
+    item.bus.cmd_mission(cmd)
+    if rec:
+        threading.Thread(target=stop_bag_when_done, args=(item.state, rec['bag'], bagrec), daemon=True).start()
+        print(f'미션 {cmd} · 녹화 {rec["bag"]}')
+    return rec
 
 
 class DiagRunItem(MenuItem):

@@ -499,6 +499,54 @@ def Xform "World"
         double3 xformOp:translate = (-0.4958156943321228, -0.22785460948944092, 6.565138619407662e-7)
         uniform token[] xformOpOrder = ["xformOp:translate", "xformOp:translate:pivot", "xformOp:rotateXYZ", "xformOp:scale", "!invert!xformOp:translate:pivot"]
 
+        over "wall_a0"
+        {
+            double3 xformOp:translate = (-0.0622, -0.0264, 0)
+            uniform token[] xformOpOrder = ["xformOp:translate"]
+        }
+
+        over "wall_a1"
+        {
+            double3 xformOp:translate = (0.034, -0.0556, 0)
+            uniform token[] xformOpOrder = ["xformOp:translate"]
+        }
+
+        over "wall_b0"
+        {
+            double3 xformOp:translate = (0.0019, -0.0021, 0)
+            uniform token[] xformOpOrder = ["xformOp:translate"]
+        }
+
+        over "wall_b1"
+        {
+            double3 xformOp:translate = (-0.1534, -0.09, 0)
+            uniform token[] xformOpOrder = ["xformOp:translate"]
+        }
+
+        over "wall_b2"
+        {
+            double3 xformOp:translate = (-0.1061, -0.0404, 0)
+            uniform token[] xformOpOrder = ["xformOp:translate"]
+        }
+
+        over "wall_c0"
+        {
+            double3 xformOp:translate = (-0.0165, 0.046, 0)
+            uniform token[] xformOpOrder = ["xformOp:translate"]
+        }
+
+        over "wall_d0"
+        {
+            double3 xformOp:translate = (0.0309, 0.1096, 0)
+            uniform token[] xformOpOrder = ["xformOp:translate"]
+        }
+
+        over "wall_e0"
+        {
+            double3 xformOp:translate = (-0.092, 0.031, 0)
+            uniform token[] xformOpOrder = ["xformOp:translate"]
+        }
+
         over "Looks"
         {
             over "wall"
@@ -916,7 +964,7 @@ def Xform "World"
     {
         float3 xformOp:rotateXYZ = (0, 0, 0)
         float3 xformOp:scale = (1, 1, 1)
-        double3 xformOp:translate = (0.949, 1.933, 0)
+        double3 xformOp:translate = (0.938, 1.871, 0)
         float3 xformOp:translate:pivot = (0, 0, 0)
         uniform token[] xformOpOrder = ["xformOp:translate", "xformOp:translate:pivot", "xformOp:rotateXYZ", "xformOp:scale", "!invert!xformOp:translate:pivot"]
     }
@@ -927,7 +975,7 @@ def Xform "World"
     {
         float3 xformOp:rotateXYZ = (0, 0, 84.86867)
         float3 xformOp:scale = (1, 1, 1)
-        double3 xformOp:translate = (0.949, -2.471, 0)
+        double3 xformOp:translate = (0.993, -2.453, 0)
         float3 xformOp:translate:pivot = (0, 0, 0)
         uniform token[] xformOpOrder = ["xformOp:translate", "xformOp:translate:pivot", "xformOp:rotateXYZ", "xformOp:scale", "!invert!xformOp:translate:pivot"]
     }
@@ -938,7 +986,7 @@ def Xform "World"
     {
         float3 xformOp:rotateXYZ = (0, 0, 180)
         float3 xformOp:scale = (1, 1, 1)
-        double3 xformOp:translate = (-0.5221550738382368, 0.30731076910165944, -9.769962616701378e-15)
+        double3 xformOp:translate = (-0.446, 0.243, -9.769962616701378e-15)
         float3 xformOp:translate:pivot = (0, 0, 0)
         uniform token[] xformOpOrder = ["xformOp:translate", "xformOp:translate:pivot", "xformOp:rotateXYZ", "xformOp:scale", "!invert!xformOp:translate:pivot"]
     }

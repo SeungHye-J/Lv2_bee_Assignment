@@ -46,6 +46,8 @@ private:
   void on_cloud(const PointCloud2 & in);
 
   double padding_;
+  double base_padding_;               // base_links 상자에만 쓰는 padding — 차체 둘레 장애물까지 지우지 않게
+  std::vector<std::string> base_links_;
   int stride_{1};
   std::string floor_frame_;  // 바닥 높이를 잴 프레임 (z = 0이 바닥)
   double floor_z_;           // 이 높이 이하 점은 no_floor 출력에서 뺌 [m]

@@ -16,7 +16,7 @@ from ros.fake.FakeRos import FakeRos  # noqa: E402
 
 FakeRos.install()
 from op import bagrec  # noqa: E402
-from op.pages.mission import RECORD_OPTS, RECORD_RUN, MissionMenu, stop_bag_when_done  # noqa: E402
+from op.pages.mission import RECORD_OPTS, RECORD_RUN, MissionMenu, start_with_bag, stop_bag_when_done  # noqa: E402
 
 # ① 토픽 목록
 regex = re.compile(subprocess.run([str(RECORD_RUN), '--regex'], capture_output=True, text=True, check=True).stdout.strip())
@@ -86,6 +86,30 @@ time.sleep(0.05)
 st.mission = Mission('DONE')
 th.join(2)
 assert out['why'] == 'DONE' and rec.stopped == 0
+
+
+# ④ 상자로 가기(g) — 시작하면 녹화 켜고 명령 보냄 · 이미 녹화 중이면 그대로 두고 명령만 · 녹화 실패해도 명령은 보냄
+class Bus:
+    def __init__(self): self.sent = []
+    def cmd_mission(self, c): self.sent.append(c)
+Item = lambda: type('I', (), {'bus': Bus(), 'state': State()})()
+real_cur, real_start = bagrec.current, bagrec.start
+try:
+    started = []
+    bagrec.current = lambda: None
+    bagrec.start = lambda label, **kw: started.append((label, kw)) or {'bag': '/b/goto'}
+    it = Item()
+    assert start_with_bag(it, 'start:GOTO:S3', 'goto') == {'bag': '/b/goto'} and it.bus.sent == ['start:GOTO:S3']
+    assert started[0][0] == 'goto' and started[0][1]['extra'] == RECORD_OPTS and started[0][1]['regex']
+    bagrec.current = lambda: {'bag': '/b/human'}                       # 사람이 켠 녹화 — 안 건드림
+    started.clear(); it = Item()
+    assert start_with_bag(it, 'start:GOTO:S1', 'goto') is None and not started and it.bus.sent == ['start:GOTO:S1']
+    bagrec.current = lambda: None
+    def boom(label, **kw): raise RuntimeError('디스크 없음')
+    bagrec.start = boom; it = Item()
+    assert start_with_bag(it, 'start:GOTO:L1', 'goto') is None and it.bus.sent == ['start:GOTO:L1']
+finally:
+    bagrec.current, bagrec.start = real_cur, real_start
 
 # 메뉴 키 — x 한 번 · 다른 키와 안 겹침 (#199 l·d·a 포함)
 app = type('App', (), {'state': type('S', (), {'failures': []})(), 'bus': None, 'ui': None, 'term': None})()

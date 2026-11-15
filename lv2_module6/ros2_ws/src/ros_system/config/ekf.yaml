@@ -14,10 +14,11 @@ ekf_filter_node:
     world_frame: odom
     # 속도 위주로 넣어 미끄러짐 영향을 줄인다 [x y z, roll pitch yaw, vx vy vz, vroll vpitch vyaw, ax ay az]
     odom0: /odom
-    # 바퀴는 vx·vy만 — yaw 회전속도는 IMU(자이로)만. 실측 (회전 시험 2026-10-19): diff_drive twist 회전속도는 40~90ms 늦고
-    # 80초 적분이 실제와 5~10° 어긋남 (pose는 맞음) — 분산을 크게 줘도 섞여 EKF yaw가 끝에 1.6~2.6° 틀어짐. IMU 적분은 0.2~0.8°
+    # 바퀴 vx·vy + yaw 회전속도(11-15부터). 예전(10-19)엔 vyaw를 뺐음: diff_drive 회전속도가 40~90ms 늦고 80초 적분이 5~10° 어긋남
+    #   — 그 어긋남의 대부분은 바퀴 간격(유효 0.32 vs 0.287) 차이였음 → controllers.yaml wheel_separation_multiplier 1.12로 맞춘 뒤 넣음.
+    #   분산: 바퀴 vyaw 0.01(σ 0.1 rad/s) · IMU 1e-4 — 자이로를 훨씬 더 믿고, 바퀴는 자이로가 튀거나 끊길 때 받쳐 줌
     odom0_config: [false, false, false, false, false, false,
-                   true,  true,  false, false, false, false,
+                   true,  true,  false, false, false, true,
                    false, false, false]
     imu0: /imu
     imu0_config: [false, false, false, false, false, false,
