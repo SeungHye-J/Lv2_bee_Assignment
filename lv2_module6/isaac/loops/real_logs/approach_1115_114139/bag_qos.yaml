@@ -1,0 +1,2 @@
+/tf: {history: keep_last, depth: 100, reliability: reliable, durability: volatile}
+/tf_static: {history: keep_last, depth: 100, reliability: reliable, durability: transient_local}

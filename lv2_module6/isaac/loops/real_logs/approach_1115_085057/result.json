@@ -1,0 +1,83 @@
+{
+ "scene": "real",
+ "box": "3",
+ "box_map": [
+  -2.2019883135827976,
+  -4.4040058431892195
+ ],
+ "side": "north",
+ "policy": "dock_box",
+ "navigate_goal": [
+  -2.2019883135827976,
+  -3.9540058431892193,
+  -1.5707963267948966
+ ],
+ "approach_goal_true": [
+  -2.2019883135827976,
+  -4.2165058431892195,
+  -1.5707963267948966
+ ],
+ "approach_hint": [
+  -2.2019883135827976,
+  -4.2165058431892195,
+  -1.5707963267948966
+ ],
+ "plan_error": [
+  0.0,
+  0.0
+ ],
+ "track_fields": [
+  "t_s",
+  "x",
+  "y",
+  "yaw (TF map)",
+  "loc_mm [dx, dy, dyaw_deg] TF - truth",
+  "meas [dx_mm, dy_mm] robot frame vs true box, [size_a, size_b] mm, yaw_deg, camera"
+ ],
+ "start_pose": [
+  -0.00030405124389356393,
+  0.0005897945344492366,
+  -0.0002466864881902722
+ ],
+ "end_pose": [
+  -0.00034169792277683755,
+  0.0005897959387630826,
+  -0.0002466864881902722
+ ],
+ "ok": false,
+ "steps": [
+  {
+   "step": 0,
+   "skill": "",
+   "ok": false,
+   "reason": "manual_mode",
+   "end_s": 0.0
+  }
+ ],
+ "track": [
+  [
+   0.0,
+   -0.0003,
+   0.0006,
+   -0.0002,
+   null,
+   [
+    3799.9,
+    5235.8,
+    [
+     635,
+     312
+    ],
+    -14.1,
+    "pole_front_cam"
+   ]
+  ]
+ ],
+ "true_end_pose": null,
+ "error": {
+  "along_mm": -4217.1,
+  "lateral_mm": 2201.6,
+  "yaw_deg": 89.99,
+  "gap_mm": 4302.1
+ }
+}
