@@ -4,10 +4,9 @@
 name: slack-stats
 
 on:
-  schedule:
-    # 매일 09:30 KST (UTC 00:30) — contributors(04:00 KST) 뒤
-    - cron: '30 0 * * *'
-  workflow_dispatch:
+  workflow_run:
+    workflows: ["notion-stats"]
+    types: [completed]
 
 permissions:
   contents: write
@@ -18,6 +17,7 @@ concurrency:
 
 jobs:
   stats:
+    if: ${{ github.event.workflow_run.conclusion == 'success' }}
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4

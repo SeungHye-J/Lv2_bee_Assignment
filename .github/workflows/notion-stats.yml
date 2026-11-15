@@ -2,10 +2,9 @@
 name: notion-stats
 
 on:
-  schedule:
-    # 매일 04:20 KST (UTC 19:20)
-    - cron: '20 19 * * *'
-  workflow_dispatch:
+  workflow_run:
+    workflows: ["github-stats"]
+    types: [completed]
 
 permissions:
   contents: write
@@ -16,6 +15,7 @@ concurrency:
 
 jobs:
   stats:
+    if: ${{ github.event.workflow_run.conclusion == 'success' }}
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4

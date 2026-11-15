@@ -2,12 +2,12 @@
 name: overall-stats
 
 on:
-  schedule:
-    # 매일 10:00 KST (UTC 01:00) — github 04:00 · notion 04:20 · slack 09:30 뒤
-    - cron: '0 1 * * *'
-  workflow_dispatch:
+  workflow_run:
+    workflows: ["slack-stats"]
+    types: [completed]
 
 permissions:
+  actions: write
   contents: write
 
 concurrency:
@@ -61,3 +61,12 @@ jobs:
           done
           echo 'push 실패 — 수동 확인 필요'
           exit 1
+
+      - name: Disable one-time workflow chain
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          for workflow in github-stats.yml notion-stats.yml slack-stats.yml overall-stats.yml; do
+            gh api --method PUT \
+              "repos/${GITHUB_REPOSITORY}/actions/workflows/${workflow}/disable"
+          done

@@ -2,9 +2,7 @@
 name: github-stats
 
 on:
-  schedule:
-    # 매일 04:00 KST (UTC 19:00)
-    - cron: '0 19 * * *'
+  # 일회성 체인의 시작점. 필요할 때만 수동 실행한다.
   workflow_dispatch:
 
 permissions:
