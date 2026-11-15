@@ -2,7 +2,7 @@
 # 설계: documents/project/ros/06-base.md (odom TF는 EKF 하나만, diff_drive_controller는 enable_odom_tf: false)
 ekf_filter_node:
   ros__parameters:
-    frequency: 50.0
+    frequency: 30.0   # 11-15: 50 → 30 — 실기에서 '갱신 주기 못 맞춤' 74번(CPU 부하). 바퀴 odom 50 Hz·IMU 입력엔 30 Hz로 충분
     two_d_mode: true
     publish_tf: true
     # 주기 진단 카운터 켬 — 끄면(robot_localization 3.10 기본) /odometry/filtered가 50 Hz로 나와도 진단은 "No events recorded"

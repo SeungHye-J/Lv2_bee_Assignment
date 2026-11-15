@@ -2,7 +2,7 @@
 
 A saved 2D map can replace nvblox during localization, but **no current real-robot map in this workspace has been validated for this mode**. The `kk` map is old; the user selected `scene_sim` as the working map. `scene_sim` is generated from the simulation scene, and physical alignment has not yet been verified. A map-server smoke test only proved that `kk/map.yaml` loads; it did not prove coordinate alignment or safe robot travel. Never select the most recent map automatically for a physical run.
 
-`low_memory.launch.py` defaults to `map:=saved`, `map_name:=scene_sim`, and `map_backend:=static_2d`. It also uses OpenCV one thread and YOLO/tag inference at 1 Hz while `/skills/navigate` is active. The ordinary bringup defaults remain unchanged. The workspace's running `nvblox_map` process currently loads the same `scene_sim` map family, but the physical wall/start-pose overlay still needs verification before autonomous driving.
+`low_memory.launch.py` defaults to `map:=saved`, `map_name:=scene_sim`, and `map_backend:=static_2d`. It also uses OpenCV one thread. Like ordinary bringup (since 11-15), YOLO/tag/box inference is off while `/skills/navigate` is active and turns back on within 1.0 m of the Nav2 goal (`navigation_infer_hz:=0.0`, `navigation_full_near_m:=1.0`) so approach still gets the box seen just before arrival. The workspace's running `nvblox_map` process currently loads the same `scene_sim` map family, but the physical wall/start-pose overlay still needs verification before autonomous driving.
 
 To make a new **real** map with reduced scheduled nvblox work, after rebuilding while the robot is stopped:
 

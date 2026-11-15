@@ -198,12 +198,20 @@ PerceptionNode::PerceptionNode(const rclcpp::NodeOptions & options) : rclcpp::No
   RCLCPP_INFO(get_logger(), "OpenCV 스레드 %d개 (cv_threads)", cv::getNumThreads());
   // Startup-only opt-in: navigation keeps obstacle/body_filter processing, while
   // YOLO/tag inference uses fewer frames. Terminal status resumes normal rate.
+  //   navigation_infer_hz 0 = 주행 중 끔 · navigation_full_near_m 안(Nav2 남은 거리)이면 평소대로 — 도착 직전 상자 측정 (11-15)
   const bool navigation_throttle = pb("navigation_throttle", false);
-  inference_schedule_.configure(navigation_throttle, pd("navigation_infer_hz", 1.0));
+  inference_schedule_.configure(navigation_throttle, pd("navigation_infer_hz", 1.0), pd("navigation_full_near_m", 0.0),
+                                pd("navigation_feedback_timeout_s", 2.0));
   if (navigation_throttle) {
     navigation_status_sub_ = create_subscription<action_msgs::msg::GoalStatusArray>(
       "/skills/navigate/_action/status", rclcpp::QoS(1).reliable().transient_local(),
       [this](action_msgs::msg::GoalStatusArray::ConstSharedPtr m) { on_navigation_status(*m); });
+    navigation_feedback_sub_ = create_subscription<nav2_msgs::action::NavigateToPose::Impl::FeedbackMessage>(
+      "/navigate_to_pose/_action/feedback", rclcpp::QoS(5),
+      [this](nav2_msgs::action::NavigateToPose::Impl::FeedbackMessage::ConstSharedPtr m) {
+        std::lock_guard<std::mutex> lk(mutex_);
+        inference_schedule_.remaining(m->feedback.distance_remaining, wall_s());
+      });
   }
   sync_slop_ = pd("sync_slop", 0.05);                   // 컬러·depth 시각 차 허용 [s]
   max_frame_age_s_ = pd("max_frame_age_s", TRACK_TIMEOUT_S);
@@ -406,18 +414,12 @@ PerceptionNode::PerceptionNode(const rclcpp::NodeOptions & options) : rclcpp::No
 
 // ---------- 입력
 void PerceptionNode::on_frame(const std::string & cam, const Image::ConstSharedPtr & color, const Image::ConstSharedPtr & depth) {
-  cv::Mat bgr, d;
-  try {
-    bgr = image_to_mat(*color, true);
-    d = image_to_mat(*depth, false);
-  } catch (const std::exception & e) {
-    RCLCPP_WARN_THROTTLE(get_logger(), *get_clock(), 5000, "%s 변환 실패: %s", cam.c_str(), e.what());
-    return;
-  }
   std::lock_guard<std::mutex> lk(mutex_);
   Frame & s = frames_[cam];
-  s.bgr = bgr;
-  s.depth_mm = d;
+  s.color_msg = color;
+  s.depth_msg = depth;
+  s.bgr.release();
+  s.depth_mm.release();
   s.stamp = color->header.stamp;
   s.frame_id = color->header.frame_id.empty() ? cam + "_color_optical_frame" : color->header.frame_id;
   ++synced_[cam];
@@ -449,6 +451,25 @@ bool PerceptionNode::fresh_frame(const Frame & s) const {
   return stamp > 0 && age >= -sync_slop_ && age <= max_frame_age_s_;
 }
 
+bool PerceptionNode::has_image_data(const Frame & frame) const {
+  return (frame.color_msg && frame.depth_msg) || (!frame.bgr.empty() && !frame.depth_mm.empty());
+}
+
+bool PerceptionNode::materialize_frame(Frame & frame) const {
+  if (!frame.bgr.empty() && !frame.depth_mm.empty()) return true;
+  if (!frame.color_msg || !frame.depth_msg) return false;
+  try {
+    auto bgr = image_to_mat(*frame.color_msg, true);
+    auto depth = image_to_mat(*frame.depth_msg, false);
+    frame.bgr = std::move(bgr);
+    frame.depth_mm = std::move(depth);
+    return true;
+  } catch (const std::exception & e) {
+    RCLCPP_WARN_THROTTLE(get_logger(), *get_clock(), 5000, "%s 변환 실패: %s", frame.frame_id.c_str(), e.what());
+    return false;
+  }
+}
+
 void PerceptionNode::check_clock() {
   const double t = now().seconds();
   if (last_ros_time_ && t < *last_ros_time_ - sync_slop_) {
@@ -473,7 +494,7 @@ std::vector<std::pair<std::string, PerceptionNode::Frame>> PerceptionNode::take_
   std::lock_guard<std::mutex> lk(mutex_);
   check_clock();
   for (auto & [c, s] : frames_) {
-    if (s.bgr.empty() || s.depth_mm.empty() || s.fx <= 0 || !inference_schedule_.due(wall_s(), s.infer_t)) continue;
+    if (!has_image_data(s) || s.fx <= 0 || !inference_schedule_.due(wall_s(), s.infer_t)) continue;
     if (s.processed_stamp && *s.processed_stamp == s.stamp) continue;
     s.processed_stamp = s.stamp;  // 선택·claim은 같은 잠금 안에서. 실패 영상도 무한 재시도하지 않음
     if (!fresh_frame(s)) { ++stale_frames_; continue; }
@@ -487,6 +508,7 @@ void PerceptionNode::on_infer() {
   if (!model_) return;
   auto cams = take_frames();
   for (auto & [cam, s] : cams) {
+    if (!materialize_frame(s)) continue;
     const double t0 = mono_s();
     {
       std::lock_guard<std::mutex> lk(mutex_);
@@ -887,7 +909,11 @@ void PerceptionNode::on_capture_dice(const std_msgs::msg::Int32 & msg) {
       if (tr.class_name == "location_box" || tr.class_name == "start_box") any_box.emplace_back(tid, tr);
     }
     for (const auto & [c, s] : frames_)
-      if (!s.bgr.empty() && s.fx > 0 && fresh_frame(s)) frames[c] = s;
+      if (has_image_data(s) && s.fx > 0 && fresh_frame(s)) frames[c] = s;
+  }
+  for (auto it = frames.begin(); it != frames.end();) {
+    if (!materialize_frame(it->second)) it = frames.erase(it);
+    else ++it;
   }
   const int want = msg.data;
   if (want) {
@@ -1371,7 +1397,11 @@ void PerceptionNode::read_barcodes() {
   {
     std::lock_guard<std::mutex> lk(mutex_);
     for (const auto & [c, s] : frames_)
-      if (!s.bgr.empty() && !s.depth_mm.empty() && s.fx > 0 && fresh_frame(s)) frames.emplace_back(c, s);
+      if (has_image_data(s) && s.fx > 0 && fresh_frame(s)) frames.emplace_back(c, s);
+  }
+  for (auto it = frames.begin(); it != frames.end();) {
+    if (!materialize_frame(it->second)) it = frames.erase(it);
+    else ++it;
   }
   const bool grip = std::any_of(frames.begin(), frames.end(), [](const auto & f) { return f.first == "gripper_cam"; });
   const bool pole_too = barcode_always_ || !grip || wall_s() < barcode_from_ + barcode_pole_s_;  // 손 카메라가 없으면 pole이 계속
@@ -1425,7 +1455,7 @@ void PerceptionNode::on_diag() {
     n = tracks_.size();
     if (model_) {
       const bool fresh = std::any_of(frames_.begin(), frames_.end(),
-        [this](const auto & f) { return !f.second.bgr.empty() && fresh_frame(f.second); });
+        [this](const auto & f) { return has_image_data(f.second) && fresh_frame(f.second); });
       if (!fresh) { s.level = DiagnosticStatus::WARN; s.message = "최신 카메라 영상 없음"; }
       else if (!map_tf_available_) {
         s.level = map_tf_required_ ? DiagnosticStatus::ERROR : DiagnosticStatus::WARN;
@@ -1435,6 +1465,11 @@ void PerceptionNode::on_diag() {
         s.level = DiagnosticStatus::WARN; s.message = "영상 TF 시각 차 초과 — 관측 제외";
       }
     }
+    // 주행 중 인지 (navigation_throttle) — 쉼 = /skills/navigate 중이고 도착 navigation_full_near_m 밖 (YOLO·AprilTag·상자 건너뜀)
+    const bool resting = inference_schedule_.throttled(wall_s());
+    if (resting && s.level == DiagnosticStatus::OK) s.message = "주행 중 — 인지 쉼 (도착 직전 켬)";
+    KeyValue nav; nav.key = "주행 중 인지"; nav.value = !inference_schedule_.enabled() ? "끔(설정)" : resting ? "쉼" : "켬";
+    s.values.push_back(nav);
     KeyValue rejected; rejected.key = "시각 차 초과 TF"; rejected.value = std::to_string(tf_stale_rejected_);
     s.values.push_back(rejected);
     rejected.key = "오래된 영상 제외"; rejected.value = std::to_string(stale_frames_);

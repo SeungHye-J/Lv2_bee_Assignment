@@ -173,6 +173,8 @@ def _perception_lines(st) -> list[str]:
             parts = dict(x.split(' ', 1) for x in v.split(' · ') if ' ' in x)
             cams.append(f'{k.rsplit(" ", 1)[1]} YOLO {parts.get("YOLO", "-")} 전체 {parts.get("전체", "-")}ms')
     counts = ' · '.join(f'{k} {kv[k]}' for k in ('시각 차 초과 TF', '오래된 영상 제외', 'TF 최신 대체') if k in kv)
+    if kv.get('주행 중 인지'):   # 쉼 = 주행 중이라 YOLO·AprilTag를 건너뜀 (도착 직전 켬) · 켬 · 끔(설정)
+        counts = (counts + ' · ' if counts else '') + f'주행 중 인지 {kv["주행 중 인지"]}'
     return ['[인지] ' + ' · '.join(cams + [counts]) if cams or counts else '[인지] -']
 
 

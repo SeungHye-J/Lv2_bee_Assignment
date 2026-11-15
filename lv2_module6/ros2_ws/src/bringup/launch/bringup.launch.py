@@ -288,8 +288,11 @@ def generate_launch_description():
                               description='지도 폴더들이 있는 곳 — <map_dir>/<map_name>/nvblox.nvblx (비면 ~/.ros/beebot_maps)'),
         DeclareLaunchArgument('map_name', default_value='',
                               description='지도 폴더 이름 — slam: 비우면 날짜_시각으로 새로 · saved: 비우면 가장 최근'),
-        DeclareLaunchArgument('navigation_throttle', default_value='false'),
-        DeclareLaunchArgument('navigation_infer_hz', default_value='1.0'),
+        # 주행 중 인지 끄기 (11-15 기본 켬): /skills/navigate 중엔 YOLO·AprilTag·상자 depth를 navigation_infer_hz(0 = 끔)로,
+        #   Nav2 남은 거리가 navigation_full_near_m 안이면 평소대로 (도착 직전 상자 측정 — approach). body_filter·nvblox·cuVSLAM은 그대로
+        DeclareLaunchArgument('navigation_throttle', default_value='true'),
+        DeclareLaunchArgument('navigation_infer_hz', default_value='0.0'),
+        DeclareLaunchArgument('navigation_full_near_m', default_value='1.0'),
         DeclareLaunchArgument('cv_threads', default_value='2'),
         DeclareLaunchArgument('perception', default_value='auto',
                               description='인지 노드(perception_node · signal_decoder · hand_relative): auto = 매핑(map:=slam)이면 끔 · true = 항상 · false = 항상 끔. body_filter는 Nav2 충돌감시용이라 그대로'),
@@ -319,6 +322,7 @@ def generate_launch_description():
         node('perception', 'perception_node', overrides={
             'navigation_throttle': ParameterValue(LaunchConfiguration('navigation_throttle'), value_type=bool),
             'navigation_infer_hz': ParameterValue(LaunchConfiguration('navigation_infer_hz'), value_type=float),
+            'navigation_full_near_m': ParameterValue(LaunchConfiguration('navigation_full_near_m'), value_type=float),
             'cv_threads': ParameterValue(LaunchConfiguration('cv_threads'), value_type=int)},
             condition=IfCondition(LaunchConfiguration('use_perception'))),
         # coordinator: 계획 단계를 skill 노드에 맡기는 순서 담당 (적재함 장부 · 모드·비상정지 취소)

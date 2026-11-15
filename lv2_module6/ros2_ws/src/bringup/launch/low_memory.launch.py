@@ -17,7 +17,8 @@ def generate_launch_description():
         'map_name': 'scene_sim',
         'map_backend': 'static_2d',
         'navigation_throttle': 'true',
-        'navigation_infer_hz': '1.0',
+        'navigation_infer_hz': '0.0',      # 주행 중 인지 끔 (bringup 기본과 같음, 11-15) — 도착 1 m 전부터 켬
+        'navigation_full_near_m': '1.0',
         'cv_threads': '1',
         'nvblox_params_file': PathJoinSubstitution([
             FindPackageShare('ros_system'), 'config', 'nvblox_low_memory.yaml']),

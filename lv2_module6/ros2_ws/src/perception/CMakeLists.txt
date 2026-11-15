@@ -14,6 +14,7 @@ find_package(ament_cmake REQUIRED)
 find_package(rosidl_default_generators REQUIRED)
 find_package(std_msgs REQUIRED)
 find_package(action_msgs REQUIRED)
+find_package(nav2_msgs REQUIRED)
 find_package(builtin_interfaces REQUIRED)
 find_package(geometry_msgs REQUIRED)
 find_package(diagnostic_msgs REQUIRED)
@@ -79,7 +80,7 @@ install(TARGETS body_filter signal_decoder static_esdf_slice depth_gate DESTINAT
 add_library(${PROJECT_NAME}_cpp STATIC src/perception_core.cpp src/yolo_onnx.cpp src/tag_cuda.cpp src/perception_node.cpp)
 target_include_directories(${PROJECT_NAME}_cpp PUBLIC include)
 target_compile_features(${PROJECT_NAME}_cpp PUBLIC cxx_std_17)
-target_link_libraries(${PROJECT_NAME}_cpp PUBLIC rclcpp::rclcpp ${sensor_msgs_TARGETS} ${std_msgs_TARGETS} ${action_msgs_TARGETS}
+target_link_libraries(${PROJECT_NAME}_cpp PUBLIC rclcpp::rclcpp ${sensor_msgs_TARGETS} ${std_msgs_TARGETS} ${action_msgs_TARGETS} ${nav2_msgs_TARGETS}
   ${geometry_msgs_TARGETS} ${diagnostic_msgs_TARGETS} tf2::tf2 tf2_ros::tf2_ros ament_index_cpp::ament_index_cpp
   message_filters::message_filters ${OpenCV_LIBS} onnxruntime::onnxruntime ${msgs_cpp})
 # AprilTag GPU (cuAprilTags) — 젯슨: ~/isaac_ros_ws의 cuapriltags_vendor(isaac_ros_nitros release-5.0) + CUDA가 있으면 (start.sh가 그 setup을 source)

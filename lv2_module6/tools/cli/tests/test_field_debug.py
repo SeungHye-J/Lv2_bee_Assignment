@@ -133,6 +133,7 @@ st.signal_answer = 'R G R R G R G G Y G Y G'
 st.on_signal_status(_Msg(ok=True, error='', red=4, yellow=2, green=6, cycles=1, raw='G R R R G R G G Y G Y G'))
 st.on_diagnostics([_Msg(name='/Beebot/인지/perception: 상태', level=0, message='인지 중', values=[
     _Msg(key='시각 차 초과 TF', value='3'), _Msg(key='오래된 영상 제외', value='1'), _Msg(key='TF 최신 대체', value='7'),
+    _Msg(key='주행 중 인지', value='쉼'),
     _Msg(key='바코드 (장소 작업 지시)', value='zxing-cpp (1D) · 읽음: P2-01'),
     _Msg(key='처리 시간 ms 평균/최대 pole_front_cam', value='YOLO 35/60 · AprilTag 3/5 · 전체 80/120')])])
 st.nav2_life.update(planner_server='active', controller_server='inactive')
@@ -141,9 +142,14 @@ st.on_mission(_Msg(phase='BARCODE', error='', note='', barcode='', count_r=0, co
                    placed=0, total=0, results=[], tray=[]))
 text = '\n'.join(mission_lines(st, Terminal(color=False)))
 for want in ('[신호등 지금] R 켜짐 · 0/12', '정답 R G R R G R G G Y G Y G · 해독 개수 맞음 · 순서 10/12 (틀린 자리 1,2)',
-             '[인지] pole_front_cam YOLO 35/60 전체 80/120ms', '시각 차 초과 TF 3 · 오래된 영상 제외 1 · TF 최신 대체 7',
+             '[인지] pole_front_cam YOLO 35/60 전체 80/120ms', '시각 차 초과 TF 3 · 오래된 영상 제외 1 · TF 최신 대체 7 · 주행 중 인지 쉼',
              '인지 읽음 P2-01', 'gripper_cam가 봄', '[Nav2] planner ✓ · controller inactive · bt 없음'):
     assert want in text, (want, text)
+from op.bars.state.perception_state import PerceptionState  # noqa: E402 — 상단 칸: 주행 중 인지 쉼 표시
+ps = PerceptionState.__new__(PerceptionState); ps.app = type('A', (), {'state': st})()
+ps_state = st
+PerceptionState.state = property(lambda self: ps_state)
+assert PerceptionState.text(ps).endswith('· 주행 중 쉼'), PerceptionState.text(ps)
 st.mission_cmd = ('start', time.monotonic() - 10)
 st.diag_values.clear()
 text = '\n'.join(mission_lines(st, Terminal(color=False)))

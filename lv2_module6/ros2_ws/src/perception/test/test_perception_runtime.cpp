@@ -1,6 +1,7 @@
 #include <gtest/gtest.h>
 #include <cstdlib>
 #include <chrono>
+#include <cstring>
 #include <rcl/time.h>
 #include "perception/perception_node.hpp"
 
@@ -48,6 +49,7 @@ struct PerceptionNodeTestPeer {
   }
   static double inferences(PerceptionNode & n) { return n.prof_[{"gripper_cam", "YOLO"}][1]; }
   static auto take(PerceptionNode & n) { return n.take_frames(); }
+  static bool materialize(PerceptionNode & n, PerceptionNode::Frame & frame) { return n.materialize_frame(frame); }
   static void stamp(PerceptionNode & n, int64_t ns) { n.frames_.at("gripper_cam").stamp = rclcpp::Time(ns); }
   static void set_clock(PerceptionNode & n, int64_t ns) {
     ASSERT_EQ(rcl_enable_ros_time_override(n.get_clock()->get_clock_handle()), RCL_RET_OK);
@@ -141,6 +143,45 @@ TEST_F(Runtime, NavigationThrottleRemainsOptIn) {
   EXPECT_EQ(PerceptionNodeTestPeer::take(*node).size(), 1u);
 }
 
+TEST_F(Runtime, ConvertsImagesOnlyWhenAConsumerClaimsTheFrame) {
+  auto color = std::make_shared<sensor_msgs::msg::Image>();
+  color->header.stamp = node->now();
+  color->header.frame_id = "camera";
+  color->height = color->width = 2;
+  color->encoding = "rgb8";
+  color->step = 6;
+  color->data = {255, 0, 0, 0, 255, 0, 0, 0, 255, 255, 255, 255};
+
+  auto depth = std::make_shared<sensor_msgs::msg::Image>();
+  depth->header = color->header;
+  depth->height = depth->width = 2;
+  depth->encoding = "16UC1";
+  depth->step = 4;
+  depth->data.resize(8);
+  const uint16_t depth_values[] = {1000, 1100, 1200, 1300};
+  std::memcpy(depth->data.data(), depth_values, sizeof(depth_values));
+
+  sensor_msgs::msg::CameraInfo info;
+  info.k[0] = info.k[4] = 100.0;
+  info.k[2] = info.k[5] = 1.0;
+  node->on_info("gripper_cam", info);
+  node->on_frame("gripper_cam", color, depth);
+
+  auto frames = PerceptionNodeTestPeer::take(*node);
+  ASSERT_EQ(frames.size(), 1u);
+  auto & frame = frames.front().second;
+  EXPECT_TRUE(frame.bgr.empty());
+  EXPECT_TRUE(frame.depth_mm.empty());
+  EXPECT_EQ(frame.color_msg, color);
+  EXPECT_EQ(frame.depth_msg, depth);
+
+  ASSERT_TRUE(PerceptionNodeTestPeer::materialize(*node, frame));
+  ASSERT_EQ(frame.bgr.type(), CV_8UC3);
+  ASSERT_EQ(frame.depth_mm.type(), CV_16UC1);
+  EXPECT_EQ(frame.bgr.at<cv::Vec3b>(0, 0), cv::Vec3b(0, 0, 255));  // RGB → BGR happens only at consumption
+  EXPECT_EQ(frame.depth_mm.at<uint16_t>(1, 1), 1300);
+}
+
 TEST(InferenceSchedule, ActiveStatusesAndBoundedNavigationRate) {
   InferenceSchedule gate;
   gate.configure(true, 1.0);
@@ -150,9 +191,35 @@ TEST(InferenceSchedule, ActiveStatusesAndBoundedNavigationRate) {
   EXPECT_TRUE(gate.due(11.0, 10.0));
   gate.navigation_active(false);
   EXPECT_TRUE(gate.due(10.25, 10.0));
-  EXPECT_THROW(gate.configure(true, 0.0), std::invalid_argument);
+  EXPECT_NO_THROW(gate.configure(true, 0.0));                    // 0 = 주행 중 끔
+  EXPECT_THROW(gate.configure(true, -1.0), std::invalid_argument);
   EXPECT_THROW(gate.configure(true, 4.1), std::invalid_argument);
   EXPECT_THROW(gate.configure(true, std::nan("")), std::invalid_argument);
+}
+
+// 주행 중 끔 + 도착 직전 켬 (11-15): navigation_infer_hz 0 · near 1.0 m · 남은 거리를 2 s 넘게 모르면 평소대로
+TEST(InferenceSchedule, OffWhileDrivingOnNearGoal) {
+  InferenceSchedule gate;
+  gate.configure(true, 0.0, 1.0, 2.0);
+  gate.navigation_active(true);
+  EXPECT_TRUE(gate.due(10.3, 10.0));          // 아직 남은 거리 모름 → 평소대로 (꺼진 채로 시작하지 않음)
+  gate.remaining(3.0, 10.0);
+  EXPECT_FALSE(gate.due(10.5, 0.0));          // 멀리 — 끔 (몇 초가 지나도)
+  EXPECT_FALSE(gate.due(11.9, 0.0));
+  gate.remaining(0.8, 12.0);
+  EXPECT_TRUE(gate.due(12.3, 12.0));          // 1 m 안 — 평소대로 (도착 직전 상자 측정)
+  gate.remaining(2.5, 13.0);
+  EXPECT_FALSE(gate.due(13.5, 0.0));
+  EXPECT_TRUE(gate.due(15.1, 14.8));          // feedback 2 s 넘게 끊김 → 평소대로
+  gate.navigation_active(false);
+  EXPECT_TRUE(gate.due(20.3, 20.0));          // 주행 끝 → 평소대로
+  gate.navigation_active(true);
+  EXPECT_TRUE(gate.due(20.6, 20.3));          // 새 주행 — 남은 거리를 다시 받기 전까지 평소대로
+  InferenceSchedule old;                      // near 0 = 예전 동작 (주행 중 내내 1 Hz)
+  old.configure(true, 1.0);
+  old.navigation_active(true);
+  EXPECT_FALSE(old.due(10.5, 10.0));
+  EXPECT_TRUE(old.due(11.0, 10.0));
 }
 
 TEST_F(Runtime, RecentTrackSurvivesCameraGap) {

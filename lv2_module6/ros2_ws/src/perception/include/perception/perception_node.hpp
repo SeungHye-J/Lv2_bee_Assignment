@@ -27,6 +27,7 @@
 
 #include "diagnostic_msgs/msg/diagnostic_array.hpp"
 #include "action_msgs/msg/goal_status_array.hpp"
+#include "nav2_msgs/action/navigate_to_pose.hpp"
 #include "message_filters/subscriber.hpp"
 #include "message_filters/sync_policies/approximate_time.hpp"
 #include "message_filters/synchronizer.hpp"
@@ -55,6 +56,7 @@ public:
 
   // 카메라 한 대의 최신 프레임 (시각 맞춘 컬러·depth 쌍 + 내부 파라미터)
   struct Frame {
+    Image::ConstSharedPtr color_msg, depth_msg;  // 최신 ROS 프레임 보관 — 추론/바코드/촬영 시점에만 OpenCV로 변환
     cv::Mat bgr, depth_mm;  // depth: 컬러에 정렬된 영상 [mm] (16UC1) — float이면 [m]로 봄
     builtin_interfaces::msg::Time stamp;
     std::string frame_id;
@@ -130,6 +132,7 @@ private:
   rclcpp::Subscription<std_msgs::msg::Int32>::SharedPtr dice_sub_;
   rclcpp::Subscription<std_msgs::msg::String>::SharedPtr mission_cmd_sub_;  // /cmd/mission start… → 바코드 기억(barcode_once) 지움
   rclcpp::Subscription<action_msgs::msg::GoalStatusArray>::SharedPtr navigation_status_sub_;
+  rclcpp::Subscription<nav2_msgs::action::NavigateToPose::Impl::FeedbackMessage>::SharedPtr navigation_feedback_sub_;  // 남은 거리
   std::atomic<bool> barcode_reset_{false};
   std::regex barcode_once_re_;
   std::atomic<double> barcode_until_{0.0};  // 이 시각(wall_s)까지 바코드 찾음 — 미션 start로 엶
@@ -147,6 +150,8 @@ private:
 
   // ---- 처리
   void on_infer();
+  bool has_image_data(const Frame & frame) const;
+  bool materialize_frame(Frame & frame) const;
   void on_navigation_status(const action_msgs::msg::GoalStatusArray & status);
   std::vector<std::pair<std::string, Frame>> take_frames();
   bool fresh_frame(const Frame & frame) const;
