@@ -20,6 +20,8 @@ import rclpy
 from rclpy.qos import DurabilityPolicy, QoSProfile, ReliabilityPolicy
 from std_msgs.msg import String
 from std_srvs.srv import Trigger
+from lifecycle_msgs.srv import GetState
+from lifecycle_msgs.msg import State
 
 from perception.msg import MissionSignal
 from plan.msg import MissionState
@@ -71,9 +73,27 @@ def main():
 
     n.create_subscription(MissionState, '/mission/state', on_state, latched)
 
+    readiness = {name: [n.create_client(GetState, name + '/get_state'), None]
+                 for name in ('/bt_navigator', '/controller_server', '/planner_server')}
+
+    def navigation_ready():
+        ready = True
+        for client, future in readiness.values():
+            if future is None or not future.done():
+                ready = False
+            elif future.exception() or future.result().current_state.id != State.PRIMARY_STATE_ACTIVE:
+                ready = False
+        if ready:
+            return True
+        for entry in readiness.values():
+            client, future = entry
+            if client.service_is_ready() and (future is None or future.done()):
+                entry[1] = client.call_async(GetState.Request())
+        return False
+
     def tick():
         if not st['started']:
-            if st['phase'] in IDLE and cmd.get_subscription_count() > 0:
+            if st['phase'] in IDLE and cmd.get_subscription_count() > 0 and navigation_ready():
                 cmd.publish(String(data='start'))
                 st['started'] = True
                 log.info(f'start · 신호 {" ".join(seq)} (R{seq.count("R")} Y{seq.count("Y")} G{seq.count("G")}) · 바코드 {a.code}')

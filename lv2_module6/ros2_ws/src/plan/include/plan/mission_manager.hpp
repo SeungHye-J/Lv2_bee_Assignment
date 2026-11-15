@@ -47,6 +47,7 @@
 #include "plan/plan_next.hpp"
 #include "plan/action/execute_plan.hpp"
 #include "nav_msgs/msg/occupancy_grid.hpp"
+#include "nav_msgs/msg/odometry.hpp"
 #include "plan/msg/basket_state.hpp"
 #include "plan/msg/mission_state.hpp"
 #include "plan/msg/sub_goal_array.hpp"
@@ -111,6 +112,8 @@ private:
   void barcode_done(bool ok, const std::string & why);  // 팔 stow로 → 다음 단계
   void read_phase();
   void survey(size_t box);
+  std::vector<std::string> goto_failed_;  // 이번 판에 실패한 상자 — 목록 끝에서 한 번 더 (goto_retried_)
+  bool goto_retried_ = false;
   std::vector<std::string> goto_;  // start:GOTO 목록 (S1~S6 · L1~L3)
   void goto_seq(size_t k);         // 목록 k번째 상자에 SURVEY처럼 다가감 → 다음 · 끝나면 RETURN
   void load(size_t box, std::vector<int> found, size_t k);  // 찾은 퍽(tag)을 적재함에 — 트랙 id는 집기 직전에 다시 찾음
@@ -138,6 +141,13 @@ private:
   Pose2 to_arena(double mx, double my, double myaw = 0.0) const;
   std::string point(double ax, double ay, double z) const;  // arena 점 → "x,y,z" (map)
   bool robot_arena(Pose2 & p) const;
+  // 상자에서 똑바로 물러날(approach exit) 거리를 도면으로 줄임 (11-15): 지금 자리에서 want [m] 뒤로 갈 때
+  //   몸 뒤 끝(footprint_ 직사각형의 뒷변 5점)이 도면 벽·박스에 back_margin_ 안으로 들어가기 직전까지의 거리 [m]
+  //   카메라(pole_front_cam)가 앞만 봐서 후진은 눈을 감고 가는 것 — 정해진 거리만큼 물러나다 뒤 벽에 박으면 바퀴가 헛돌아
+  //   위치·지도가 틀어짐 (실기 22:4x · 시뮬 23:3x에서 확인). 로봇 위치(TF)를 모르면 want 그대로 (예전 동작)
+  double safe_back(double want) const;
+  // 물러날 거리를 safe_back으로 줄여 approach exit을 보냄 — min_back_보다 짧으면 물러나지 않고 바로 then(true)
+  void retreat(double want, const char * why, Done then);
   void publish_state();
   void publish_markers();
   void write_log(const std::string & name, const std::string & json) const;
@@ -181,6 +191,23 @@ private:
   std::vector<int> loc_tags_;
   std::vector<double> puck_dx_;
   double box_top_z_, puck_h_, grid_step_, standoff_, approach_gap_, verify_radius_, match_radius_;
+  double back_margin_ = 0.05, min_back_ = 0.03;
+  double loc_sum_x_ = 0.0, loc_sum_y_ = 0.0, loc_sum_th_ = 0.0;  // 로봇 위치로 넘긴 보정 누적 (loc_tick)
+  double loc_max_m_ = 0.30, loc_max_rad_ = 0.17;                // 그 누적 상한 [m · rad]
+  bool loc_capped_ = false;
+  // 11-16: 위치 다시 잡기는 멈춰 있을 때만 · 측정이 안정됐을 때만 — 움직이는 중 5 cm씩 넣으면 경로가 계속 바뀌어 좁은 곳에서 막혔음
+  rclcpp::Subscription<nav_msgs::msg::Odometry>::SharedPtr odom_sub_;
+  double still_since_ = -1.0;     // 로봇이 멈춘 시각 [s, wall] (움직이면 -1)
+  bool loc_stop_used_ = false;   // 11-16: 이번 멈춤에서 이미 한 번 옮겼음 — 움직이면 다시 false (멈춤 한 번에 한 조각만)
+  double loc_still_s_ = 1.0;      // 이만큼 멈춰 있어야 보정 [s]
+  double loc_stable_m_ = 0.03;    // 연속 두 벽 맞춤 결과가 이 안으로 같아야 보정 [m]
+  double grid_rx_ = -1.0, wall_checked_stamp_ = -1.0, wall_fit_stamp_ = -1.0;
+  double wall_prev_stamp_ = -1.0, wall_prev_th_ = 0.0, odom_rx_ = -1.0;
+  bool wall_stable_ = false;
+  rclcpp::Publisher<std_msgs::msg::Float64MultiArray>::SharedPtr wall_status_pub_;
+  double loc_prev_dx_ = 1e9, loc_prev_dy_ = 1e9;  // 직전 벽 맞춤 결과 (안정 판단)
+  double nav_unstuck_back_ = 0.40;  // 다가설 자리로 가다 막혔을 때 물러날 최대 거리 [m] (safe_back으로 도면상 가능한 만큼)
+  bool nav_unstuck_ = false;        // 이 다가설 자리에서 막힘 풀기를 이미 했나 (한 번만)  // safe_back: 뒤 끝과 벽·박스 사이 여유 [m] · 이보다 짧으면 안 물러남 [m]
   double place_tol_, place_search_, corr_max_;
   Pose2 barcode_pose_;
   std::string barcode_arm_pose_;

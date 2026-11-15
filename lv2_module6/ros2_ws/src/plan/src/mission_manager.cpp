@@ -132,6 +132,11 @@ MissionManager::MissionManager(const rclcpp::NodeOptions & options)
   grid_step_ = declare_parameter<double>("grid_step", 0.060);
   standoff_ = declare_parameter<double>("standoff", 0.25);
   approach_gap_ = declare_parameter<double>("approach_gap", 0.085);
+  back_margin_ = declare_parameter<double>("back_margin", back_margin_);  // 물러날 때 뒤 끝 ↔ 도면 벽·박스 여유 [m]
+  min_back_ = declare_parameter<double>("min_back", min_back_);
+  nav_unstuck_back_ = declare_parameter<double>("nav_unstuck_back", nav_unstuck_back_);
+  loc_max_m_ = declare_parameter<double>("arena_corr_loc_max_m", loc_max_m_);       // 로봇 위치로 넘기는 보정 누적 상한 [m]
+  loc_max_rad_ = declare_parameter<double>("arena_corr_loc_max_rad", loc_max_rad_); // 누적 회전 상한 [rad]  // 다가가다 막히면 이만큼까지(도면상 가능한 만큼) 물러나 다시 [m]           // 이보다 짧게만 물러날 수 있으면 안 물러남 [m]
   nav_turn_m_ = declare_parameter<double>("nav_turn_m", 0.55);
   approach_tries_ = static_cast<int>(declare_parameter<int64_t>("approach_tries", 3));
   retries_ = static_cast<int>(declare_parameter<int64_t>("retries", 2));
@@ -264,13 +269,27 @@ MissionManager::MissionManager(const rclcpp::NodeOptions & options)
   walls_only_pub_ = create_publisher<nav_msgs::msg::OccupancyGrid>("/arena/walls_only", latched);
   publish_walls();
   corr_pub_ = create_publisher<std_msgs::msg::String>("/arena/correction", latched);
+  wall_status_pub_ = create_publisher<std_msgs::msg::Float64MultiArray>("/localization/wall_status", 10);
   if (wall_fit_) {  // nvblox 격자는 보통 토픽(주기 발행) — best effort로 받으면 reliable 발행도 받음
     grid_sub_ = create_subscription<nav_msgs::msg::OccupancyGrid>(wall_grid, rclcpp::SensorDataQoS().keep_last(1),
-      [this](nav_msgs::msg::OccupancyGrid::ConstSharedPtr m) { grid_ = m; });
+      [this](nav_msgs::msg::OccupancyGrid::ConstSharedPtr m) { grid_ = m; grid_rx_ = wall_s(); });
     wall_timer_ = create_wall_timer(std::chrono::duration<double>(wall_period), [this]() { wall_tick(); });
   }
   loc_pub_ = create_publisher<std_msgs::msg::Float64MultiArray>("/localization/map_correction", 10);
-  if (loc_on_) loc_timer_ = create_wall_timer(std::chrono::duration<double>(loc_period), [this]() { loc_tick(); });
+  loc_still_s_ = declare_parameter<double>("arena_corr_loc_still_s", loc_still_s_);    // 멈춰 있어야 하는 시간 [s]
+  loc_stable_m_ = declare_parameter<double>("arena_corr_loc_stable_m", loc_stable_m_);  // 측정 안정 기준 [m]
+  if (loc_on_) {
+    loc_timer_ = create_wall_timer(std::chrono::duration<double>(loc_period), [this]() { loc_tick(); });
+    // 멈춤 판단: EKF 속도 (선속도 2 cm/s · 각속도 0.05 rad/s 안)
+    odom_sub_ = create_subscription<nav_msgs::msg::Odometry>("/odometry/filtered", 10,
+      [this](nav_msgs::msg::Odometry::ConstSharedPtr m) {
+        if (wall_s() - odom_rx_ > 0.5) still_since_ = -1.0;
+        odom_rx_ = wall_s();
+        const bool still = std::abs(m->twist.twist.linear.x) < 0.02 && std::abs(m->twist.twist.angular.z) < 0.05;
+        if (!still) { still_since_ = -1.0; loc_stop_used_ = false; }  // 움직이면 다음 멈춤에서 다시 한 조각
+        else if (still_since_ < 0.0) still_since_ = wall_s();
+      });
+  }
   marks_.assign(start_boxes_.size() + loc_boxes_.size(), Mark{});  // 미션 전(arena_corr_idle)에도 보정
   publish_corr("");
   cmd_sub_ = create_subscription<std_msgs::msg::String>("/cmd/mission", rclcpp::QoS(10).reliable(),
@@ -397,6 +416,8 @@ void MissionManager::on_command(const std::string & cmd) {
   if (diag_run_) note("현장 진단 실행 — 실패해도 기록하고 계속 (치명 이유만 정지)");
   if (sc.only != Phase::IDLE) note(std::string("단계만 실행: ") + phase_name(sc.only));
   goto_ = sc.go_to;
+  goto_failed_.clear();  // 실패한 상자 (끝에서 한 번 더)
+  goto_retried_ = false;
   if (!goto_.empty()) {  // 실기 이동 시험 — 관측·조사 없이 적은 상자들에 미션처럼 다가가기만
     std::string list;
     for (const auto & g : goto_) list += (list.empty() ? "" : ",") + g;
@@ -706,7 +727,21 @@ void MissionManager::use_given(bool fallback) {
 // ---------- SURVEY — 시작 박스 6곳 전부 조사하면서 적재함에 싣기
 void MissionManager::goto_seq(size_t k) {
   if (!active_) return;
-  if (k >= goto_.size()) { note("상자로 가기 끝 — 출발 구역으로 복귀"); only_ = Phase::RETURN; enter(Phase::RETURN); return; }
+  if (k >= goto_.size()) {
+    // 11-16: 실패한 상자는 목록 끝에서 한 번 더 — 막힌 건 대개 '직전 상자 칸에서 빠져나오기'라 다른 자리에서 출발하면 됨
+    //   (시뮬: S5 왼쪽 칸 → S3만 막히고 다른 순서에선 S3 도착)
+    if (!goto_retried_ && !goto_failed_.empty()) {
+      goto_retried_ = true;
+      goto_ = goto_failed_;
+      goto_failed_.clear();
+      std::string list;
+      for (const auto & g : goto_) list += (list.empty() ? "" : ",") + g;
+      note("실패한 상자 한 번 더: " + list);
+      goto_seq(0);
+      return;
+    }
+    note("상자로 가기 끝 — 출발 구역으로 복귀"); only_ = Phase::RETURN; enter(Phase::RETURN); return;
+  }
   const std::string id = goto_[k];
   const size_t i = static_cast<size_t>(id[1] - '1');
   const Box box = id[0] == 'L' ? loc_boxes_.at(i) : start_boxes_.at(i);
@@ -714,7 +749,7 @@ void MissionManager::goto_seq(size_t k) {
   note("상자로 가기 " + id + " (" + str(static_cast<int>(k) + 1) + "/" + str(static_cast<int>(goto_.size())) + ")");
   go_near(box, box.x, box.y, [this, k, id](bool ok, const std::string & why) {
     result("GOTO " + id + (ok ? ": ok" : ": " + why));
-    if (!ok) RCLCPP_WARN(get_logger(), "상자로 가기 %s 실패 (%s) — 다음", id.c_str(), why.c_str());
+    if (!ok) { RCLCPP_WARN(get_logger(), "상자로 가기 %s 실패 (%s) — 다음", id.c_str(), why.c_str()); goto_failed_.push_back(id); }
     else snap("goto_" + id);
     goto_seq(k + 1);
   });
@@ -729,19 +764,44 @@ void MissionManager::survey(size_t k) {  // k = 방문 순서 인덱스 (survey_
   note("시작 박스 " + str(static_cast<int>(b) + 1) + " 조사");
   go_near(box, box.x, box.y, [this, b, box](bool ok, const std::string & why) {
     if (!ok) { result("box " + str(static_cast<int>(b) + 1) + ": approach_failed " + why); survey(survey_k_ + 1); return; }
-    // 상자 한 번 보기 (look 자세 → 퍽이 모자라거나 태그를 못 읽으면 본 퍽을 담는 자세로 다시) — 퍽 자리마다 따로 보던 것 (11/07)
+    // 도킹은 인식한 상자에 맞추므로 조사도 같은 관측 좌표를 쓴다.
+    // 도면 오차를 퍽의 태그 읽기 실패로 취급하지 않는다. 다른 상자는 끌어오지 않는다.
+    const auto observed_center = [this, box]() {
+      const auto nominal = to_map(box.x, box.y);
+      std::vector<const TrackedObject *> seen;
+      if (objects_) for (const auto & o : objects_->objects) {
+        if (!is_puck(o) || detail(o, "tag").empty()) continue;
+        if ((now() - rclcpp::Time(o.last_seen)).seconds() > 1.0) continue;
+        const auto & p = o.pose.pose.position;
+        if (std::hypot(p.x - nominal.x, p.y - nominal.y) < 0.35) seen.push_back(&o);
+      }
+      if (seen.size() == 2 && detail(*seen[0], "tag") != detail(*seen[1], "tag")) {
+        const auto & a = seen[0]->pose.pose.position;
+        const auto & c = seen[1]->pose.pose.position;
+        const double separation = std::hypot(a.x - c.x, a.y - c.y);
+        if (separation > 0.04 && separation < 0.16)
+          return Pose2{(a.x + c.x) * 0.5, (a.y + c.y) * 0.5, nominal.yaw};
+      }
+      return nominal;
+    };
+    const auto center = observed_center();
     const std::vector<SubGoal> goals = {
-      SubGoal().set__skill("inspect").set__target(point(box.x, box.y, box_top_z_ + puck_h_)).set__relation("box")};
-    run_retry(goals, [this, b, box](bool ok2, const std::string & why2) {
+      SubGoal().set__skill("inspect").set__target(fmt("%.4f,%.4f,%.4f", center.x, center.y, box_top_z_ + puck_h_)).set__relation("box")};
+    run_retry(goals, [this, b, box, observed_center](bool ok2, const std::string & why2) {
       if (!ok2) RCLCPP_WARN(get_logger(), "시작 박스 %zu inspect 실패 (%s) — 본 것만", b + 1, why2.c_str());
       snap("box" + str(static_cast<int>(b) + 1));
       std::vector<int> found;
-      for (double dx : puck_dx_) {  // 그 자리(map)에서 match_radius 안 퍽 중 tag를 읽은 것
-        const auto m = to_map(box.x + dx, box.y);
+      const auto nominal = to_map(box.x, box.y);
+      const auto center = observed_center();
+      for (double dx : puck_dx_) {  // 같은 상자의 관측 중심 기준으로 두 자리를 각각 짝짓는다.
+        auto m = to_map(box.x + dx, box.y);
+        m.x += center.x - nominal.x;
+        m.y += center.y - nominal.y;
         const TrackedObject * best = nullptr;
         double best_d = match_radius_;
         if (objects_) for (const auto & o : objects_->objects) {
           if (!is_puck(o) || detail(o, "tag").empty()) continue;
+          if (puck_at_.count(std::stoi(detail(o, "tag")))) continue;
           const double d = std::hypot(o.pose.pose.position.x - m.x, o.pose.pose.position.y - m.y);
           if (d < best_d) { best_d = d; best = &o; }
         }
@@ -1086,40 +1146,28 @@ void MissionManager::verify_at(size_t li, std::function<void()> then) {
     });
 }
 
-// ---------- RETURN — 출발 구역 가운데 → 외곽 직사각형이 구역 안인지 확인, 밖이면 한 번 보정 → 정지
-void MissionManager::go_home(bool corrected) {
+// ---------- RETURN — 시작 위치에 Nav2 도착하면 완료 (추가 주차 보정 없음)
+void MissionManager::go_home(bool) {
   ctx_.clear();
-  if (!back_.empty()) {  // 박스에 붙어 있음 — 먼저 똑바로 물러남
-    const std::string back = back_;
+  if (!back_.empty()) {
+    const double back = std::stod(back_);
     back_.clear();
-    run({stow(), SubGoal().set__skill("approach").set__target(back).set__relation("exit")}, [this, corrected](bool ok, const std::string & why) {
-      ok ? go_home(corrected) : finish(false, "retreat:" + why);
+    retreat(back, "복귀 전", [this](bool ok, const std::string & why) {
+      ok ? go_home(false) : finish(false, "retreat:" + why);
     });
     return;
   }
-  note(corrected ? "출발 구역 안으로 보정" : "출발 구역으로");
+  note("시작 위치로 복귀");
   const double zx = (start_zone_[0] + start_zone_[2]) / 2, zy = (start_zone_[1] + start_zone_[3]) / 2;
   const auto p = to_map(zx, zy, M_PI);
-  // 처음엔 Nav2로 · 보정은 approach로 (구역 가운데로 저속 직선 — Nav2 허용 오차 0.10보다 정확). 보정은 park_home 정책
-  //   (skill_approach — 시뮬 drive_env park: 5 cm · 10° 안에 3 s 정지, 81.1 → 96.5 %)
-  run({stow(), SubGoal().set__skill(corrected ? "approach" : "navigate").set__target(fmt("%.4f,%.4f,%.4f", p.x, p.y, p.yaw))
-                 .set__relation(corrected ? "park_home" : leg_to("start"))},  // " leg:L3_start" — 앞 공백은 skill이 무시
-    [this, corrected](bool ok, const std::string & why) {
-      if (!ok && !corrected) { finish(false, "return_nav:" + why); return; }
-      Pose2 r;
-      const bool known = robot_arena(r);
-      const bool in = known && footprint_in_zone(r, footprint_[0], footprint_[1], footprint_[2], start_zone_);
-      if (!in && !corrected) { go_home(true); return; }
-      note(in ? "출발 구역에서 정지" : "출발 구역 밖 — 그대로 정지");
-      write_log("return.json", "{\"in_zone\": " + std::string(in ? "true" : "false") + ", \"corrected\": " +
-                (corrected ? "true" : "false") + fmt(", \"x_mm\": %.0f, \"y_mm\": %.0f", r.x * 1000, r.y * 1000) +
-                fmt(", \"yaw\": %.3f}\n", r.yaw));
-      if (!in) result("return: footprint_out_of_zone");
+  run({stow(), SubGoal().set__skill("navigate").set__target(fmt("%.4f,%.4f,%.4f", p.x, p.y, p.yaw))
+                 .set__relation(leg_to("start"))},
+    [this](bool ok, const std::string & why) {
+      if (!ok) { finish(false, "return_nav:" + why); return; }
+      note("시작 위치 도착 — 복귀 완료");
+      write_log("return.json", "{\"arrived\": true, \"corrected\": false}\n");
       snap("return");
-      timer_ = create_wall_timer(std::chrono::duration<double>(home_hold_s_), [this]() {
-        timer_->cancel();
-        finish(true);
-      });
+      finish(true);
     });
 }
 
@@ -1335,9 +1383,9 @@ std::pair<double, double> MissionManager::near_center(const Box & box) {
 
 void MissionManager::go_near(const Box & box, double px, double py, Done done, size_t k, std::vector<Pose2> poses, bool retried) {
   if (k == 0 && poses.empty() && !back_.empty()) {  // 지금 박스에 붙어 있으면 먼저 standoff까지 똑바로 물러남 (Nav2는 원 0.18이라 붙은 자리에선 출발 못 함)
-    const std::string back = back_;  // 후진 거리 [m] — approach exit (odom 기준 똑바로, 11-13: 예전엔 map 자리로 가서 map이 밀리면 비틀림)
+    const double back = std::stod(back_);  // 후진 거리 [m] — approach exit (odom 기준 똑바로, 11-13: 예전엔 map 자리로 가서 map이 밀리면 비틀림)
     back_.clear();
-    run({stow(), SubGoal().set__skill("approach").set__target(back).set__relation("exit")}, [this, box, px, py, done](bool ok, const std::string & why) {
+    retreat(back, "다음 박스로", [this, box, px, py, done](bool ok, const std::string & why) {  // 뒤 벽·박스 앞까지만 (safe_back)
       if (!ok) { done(false, "retreat:" + why); return; }
       go_near(box, px, py, done);
     });
@@ -1424,13 +1472,34 @@ void MissionManager::go_near(const Box & box, double px, double py, Done done, s
         return;
       }
       // 붙은 뒤 exit은 Nav2 목표 자리(n)까지 물러남 — approach 시작 자리(@d)는 돌 공간이 없을 수 있음
-      if (ok) { back_ = fmt("%.3f", std::hypot(cx - n.x, cy - n.y) - box.half - approach_gap_ + box.retreat); done(true, ""); return; }
+      // develop: 물러날 거리 = 인지 가운데(cx, cy) 기준 + box.retreat · 우리: 성공하면 막힘 풀기 표시(nav_unstuck_) 초기화
+      if (ok) { nav_unstuck_ = false; back_ = fmt("%.3f", std::hypot(cx - n.x, cy - n.y) - box.half - approach_gap_ + box.retreat); done(true, ""); return; }
+      // 다가설 자리로 가다 막힘(진척 없음 · 경로 실패) — 좁은 칸에서 돌 공간이 없던 것 (11-16 시뮬: S5 왼쪽 칸에서 빠져나와
+      //   위 벽에 붙은 채 S3로 못 돌아 25 s × 2 실패). 도면상 갈 수 있는 만큼(최대 nav_unstuck_back) 똑바로 물러나 돌 공간을 만든 뒤
+      //   같은 자리를 한 번 더 — 그래도 안 되면 다음 변
+      if (!nav_unstuck_ && why.rfind("nav_", 0) == 0) {
+        nav_unstuck_ = true;
+        RCLCPP_WARN(get_logger(), "접근 자리 %zu 가다 막힘 (%s) — 도면상 갈 수 있는 만큼 물러난 뒤 다시", k + 1, why.c_str());
+        retreat(nav_unstuck_back_, "막힘 풀기", [this, box, px, py, done, k, poses](bool, const std::string &) {
+          go_near(box, px, py, done, k, poses);
+        });
+        return;
+      }
+      nav_unstuck_ = false;
       RCLCPP_WARN(get_logger(), "접근 자리 %zu 실패 (%s) — 다음 변", k + 1, why.c_str());
-      // 상자 앞에서 끝남(붙다 멈춤 · 상자를 못 봐 다가설 자리에 섬) — 그대로 Nav2를 보내면 제자리에서 돌다 상자를 밀거나(11-13),
-      //   후진 금지라 몸 뒤가 벽에 걸려 못 빠져나옴 (11-13 headless) → 먼저 똑바로 물러남
-      if (why == "approach_blocked" || why == "approach_box_unseen") {
-        run({stow(), SubGoal().set__skill("approach").set__target(fmt("%.3f", push)).set__relation("exit")},
-            [this, box, px, py, done, k, poses](bool, const std::string &) { go_near(box, px, py, done, k + 1, poses); });
+      // 상자를 못 봄 — approach는 첫 측정 전엔 안 움직이므로 로봇은 아직 Nav2가 데려다 놓은 다가설 자리(n)에 있음 → 물러날 일 없음.
+      //   (11-15 실기·시뮬: 여기서도 도킹 거리 push만큼 눈감고 후진 → 뒤 벽에 박고 바퀴가 헛돌아 위치·지도가 틀어짐)
+      //   후진하지 않고 바로 다음 변(다른 넓은 쪽)으로 가서 다시 봄
+      if (why == "approach_box_unseen") {
+        go_near(box, px, py, done, k + 1, poses);
+        return;
+      }
+      // 붙다 멈춤 — 상자 앞까지 와 있어 그대로 Nav2를 보내면 제자리에서 돌다 상자를 밀거나(11-13), 후진 금지라 몸 뒤가 벽에 걸려
+      //   못 빠져나옴 (11-13 headless) → 먼저 똑바로 물러남. 거리는 도면으로 뒤 벽·박스 앞까지만 (safe_back)
+      if (why == "approach_blocked") {
+        retreat(push, "다가가다 막힘", [this, box, px, py, done, k, poses](bool, const std::string &) {
+          go_near(box, px, py, done, k + 1, poses);
+        });
         return;
       }
       go_near(box, px, py, done, k + 1, poses);
@@ -1510,16 +1579,18 @@ void MissionManager::locate(int tag, bool memory, std::function<void(const Track
   const auto m = to_map(ax, ay);
   const double spot[2] = {m.x, m.y};
   if (const auto * o = puck_for(objects_.get(), tag, spot, match_radius_)) { cb(o); return; }
-  // 안 보인 지 2초 넘어 인지 목록에서 빠짐 — 처음엔 마지막으로 본 트랙 그대로 (coordinator가 기억한 자리로 pick, 적재 뒤 다시 보지 않음)
-  if (const auto it = last_seen_.find(tag); memory && it != last_seen_.end()) {
-    note("퍽 " + str(tag) + " 기억한 자리로 (인지 목록에 없음)");
-    cb(&it->second);
-    return;
+  // 적재 뒤에는 추적 ID가 교체될 수 있다. 기억한 ID로 계획을 보내지 않고
+  // 마지막 관측 위치를 다시 본 뒤 태그로 현재 ID를 찾는다.
+  (void)memory;
+  double mx = m.x, my = m.y;
+  if (const auto it = last_seen_.find(tag); it != last_seen_.end()) {
+    mx = it->second.pose.pose.position.x;
+    my = it->second.pose.pose.position.y;
   }
-  // 그래도 못 집었으면 그 자리를 다시 봄
-  note("퍽 " + str(tag) + " 다시 보기 (인지 목록에 없음)");
-  run({SubGoal().set__skill("inspect").set__target(point(ax, ay, box_top_z_ + puck_h_))},
-      [this, tag, mx = m.x, my = m.y, cb](bool, const std::string &) {
+  note("퍽 " + str(tag) + " 다시 보기 (현재 추적 ID 확인)");
+  run({SubGoal().set__skill("inspect")
+         .set__target(fmt("%.4f,%.4f,%.4f", mx, my, box_top_z_ + puck_h_)).set__relation("box")},
+      [this, tag, mx, my, cb](bool, const std::string &) {
         const double spot2[2] = {mx, my};
         cb(puck_for(objects_.get(), tag, spot2, match_radius_));
       });
@@ -1574,6 +1645,59 @@ bool MissionManager::robot_arena(Pose2 & p) const {
   } catch (const std::exception &) {
     return false;
   }
+}
+
+double MissionManager::safe_back(double want) const {
+  Pose2 r;
+  if (!(want > 0.0) || !robot_arena(r)) return want;  // 위치를 모르면 예전처럼 (막지 않음)
+  const double c = std::cos(r.yaw), s = std::sin(r.yaw);
+  const double rear = footprint_[1], side = footprint_[2];  // 몸 뒤 끝 (base_footprint 기준 음수) · 옆 반폭 [m]
+  // 도면 박스(시작 박스 · 장소 박스) 안인지 — 정사각, 각 변 + 여유
+  const auto in_box = [this](double x, double y) {
+    for (const auto * list : {&start_boxes_, &loc_boxes_})
+      for (const auto & b : *list)
+        if (std::abs(x - b.x) < b.half + back_margin_ && std::abs(y - b.y) < b.half + back_margin_) return true;
+    return false;
+  };
+  constexpr double step = 0.02;  // 물러나는 거리를 2 cm씩 늘려 가며 확인
+  // 뒷변 5점 (옆 −side ~ +side) — base_footprint 기준 (rear − d, ly)를 arena로
+  const auto pt = [&](double d, int i, double & x, double & y) {
+    const double lx = rear - d, ly = side * i / 2.0;
+    x = r.x + lx * c - ly * s;
+    y = r.y + lx * s + ly * c;
+  };
+  // 지금 자리에서 각 점의 벽 거리 — 좁은 칸의 나란한 옆벽은 물러나도 거리가 그대로라 막지 않음 (11-16 시뮬:
+  //   S4 칸 옆벽이 뒤 모서리에서 5 cm 안이라 0 m로 계산돼 안 물러나고 붙은 채 '출발점 막힘'으로 줄줄이 실패)
+  double d0[5];
+  for (int i = -2; i <= 2; ++i) {
+    double x, y;
+    pt(0.0, i, x, y);
+    d0[i + 2] = wall_distance(x, y, walls_);
+  }
+  double ok = 0.0;
+  for (double d = step; d < want + 1e-9; d += step) {
+    for (int i = -2; i <= 2; ++i) {
+      double x, y;
+      pt(d, i, x, y);
+      const double w = wall_distance(x, y, walls_);
+      // 막힘 = 여유 안이면서 지금보다 1 cm 넘게 가까워짐(= 뒤 벽 쪽으로 감) · 또는 박스 안으로 들어감
+      if ((w < back_margin_ && w < d0[i + 2] - 0.01) || in_box(x, y)) return ok;  // 직전 거리까지만
+    }
+    ok = d;
+  }
+  return want;  // 끝까지 비어 있음
+}
+
+void MissionManager::retreat(double want, const char * why, Done then) {
+  const double d = safe_back(want);
+  if (d + 1e-6 < want)
+    RCLCPP_WARN(get_logger(), "물러나기(%s) %.3f m → %.3f m — 도면상 뒤 벽·박스까지 여유 %.2f m 남김", why, want, d, back_margin_);
+  if (d < min_back_) {  // 뒤가 바로 막힘 — 눈감고 박느니 안 물러나고 다음 단계 (Nav2·approach가 앞을 보고 감)
+    RCLCPP_WARN(get_logger(), "물러나기(%s) 안 함 — 뒤로 %.3f m밖에 못 감 (min_back %.2f m)", why, d, min_back_);
+    then(true, "");
+    return;
+  }
+  run({stow(), SubGoal().set__skill("approach").set__target(fmt("%.3f", d)).set__relation("exit")}, std::move(then));
 }
 
 // ---------- 도면 보정 — 인지 상자(윗면 가운데, map) ↔ 도면 상자 짝으로 arena → map 변환을 고침
@@ -1677,6 +1801,10 @@ void MissionManager::wall_tick() {
   // arena_correction(상자)과 따로 — wall_fit만 켜도 벽으로 보정 (11-15)
   if (!(active_ || acorr_idle_) || !grid_ || walls_.size() < 4) return;
   const auto & g = *grid_;
+  const double stamp = rclcpp::Time(g.header.stamp).seconds();
+  const double age = now().seconds() - stamp;
+  if (wall_s() - grid_rx_ > 2.5 || age < 0.0 || age > 2.5 || stamp <= wall_checked_stamp_) return;
+  wall_checked_stamp_ = stamp;
   std::vector<std::pair<double, double>> cells;
   const double res = g.info.resolution;
   const int w = static_cast<int>(g.info.width), h = static_cast<int>(g.info.height);
@@ -1721,6 +1849,17 @@ void MissionManager::wall_tick() {
   }
   const auto f = fit_walls(segs, cells, wall_ok_ ? wall_.c : acorr_, wall_gate_, wall_min_cells_, wall_min_eig_, acorr_max_shift_,
                            acorr_max_rot_);
+  wall_stable_ = f.ok && wall_prev_stamp_ >= 0.0 && stamp - wall_prev_stamp_ <= 3.0 &&
+    std::hypot(f.c.dx - loc_prev_dx_, f.c.dy - loc_prev_dy_) < loc_stable_m_ &&
+    std::abs(std::remainder(f.c.dth - wall_prev_th_, 2 * M_PI)) < 0.0175;
+  const double previous_stamp = wall_prev_stamp_;
+  wall_prev_stamp_ = f.ok ? stamp : -1.0;
+  loc_prev_dx_ = f.c.dx; loc_prev_dy_ = f.c.dy; wall_prev_th_ = f.c.dth;
+  wall_fit_stamp_ = f.ok ? stamp : -1.0;
+  std_msgs::msg::Float64MultiArray status;
+  // stamp, stable, residual x/y/yaw, RMS; every distinct input grid, including rejected fits.
+  status.data = {stamp, wall_stable_ ? 1.0 : 0.0, f.c.dx, f.c.dy, f.c.dth, f.rms, previous_stamp};
+  wall_status_pub_->publish(status);
   if (!f.ok) {
     if (f.why != wall_why_) RCLCPP_INFO(get_logger(), "벽 정합 안 됨 (%s · 맞은 칸 %d · 고유값 %.3f)%s", f.why.c_str(), f.inliers, f.min_eig,
                                         wall_ok_ ? " — 지난 벽 보정 유지" : acorr_boxes_ ? " — 상자 보정" : " — 보정 없음");
@@ -1747,13 +1886,41 @@ void MissionManager::wall_tick() {
 // 보정 → 로봇 위치 — 근거가 충분하면 보정 조각을 cuvslam_slam에 넘기고 (map' = 조각⁻¹ · map) 그만큼 이쪽 보정·관측에서 뺌.
 //   조각 = loc_step(5 cm · 1°)까지 · loc_period(2 s)마다 하나 — cuvslam MapGate(초당 5 cm · 5°)가 부드럽게 옮김, 잠금(0.30 m)에 안 걸림
 void MissionManager::loc_tick() {
+  // 팔 동작은 시작할 때 map 목표로 IK를 푼다. 도중 map 원점을 옮기면
+  // 내려가기/시각 보정이 서로 다른 목표를 따라가므로 다음 이동까지 미룬다.
+  if (waiting_plan_ && step_log_.cur < step_log_.goals.size()) {
+    const auto & skill = step_log_.goals[step_log_.cur].skill;
+    if (skill != "navigate" && skill != "approach") return;
+  }
   if (!(acorr_on_ || wall_fit_) || !(active_ || acorr_idle_) || acorr_.n == 0) return;
   if (!(acorr_src_ == "walls" || acorr_.n >= loc_min_n_)) return;   // 상자 하나 · 둘로는 위치를 안 옮김 (11-15: 상자 1개로 dy −0.2 m)
   if (std::hypot(acorr_.dx, acorr_.dy) < loc_min_m_ && std::abs(acorr_.dth) < loc_min_rad_) return;
+  // 안정: 직전 벽 맞춤 결과와 loc_stable_m 안으로 같을 때만 (흔들리는 값을 따라가지 않게)
+  const double age = now().seconds() - wall_fit_stamp_;
+  const bool stable = acorr_src_ == "walls" && wall_stable_ && age >= 0.0 && age <= 2.5 &&
+    wall_s() - grid_rx_ <= 2.5 && wall_s() - odom_rx_ <= 0.5;
+  // 멈춤: loc_still_s 넘게 서 있을 때만 (상자에 붙은 뒤 · 출발 전) — 움직이는 중엔 안 건드림
+  if (!stable || still_since_ < 0.0 || wall_s() - still_since_ < loc_still_s_) return;
+  // 11-16 시뮬: 멈춰 있는 동안 2초마다 조각을 계속 넣었더니 nvblox 지도가 따라 옮겨져 벽 맞춤이 같은 차이를 또 봄 →
+  //   같은 자리에서 +0.025 −0.041 −1°씩 반복, 24 cm · 6° 틀어짐. 멈춤 한 번에 한 조각만 넣고, 움직였다 다시 멈추면 다음 조각
+  if (loc_stop_used_) return;
   const ArenaCorr st = corr_step(acorr_, loc_step_m_, loc_step_rad_);
+  // 11-16: 로봇 위치로 넘긴 보정의 누적 상한 — 위치를 옮기면 nvblox 지도도 따라가 벽 정합이 같은 차이를 다시 봐서
+  //   한쪽으로 계속 밀려가던 것(11-15 시뮬: 2분에 7 m)을 막음. 상한 안에서는 부딪혀 틀어진 위치를 벽에 맞춰 다시 잡음
+  if (std::hypot(loc_sum_x_ + st.dx, loc_sum_y_ + st.dy) > loc_max_m_ || std::abs(loc_sum_th_ + st.dth) > loc_max_rad_) {
+    if (!loc_capped_)
+      RCLCPP_WARN(get_logger(), "도면 보정 → 로봇 위치: 누적 상한 (%.2f m · %.0f°) — 더 안 옮김 (지금까지 %+.3f %+.3f %+.1f°)",
+                  loc_max_m_, loc_max_rad_ * 180 / M_PI, loc_sum_x_, loc_sum_y_, loc_sum_th_ * 180 / M_PI);
+    loc_capped_ = true;
+    return;
+  }
+  loc_sum_x_ += st.dx;
+  loc_sum_y_ += st.dy;
+  loc_sum_th_ += st.dth;
   std_msgs::msg::Float64MultiArray req;
-  req.data = {st.dx, st.dy, st.dth};
+  req.data = {st.dx, st.dy, st.dth, now().seconds()};
   loc_pub_->publish(req);
+  loc_stop_used_ = true;
   acorr_ = corr_after_step(acorr_, st);
   for (auto & mk : marks_) {
     if (!mk.hits) continue;

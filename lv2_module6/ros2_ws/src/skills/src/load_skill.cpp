@@ -37,6 +37,9 @@ public:
     // 옮기는 동안 쥐는 힘 = grip_current_a × 이 배수 — 칸에 걸리면 약하게(0.1 A) 쥔 퍽이 손 안에서 돌아감 (11-15 실기 → 누운 채 적재).
     //   1 = 집을 때 힘 그대로 · 매 goal마다 읽음
     declare_parameter<double>("load_grip_scale", 2.0);
+    // 11-16 시뮬: 칸에 내려가다 막힘(arm_jam)이면 위로 뺀 채 칸 위부터 이만큼 다시 내려 봄 — 놓기 전이라 퍽은 아직 손에 있음.
+    //   S6 퍽 11: 칸 7 내려가는 1.3 s에 joint2+3 전류 +0.41 A → 실패 → 상자에 되돌리기도 실패해 퍽을 잃음 (같은 칸 7에 박스 퍽은 들어감)
+    declare_parameter<int>("load_jam_retries", 1);
     policy_ = load_model("load_slot");
     serve("load", [this](const SkillGoal & g, Done done) {
       const std::string shape = g.shape.empty() ? "box" : g.shape;  // 모름 — 사각 표 (손 방향을 칸 벽에 맞춘 자세라 원기둥도 들어감)
@@ -65,7 +68,21 @@ public:
             squeeze, to_over(carry, over), arm_.joints_step(low), arm_.gripper_step(LOAD_OPEN_M),
             arm_.joints_step(table_.slot_q(shape, "q_lift", slot)), end_step(stow, carry)});
         stage("칸 " + std::to_string(slot) + " (" + shape + " · carry_" + table_.carry[slot] + ")");
-        arm_.run_steps(steps, 0, [this, done](bool ok) {
+        // 막힘(arm_jam) 다시 하기 — steps[1](칸 위로)부터 다시. 쥐기(squeeze)는 이미 했으니 뺌
+        auto tries = std::make_shared<int>(get_parameter("load_jam_retries").as_int());
+        auto finish = std::make_shared<std::function<void(bool)>>();  // 자기를 다시 부르려고 shared_ptr (load 한 번에 작은 closure 하나 — 끝나도 남는 순환 참조, 미션 12번 수준이라 둠)
+        *finish = [this, done, steps, tries, finish, slot](bool ok) {
+          if (!ok && arm_.jam() && *tries > 0) {
+            double gj = 0.0;
+            const bool open = arm_.joint("gripper_left_joint", gj) && gj >= get_parameter("load_released_joint").as_double();
+            if (!open) {  // 아직 쥐고 있음 — 다시
+              --*tries;
+              RCLCPP_WARN(get_logger(), "load: 칸 %d 막힘 — 칸 위부터 다시 내려 봄 (남은 다시 하기 %d)", slot, *tries);
+              arm_.clear_flags();
+              arm_.run_steps(steps, 1, *finish);
+              return;
+            }
+          }
           if (ok) { done(true, ""); return; }
           const std::string why = arm_.contact() ? "arm_contact" : arm_.jam() ? "arm_jam" : "load_failed";
           // 벌린 뒤의 실패 (손 뺄 때 칸에 걸림 · 끝 자세 거부 …) — 퍽은 칸에 놓였을 가능성이 큼 → load_released_* 로 알림
@@ -77,7 +94,8 @@ public:
             return;
           }
           done(false, why);
-        });
+        };
+        arm_.run_steps(steps, 0, *finish);
       });
     });
   }

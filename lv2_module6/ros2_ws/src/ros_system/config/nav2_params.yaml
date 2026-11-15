@@ -87,7 +87,7 @@ controller_server:
       # 0.3은 좁은 미로의 마지막 접근(남은 거리 < 0.3)에서 10초마다 105를 냈다 — 0.15로 낮춘다.
       required_movement_radius: 0.15
       # 이 시간(초) 안에 위 거리만큼 못 움직이면 막힘 → 컨트롤러 실패 → BT가 복구(Spin·BackUp·Wait).
-      movement_time_allowance: 6.0     # 11-16: 15 → 6 (벽에 막혔을 때 15 s씩 기다림 — 사용자 "생각하는 시간이 너무 김")
+      movement_time_allowance: 8.0   # 11-16 시뮬: 막힘을 빨리 알아채 물러나 다시
 
     # 도착 판단 — 목표 위치·방향 허용 오차 안에 들어오면 성공.
     goal_checker:
@@ -100,9 +100,7 @@ controller_server:
       stateful: true
       # 목표 위치 허용 오차(m). 퍽 앞 접근 정확도 — 팔 도달 범위가 좁아 기본 0.25보다 작게 (00-overview "도달 범위 주의"). (실측)
       # 0.10은 좁은 미로에서 벽/inflation에 막혀 12 cm 앞에서 105가 났다 — 0.15로 넓힌다.
-      # 11-15: 0.15 → 0.06 — 문 경유점에 15 cm 빗겨 '도착'하고 그대로 문으로 가 벽 끝에 걸림 (시뮬 D7·D4 ×4).
-      #   상자 앞 자리는 skill_navigate near(0.20)가, 못 줄이고 멈추면 끼임 풀기가 받음
-      xy_goal_tolerance: 0.06
+      xy_goal_tolerance: 0.15
       # 목표 방향 허용 오차(rad). 0.5 ≈ 29° (11-13, develop 0.25 · 예전 0.15 실측).
       #   상자 옆 목표에서 비스듬히 도착하면 MPPI가 제자리 회전을 못 해 nav_no_progress → approach가 안 불렸다.
       #   최종 방향은 approach가 상자를 보며 맞춘다. 웨이포인트 방향이 중요한 주행이 생기면 다시 좁힌다.
@@ -124,7 +122,7 @@ controller_server:
     #   (raw 카메라 점구름은 costmap·collision_monitor가 계속 사용)
     FollowPath:
       plugin: "ml::RlNavController"
-      enable: true             # true = ONNX 정책 (모델 없으면 자동 바이패스)
+      enable: false            # 11-16 시뮬: DWB로 (RL 0/7 vs DWB) · true = ONNX 정책 (모델 없으면 자동 바이패스)
       model_path: "rl_nav_controller/policy.onnx"  # share/ml/model/rl_nav_controller/policy.onnx
       scan_source: "points"    # points(점구름 가상 스캔) | scan(실제 LiDAR)
       points_topic: "/nvblox_node/combined_esdf_pointcloud"  # nvblox 2D ESDF height slice (static+dynamic, PointCloud2)
@@ -154,7 +152,7 @@ controller_server:
 
         # ── 속도 한계 [m/s · rad/s] — ml.yaml max_vel_x · max_vel_theta와 같은 값
         # 전진 최소 속도. 0이면 경로 추종 중 후진하지 않는다 (pole_front_cam이 뒤를 못 봄).
-        min_vel_x: 0.0
+        min_vel_x: 0.0   # 11-16 시뮬: -0.05(살짝 후진)는 카메라가 뒤를 못 봐 벽에 부딪혀 되돌림 · 예전 이유: 상자에서 빠진 자리에서 돌 공간이 없으면(몸 뒤 회전 0.29 m) 궤적 0개로 멈춤 → 아주 조금 후진 허용 (local costmap 도면 벽이 뒤를 막음)
         # 전진 최대 속도. Waffle Pi 문서 최대 0.26m/s (바퀴 반경 0.033m · XM430-W350 무부하 약 4.8rad/s).
         #   0.26m/s = 바퀴 약 7.88rad/s ≈ 75rpm. 펌웨어가 rad/s→rpm 변환해 Goal Velocity로 내림. /speed_limit 백분율의 기준.
         max_vel_x: 0.26
@@ -162,7 +160,7 @@ controller_server:
         min_vel_y: 0.0
         max_vel_y: 0.0
         # 최대 회전 속도. 예전 프리셋 A 값 (rl_nav_tuner 제거됨 — 고정값).
-        max_vel_theta: 0.91    # 11-16: 1.82 → 0.91 (회전 절반)
+        max_vel_theta: 1.82
         # 병진 속도 크기(√(vx²+vy²))의 최소·최대. 차동 구동이라 사실상 vx와 같다.
         min_speed_xy: 0.0
         max_speed_xy: 0.26
@@ -305,7 +303,7 @@ controller_server:
         max_lookahead_dist: 0.80
         lookahead_time: 1.5
         use_velocity_scaled_lookahead_dist: false
-        rotate_to_heading_angular_vel: 0.5   # 11-16: 1.0 → 0.5 (회전 절반)
+        rotate_to_heading_angular_vel: 1.0
         rotate_to_heading_min_angle: 0.785
         use_rotate_to_heading: true
         allow_reversing: false
@@ -318,7 +316,7 @@ controller_server:
         angular_dist_threshold: 0.785
         angular_disengage_threshold: 0.3925
         forward_sampling_distance: 0.5
-        rotate_to_heading_angular_vel: 0.5   # 11-16: 1.0 → 0.5 (회전 절반)
+        rotate_to_heading_angular_vel: 1.0
         max_angular_accel: 3.2
         simulate_ahead_time: 1.0
         rotate_to_goal_heading: false
@@ -394,8 +392,8 @@ behavior_server:
     robot_base_frame: base_footprint
     transform_tolerance: 0.2
     simulate_ahead_time: 2.0
-    max_rotational_vel: 0.5    # 11-16: 1.0 → 0.5 (회전 절반 — Spin: 표 재생 회전)
-    min_rotational_vel: 0.2
+    max_rotational_vel: 1.0
+    min_rotational_vel: 0.4
     rotational_acc_lim: 3.2
     enable_stamped_cmd_vel: true
 
@@ -423,7 +421,9 @@ local_costmap:
       #   경로가 벽에 붙고 제자리 회전 때 뒤가 벽에 걸렸다 (테스트베드 실측 2026-11-11: 105 반복·Spin "Collision Ahead").
       #   padding 0.01은 컨트롤러 추종 오차로 상쇄돼 뒤 모서리가 벽 픽셀에 닿았다 → 0.06으로
       #   fake_opencr 충돌("막힘 bumped") 없이 지나가게 (2026-11-12: (0.97,-1.46) 뒤 모서리 (1.253,-1.513) 벽).
-      footprint: "[[0.069, 0.151], [0.069, -0.151], [-0.245, -0.151], [-0.245, 0.151]]"
+      # 11-16 시뮬: 몸 사각형 + 앞 가운데 코 = 접은 팔(stow) — TF 실측 end_effector 0.184 · 손 카메라 0.173 · 손가락 0.132 (y ±0.05).
+      #   Nav2는 팔 TF를 안 보고 이 외곽선만 씀 → 팔이 모퉁이 벽을 긁었음. 막힘은 nav_unstick_backup(0.15 m 빼고 다시)이 풂
+      footprint: "[[0.19, 0.04], [0.19, -0.04], [0.14, -0.06], [0.069, -0.06], [0.069, -0.151], [-0.245, -0.151], [-0.245, 0.151], [0.069, 0.151], [0.069, 0.06], [0.14, 0.06]]"
       footprint_padding: 0.01   # 11-15: 0.06 → 0.02 → 0.01 → 0 → 0.01 (외접 0.302) — 문틈(빈 공간 0.59 m)에서 DWB가 몸(폭 0.42 → 0.34) 들어갈 궤적을 못 찾아 멈춤. 외접 0.315 ≤ inflation 0.38
       always_send_full_costmap: true
       # static_layer (벽 지도 /map): 카메라는 0.2 m 안·옆·뒤를 못 봐서 voxel만으로는 돌다가 옆 벽에 박음 (11-13 headless 여러 번).
@@ -482,7 +482,7 @@ global_costmap:
       #   fake_opencr 충돌("막힘 bumped") 없이 지나가게 (2026-11-12: (0.97,-1.46) 뒤 모서리 (1.253,-1.513) 벽).
       # 11-15: 전역은 원(robot_radius 0.22) — SmacPlanner2D는 몸 모양을 안 보고 기준점(앞 바퀴축)의 inscribed 비용만 봄.
       #   직사각형+padding이면 inscribed 0.129라 벽 0.13 m까지 경로를 냄 → 문틈 모서리를 자르고 RL이 따라가 막힘. 옆 반폭 0.151 + 5 cm
-      robot_radius: 0.15   # 11-15: 0.05 → 0.10 → 0.15 (사용자) · 이전: 0.22 → 0.20 → 0.17 → 0.16 → 0.14 → 0.16 → 0.10 (사용자 지정 — 반폭 0.151보다 작음: 벽 쪽은 팽창 비용 0.35/6이 밀어냄, 실제 충돌은 RL·collision_monitor) (실측 벽 /arena/walls만 봐서 이중 표시 여유 불필요 · 반폭 0.151 + 2 cm) — 예전 메모: 0.20 — 문틈 빈 공간 0.57 m에서 카메라 벽이 위치 오차만큼 겹쳐도 8.5 cm까지 안 막힘 (0.22면 7 cm)
+      robot_radius: 0.16   # 11-16: 0.12 → 0.16 (반폭 0.151보다 커야 플래너가 몸이 벽에 닿는 길을 안 냄 · 0.57 m 통로는 통과) · 11-15: 0.05 → 0.10 → 0.15 (사용자) · 이전: 0.22 → 0.20 → 0.17 → 0.16 → 0.14 → 0.16 → 0.10 (사용자 지정 — 반폭 0.151보다 작음: 벽 쪽은 팽창 비용 0.35/6이 밀어냄, 실제 충돌은 RL·collision_monitor) (실측 벽 /arena/walls만 봐서 이중 표시 여유 불필요 · 반폭 0.151 + 2 cm) — 예전 메모: 0.20 — 문틈 빈 공간 0.57 m에서 카메라 벽이 위치 오차만큼 겹쳐도 8.5 cm까지 안 막힘 (0.22면 7 cm)
       resolution: 0.05
       track_unknown_space: false   # 11-15: /arena/walls는 벽·상자 말고 −1(모름) — 빈칸으로 읽어야 플래너가 벽 옆 팽창을 빈 곳보다 싸게 보지 않음
       always_send_full_costmap: true
@@ -519,8 +519,8 @@ global_costmap:
         plugin: "nav2_costmap_2d::InflationLayer"
         # 전역 계획(NavFn)은 로봇을 점으로 본다 — 몸 안쪽 반경(앞 0.08)까지만 막히니, 비용으로 통로 가운데를 고르게 한다.
         # 0.45 · 6.0: 벽에서 0.3 m ≈ 67 · 0.15 m ≈ 166 (253 = 몸이 닿음) — 제자리 회전 반경(뒤 모서리 0.29)을 지키는 경로
-        inflation_radius: 0.4    # 11-15: 0.2 → 0.4 (사용자) · 이전: 0.45 → 0.40 → 0.30 → 0.25 → 0.20 → 0.35 (비용을 넓고 약하게 — 통로 가운데로) — 통로 대부분이 빨강(비용 150 안팎)이라 좁은 곳에서 경로 선택이 둔함
-        cost_scaling_factor: 12.0 # 11-15: 4 → 2 → 12 (사용자) · 이전: 6 → 3 → 4 → 5 → 8 → 10 → 6 (0.3 m에서 171 → 151) — 벽 비용이 천천히 줄어 경로가 문틈 가운데로 곧게 (6이면 모서리를 대각선으로 자름)
+        inflation_radius: 0.6    # 11-16 시뮬: 통로 가운데로 (0.4 →) · 11-15: 0.2 → 0.4 (사용자) · 이전: 0.45 → 0.40 → 0.30 → 0.25 → 0.20 → 0.35 (비용을 넓고 약하게 — 통로 가운데로) — 통로 대부분이 빨강(비용 150 안팎)이라 좁은 곳에서 경로 선택이 둔함
+        cost_scaling_factor: 3.0 # 11-16 시뮬: 벽 비용 완만하게 (12 →) · 11-15: 4 → 2 → 12 (사용자) · 이전: 6 → 3 → 4 → 5 → 8 → 10 → 6 (0.3 m에서 171 → 151) — 벽 비용이 천천히 줄어 경로가 문틈 가운데로 곧게 (6이면 모서리를 대각선으로 자름)
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -573,22 +573,39 @@ collision_monitor:
     #       좌우 = 반폭 0.151 + 2 cm → 11.5 cm까지 치우쳐도 안 멈춤. 앞 0.10 = 범퍼(0.069) 앞 3 cm (11-15: 0.22 → 0.10 — 0.6 s 앞을 보는 계산은 그대로라 최고 속도면 범퍼 앞 약 16 cm부터 줄임)
     #     backward (vx < 0)  몸 뒤 반원 0.20 — 앞 카메라 점은 여기 없으니 후진은 막히지 않는다 (뒤는 못 봄)
     #     rotate   (vx ≈ 0)  몸 크기 원 0.18 — 실제로 닿은 점만 제자리 회전을 막는다
-    # 11-16: 실제 몸 모양으로 — 몸 사각형(앞 0.069 · 뒤 −0.245 · 옆 ±0.151, base_footprint = 앞바퀴 축) + 여유 2 cm.
-    #   Approach는 지금 속도로 time_before_collision 동안 움직였을 때 이 사각형이 휩쓰는 자리를 계산 → 앞으로 가며 꺾을 때 옆구리,
-    #   제자리 회전 때 뒷모서리(반경 0.29 m)까지 봄. 예전(앞 0.10×±0.17 사각형 · 회전 원 0.18 · 뒤 반원 0.20)은 옆구리·뒷모서리가
-    #   비어 있어 몸 옆이 벽 끝에 닿은 채 0.05 m/s로 25 s 밀다 벽에 부딪혔음 (실기 11-16 02:49 · S4→S5 벽 끝 걸림).
-    #   몸 안(2 cm 안)에 점이 이미 있으면 모든 방향이 멈춤 — 미는 것보다 안전 (빠져나오기는 skill_navigate unstick)
     Approach:
-      type: "polygon"
+      type: "velocity_polygon"
       action_type: "approach"
-      points: "[[0.089, 0.171], [0.089, -0.171], [-0.265, -0.171], [-0.265, 0.171]]"
-      time_before_collision: 0.6   # 최대 0.26 m/s에서 범퍼 앞 약 16 cm부터 줄임
-      simulation_time_step: 0.05
-      min_points: 3
+      time_before_collision: 0.6   # 11-15: 1.0 → 0.6 — 최대 속도 0.26 m/s에서 26 cm 앞 → 16 cm 앞부터 줄임 (좁은 곳에서 기어가던 것)
+      simulation_time_step: 0.1
+      min_points: 4
       visualize: true
       polygon_pub_topic: polygon_approach
       enabled: true
       holonomic: false
+      velocity_polygons: ["rotate", "forward", "backward"]
+      rotate:
+        points: "[[0.18, 0], [0.174, 0.047], [0.156, 0.09], [0.127, 0.127], [0.09, 0.156], [0.047, 0.174], [0, 0.18], [-0.047, 0.174], [-0.09, 0.156], [-0.127, 0.127], [-0.156, 0.09], [-0.174, 0.047], [-0.18, 0], [-0.174, -0.047], [-0.156, -0.09], [-0.127, -0.127], [-0.09, -0.156], [-0.047, -0.174], [0, -0.18], [0.047, -0.174], [0.09, -0.156], [0.127, -0.127], [0.156, -0.09], [0.174, -0.047]]"
+        linear_min: -0.005
+        linear_max: 0.005
+        theta_min: -10.0
+        theta_max: 10.0
+      forward:
+        points: "[[0.0, -0.17], [0.10, -0.17], [0.10, 0.17], [0.0, 0.17]]"  # 11-15: 앞 0.22 → 0.10 (범퍼 0.069 + 3 cm)
+        linear_min: 0.005
+        linear_max: 10.0
+        theta_min: -10.0
+        theta_max: 10.0
+      backward:
+        points: "[[0, 0.2], [-0.052, 0.193], [-0.1, 0.173], [-0.141, 0.141], [-0.173, 0.1], [-0.193, 0.052], [-0.2, 0], [-0.193, -0.052], [-0.173, -0.1], [-0.141, -0.141], [-0.1, -0.173], [-0.052, -0.193], [0, -0.2]]"
+        linear_min: -10.0
+        linear_max: -0.005
+        theta_min: -10.0
+        theta_max: 10.0
+    # 앞쪽 사각형(앞 0.30 · 좌우 ±0.22) 안이면 절반 속도
+    #   11-15: 원 0.30이었음 — 문틈 가운데로 지나도 양쪽 벽(0.285)이 늘 안 → 문 안에서는 항상 50 % (실기 slowdown 27번).
+    #   뒤 모서리까지 0.288 m라 원 0.30은 몸 바로 바깥 1 cm였고, 뒤는 카메라가 못 봐 의미도 없었음.
+    #   좌우 ±0.22 → 문 가운데에서 6.5 cm까지 치우쳐도 옆 벽엔 안 걸림 · 앞은 범퍼 앞 23 cm 안의 것만
     SlowZone:
       type: "polygon"
       points: "[[0.0, -0.22], [0.30, -0.22], [0.30, 0.22], [0.0, 0.22]]"
@@ -598,14 +615,7 @@ collision_monitor:
       visualize: true
       polygon_pub_topic: polygon_slowdown
       enabled: true
-    observation_sources: ["pole_front_cam", "arena_walls"]
-    # 도면 벽·상자(/arena/walls)를 로봇 주변 1 m 점으로 (ros_system grid_obstacle_cloud) — 앞 카메라가 못 보는 옆·뒤 (11-16)
-    arena_walls:
-      type: "pointcloud"
-      topic: /arena/walls_cloud
-      min_height: 0.05
-      max_height: 0.6
-      enabled: true
+    observation_sources: ["pole_front_cam"]
     pole_front_cam:
       type: "pointcloud"
       topic: /pole_front_cam/depth/color/points_filtered   # perception/body_filter가 자기 몸(팔·차체) 점을 뺀 것

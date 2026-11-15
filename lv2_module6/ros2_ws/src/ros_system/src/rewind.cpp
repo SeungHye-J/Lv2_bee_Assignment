@@ -35,6 +35,9 @@ std::string py_repr(double v) {
 class Rewind : public rclcpp::Node {
 public:
   explicit Rewind(const rclcpp::NodeOptions & options) : Node("rewind", options) {
+    // 11-16: Nav2 실패 때 자동 후진 켬/끔 — mission_manager가 실패하면 도면을 보고 직접 물러나는데(retreat) 이 노드도
+    //   동시에 /cmd_vel_smoothed로 후진을 내서 두 명령이 섞여 L1 상자를 침 (시뮬). 끄면 수동(/rewind 서비스)만
+    auto_on_abort_ = declare_parameter<bool>("rewind_auto_on_abort", true);
     odom_sub_ = create_subscription<nav_msgs::msg::Odometry>("/odometry/filtered", 10,
       [this](nav_msgs::msg::Odometry::ConstSharedPtr m) { on_odom(*m); });
     for (const char * topic : {"/navigate_to_pose/_action/status", "/navigate_through_poses/_action/status"})
@@ -74,7 +77,7 @@ private:
         active_goals_.insert(key);
       } else if (s.status == 6 && active_goals_.count(key)) {  // ABORTED
         active_goals_.erase(key);
-        start_rewind();
+        if (auto_on_abort_) start_rewind();
       }
     }
   }
@@ -132,6 +135,7 @@ private:
   XY target_{}, start_xy_{};
   double t0_ = 0.0;
   std::set<std::array<uint8_t, 16>> active_goals_;
+  bool auto_on_abort_ = true;  // Nav2 실패(ABORTED) 때 자동 후진 (rewind_auto_on_abort)
   rclcpp::Subscription<nav_msgs::msg::Odometry>::SharedPtr odom_sub_;
   std::vector<rclcpp::Subscription<action_msgs::msg::GoalStatusArray>::SharedPtr> status_subs_;
   rclcpp::Service<std_srvs::srv::Trigger>::SharedPtr srv_;

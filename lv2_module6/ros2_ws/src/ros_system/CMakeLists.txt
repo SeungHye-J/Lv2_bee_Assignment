@@ -55,7 +55,13 @@ if(CUVSLAM_INCLUDE_DIR AND CUVSLAM_LIB AND CUDAToolkit_FOUND AND Eigen3_FOUND)
   if(NOT CMAKE_CUDA_COMPILER)
     set(CMAKE_CUDA_COMPILER "${CUDAToolkit_NVCC_EXECUTABLE}")
   endif()
-  set(CMAKE_CUDA_ARCHITECTURES 87)   # Orin
+  if(NOT DEFINED CMAKE_CUDA_ARCHITECTURES)
+    if(CMAKE_SYSTEM_PROCESSOR MATCHES "aarch64|arm64")
+      set(CMAKE_CUDA_ARCHITECTURES 87)   # Orin
+    else()
+      set(CMAKE_CUDA_ARCHITECTURES native)   # 개발 PC의 GPU (11-16: 87 고정이면 노트북 GPU에서 커널 실행 실패)
+    endif()
+  endif()
   enable_language(CUDA)              # src/cuvslam_gpu.cu — 가까운 depth 마스크 커널
   add_executable(cuvslam_slam_cpp src/cuvslam_slam.cpp src/cuvslam_gpu.cu)
   target_compile_features(cuvslam_slam_cpp PRIVATE cxx_std_17)

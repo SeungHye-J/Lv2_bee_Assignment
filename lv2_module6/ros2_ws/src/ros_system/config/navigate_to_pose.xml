@@ -72,7 +72,7 @@
               <ClearEntireCostmap name="ClearGlobalCostmap-Subtree" service_name="global_costmap/clear_entirely_global_costmap"/>
               <BackUp backup_dist="0.10" backup_speed="0.05" disable_collision_checks="true" error_code_id="{backup_error_code}" error_msg="{backup_error_msg}"/>
             </Sequence>
-            <Wait wait_duration="2.0" error_code_id="{wait_error_code}" error_msg="{wait_error_msg}"/>
+            <Wait wait_duration="5.0" error_code_id="{wait_error_code}" error_msg="{wait_error_msg}"/>
           </RoundRobin>
         </ReactiveFallback>
       </Sequence>

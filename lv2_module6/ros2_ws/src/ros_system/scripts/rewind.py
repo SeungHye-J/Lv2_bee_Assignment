@@ -32,6 +32,9 @@ class Rewind(Node):
         self.start_xy = None
         self.t0 = 0.0
         self.active_goals = set()
+        # 11-16: Nav2 실패 때 자동 후진 켬/끔 — mission_manager가 실패하면 도면을 보고 직접 물러나는데(retreat) 이 노드도
+        #   동시에 /cmd_vel_smoothed로 후진을 내서 두 명령이 섞여 L1 상자를 침 (시뮬). 끄면 수동(/rewind 서비스)만
+        self.auto_on_abort = self.declare_parameter('rewind_auto_on_abort', True).value
         self.create_subscription(Odometry, '/odometry/filtered', self.on_odom, 10)
         for topic in ('/navigate_to_pose/_action/status', '/navigate_through_poses/_action/status'):
             self.create_subscription(GoalStatusArray, topic, self.on_status, 10)
@@ -54,7 +57,8 @@ class Rewind(Node):
                 self.active_goals.add(key)
             elif s.status == 6 and key in self.active_goals:  # ABORTED
                 self.active_goals.discard(key)
-                self.start_rewind()
+                if self.auto_on_abort:
+                    self.start_rewind()
 
     def on_rewind(self, _req, res):
         ok = self.start_rewind()

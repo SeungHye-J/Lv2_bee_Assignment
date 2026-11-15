@@ -90,10 +90,30 @@ private:
     if (!to_base(c, t)) return false;
     std::lock_guard<std::mutex> lk(mu_);
     if (!objects_) return true;
+    auto center = c.pose.position;
+    // 도킹이 인식 상자를 따라간 뒤에는 도면 중심과 약간 다를 수 있다.
+    // 가까운 동일 상자의 서로 다른 태그 두 개만 중심 보정에 사용한다.
+    std::vector<const perception::msg::TrackedObject *> pair;
+    for (const auto & o : objects_->objects) {
+      if (o.class_name.rfind("puck", 0) != 0 || (now() - rclcpp::Time(o.last_seen)).seconds() > 1.0) continue;
+      const auto & p = o.pose.pose.position;
+      if (std::hypot(p.x - center.x, p.y - center.y) >= 0.35) continue;
+      for (const auto & kv : o.details)
+        if (kv.key == "tag" && !kv.value.empty()) { pair.push_back(&o); break; }
+    }
+    if (pair.size() == 2) {
+      const auto & a = pair[0]->pose.pose.position;
+      const auto & b = pair[1]->pose.pose.position;
+      const double separation = std::hypot(a.x - b.x, a.y - b.y);
+      if (separation > 0.04 && separation < 0.16) {
+        center.x = (a.x + b.x) * 0.5;
+        center.y = (a.y + b.y) * 0.5;
+      }
+    }
     for (const auto & o : objects_->objects) {
       if (o.class_name.rfind("puck", 0) != 0) continue;
       const auto & p = o.pose.pose.position;
-      if (std::hypot(p.x - c.pose.position.x, p.y - c.pose.position.y) > box_radius_m_) continue;
+      if (std::hypot(p.x - center.x, p.y - center.y) > box_radius_m_) continue;
       const tf2::Vector3 b = t * tf2::Vector3(p.x, p.y, c.pose.position.z);
       tops.push_back({b.x(), b.y(), b.z()});
       // 다 봤음 = 태그 + 자세(standing · lying)까지 — 자세를 모르면('?') coordinator가 세울지 집을지 못 정함 (11/09 Isaac)
