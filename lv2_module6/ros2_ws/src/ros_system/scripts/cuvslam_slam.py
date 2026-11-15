@@ -246,6 +246,12 @@ class CuvslamSlam(Node):
         self.tf_buf = Buffer()
         TransformListener(self.tf_buf, self, spin_thread=True)  # 콜백 안에서 TF를 읽어도 막히지 않게
         self.tf_pub = TransformBroadcaster(self)
+        # map→odom 이어 내기 (11-15): 영상이 늦거나 추적을 잃으면 map→odom이 1~3 s 끊겨(실기 bag 171710: 8번, 최대 3.05 s)
+        #   stamp+0.5 s가 지나면 Nav2 controller가 목표·경로 끝을 odom으로 못 옮겨 error 102로 출발 직후 실패했음 (실기 S3 ×5).
+        #   AMCL처럼 마지막 값을 지금 시각으로 다시 냄 — map→odom은 천천히 바뀌어 같은 값이 맞음
+        self.last_map_tf = None   # (x, y, yaw, 낸 시각 ns)
+        if self.publish_map_tf:
+            self.create_timer(0.1, self.republish_map)
         self.odom_pub = self.create_publisher(Odometry, self.declare_parameter('odom_topic', '/cuvslam/odom').value, 10)
         self.path_pub = self.create_publisher(Path, '/cuvslam/path', 1)
         self.path = Path()
@@ -402,6 +408,21 @@ class CuvslamSlam(Node):
         if self.publish_map_tf:
             self.publish_map(c.header.stamp, slam if slam is not None else p)  # 루프 클로저 반영된 SLAM 위치 우선
 
+    def republish_map(self):
+        """마지막 map→odom을 0.2 s 넘게 못 냈으면 지금 시각(+tolerance)으로 다시 냄"""
+        if self.last_map_tf is None:
+            return
+        x, y, yaw, t = self.last_map_tf
+        now = self.get_clock().now()
+        if now.nanoseconds - t < 200_000_000:
+            return
+        tf = TransformStamped()
+        tf.header.stamp = (now + self.map_tf_tolerance).to_msg()
+        tf.header.frame_id, tf.child_frame_id = self.map, self.odom
+        tf.transform.translation.x, tf.transform.translation.y = x, y
+        tf.transform.rotation.z, tf.transform.rotation.w = math.sin(yaw / 2), math.cos(yaw / 2)
+        self.tf_pub.sendTransform(tf)
+
     def publish_vis(self):
         """BEE_CUVSLAM_VIS: 마지막 프레임 특징점(영상 위 점) · 그 프레임 랜드마크 · SLAM 지도 랜드마크 · 루프 클로저 랜드마크 · 포즈 그래프.
         cuVSLAM world(출발 때 카메라, OpenCV 축) 점 p → map(출발 때 base_footprint) = B·p (B = base_from_cam, base_pose와 같은 기준)"""
@@ -490,6 +511,7 @@ class CuvslamSlam(Node):
         tf.transform.translation.x, tf.transform.translation.y = x, y
         tf.transform.rotation.z, tf.transform.rotation.w = math.sin(yaw / 2), math.cos(yaw / 2)
         self.tf_pub.sendTransform(tf)
+        self.last_map_tf = (x, y, yaw, self.get_clock().now().nanoseconds)
         ps = PoseStamped()
         ps.header = tf.header
         ps.pose.position.x, ps.pose.position.y = base[0], base[1]

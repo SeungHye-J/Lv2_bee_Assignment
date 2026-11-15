@@ -33,6 +33,9 @@ from launch_ros.substitutions import FindPackageShare
 ARGS = {
     'port': '/tmp/opencr',       # opencr_bridge.py(가상 OpenCR)
     'use_cameras': 'false',      # 카메라 토픽은 Isaac이 실기 이름으로 냄
+    'use_pole_back_cam': os.environ.get('BEE_BACK_CAM', 'true'),  # 뒤 카메라 (beebot.usda pole_back_cam, 11-15) → nvblox camera_1 (BEE_BACK_CAM=false: 카메라 2개)
+    'pole_back_cam_external': 'true',  # 드라이버 없이 Isaac 토픽으로
+    'nav2_container_params': os.environ.get('BEE_NAV2_PARAMS', 'true'),  # 실기 기본(true, #240)과 같게 · false = costmap Nav2 기본값
     'map': 'slam',               # 매핑 — 새 폴더 ~/.ros/beebot_maps/<날짜_시각>/ (저장 지도로: map:=saved)
     'use_perception': 'true',    # YOLO · signal_decoder · hand_relative (매핑 중에도)
     'operation': 'AUTO',         # coordinator가 skill을 실행하는 모드
@@ -65,8 +68,9 @@ def generate_launch_description():
             PythonLaunchDescriptionSource(PathJoinSubstitution([FindPackageShare('bringup'), 'launch', 'bringup.launch.py'])),
             launch_arguments={k: LaunchConfiguration(k) for k in ARGS}.items()),
         # Isaac 카메라 → 실기 RealSense 토픽 모양 (depth 32FC1→16UC1, camera_info) — 설명: camera_adapter.py
-        ExecuteProcess(cmd=['python3', os.path.join(HERE, 'camera_adapter.py'),
-                            '--ros-args', '-p', 'use_sim_time:=true'], output='screen'),
+        ExecuteProcess(cmd=['python3', os.path.join(HERE, 'camera_adapter.py'), '--ros-args', '-p', 'use_sim_time:=true',
+                            *([] if ARGS['use_pole_back_cam'] == 'true' else ['-p', "cameras:=['pole_front_cam','gripper_cam']"])],
+                       output='screen'),
         # bringup 노드 몇 개를 고친 파라미터로 다시 띄움 — 설명: node_params.py
         #   state_manager: use_sim_time -p가 params 파일 앞에 붙어 manager.yaml의 LOCALIZATION을 읽음(map:=slam인데 EXPLORE 거절) → -p를 뒤로
         *[ExecuteProcess(cmd=['python3', os.path.join(HERE, 'node_params.py'), name, *extra],

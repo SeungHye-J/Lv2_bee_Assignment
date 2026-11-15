@@ -65,6 +65,7 @@ ROS_SYSTEM_ARGS = {
     'use_pole_front_cam': ('true', 'pole_front_cam만 끄기/켜기 (한 대만 연결할 때)'),
     'use_gripper_cam': ('auto', 'gripper_cam: auto = gripper_cam_serial 장치가 USB에 감지될 때만 켬(뽑아 두면 노드·의존 노드 안 띄움) · true/false = 강제'),
     'use_pole_back_cam': ('auto', 'pole_back_cam (폴 뒤, 주행 전용 — nvblox camera_1): auto = pole_back_cam_serial 장치가 USB에 감지될 때만 켬 (serial 비면 끔) · true/false = 강제'),
+    'pole_back_cam_external': ('false', 'pole_back_cam 영상을 드라이버 대신 Isaac(camera_adapter)이 냄 — use_cameras:=false여도 nvblox camera_1'),
     'pole_front_cam_serial': ('', 'pole_front_cam RealSense serial_no — 빈 값이면 첫 장치 (2대면 반드시 지정)'),
     'pole_back_cam_serial': ('', 'pole_back_cam RealSense serial_no (start.sh: POLE_BACK_CAM_SERIAL)'),
     'gripper_cam_serial': ('', 'gripper_cam RealSense serial_no — 빈 값이면 첫 장치 (2대면 반드시 지정)'),

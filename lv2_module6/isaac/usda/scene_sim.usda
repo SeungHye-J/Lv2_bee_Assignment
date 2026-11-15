@@ -7,8 +7,8 @@
                 double radius = 5
             }
             dictionary Perspective = {
-                double3 position = (-1.9267210734200264, -2.5065436836984656, 2.408491593424651)
-                double3 target = (-2.1739018983191962, -2.3766486606563384, 0.46463423849856356)
+                double3 position = (-1.6092977358089169, -4.384228188376024, 1.5598994046091543)
+                double3 target = (-2.1389657837835734, -1.48258750917954, -0.15645354631043684)
             }
             dictionary Right = {
                 double3 position = (0, -5, 0)
@@ -633,6 +633,22 @@ def Xform "World"
             double3 xformOp:translate = (-1.253, -2.471, 0)
             float3 xformOp:translate:pivot = (0, 0, 0)
             uniform token[] xformOpOrder = ["xformOp:translate", "xformOp:translate:pivot", "xformOp:rotateXYZ", "xformOp:scale", "!invert!xformOp:translate:pivot"]
+
+            over "collision"
+            {
+                quatf xformOp:orient = (1, 0, 0, 0)
+                float3 xformOp:scale = (1, 1, 1)
+                double3 xformOp:translate = (0, 0, 0)
+                uniform token[] xformOpOrder = ["xformOp:translate", "xformOp:orient", "xformOp:scale"]
+            }
+
+            over "geo"
+            {
+                quatf xformOp:orient = (1, 0, 0, 0)
+                float3 xformOp:scale = (1, 1, 1)
+                double3 xformOp:translate = (0, 0, 0)
+                uniform token[] xformOpOrder = ["xformOp:translate", "xformOp:orient", "xformOp:scale"]
+            }
         }
 
         def "start_2" (
@@ -672,7 +688,7 @@ def Xform "World"
             prepend payload = @./shelf/shelf.usda@
         )
         {
-            float3 xformOp:rotateXYZ = (0, 0, -5.8)
+            float3 xformOp:rotateXYZ = (0, 0, 5.61249)
             float3 xformOp:scale = (1, 1, 1)
             double3 xformOp:translate = (-0.519, 1.933, 0)
             float3 xformOp:translate:pivot = (0, 0, 0)
@@ -1144,10 +1160,10 @@ over "OmniverseKit_Persp" (
     float exposure:time = 0.02
     float focalLength = 18.147562
     float focusDistance = 400
-    custom uniform vector3d omni:kit:centerOfInterest = (0, 0, -1.9638107071480169)
-    float3 xformOp:rotateXYZ = (8.174556, -9.915379e-13, 62.2778)
+    custom uniform vector3d omni:kit:centerOfInterest = (0, 0, -3.412614001662583)
+    float3 xformOp:rotateXYZ = (59.80505, -9.867671e-13, 10.344924)
     float3 xformOp:scale = (1, 1, 1)
-    double3 xformOp:translate = (-1.9267210734200264, -2.5065436836984656, 2.408491593424651)
+    double3 xformOp:translate = (-1.6092977358089169, -4.384228188376024, 1.5598994046091543)
     uniform token[] xformOpOrder = ["xformOp:translate", "xformOp:rotateXYZ", "xformOp:scale"]
 }
 

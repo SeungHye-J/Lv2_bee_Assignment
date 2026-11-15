@@ -100,7 +100,9 @@ controller_server:
       stateful: true
       # 목표 위치 허용 오차(m). 퍽 앞 접근 정확도 — 팔 도달 범위가 좁아 기본 0.25보다 작게 (00-overview "도달 범위 주의"). (실측)
       # 0.10은 좁은 미로에서 벽/inflation에 막혀 12 cm 앞에서 105가 났다 — 0.15로 넓힌다.
-      xy_goal_tolerance: 0.15
+      # 11-15: 0.15 → 0.06 — 문 경유점에 15 cm 빗겨 '도착'하고 그대로 문으로 가 벽 끝에 걸림 (시뮬 D7·D4 ×4).
+      #   상자 앞 자리는 skill_navigate near(0.20)가, 못 줄이고 멈추면 끼임 풀기가 받음
+      xy_goal_tolerance: 0.06
       # 목표 방향 허용 오차(rad). 0.5 ≈ 29° (11-13, develop 0.25 · 예전 0.15 실측).
       #   상자 옆 목표에서 비스듬히 도착하면 MPPI가 제자리 회전을 못 해 nav_no_progress → approach가 안 불렸다.
       #   최종 방향은 approach가 상자를 보며 맞춘다. 웨이포인트 방향이 중요한 주행이 생기면 다시 좁힌다.

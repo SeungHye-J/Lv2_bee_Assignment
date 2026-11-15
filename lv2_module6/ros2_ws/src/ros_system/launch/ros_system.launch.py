@@ -185,6 +185,7 @@ def generate_launch_description():
         flag('use_pole_front_cam', 'true', 'pole_front_cam 개별 스위치 (use_cameras와 AND)'),
         flag('use_gripper_cam', 'true', 'gripper_cam 개별 스위치 (use_cameras와 AND)'),
         flag('use_pole_back_cam', 'false', 'pole_back_cam (폴 뒤, 주행 전용 — nvblox camera_1) 개별 스위치 (use_cameras와 AND)'),
+        flag('pole_back_cam_external', 'false', 'pole_back_cam 영상을 드라이버 대신 다른 곳(Isaac + camera_adapter)이 냄 — use_cameras:=false여도 depth gate · nvblox camera_1을 켬'),
         flag('pole_front_cam_serial', "''", 'pole_front_cam serial_no (빈 값이면 첫 장치)'),
         flag('gripper_cam_serial', "''", 'gripper_cam serial_no'),
         flag('pole_back_cam_serial', "''", 'pole_back_cam serial_no'),
@@ -409,8 +410,8 @@ def slam_nodes():
     slam_nvblox = ["'", LaunchConfiguration('use_slam'), "'.lower() == 'true' and '", LaunchConfiguration('map_backend'), "' == 'nvblox'"]
     gate_cpp = ["'", LaunchConfiguration('depth_gate_cpp'), "'.lower() == 'true'"]
     one_proc = ["'", LaunchConfiguration('py_helpers_one_process'), "'.lower() == 'true'"]
-    back = ["'", LaunchConfiguration('use_cameras'), "'.lower() == 'true' and '", LaunchConfiguration('use_pole_back_cam'),
-            "'.lower() == 'true'"]
+    back = ["('", LaunchConfiguration('use_cameras'), "'.lower() == 'true' or '", LaunchConfiguration('pole_back_cam_external'),
+            "'.lower() == 'true') and '", LaunchConfiguration('use_pole_back_cam'), "'.lower() == 'true'"]
 
     def camera_remaps(i, cam):
         return [(f'camera_{i}/depth/image', f'/{cam}/aligned_depth_to_color/image_nvblox'),

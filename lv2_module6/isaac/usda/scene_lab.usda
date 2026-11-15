@@ -1215,9 +1215,9 @@ def Xform "World"
             float focalLength = 18.147562
             float focusDistance = 400
             custom uniform vector3d omni:kit:centerOfInterest = (0, 0, -0.7631696986252209)
-            quatd xformOp:orient = (0.7415770628898433, 0.6657583341633211, 0.03893709407121011, 0.07289172101852837)
+            quatd xformOp:orient = (0.7591275688631157, 0.6499672119757913, 0.015997070310536047, 0.03181275357261659)
             double3 xformOp:scale = (1, 1, 1)
-            double3 xformOp:translate = (0.153161734359919, 0.07053507278310256, 0.004706268023195686)
+            double3 xformOp:translate = (0.09056432718154478, 0.07345327096718395, 0.08411122995718094)
             uniform token[] xformOpOrder = ["xformOp:translate", "xformOp:orient", "xformOp:scale"]
         }
     }
@@ -1275,7 +1275,7 @@ def "Render" (
                 token omni:rtx:wireframe:mode = "instance"
                 rel orderedVars = </Render/Vars/LdrColor>
                 custom bool overrideClipRange = 0
-                uniform int2 resolution = (949, 829)
+                uniform int2 resolution = (1733, 1018)
             }
 
             def RenderProduct "Replicator" (

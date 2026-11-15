@@ -925,6 +925,9 @@ over "maze"
 
     over "wall_e0"
     {
+        double3 xformOp:translate = (-0.092, 0.031, 0)
+        uniform token[] xformOpOrder = ["xformOp:translate"]
+
         over "collision"
         {
             over "geo_5" (
@@ -1032,6 +1035,9 @@ over "maze"
 
     over "wall_d0"
     {
+        double3 xformOp:translate = (0.0309, 0.1096, 0)
+        uniform token[] xformOpOrder = ["xformOp:translate"]
+
         over "collision"
         {
             over "geo_6" (
@@ -1149,6 +1155,9 @@ over "maze"
 
     over "wall_c0"
     {
+        double3 xformOp:translate = (-0.0165, 0.046, 0)
+        uniform token[] xformOpOrder = ["xformOp:translate"]
+
         over "collision"
         {
             over "geo_3" (
@@ -1236,6 +1245,9 @@ over "maze"
 
     over "wall_b2"
     {
+        double3 xformOp:translate = (-0.1061, -0.0404, 0)
+        uniform token[] xformOpOrder = ["xformOp:translate"]
+
         over "collision"
         {
             over "geo_2" (
@@ -1313,6 +1325,9 @@ over "maze"
 
     over "wall_b1"
     {
+        double3 xformOp:translate = (-0.1534, -0.09, 0)
+        uniform token[] xformOpOrder = ["xformOp:translate"]
+
         over "collision"
         {
             over "geo_2" (
@@ -1390,6 +1405,9 @@ over "maze"
 
     over "wall_b0"
     {
+        double3 xformOp:translate = (0.0019, -0.0021, 0)
+        uniform token[] xformOpOrder = ["xformOp:translate"]
+
         over "collision"
         {
             over "geo_2" (
@@ -1467,6 +1485,9 @@ over "maze"
 
     over "wall_a1"
     {
+        double3 xformOp:translate = (0.034, -0.0556, 0)
+        uniform token[] xformOpOrder = ["xformOp:translate"]
+
         over "collision"
         {
             over "geo_3" (
@@ -1554,6 +1575,9 @@ over "maze"
 
     over "wall_a0"
     {
+        double3 xformOp:translate = (-0.0622, -0.0264, 0)
+        uniform token[] xformOpOrder = ["xformOp:translate"]
+
         over "collision"
         {
             over "geo_3" (

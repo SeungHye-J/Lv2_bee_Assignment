@@ -2,60 +2,30 @@
 
 # 실기 측정 · 시험 반복
 
-이 문서의 경로·명령은 `loops/` 기준이다. 실기와 Isaac Sim(`use_sim:=true`) 모두 같은 스크립트를 쓴다. `logs/`는 git 제외라 로컬에만 있다.
+시험 스크립트는 `loops/`에 있다. 실기와 Isaac Sim(`use_sim`) 모두 같은 스크립트를 쓴다. 스크립트별 명령 · 인자 · 결과 파일은 [loops/README.md](../loops/README.md)가 기준이고, 시험 중에 바꾸는 skill 파라미터는 [loops/pick_load_stand_params.md](../loops/pick_load_stand_params.md)에 있다. 이 문서는 전체 그림만 적는다.
 
 | 파일 | 역할 |
 |---|---|
-| `manipulator-launcher.sh` | 팔·카메라·인지·MoveIt·skill 노드 bringup (SLAM · Nav2 없음). `use_sim:=true`면 Isaac 대상 |
-| `manipulator-record.sh` | 팔 전용 rosbag 기록 → `logs/bag_<시각>/` |
-| `pick_loop.py` · `place_loop.py` · `stand_loop.py` | 집기 · 놓기 · 세우기 반복 시험, 결과는 `logs/*.csv` |
-| `arm_model.py` | URDF 기구학·중력 토크 (ROS 쪽 `rl_arm_correction`의 기준값) |
-| `ros2_ws/src/sine_test` (빌드: `cd ros2_ws && colcon build`) | 사인·프로파일 응답 측정용 ROS 패키지 (`hw.launch.py`) |
+| `manipulator-launcher.sh` | 팔 · 카메라 2대 · 인지 · MoveIt · coordinator · skill 노드 bringup (SLAM · Nav2 없음). `use_sim:=true`면 Isaac 대상 |
+| `manipulator-record.sh` | 팔 전용 rosbag 기록 |
+| `pick_loop.py` · `pick_coord.py` | 집기(+ 적재) 반복 · coordinator를 거친 상자 비우기 |
+| `stand_loop.py` | 누운 퍽 세우기 반복 (기본은 실제 인식, `--no-perception`이면 가짜 누운 퍽) |
+| `place_loop.py` | 놓기 반복 (`--from slot` 적재함에서 꺼내서 · `--from pick` 상자에서 집어서) |
+| `goto.py` · `slot_check.py` | 정해진 자세로 보내고 진동 측정 · 적재함 칸 자세 오차 기입 |
+| `approach_loop.py` · `approach_batch.sh` · `approach_summary.py` | 상자까지 주행해 붙기 (Isaac 기본, `--real` 실기) · 반복 · 요약 |
+| `arm_model.py` | URDF 기구학 · 중력 토크 (ROS 쪽 `rl_arm_correction`의 기준값) |
+| `ros2_ws/src/sine_test` (빌드: `cd ros2_ws && colcon build`) | 사인 · 프로파일 응답 측정용 ROS 패키지 (`hw.launch.py`) |
 
-### stand_loop — 세우기 반복
+## 공통 규칙
 
-같은 자리에서 `stand` skill을 반복한다. 가짜 누운 퍽을 `/tracked_objects`로 내므로 인지 노드는 꺼야 한다.
+- 결과는 `loops/logs/`에 쌓인다(git 제외, 로컬에만 있음). 실기 approach 결과 `loops/real_logs/`만 git에 올린다.
+- 정책 켜고 끄기는 스크립트 옵션이 아니라 `models/skills/<skill>/meta.yaml`의 `use:` + `colcon build`로 한다.
+- 스크립트를 돌리는 셸의 `ROS_DOMAIN_ID`와 Fast DDS 프로파일이 스택과 같아야 한다.
 
-```bash
-source ../../../ros2_ws/install/setup.bash
-ros2 launch bringup stand_test.launch.py                 # 터미널 1
-pkill -f perception_node                                 # 터미널 2: launch가 뜬 뒤
-python3 stand_loop.py --x 0.22 --y 0.0 --preview         # 먼저 손 위치만 확인
-python3 stand_loop.py --x 0.22 --y 0.0 --rounds 0        # 0 = Ctrl+C까지
-```
+## Isaac Sim 대상
 
-라운드 사이 `--pause`(기본 6초) 동안 표시한 자리에 퍽을 다시 눕혀 둔다.
+`isaac/standalone/isaac_sim.sh`를 띄우고 Play한 뒤 `./manipulator-launcher.sh use_sim:=true`를 띄운다. 스크립트는 `--use_sim true`로 실행한다.
 
-### pick_loop — 집기 오차
-
-stow → inspect box → pick을 실제 인식(YOLO)으로 반복하고, 라운드마다 인식 오차와 파지 오차를 `logs/pick_loop_<시각>.csv`에 남긴다.
-`manipulator-launcher.sh`는 `stand_test.launch.py` 스택(팔·카메라 2대·인지·MoveIt·coordinator·skill 노드, SLAM·Nav2 없음)을 띄운다.
-
-```bash
-./manipulator-launcher.sh perception_device:=cuda                              # 터미널 1
-python3 pick_loop.py --box-x 0.22 --box-y 0.0 --rounds 0                       # 터미널 2 (0 = q · Ctrl+C까지)
-./manipulator-record.sh                                                        # 터미널 3 (선택): 팔 전용 bag → logs/bag_<시각>/ (nocam = 영상 뺌)
-```
-
-- 상자 가운데를 로봇 중심(base_footprint)에서 `--box-x`·`--box-y` 자리에 둔다. 퍽은 로봇 중심 0.30 m 안이어야 한다.
-- 인식 뒤 스크립트가 퍽 위치(로봇 기준 mm)를 보여 주면, 자로 잰 퍽 가운데 `x y`를 넣는다 → `perc_err_mm`.
-- pick 중 손 카메라가 마지막으로 본 퍽 − 손끝(`/hand_relative`)을 `hand_rel_*`로 남기고, 쥔 뒤 손 안 어긋남(닫힘 방향 · 손가락 방향 mm)을 넣는다.
-- 정책 켜고 끄기는 여기서 하지 않는다: `models/skills/pick_standing_puck/meta.yaml`의 `use:` + `colcon build`.
-- Isaac(`use_sim`)에서는 줄자 대신 Isaac 참값을 쓴다. `isaac_startup.py`가 재생 중 퍽 위치·기울기를 `/tmp/beebot_sim_pucks.json`에 쓰고, `pick_loop.py`가 인식한 퍽마다 가장 가까운 참값(6 cm 안)을 골라 `perc_err_mm`를 채운다. 자세(서 있음 · 누움 · 기울기)는 CSV `true_posture`에 남는다. 파일이 2초보다 오래됐거나 없으면 줄자 입력으로 돌아간다(`--auto` 제외). 옛 `isaac_startup.py`로 띄운 Isaac이면 이 파일이 없으니 `isaac_sim.sh`를 다시 띄운다.
-- 먼 퍽은 `--box-x`를 키워 본다(퍽은 로봇 중심 0.30 m 안). 퍽 위 5 cm 수직 자세에 못 닿는 범위와 대안은 `rl/scripts/pick_far/REPORT.md`.
-
-### place_loop — 놓기 오차
-
-퍽을 손에 쥔 상태에서 `/skills/place`로 정한 자리(`--to x y z`, base_footprint 기준)에 놓고, 자로 잰 위치와 서 있는지를 `logs/place_loop_<시각>.csv`에 남긴다. 먼저 `./manipulator-launcher.sh`를 띄운다.
-
-```bash
-python3 place_loop.py --from slot --slot 0 --shape box box cyl --to 0.22 -0.05 0.07   # 적재함 슬롯에서 꺼내서
-python3 place_loop.py --from pick --to 0.22 0.05 0.07                                # 상자에서 집어서
-```
-
-- 팔 동작 bag은 라운드마다 `logs/place_loop_<시각>_bags/`에 남는다 (`--bag off`로 끔, `--auto` = 전체 한 개).
-- 정책 켜고 끄기는 `models/skills/<skill>/meta.yaml`의 `use:` + `colcon build`.
-
-### Isaac Sim 대상
-
-`isaac_sim.sh`를 먼저 띄운 뒤 `./manipulator-launcher.sh use_sim:=true`, 스크립트는 `--use_sim true`(또는 launcher와 같은 `ROS_DOMAIN_ID`)로 실행한다.
+- 줄자 대신 Isaac 참값을 쓴다. `isaac_startup.py`가 재생 중 퍽 위치 · 기울기를 `/tmp/beebot_sim_pucks.json`에 쓰고, `pick_loop.py`가 인식한 퍽마다 가장 가까운 참값(6 cm 안)을 골라 `perc_err_mm`를 채운다. 자세(서 있음 · 누움 · 기울기)는 CSV `true_posture`에 남는다.
+- 파일이 2초보다 오래됐거나 없으면 줄자 입력으로 돌아간다(`--auto` 제외). 옛 `isaac_startup.py`로 띄운 Isaac이면 이 파일이 없으니 `isaac_sim.sh`를 다시 띄운다.
+- 먼 퍽(퍽 위 5 cm 수직 자세에 못 닿는 범위)과 대안은 `rl/scripts/pick_far/REPORT.md`.

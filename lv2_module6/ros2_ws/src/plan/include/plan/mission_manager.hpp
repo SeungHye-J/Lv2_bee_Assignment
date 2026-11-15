@@ -73,6 +73,7 @@ using ExecutePlan = plan::action::ExecutePlan;
 struct Box {  // arena [m] — 정사각 박스 (윗면 = box_top_z)
   double x, y, half;
   std::vector<std::string> sides = {};  // 다가갈 변 "+x" "-x" "+y" "-y" (arena, 박스 가운데에서 그 변 쪽), "+x@0.41" = 가운데에서 0.41 m에 섬 — 비면 네 변 다
+  double retreat = 0.0;  // [m] 도킹 뒤 다가설 자리보다 이만큼 더 똑바로 물러남 (start_box_retreat, 11-15)
 };
 
 // 집을 퍽 트랙 고르기 — 인지는 안 보이는 물체를 2초 뒤 지우므로(long_memory: false) 퍽은 tag로 기억하고 집기 직전에 다시 찾는다.
@@ -102,7 +103,7 @@ private:
   void run(std::vector<SubGoal> goals, Done done);
   void run_retry(std::vector<SubGoal> goals, Done done, int tries = 0);
   // 박스 위 점(arena)을 다룰 자리로 navigate + approach — 점에서 가까운 변부터, 실패하면 다음 변 (최대 approach_tries)
-  void go_near(const Box & box, double px, double py, Done done, size_t k = 0, std::vector<Pose2> poses = {});
+  void go_near(const Box & box, double px, double py, Done done, size_t k = 0, std::vector<Pose2> poses = {}, bool retried = false);
 
   void go_observe();
   void barcode_phase();
@@ -260,6 +261,7 @@ private:
   ArenaCorr acorr_, acorr_walls_;     // 지금 보정 · /arena/walls를 마지막으로 보낸 보정
   // 11-14 실기: 보정이 2~3 cm씩 흔들려 3 cm 문턱을 계속 넘김 → /arena/walls 40 s에 10번 다시 → Nav2 costmap 정적 층이 매번 다시 잡혀 벽에 부딪힘
   double acorr_step_m_ = 0.03, acorr_step_rad_ = 0.017;     // 보정을 바꾸는 최소 변화 (그 안은 버림 — 목표·기록 흔들림 막음)
+  bool acorr_boxes_ = true;   // 상자로 도면 보정 (false = 벽 정합만)
   double acorr_walls_m_ = 0.15, acorr_walls_rad_ = 0.087;   // /arena/walls를 다시 보내는 최소 변화 (0이면 안 보냄)
   std::vector<Mark> marks_;           // 시작 박스 0..5 · 장소 상자 6..8
   std::map<uint32_t, std::pair<int32_t, uint32_t>> acorr_seen_;  // 트랙 id → 마지막으로 센 last_seen (같은 관측을 다시 세지 않게)
@@ -273,6 +275,12 @@ private:
   WallFit wall_;                      // 마지막으로 맞은 벽 정합
   std::string wall_why_;              // 마지막 실패 이유 (바뀔 때만 로그)
   nav_msgs::msg::OccupancyGrid::ConstSharedPtr grid_;
+  // 벽 정합 점 (odom) — 격자에 새로 생긴 겉면 칸만, 받은 때의 map→odom으로 odom에 둠. 맞출 때 지금 map→odom으로 map에 옮김:
+  //   로봇 위치를 옮겨도(map→odom 바뀜) 점이 같이 옮겨져 같은 보정을 또 내지 않음 (nvblox 격자는 map에 그대로 남아 되먹임 — 11-15)
+  struct WallPt { double x, y, t; };
+  std::vector<WallPt> wall_pts_;
+  std::set<long long> wall_prev_;     // 지난 격자의 겉면 칸 (map 칸 번호) — 새로 생긴 칸만 고름
+  double wall_keep_s_ = 120.0;        // [s] 이보다 오래된 점은 버림
   rclcpp::Subscription<nav_msgs::msg::OccupancyGrid>::SharedPtr grid_sub_;
   rclcpp::TimerBase::SharedPtr wall_timer_;
   void wall_tick();

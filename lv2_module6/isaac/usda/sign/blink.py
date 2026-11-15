@@ -3,7 +3,9 @@
 Open scene_sim.usda, press Play, paste this file into the Script Editor and Run.
 Edit SEQUENCE below: a fixed string like "RGRRGRGGYGYG" (public practice Q1), or None for a
 random valid sequence (R/Y/G each 1..6, total 12) drawn from SEED, so the same SEED always
-gives the same sequence. Running again cancels the previous run first.
+gives the same sequence. Random sequences are limited to counts the pucks under /World/pucks can
+solve (same rule as mission_solver allocate); a fixed SEQUENCE that cannot be solved only warns.
+Running again cancels the previous run first.
 To abort: set STOP = True and Run (all lights off).
 
 Rule: each blink = one color ON 1 s + all OFF 1 s; after the 12th blink all lights stay OFF
@@ -17,6 +19,7 @@ Comments/strings stay English: the Script Editor breaks Korean text.
 import asyncio
 import builtins
 import random
+from collections import Counter
 
 import omni.kit.app
 import omni.timeline
@@ -30,6 +33,7 @@ STOP = False
 # ------------------
 
 SIGN = "/World/sign/light/"
+PUCKS = "/World/pucks"  # children named puck_<shape>_<color>_<n>
 LIGHTS = {"R": "red", "Y": "yellow", "G": "green"}
 ON_S = 1.0
 OFF_S = 1.0
@@ -57,14 +61,39 @@ async def _wait(seconds):
             t0 = tl.get_current_time()
 
 
-def random_sequence(seed, total=12, lo=1, hi=6):
-    """R/Y/G counts each in [lo, hi] summing to total, shuffled order.
-    Does not check puck feasibility: verify against the round's puck list."""
+def puck_counts():
+    """(color, shape) -> count from the prim names under PUCKS."""
+    stage = omni.usd.get_context().get_stage()
+    root = stage.GetPrimAtPath(PUCKS)
+    if not root:
+        raise RuntimeError(f"{PUCKS} not found, open scene_sim.usda")
+    n = Counter()
+    for p in root.GetChildren():
+        _, shape, color, *_ = p.GetName().split("_")
+        n[color, shape] += 1
+    return n
+
+
+def solvable(r, y, g, n):
+    """mission_solver allocate rule: R uses red, G uses green, leftovers (Y) share one shape."""
+    y_red = n["red", "box"] + n["red", "cyl"] - r
+    y_green = n["green", "box"] + n["green", "cyl"] - g
+    if y_red < 0 or y_green < 0 or y_red + y_green != y:
+        return False
+    return any(n["red", s] >= y_red and n["green", s] >= y_green for s in ("box", "cyl"))
+
+
+def random_sequence(seed, n, total=12, lo=1, hi=6):
+    """R/Y/G counts each in [lo, hi] summing to total and solvable with pucks n, shuffled order."""
+    combos = [(r, y, total - r - y) for r in range(lo, hi + 1) for y in range(lo, hi + 1)
+              if lo <= total - r - y <= hi and solvable(r, y, total - r - y, n)]
+    if not combos:
+        raise RuntimeError(f"no solvable R/Y/G counts for pucks {dict(n)}")
     rng = random.Random(seed)
     while True:
         r, y = rng.randint(lo, hi), rng.randint(lo, hi)
         g = total - r - y
-        if lo <= g <= hi:
+        if (r, y, g) in combos:
             seq = list("R" * r + "Y" * y + "G" * g)
             rng.shuffle(seq)
             return "".join(seq)
@@ -102,10 +131,13 @@ if STOP:
     _set(None)
     print("[blink] all off")
 else:
-    seq = (SEQUENCE or random_sequence(SEED)).upper().replace(" ", "")
+    pucks = puck_counts()
+    seq = (SEQUENCE or random_sequence(SEED, pucks)).upper().replace(" ", "")
     bad = set(seq) - set(LIGHTS)
     if bad:
         raise ValueError(f"unknown colors {bad}, use R/Y/G")
+    if not solvable(seq.count("R"), seq.count("Y"), seq.count("G"), pucks):
+        print(f"[blink] WARNING: {seq} cannot be solved with pucks {dict(pucks)} (mission gives no_allocation)")
     src = "fixed" if SEQUENCE else f"seed {SEED}"
     print(f"[blink] sequence {seq} ({src})  R={seq.count('R')} Y={seq.count('Y')} G={seq.count('G')}")
     if not omni.timeline.get_timeline_interface().is_playing():

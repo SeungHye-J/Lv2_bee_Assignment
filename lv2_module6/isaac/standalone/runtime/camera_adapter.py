@@ -68,7 +68,7 @@ def to_16uc1(m, noise=0.0):
 class CameraAdapter(Node):
     def __init__(self):
         super().__init__('isaac_camera_adapter')
-        cams = self.declare_parameter('cameras', ['pole_front_cam', 'gripper_cam']).value
+        cams = self.declare_parameter('cameras', ['pole_front_cam', 'gripper_cam', 'pole_back_cam']).value
         w = self.declare_parameter('width', 640).value
         h = self.declare_parameter('height', 480).value
         f = self.declare_parameter('focal', 615.3728238119883).value

@@ -69,8 +69,12 @@ mission_manager:             # 주사위 기억 미션 (documents/mission/README
     # 박스마다 다가갈 변 (arena 축, 박스 가운데에서 그 변 쪽 · 11-13 사용자 지정 — 빈 변은 일부러 뺌). 개수가 박스 수와 다르면 무시
     #   벽 거르기(wall_clearance)는 그대로 같이 걸림. 시도 순서 = 적은 순서 (11-14: 첫 면 = 진입 면 · 뒤는 실패할 때 대신)
     #   "+x@0.41" = 그 변은 박스 가운데에서 0.41 m(법선)에 서서 approach 시작 (지도 그림의 빨간 점에서 읽음 · 없으면 변 + standoff)
-    start_box_sides: ["+x@0.41 -y@0.45", "-y@0.48", "-y@0.45 +y@0.35", "-y@0.70 +y@0.57 -x@0.49", "-x@0.50 +y@0.52", "-x@0.48"]
-    location_box_sides: ["-x@0.42", "+x -x +y -y", "-y@0.34 +x@0.32 +y@0.37"]
+    #   11-15 사용자: 첫 면 = 그림에 찍은 approach 점 (skills.yaml via_points와 같은 자리)
+    start_box_sides: ["+x@0.81 -y@0.45", "-y@0.44", "-y@0.73 +y@0.35", "-y@0.73 +y@0.57 -x@0.49", "-x@0.69 +y@0.52", "-x@0.73"]
+    # [m] 박스마다 도킹 뒤 다가설 자리보다 더 물러남 (뒤 벽까지 몸 뒤 0.245 m + 여유 계산, 11-15) — B6: 칸 입구 밖 회전 자리까지 ·
+    #   B2: 뒤가 넓음. 나머지는 첫 진입 면 뒤가 좁아 0 (B4·B5는 물러나면 뒤 벽 0.1 m 안)
+    start_box_retreat: [0.0, 0.25, 0.0, 0.0, 0.0, 0.25]
+    location_box_sides: ["-x@0.44", "-y@0.49 +x@0.45 +y@0.47 -x@0.43", "-y@0.67 +x@0.32 +y@0.37"]
     wall_clearance: 0.22                     # [m] 다가설 자리가 벽에서 이보다 가까우면 그 변은 안 감 (Nav2 robot_radius 0.16 + 여유)
     start_boxes: [1.468, 0.950, 3.670, 3.152, 2.936, 5.354, 0.734, 5.354, 2.202, 5.354, 3.670, 3.886]   # 시작 박스 1~6 중심
     box_half: 0.1025                         # 205 박스 반 변
@@ -99,7 +103,8 @@ mission_manager:             # 주사위 기억 미션 (documents/mission/README
     #   벽 전부가 근거라 상자 인지 없이 회전까지. 맞으면 보정(dx, dy, dθ)은 벽으로, 상자 인지는 상자마다 위치(marks)만 — 상자 둘로 맞춘
     #   회전은 10°씩 틀림 (11-15 bag approach_1115_094224 재생). 안 맞으면(벽이 한 방향만 · 칸 부족) 예전처럼 상자로
     #   상자(7 cm)는 격자에 없음 (esdf_slice_min_height 0.08) — 벽만
-    arena_corr_wall_fit: true      # 11-15 사용자: 다시 켬 (상자 보정 arena_correction은 끔). 예전 메모: 실기 주행이 이상해 상자 보정으로 되돌렸었음
+    arena_corr_wall_fit: false     # 11-15 사용자: 끔 (시뮬: 정합이 ±15 cm씩 튐 — 상자 보정 arena_correction도 끔 → 보정 없음)
+    arena_corr_boxes: false        # 상자 인지로 보정 안 함 (벽 정합만 · 안 맞으면 보정 없음) — 상자마다 인지 위치(marks)는 계속 /arena/correction에
     arena_corr_wall_gate: 0.3      # [m] 도면 벽에서 이 안의 칸만 (그 밖 = 상자·사람·도면에 없는 것)
     arena_corr_wall_min_cells: 60  # 맞은 칸(벽 겉면 — 빈 칸과 맞닿은 점유 칸)이 이보다 적으면 안 씀 (5 cm 칸 → 벽 3 m)
     arena_corr_wall_min_eig: 0.03  # x · y · 회전이 다 묶여야 (벽 한 줄만 보이면 그 벽을 따라가는 방향을 모름)
@@ -110,7 +115,7 @@ mission_manager:             # 주사위 기억 미션 (documents/mission/README
     arena_corr_walls_rad: 0.087    # [rad] (5°)
     # 보정 → 로봇 위치 (11-15): 근거가 충분한 보정을 목표에만 얹지 않고 로봇 위치(map→odom)로 넘김 — 벽·문·costmap·nvblox·목표가 한 좌표
     #   cuvslam_slam이 /localization/map_correction을 받아 map 기준을 옮김 (MapGate 초당 5 cm·5°로 부드럽게)
-    arena_corr_to_localization: true
+    arena_corr_to_localization: false   # 11-15 끔 (시뮬: 벽 정합이 ±15 cm씩 튀어 위치가 30 cm 틀어짐 — 정합 품질 손볼 때까지 기록만)
     arena_corr_loc_min_n: 3          # 상자 근거 이만큼(또는 벽 정합)일 때만 — 상자 1~2개로는 안 옮김
     arena_corr_loc_step_m: 0.05      # [m] 한 번에 넘기는 조각 (MapGate 잠금 0.30 m보다 훨씬 작게)
     arena_corr_loc_step_rad: 0.0175  # [rad] (1°)

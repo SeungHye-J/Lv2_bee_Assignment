@@ -119,6 +119,12 @@ MissionManager::MissionManager()
   };
   set_sides(start_boxes_, "start_box_sides");
   set_sides(loc_boxes_, "location_box_sides");
+  // 박스마다 더 물러날 거리 — 칸 안 박스(B6)는 다가설 자리가 아직 칸 입구 안이라 돌 공간이 없어 다음 주행이 85 s 갇혔음 (11-15 시뮬)
+  const auto retreat = declare_parameter<std::vector<double>>("start_box_retreat", std::vector<double>{});
+  if (!retreat.empty() && retreat.size() != start_boxes_.size())
+    RCLCPP_WARN(get_logger(), "start_box_retreat %zu개 ≠ 박스 %zu개 — 무시", retreat.size(), start_boxes_.size());
+  else
+    for (size_t i = 0; i < retreat.size(); ++i) start_boxes_[i].retreat = retreat[i];
   puck_dx_ = declare_parameter<std::vector<double>>("puck_offsets_x", {-0.040, 0.040});
   box_top_z_ = declare_parameter<double>("box_top_z", 0.070);
   puck_h_ = declare_parameter<double>("puck_height", 0.060);
@@ -145,6 +151,7 @@ MissionManager::MissionManager()
   acorr_on_ = declare_parameter<bool>("arena_correction", acorr_on_);
   acorr_idle_ = declare_parameter<bool>("arena_corr_idle", acorr_idle_);
   wall_fit_ = declare_parameter<bool>("arena_corr_wall_fit", wall_fit_);
+  acorr_boxes_ = declare_parameter<bool>("arena_corr_boxes", acorr_boxes_);
   wall_gate_ = declare_parameter<double>("arena_corr_wall_gate", wall_gate_);
   wall_min_cells_ = static_cast<int>(declare_parameter<int64_t>("arena_corr_wall_min_cells", wall_min_cells_));
   wall_min_eig_ = declare_parameter<double>("arena_corr_wall_min_eig", wall_min_eig_);
@@ -357,6 +364,8 @@ void MissionManager::on_command(const std::string & cmd) {
   wall_ok_ = false;
   wall_ = {};
   wall_why_.clear();
+  wall_pts_.clear();
+  wall_prev_.clear();
   acorr_sent_.clear();
   if (acorr_.n) { acorr_ = {}; publish_walls(); }
   publish_corr("");  // active true
@@ -1286,7 +1295,7 @@ void MissionManager::run_retry(std::vector<SubGoal> goals, Done done, int tries)
   });
 }
 
-void MissionManager::go_near(const Box & box, double px, double py, Done done, size_t k, std::vector<Pose2> poses) {
+void MissionManager::go_near(const Box & box, double px, double py, Done done, size_t k, std::vector<Pose2> poses, bool retried) {
   if (k == 0 && poses.empty() && !back_.empty()) {  // 지금 박스에 붙어 있으면 먼저 standoff까지 똑바로 물러남 (Nav2는 원 0.18이라 붙은 자리에선 출발 못 함)
     const std::string back = back_;  // 후진 거리 [m] — approach exit (odom 기준 똑바로, 11-13: 예전엔 map 자리로 가서 map이 밀리면 비틀림)
     back_.clear();
@@ -1355,14 +1364,22 @@ void MissionManager::go_near(const Box & box, double px, double py, Done done, s
   const double push = (box.x - poses[k].x) * std::cos(poses[k].yaw) + (box.y - poses[k].y) * std::sin(poses[k].yaw)
                       - box.half - approach_gap_;
   const auto f = to_map(poses[k].x + push * std::cos(poses[k].yaw), poses[k].y + push * std::sin(poses[k].yaw), poses[k].yaw);
+  const double t_start = wall_s();
   // navigate "look"(도착 전 팔 올리기)은 안 씀 (11-13 headless: 팔이 pole_front_cam을 가려 보던 상자를 잃고, 0.25 m에선 gripper_cam에 잘려 보임)
   run({stow(), SubGoal().set__skill("navigate").set__target(fmt("%.3f,%.3f,%.3f", m.x, m.y, m.yaw)).set__relation("near"),
        // 상자 도킹: 도면 자리(f)는 힌트 — skill_approach가 인지 상자 + gap으로 목표를 정함 (도면은 안 믿음, 11-12)
        SubGoal().set__skill("approach").set__target(fmt("%.4f,%.4f,%.4f", f.x, f.y, f.yaw) + fmt(",%.4f,%.4f", approach_gap_, box.half))
          .set__relation("dock_box")},
-    [this, box, px, py, done, k, poses, push, n](bool ok, const std::string & why) {
+    [this, box, px, py, done, k, poses, push, n, t_start, retried](bool ok, const std::string & why) {
+      // 출발하자마자 navigate 실패(5 s 안)는 경로·자리 탓이 아니라 일시 오류 — 같은 자리로 한 번 더 (11-15 실기 S3: 출발 0.4 s 만에
+      //   error 102 'Unable to transform goal pose' → 바로 반대 변(+y)으로 넘어가 상자를 빙 돌아 좁은 틈으로 감)
+      if (!ok && why == "nav_failed" && !retried && wall_s() - t_start < 5.0) {
+        RCLCPP_WARN(get_logger(), "접근 자리 %zu 바로 실패 (%s, %.1f s) — 같은 자리 다시", k + 1, why.c_str(), wall_s() - t_start);
+        go_near(box, px, py, done, k, poses, true);
+        return;
+      }
       // 붙은 뒤 exit은 Nav2 목표 자리(n)까지 물러남 — approach 시작 자리(@d)는 돌 공간이 없을 수 있음
-      if (ok) { back_ = fmt("%.3f", std::hypot(box.x - n.x, box.y - n.y) - box.half - approach_gap_); done(true, ""); return; }
+      if (ok) { back_ = fmt("%.3f", std::hypot(box.x - n.x, box.y - n.y) - box.half - approach_gap_ + box.retreat); done(true, ""); return; }
       RCLCPP_WARN(get_logger(), "접근 자리 %zu 실패 (%s) — 다음 변", k + 1, why.c_str());
       // 상자 앞에서 끝남(붙다 멈춤 · 상자를 못 봐 다가설 자리에 섬) — 그대로 Nav2를 보내면 제자리에서 돌다 상자를 밀거나(11-13),
       //   후진 금지라 몸 뒤가 벽에 걸려 못 빠져나옴 (11-13 headless) → 먼저 똑바로 물러남
@@ -1576,8 +1593,10 @@ void MissionManager::update_corr(const perception::msg::TrackedObjectArray & m) 
   for (size_t i = 0; i < marks_.size(); ++i)
     if (marks_[i].hits >= acorr_min_hits_) used += (used.empty() ? "\"" : ", \"") + (i < ns ? "S" + str(static_cast<int>(i + 1)) : "L" + str(static_cast<int>(i - ns + 1))) + "\"";
   // 벽 정합이 맞으면 보정 자체는 벽으로 (상자 짝은 상자마다 인지 위치 marks만) — 상자 둘로 맞춘 회전은 10°씩 틀림 (bag 094224)
-  const auto c = wall_ok_ ? acorr_ : fit_arena_corr(pairs, acorr_min_sep_, acorr_max_shift_, acorr_max_rot_, acorr_outlier_);
-  if (wall_ok_ || (c.n == acorr_.n && !corr_moved(c, acorr_, acorr_step_m_, acorr_step_rad_))) {  // 작은 흔들림은 버림 (목표·기록이 흔들리지 않게)
+  //   arena_corr_boxes false: 상자로는 보정 안 함 (벽 정합만) — 상자 인지 위치(marks)는 계속 냄
+  const bool box_fit = acorr_boxes_ && !wall_ok_;
+  const auto c = !box_fit ? acorr_ : fit_arena_corr(pairs, acorr_min_sep_, acorr_max_shift_, acorr_max_rot_, acorr_outlier_);
+  if (!box_fit || (c.n == acorr_.n && !corr_moved(c, acorr_, acorr_step_m_, acorr_step_rad_))) {  // 작은 흔들림은 버림 (목표·기록이 흔들리지 않게)
     // 근거 상자가 늘거나 상자 하나의 인지 위치가 step만큼 움직이면 알림 (approach_loop는 그 상자 자리를 직접 씀)
     bool mark_moved = used != acorr_used_;
     for (size_t i = 0; i < marks_.size() && i < acorr_sent_.size(); ++i)
@@ -1621,10 +1640,37 @@ void MissionManager::wall_tick() {
   const auto at = [&g, w, h](int r, int k) { return r < 0 || k < 0 || r >= h || k >= w ? -1 : g.data[static_cast<size_t>(r) * w + k]; };
   // 벽 겉면만 = 빈 칸(0)과 맞닿은 점유 칸 — nvblox 벽은 ~20 cm 두께로 뒤로 번져, 다 쓰면 한쪽 벽만 보일 때 그쪽으로 끌림
   //   (11-15 지도 20261115_094059: 위 벽을 못 봐서 아래 벽 띠 가운데로 dy −0.35 m)
+  geometry_msgs::msg::TransformStamped mo;
+  try {
+    mo = tf_buffer_->lookupTransform("map", "odom", tf2::TimePointZero);
+  } catch (const std::exception &) {
+    return;
+  }
+  const auto & q = mo.transform.rotation;
+  const double myaw = std::atan2(2 * (q.w * q.z + q.x * q.y), 1 - 2 * (q.y * q.y + q.z * q.z));
+  const double mx = mo.transform.translation.x, my = mo.transform.translation.y, mc = std::cos(myaw), ms = std::sin(myaw);
+  // 새로 생긴 겉면 칸 → odom (받은 지금의 map→odom ≈ 쌓을 때의 것). 이미 있던 칸은 옛 map 좌표라 다시 안 넣음
+  const double t_now = wall_s();
+  std::set<long long> cur;
   for (int r = 0; r < h; ++r)
     for (int k = 0; k < w; ++k)
-      if (at(r, k) >= 50 && (at(r - 1, k) == 0 || at(r + 1, k) == 0 || at(r, k - 1) == 0 || at(r, k + 1) == 0))
-        cells.push_back({g.info.origin.position.x + (k + 0.5) * res, g.info.origin.position.y + (r + 0.5) * res});
+      if (at(r, k) >= 50 && (at(r - 1, k) == 0 || at(r + 1, k) == 0 || at(r, k - 1) == 0 || at(r, k + 1) == 0)) {
+        const double px = g.info.origin.position.x + (k + 0.5) * res, py = g.info.origin.position.y + (r + 0.5) * res;
+        const long long key = static_cast<long long>(std::lround(px / res)) * 1000003LL + std::lround(py / res);
+        cur.insert(key);
+        if (wall_prev_.count(key)) continue;
+        const double dx = px - mx, dy = py - my;
+        wall_pts_.push_back({mc * dx + ms * dy, -ms * dx + mc * dy, t_now});
+      }
+  wall_prev_ = std::move(cur);
+  wall_pts_.erase(std::remove_if(wall_pts_.begin(), wall_pts_.end(), [&](const WallPt & p) { return t_now - p.t > wall_keep_s_; }),
+                  wall_pts_.end());
+  // 같은 odom 칸은 하나만 (오래 서 있으면 같은 벽이 쌓이지 않게 — 새 칸만 넣으니 대개 이미 하나)
+  std::set<long long> seen;
+  for (auto it = wall_pts_.rbegin(); it != wall_pts_.rend(); ++it) {
+    if (!seen.insert(static_cast<long long>(std::lround(it->x / res)) * 1000003LL + std::lround(it->y / res)).second) continue;
+    cells.push_back({mc * it->x - ms * it->y + mx, ms * it->x + mc * it->y + my});
+  }
   std::vector<std::array<double, 4>> segs;
   for (size_t i = 0; i + 3 < walls_.size(); i += 4) {
     const auto a = arena_to_map({walls_[i], walls_[i + 1], 0}, start_), b = arena_to_map({walls_[i + 2], walls_[i + 3], 0}, start_);
@@ -1634,7 +1680,7 @@ void MissionManager::wall_tick() {
                            acorr_max_rot_);
   if (!f.ok) {
     if (f.why != wall_why_) RCLCPP_INFO(get_logger(), "벽 정합 안 됨 (%s · 맞은 칸 %d · 고유값 %.3f)%s", f.why.c_str(), f.inliers, f.min_eig,
-                                        wall_ok_ ? " — 지난 벽 보정 유지" : " — 상자 보정");
+                                        wall_ok_ ? " — 지난 벽 보정 유지" : acorr_boxes_ ? " — 상자 보정" : " — 보정 없음");
     wall_why_ = f.why;
     return;
   }

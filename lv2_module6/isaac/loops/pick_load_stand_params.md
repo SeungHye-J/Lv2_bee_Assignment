@@ -1,6 +1,6 @@
 # pick · load · stand_grasp · place 파라미터 정리
 
-`stand_loop.py`·`pick_loop.py`·`place_loop.py`로 실기를 돌릴 때 건드리는 값을 한곳에 모았다. 2026-11-10 기준 `feature/isaac-setup` 작업 트리 값이다.
+`stand_loop.py`·`pick_loop.py`·`place_loop.py`로 실기를 돌릴 때 건드리는 값을 한곳에 모았다. 2026-11-15 기준 `feature/isaac-setup` 값이다(11-15 실기 조정 반영).
 값의 출처는 아래 파일들이고, 여기서 바꾼 값이 아니라 **각 파일의 현재 값**을 옮긴 것이다.
 
 | 구분 | 파일 |
@@ -23,7 +23,7 @@
 | 항목 | 현재 값 | 이유 |
 | --- | --- | --- |
 | `stand_flip_roll` | true | 쥐는 동안 손 카메라가 퍽 몸통을 보게 (11-10 실기 확인). `stand_grasp` v1 정책도 이 방향으로 학습 |
-| `stand_grasp` 정책 | 켜짐 (`use: true`) | 11-10 도달 학습 v1 |
+| `stand_grasp` 정책 | 켜짐 (`use: true`) | 11-10 도달 학습 v1. 11-15 한때 껐다가 다시 켬 |
 
 ## 2. 팔 공통 (pick · load · stand 모두)
 
@@ -55,9 +55,9 @@
 | `pick_open_gap_m` | 0.060 m (`arm.yaml`) · 코드 기본 0.040 | 닿는 구간 전 손가락 사이. 인식 오차 ~10 mm에서 손가락이 퍽 윗면에 걸리지 않게 넓힘. 최대 약 0.070. 실행 중 변경 가능 |
 | `pick_above_m` | 0.05 m (코드 기본 `CONTACT_ABOVE_M`) | 닿는 구간 시작 높이. 0.04면 도달 반경이 약 8 mm 늘어남 (x 256 → 264 mm). 실행 중 변경 가능 |
 | `pose_carry_left` / `pose_carry_right` | `basket.yaml` | 적재함 쪽 경유 자세 |
-| 정책 `pick_standing_puck` | **켜짐** | 팀원 `pick_residual_sag`. 시뮬 기준 99.1% → 정책 100.0% (1024판) |
+| 정책 `pick_standing_puck` | **켜짐** | `rl/policies/pick_standing_puck/v03` (pick_rtB, 11-14 배포, 입력 `pick_box` 67). 시뮬 기준 53.1% → 정책 98.7% (1024판, 설계 환경 B 조건) |
 
-실패 사유: `no_grasp`, `pick_unreachable`(손을 아래로 향한 채 퍽 위 자세 IK 실패 — 후보 전부. 이번 커밋 안 된 수정), `arm_contact`(과전류 접촉), `grasp_empty`(빈손), `grasp_failed_all`.
+실패 사유: `no_grasp`, `arm_contact`(과전류 접촉), `arm_jam`(닿는 구간 막힘 — `jam_current_a`, 위로 빼고 다음 후보), `grasp_empty`(빈손), `grasp_failed_all`. 퍽 위 수직 자세가 안 닿는 먼 퍽은 `skill_pick_far`가 맡는다(`pick_far_unreachable`).
 
 ## 4. load (`skill_load`, 적재함에 넣기)
 
@@ -65,11 +65,13 @@
 | --- | --- | --- |
 | `server_wait_s` | 30.0 s | 서버 대기 |
 | `load_lift_m` | 0.03 m | 박스 앞에서 시작하면 손을 곧게 이만큼 올린 뒤 carry로 감. pick 끝의 손 안 퍽 바닥이 박스 위 5 cm이므로 +3 cm = 8 cm. 0이면 안 올림 |
-| `load_end_pose` | `stow` | 넣은 뒤 끝 자세. `stow` · `carry`(칸 쪽 옆 자세) · `over`(칸 위 그대로). 실행 중 변경 가능 |
+| `load_end_pose` | `over` (`skills.yaml`) · 코드 기본 `stow` | 넣은 뒤 끝 자세. `stow` · `carry`(칸 쪽 옆 자세) · `over`(칸 위 그대로). 11-15부터 `over` — 다음 pick이 carry를 멈추지 않고 지나 퍽 위로 감. 실행 중 변경 가능 |
+| `jam_current_a` | 0.3 A (`skills.yaml`, load만) · 코드 기본 0.5 | 닿는 구간 막힘 기준(joint2+3 전류 증가). 11-15 bag: 정상 load −0.21 ~ +0.06 A, 걸린 load +0.42 ~ +1.03 A |
+| `load_over_lift_m` | 0.04 m | 옆 칸 위는 칸 위(`q_over`)보다 이만큼 높게 지난 뒤 곧게 내려옴 |
 | `load_via_carry` | true | 집은 자리에서 carry를 거쳐 칸 위로. false면 칸 위(`q_over`)로 바로 (손 안 퍽은 MoveIt이 모름 — 부딪힘 주의) |
 | `carry_blend` | true | carry를 멈추지 않고 지나는 관절 공간 베지어. false면 carry에서 멈췄다 감 |
 | 상수 `LOAD_OPEN_M` | 0.015 m | 놓을 때 손가락 간격 50 mm. 펌웨어 그리퍼 표의 38~75 mm 구간은 실측 없는 보간이라 몇 mm 어긋날 수 있음 |
-| 정책 `load_slot` | **켜짐** | 시뮬 94.8% → 99.0%, 되돌릴 수 없는 실패 0.49% |
+| 정책 `load_slot` | 꺼짐 (`use: false`) | 배포본 `rl/policies/load_slot/v04` (load_rtA2, 11-11). 시뮬 94.0% → 99.9%, Δ 상한 도달 5.3% |
 
 적재함 자세는 `basket.yaml`에 있다.
 - `pose_stow = [0, -1.9024, 1.344, 0.9023, 0]`
@@ -85,8 +87,8 @@ load 순서: carry → `q_over` → `q_low`(퍽 바닥이 칸 바닥 위 15 mm) 
 | 항목 | 값 |
 | --- | --- |
 | 역할 | 누운 퍽 먼 끝 모서리를 쥘 때 위에서 멈추고 내려가는 구간의 팔 보정 (원호는 기준 동작) |
-| 현재 `use` | **false** (끔) |
-| 시뮬 성능 (1024판, 계획 위치 ±8 mm · yaw ±6°) | 정책 없이 61.6% → 정책 83.4% (옆 오차 p90 8.1 → 3.9 mm) |
+| 현재 `use` | **true** (켬, 11-15 한때 껐다가 다시 켬) |
+| 시뮬 성능 (1024판, 도달 학습 v1 조건: 계획 위치 1~4 mm · yaw ±6°, 닫는 순간 옆·축·높이 모두 ±1 mm 안) | 정책 없이 2.9% → 정책 20.8% (옆 오차 p90 5.27 → 3.62 mm). 11-09 v1 세우기 판정 기준으로는 61.6% → 83.4% |
 | 켜면 달라지는 것 | 내려가기가 contact 속도 0.3으로 느려짐 (`stand_vel_scale` 0.7 대신) |
 | 입력 | pick 모양(41), 카메라 = 쥘 끝 − 손끝 (`hand_relative` `box_tag`) |
 | 상태 | 실기 확인 전. 책상 높이로는 아직 검증하지 못함 |
@@ -98,11 +100,11 @@ load 순서: carry → `q_over` → `q_low`(퍽 바닥이 칸 바닥 위 15 mm) 
 | 파라미터 | 값 | 설명 |
 | --- | --- | --- |
 | `stand_waypoints` | `ik` | `ik` = 해석 IK, `table` = `params/stand_table.yaml` |
-| `stand_box_top_m` | 0.085 (임시) | 퍽이 놓인 면 높이. 노드 시작 때만 읽음 |
-| `stand_puck_dx_m` | −0.010 m | inspect 퍽 x 위치에 더하는 보정 (inspect가 손 카메라보다 10~13 mm 앞) |
-| `stand_contact_h_box_m` / `_cyl_m` | 0.030 / 0.030 m | 손가락 중심 높이 (퍽 바닥 기준). 사각은 윗면, 원기둥은 축 |
+| `stand_box_top_m` | 0.07 | 퍽이 놓인 면 높이. 노드 시작 때만 읽음 |
+| `stand_puck_dx_m` | 0.0 m (`skills.yaml`) · 코드 기본 −0.010 | inspect 퍽 x 위치에 더하는 보정. 11-15 실기에서 0 (손 카메라가 다시 잼) |
+| `stand_contact_h_box_m` / `_cyl_m` | 0.037 / 0.030 m (사각 11-15 실기, 이전 0.030) | 손가락 중심 높이 (퍽 바닥 기준). 사각은 윗면, 원기둥은 축 |
 | `stand_above_m` | 0.04 m | 대기 높이 (못 닿으면 3→2→1 cm로 낮춤) |
-| `stand_lift_away_m` | 0.08 m | 손 빼기 높이 (못 닿으면 6→4→3 cm) |
+| `stand_lift_away_m` | 0.13 m | 손 빼기 높이 (못 닿으면 6→4→3 cm). 11-15: 0.08이면 손 카메라가 선 퍽 윗면에서 약 0.10 m라 D435 최소 거리 안 |
 | `stand_end_margin_m` | 0.03 m | 선 퍽 가장자리가 상자 가장자리에 이보다 가까우면 반대 끝을 잡음. 0이면 끔 |
 
 ### 5-3. 파지 (그리퍼)
@@ -123,20 +125,21 @@ load 순서: carry → `q_over` → `q_low`(퍽 바닥이 칸 바닥 위 15 mm) 
 | 파라미터 | 값 | 설명 |
 | --- | --- | --- |
 | `stand_arc_end_deg` | 100° | 호 끝 각도 |
-| `stand_arc_k` | 1.0 | 호의 퍽 축 방향 배율. 1 원, 0.5 반, 0 쥔 점 그대로 위로 |
+| `stand_arc_k` | 0.5 (`skills.yaml`, 11-15 실기) · 코드 기본 1.0 | 호의 퍽 축 방향 배율. 1 원, 0.5 반, 0 쥔 점 그대로 위로 |
 | `stand_tilt_over_m` | 0.030 m | 호를 돌며 끝까지 더 올림 (시뮬 0.010) |
 | `stand_arc_return` | false | 호 끝에서 90°로 되돌리지 않고 바로 벌림 |
-| `stand_set_dz_m` | −0.020 m | 끝점에서 눌러 놓음 |
+| `stand_set_dz_m` | 0.0 m (11-15 실기, 이전 −0.020) | 끝점에서 눌러 놓음 |
+| `stand_release_deg` | 80° | 호가 이 각도를 지날 때 그리퍼를 벌림(팔은 호 끝까지). 0 이하면 호 끝에서 벌림 |
 | `stand_drag_m` | 0.0 m | 0이면 호. 양수면 잡은 채 로봇 쪽으로 곧게 끌기 |
-| `stand_drag_lift_m` | 0.035 m | 끌면서 올리는 양 (drag > 0일 때) |
+| `stand_drag_lift_m` | 0.0 m (11-15 실기, 이전 0.035) | 끌면서 올리는 양 (drag > 0일 때) |
 | `stand_vel_scale` | 0.7 | 내려가기·위로 속도 × 팀 관절 한계 |
-| `stand_arc_vel_scale` | 0.7 | 끌기·호 속도 (시뮬: 0.3 → 63%, 0.5 → 100%) |
+| `stand_arc_vel_scale` | 1.0 (11-15 사용자 고정, 이전 0.7) · 코드 기본 0.5 | 끌기·호 속도 (시뮬: 0.3 → 63%, 0.5 → 100%) |
 
 ### 5-5. 손 카메라·쥘 끝 선택
 
 | 파라미터 | 값 | 설명 |
 | --- | --- | --- |
-| `stand_flip_roll` | true (임시) | 손목 roll 180° — 카메라가 퍽 몸통 쪽에 옴. 닫는 축은 그대로. 매 goal마다 읽음 |
+| `stand_flip_roll` | true (`skills.yaml`) · 코드 기본 false | 손목 roll 180° — 카메라가 퍽 몸통 쪽에 옴. 닫는 축은 그대로. 매 goal마다 읽음 |
 | `stand_cam` | false | 내려가기 전 손 카메라로 퍽 위치를 다시 잼 |
 | `stand_cam_above_m` / `_back_m` | 0.06 / 0.025 m | 잴 때 손끝 높이 / 로봇 쪽으로 물러나는 거리 |
 | `stand_cam_wait_s` / `_min_n` | 1.2 s / 2 | 재는 시간 / 이만큼 못 보면 inspect 값 사용 |
@@ -164,7 +167,7 @@ load 순서: carry → `q_over` → `q_low`(퍽 바닥이 칸 바닥 위 15 mm) 
 | `pose_carry_left` / `pose_carry_right` | `basket.yaml` | 위의 경유 자세 |
 | `contact_mode` | `sim` (`arm.yaml`, 팔 공통) | `sim`: 칸 위까지 MoveIt, 그다음 내려가기 → 벌림 → 올리기를 기준 동작(+정책)으로. `moveit`: MoveIt만 (예전 방식) |
 | 상수 `PLACE_OPEN_GAP_M` | 0.036 m | 놓을 때 손가락 간격. 이웃 퍽 사이 틈(30 mm)에 손가락이 들어가는 폭 |
-| 정책 `place_cell` | 꺼짐 (`use: false`) | 팀원 `place_residual_sag`. 시뮬 기준 96.3% → 정책 99.0%. 상수 오프셋만으로 Δ = 0 99.7%라 정책 없이 감 |
+| 정책 `place_cell` | 켜짐 (`use: true`) | 팀원 `place_residual_sag`. 시뮬 기준 96.3% → 정책 99.0% |
 
 손가락은 늘 로봇 y 방향으로 닫는다(시뮬 `place_env`와 같음). target은 `cell`(주사위 칸, 좌표 지정)과 `over`(물체 위: location_box·판, `values[0]`만큼 위에서 다가감) 두 가지다.
 `place_cell`은 처짐 적분(sag)을 0으로 되돌린 뒤 시작하는데, 정책이 꺼져 있으면 되돌리지 않는다(되돌리면 팔이 처졌다 올라오며 약 0.45 s 멈춤).
@@ -177,7 +180,7 @@ load 순서: carry → `q_over` → `q_low`(퍽 바닥이 칸 바닥 위 15 mm) 
 | --- | --- | --- |
 | `unload_end_pose` | `carry` (코드 기본) | 꺼낸 뒤 끝 자세. 실행 중 변경 가능. `place_loop.py --auto`는 칸 위(`over`)에서 끝내고 place가 carry를 지나게 함 |
 | `server_wait_s` | 30.0 s | 서버 대기 |
-| 정책 `unload_slot` | 꺼짐 (`use: false`) | 시뮬 32.5% → 97.0%. 11-08 첫 실기 시험은 정책 없이 |
+| 정책 `unload_slot` | 켜짐 (`use: true`) | 시뮬 93.7% → 98.1% (`meta.yaml`, 1024판). 입력 `pick` 41 |
 
 `place_loop.py` 실행 인자 (스택은 먼저 `./manipulator-launcher.sh`로 띄움):
 
