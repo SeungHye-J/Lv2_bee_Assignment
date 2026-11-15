@@ -24,7 +24,9 @@ playing) give the TRUE box relative to the robot, independent of cuVSLAM. Logged
 TF minus the true robot pose (localization error), meas_mm = /tracked_objects box minus the true box, both in the robot
 frame. The end error is against the true box when the pucks are found, else against the USD box in the TF map frame.
 
-Output: logs/approach_<ts>/ = result.json (steps, end pose error, per-second track) + bag/ (MCAP, sim time).
+Output: logs/approach_<ts>/ = result.json (steps, end pose error, per-second track, sys summary) + bag/ (MCAP, sim time)
++ system.csv · procs.csv · tegrastats.log (memory / CPU / GPU per second, sys_log.py).
+--real writes real_logs/approach_<ts>/ instead (tracked in git so the PC can pull it; bag split every 50 MB, wall clock).
 Robot ends at the box: run isaac/standalone/runtime/reset.sh before the next try.
 
 Real robot (--real): run in a shell that already talks to the robot's stack (its ROS env is used as is, wall clock).
@@ -32,7 +34,11 @@ Real robot (--real): run in a shell that already talks to the robot's stack (its
     python3 approach_loop.py 3 --real --start-pose 0.734 0.950 3.1416   # robot was not switched on at start_pose_arena
     python3 approach_loop.py L2 --real                        # location box L1..L3 (plan.yaml location_boxes)
 Box centre: plan.yaml start_boxes (arena) -> map with start_pose_arena (map = where the robot was switched on, as
-mission_manager). Sides are checked against plan.yaml arena_walls. Ground truth instead of Isaac: the two pucks on the box
+mission_manager) plus mission_manager's arena correction (/arena/correction - the same fit of seen boxes to the floor plan
+the mission uses, kept up without a mission by arena_corr_idle). Once mission_manager has seen this box (on the way, or
+standing at the stand point up to 5 s) the navigate and approach goals move onto its averaged sighting, same side (--no-corr: plan box
+only). result.json: box_plan_map, box_map (used), corr. Sides are checked against plan.yaml arena_walls (uncorrected).
+Ground truth instead of Isaac: the two pucks on the box
 as /tracked_objects sees them (class puck, puck_offsets_x apart), turned into the robot frame with the TF of the same
 moment - so the map drift cancels and the result is the robot pose relative to the real box (perception accuracy included).
 """
@@ -41,6 +47,7 @@ import atexit
 import json
 import math
 import os
+import shutil
 import signal
 import subprocess
 import sys
@@ -52,7 +59,8 @@ ISAAC_PY = os.path.expanduser(os.environ.get('ISAACSIM_VENV', '~/pa-course/.venv
 TOPICS = ('^/(tf|tf_static|odom|odometry/filtered|cuvslam/odom|imu|cmd_vel|cmd_vel_nav|cmd_vel_mux|cmd_vel_smoothed|'
           'plan|unsmoothed_plan|transformed_global_plan|collision_monitor_state|collision_monitor/triggering_points|'
           'polygon_approach|polygon_slowdown|local_costmap/published_footprint|task/.*|skills/(pose|navigate|approach)/.*|'
-          'navigate_to_pose/_action/.*|state/(emergency|operation_mode|collision)|rosout|joint_states|tracked_objects)$')
+          'navigate_to_pose/_action/.*|state/(emergency|operation_mode|collision)|rosout|joint_states|tracked_objects|'
+          'arena/correction)$')
 TOPICS_FULL = TOPICS[:-2] + '|map|local_costmap/costmap|global_costmap/costmap)$'
 SIDES = {'west': (-1, 0, 0.0), 'east': (1, 0, math.pi), 'south': (0, -1, math.pi / 2), 'north': (0, 1, -math.pi / 2)}
 
@@ -249,6 +257,8 @@ def main():
     ap.add_argument('--wait-ready', type=float, default=90.0, metavar='SEC',
                     help='(default 90, 0 = no check) first wait up to SEC for Nav2 + base lifecycle nodes active, skill servers and TF (after reset.sh); '
                          'exit 3 if not (approach_batch.sh then resets again)')
+    ap.add_argument('--no-corr', '--no-snap', dest='no_corr', action='store_true',
+                    help='--real: keep the plan.yaml box - do not move the goals by /arena/correction (mission_manager)')
     ap.add_argument('--bag', choices=['on', 'full', 'off'], default='on')
     ap.add_argument('--plan-error', type=float, nargs=2, default=[0.0, 0.0], metavar=('DX', 'DY'),
                     help='[m] shift the box hint sent to the robot (map frame) — the true box stays where the USD has it')
@@ -277,6 +287,11 @@ def main():
         # allowed sides, arena axes ("+x -y") - as mission_manager. A location box may hold no pucks -> no ground truth
         sides_cfg = cfg.get('location_box_sides' if loc else 'start_box_sides') or []
         allowed = sides_cfg[k - 1].split() if len(sides_cfg) == len(boxes) else None
+        box_name = f'L{k}' if loc else f'S{k}'  # mission_manager's name in /arena/correction boxes
+        # the correction is on top of mission_manager's start_pose_arena - another --start-pose makes it meaningless
+        corr_ok = not a.no_corr and [round(v, 4) for v in start_arena] == [round(v, 4) for v in cfg['start_pose_arena']]
+        if not a.no_corr and not corr_ok:
+            print('  --start-pose differs from plan.yaml start_pose_arena - /arena/correction not used')
         print(f'real robot · start pose (arena) {[round(v, 3) for v in start_arena]} · plan.yaml {PLAN_YAML}')
     else:
         # ROS env of the running stack — must be set before rclpy starts
@@ -299,32 +314,36 @@ def main():
             print(f'  only {len(pucks_map)} puck on {label} — no ground truth, errors use the TF map frame')
         near_wall = wall_distance(scene_name)
         allowed = None
+        box_name, corr_ok = None, False
+    # plan.yaml sides "-y@0.45 +y@0.35" (as mission_manager): arena side, then optional stand distance box centre -> robot
+    #   along the side normal; try order = listed order. Map side -> arena side by the box-to-robot direction
+    def arena_side(n):
+        sx, sy = SIDES[n][:2]
+        c, s_ = math.cos(start_arena[2]), math.sin(start_arena[2])
+        ax, ay = c * sx - s_ * sy, s_ * sx + c * sy
+        return ('+x' if ax > 0 else '-x') if abs(ax) > abs(ay) else ('+y' if ay > 0 else '-y')
+    listed = {t[:2]: (i, float(t[3:]) if t[2:3] == '@' else None) for i, t in enumerate(allowed or [])}
     sides = []
     for name, (sx, sy, yaw) in SIDES.items():
-        d = a.half + a.standoff
+        d = (listed.get(arena_side(name), (0, None))[1] if allowed is not None else None) or a.half + a.standoff
         nav = (bx + sx * d, by + sy * d, yaw)
         # a wall between the box face and the standoff point (large --standoff) -> Nav2 would drive around to the far side
         steps = int((d - a.half) / 0.02)
         crossed = any(near_wall(bx + sx * (a.half + 0.02 * i), by + sy * (a.half + 0.02 * i)) < 0.05 for i in range(1, steps + 1))
-        sides.append((name, nav, 0.0 if crossed else near_wall(nav[0], nav[1])))
+        sides.append((name, nav, 0.0 if crossed else near_wall(nav[0], nav[1]), d))
     sides.sort(key=lambda s: math.hypot(s[1][0], s[1][1]))  # nearest to the robot's start (map origin) first
     if a.side:
         side = next(s for s in sides if s[0] == a.side)
     else:
         free = [s for s in sides if s[2] >= a.wall_clearance]
-        if allowed is not None:  # map side -> arena side: the arena axis the box-to-robot direction points along
-            def arena_side(n):
-                sx, sy = SIDES[n][:2]
-                c, s_ = math.cos(start_arena[2]), math.sin(start_arena[2])
-                ax, ay = c * sx - s_ * sy, s_ * sx + c * sy
-                return ('+x' if ax > 0 else '-x') if abs(ax) > abs(ay) else ('+y' if ay > 0 else '-y')
-            free = [s for s in free if arena_side(s[0]) in allowed]
+        if allowed is not None:
+            free = sorted((s for s in free if arena_side(s[0]) in listed), key=lambda s: listed[arena_side(s[0])][0])
             print(f'  plan.yaml sides: {" ".join(allowed)} -> map sides {[s[0] for s in free]}')
         if not free:
             sys.exit(f'{label}: no allowed side clear of walls ({a.wall_clearance} m)')
         side = free[0]
-    name, nav, wall = side
-    push = a.standoff - a.gap
+    name, nav, wall, d = side
+    push = d - a.half - a.gap  # stand point -> dock pose (gap from the side)
     app = (nav[0] + push * math.cos(nav[2]), nav[1] + push * math.sin(nav[2]), nav[2])  # true dock pose (USD box)
     ex, ey = a.plan_error
     nav_hint = (nav[0] + ex, nav[1] + ey, nav[2])
@@ -341,13 +360,22 @@ def main():
     from plan.msg import SubGoal, SubGoalArray, TaskStatus
     from tf2_ros import Buffer, TransformListener
 
-    out = os.path.join(HERE, 'logs', time.strftime('approach_%m%d_%H%M%S'))
+    # real runs go to real_logs/ (tracked in git, pulled on the PC) — logs/ is ignored; bags split at 50 MB (GitHub limit 100 MB)
+    out = os.path.join(HERE, 'real_logs' if a.real else 'logs', time.strftime('approach_%m%d_%H%M%S'))
     os.makedirs(out, exist_ok=True)
     bag = None
+    # /tf volatile · /tf_static latched: otherwise rosbag2 may take the QoS of a transient_local /tf publisher and drop every
+    #   volatile one (11-15 approach_1115_092143: no map->odom / odom->base_footprint in the bag)
+    qos_file = os.path.join(out, 'bag_qos.yaml')
+    with open(qos_file, 'w') as f:
+        f.write('/tf: {history: keep_last, depth: 100, reliability: reliable, durability: volatile}\n'
+                '/tf_static: {history: keep_last, depth: 100, reliability: reliable, durability: transient_local}\n')
     if a.bag != 'off':
         bag = subprocess.Popen(
             ['ros2', 'bag', 'record', '--node-name', 'approach_record', '--disable-keyboard-controls',
-             *([] if a.real else ['--use-sim-time']), '--regex', TOPICS_FULL if a.bag == 'full' else TOPICS, '--include-hidden-topics',
+             *(['-b', str(50 * 1000 * 1000)] if a.real else ['--use-sim-time']),
+             '--regex', TOPICS_FULL if a.bag == 'full' else TOPICS, '--include-hidden-topics',
+             '--qos-profile-overrides-path', qos_file,
              '-s', 'mcap', '--storage-preset-profile', 'zstd_fast', '-o', os.path.join(out, 'bag')],
             stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, start_new_session=True)
 
@@ -360,6 +388,19 @@ def main():
                     os.killpg(bag.pid, signal.SIGKILL)
         atexit.register(stop_bag)
 
+    # memory · CPU · GPU of the Jetson and of each ROS process, once a second -> system.csv · procs.csv (sys_log.py)
+    syslog = subprocess.Popen([sys.executable, os.path.join(HERE, 'sys_log.py'), out, '--tegrastats'],
+                              stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, start_new_session=True)
+
+    def stop_syslog():
+        if syslog.poll() is None:
+            syslog.terminate()
+            try:
+                syslog.wait(timeout=5)
+            except subprocess.TimeoutExpired:
+                syslog.kill()
+    atexit.register(stop_syslog)
+
     rclpy.init()
     node = rclpy.create_node('approach_loop', parameter_overrides=[rclpy.parameter.Parameter('use_sim_time', value=not a.real)])
     q = QoSProfile(depth=10, reliability=ReliabilityPolicy.RELIABLE, durability=DurabilityPolicy.TRANSIENT_LOCAL)
@@ -369,7 +410,7 @@ def main():
     plan_id = int(time.time()) % 100000 + 1
     steps, state = [], {}
     labels = {1: 'pose stow', 2: 'navigate', 3: f'approach {a.policy}', 4: 'approach exit'}
-    last_step = 4 if a.exit > 0 else 3
+    state['last_step'], state['phase'] = (4 if a.exit > 0 else 3), 1
 
     def pose():
         try:
@@ -388,14 +429,16 @@ def main():
         print(f'[{t:6.1f}s] {m.step} {labels.get(m.step, "")}: {word} {m.reason}', flush=True)
         if m.state != TaskStatus.RUNNING:
             steps.append({'step': m.step, 'skill': labels.get(m.step, ''), 'ok': m.state == TaskStatus.SUCCEEDED,
-                          'reason': m.reason, 'end_s': round(t, 1)})
+                          'reason': m.reason, 'end_s': round(t, 1), 'phase': state['phase']})
         # judge the dock when step 3 ends (exit moves the robot afterwards) - with an exit the coordinator may only say "4 RUNNING"
         if 'docked' not in state and ((m.step == 3 and m.state != TaskStatus.RUNNING) or m.step == 4):
             state['docked'] = (pose(), true_pose() or state.get('last_truth'))  # real: pucks may blink this instant
-        if m.state == TaskStatus.FAILED or (m.step == last_step and m.state == TaskStatus.SUCCEEDED):
+        if m.state == TaskStatus.FAILED or (m.step == state['last_step'] and m.state == TaskStatus.SUCCEEDED):
             state['done'] = m
-        elif m.state == TaskStatus.RUNNING and m.step > 1:  # previous step finished
-            steps.append({'step': m.step - 1, 'skill': labels[m.step - 1], 'ok': True, 'reason': '', 'end_s': round(t, 1)})
+        elif m.state == TaskStatus.RUNNING and m.step > 1 and \
+                not any(x['step'] == m.step - 1 and x['phase'] == state['phase'] for x in steps):  # previous step finished
+            steps.append({'step': m.step - 1, 'skill': labels[m.step - 1], 'ok': True, 'reason': '', 'end_s': round(t, 1),
+                          'phase': state['phase']})
     node.create_subscription(TaskStatus, '/task/status', on_status, q)
     seen = {}
     node.create_subscription(TrackedObjectArray, '/tracked_objects', lambda m: seen.__setitem__('m', m), 5)
@@ -435,20 +478,170 @@ def main():
         node.destroy_node()
         rclpy.shutdown()
         sys.exit(3)
+    # --real: collision_monitor must be on. state_manager's auto rule turns it off while MAPPING (map:=slam) and every
+    #   operation mode change resets a direct 'on' back to auto (11-15 approach_1115_094434: off:auto -> pushed a wall over).
+    #   So: AUTO is the operator's call (exit if not), collision 'on' is set here and watched for the whole run.
+    guard = {}
+    if a.real:
+        from std_msgs.msg import String
+        node.create_subscription(String, '/state/operation_mode', lambda m: guard.__setitem__('mode', m.data), q)
+        node.create_subscription(String, '/state/collision', lambda m: guard.__setitem__('collision', m.data), q)
+        col_pub = node.create_publisher(String, '/cmd/collision', 1)
+        end_t = time.time() + 5.0
+        while time.time() < end_t and ('mode' not in guard or 'collision' not in guard):
+            spin(0.1)
+        why = None
+        if guard.get('mode') != 'AUTO':
+            why = (f'operation mode {guard.get("mode")} - set AUTO first: '
+                   'ros2 topic pub --once -w 1 /cmd/operation_mode std_msgs/msg/String "{data: AUTO}"')
+        elif not guard.get('collision', '').startswith('on'):
+            print(f'collision monitor {guard.get("collision")} -> asking on', flush=True)
+            end_t = time.time() + 5.0
+            while time.time() < end_t and not guard.get('collision', '').startswith('on'):
+                col_pub.publish(String(data='on'))
+                spin(0.5)
+            if not guard.get('collision', '').startswith('on'):
+                why = f'collision monitor still {guard.get("collision")} - not driving without it'
+        if why:
+            print(why)
+            node.destroy_node()
+            rclpy.shutdown()
+            if bag:
+                stop_bag()
+            stop_syslog()
+            shutil.rmtree(out, ignore_errors=True)  # nothing ran - no log
+            sys.exit(4)
+        print(f'mode AUTO · collision {guard["collision"]}', flush=True)
     start = pose()
     if start is None:
         print('no map -> base_footprint TF — is the stack up?')
     fmt = lambda p, n=3: ','.join(f'{v:.{n}f}' for v in p)
+
+    # --real: the plan.yaml box is only a hint - map (= where the robot was switched on) and the floor plan are both off by
+    #   up to ~0.4 m (11-15: start_3 seen 0.41 m west -> approach_box_unseen / approach_blocked from a skewed stand point).
+    #   The goals follow mission_manager (/arena/correction): this box's own averaged sighting (marks), else the whole fit of
+    #   seen boxes to the floor plan - same matching as the mission (gate, range, cut, min hits there). Sent in two parts:
+    #   (1) stow + navigate to the stand point of the box as corrected now (arm looks on the way), (2) approach + exit
+    #   around the box as corrected once mission_manager has seen this box. (2) only after navigate (1) has ended (11-15 approach_1115_092143: a preempted navigate
+    #   failed the new one - skill_navigate fixed since, kept: (2) needs the look at the stand point anyway). Already in the
+    #   evidence -> (2) CORR_LOOK s after arrival (fresh sightings from up close); not yet -> look up to CORR_WAIT s.
+    #   Goals moved >= CORR_MIN -> recompute; navigate again only when the robot stands >= CORR_RENAV from the new stand
+    #   point - a short Nav2 goal next to the box stalls (11-15 approach_1115_094224: 10 cm -> nav_no_progress 25 s).
+    #   No /arena/correction (mission_manager off) or box never in it -> the plan box. --no-corr: one plan as before.
+    CORR_MIN, CORR_LOOK, CORR_WAIT, CORR_RENAV = 0.05, 1.0, 5.0, 0.15
+    corr = {'on': corr_ok, 'box_plan': (bx, by)}
+    if corr['on']:
+        node.create_subscription(String, '/arena/correction', lambda m: corr.__setitem__('msg', json.loads(m.data)), q)
+        spin(1.0)
+        c0 = corr.get('msg')
+        if c0 is None:
+            print('  no /arena/correction (mission_manager not running?) - plan box only', flush=True)
+        else:
+            corr['at_start'] = c0
+            print(f'  arena correction dx {c0["dx"] * 100:+.1f} cm dy {c0["dy"] * 100:+.1f} cm '
+                  f'dθ {math.degrees(c0["dth"]):+.1f}° from {c0["boxes"] or "no box yet"}' +
+                  (f' · {box_name} seen {c0["marks"][box_name][2]}x' if box_name in c0.get('marks', {}) else ''), flush=True)
+
+    def corrected():
+        """(box x, y, dth) - this box's own averaged sighting (marks) once mission_manager has it, else the plan box moved
+        by the whole fit, or None (no correction). Own sighting first: the floor plan is not off rigidly - 11-15 bag
+        approach_1115_094224 replayed: S6 + L2 fitted 10° / -0.5 m, which put S3 0.47 m from where it was seen (plan 0.18 m)."""
+        c = corr.get('msg')
+        if not c:
+            return None
+        if box_name in c.get('marks', {}):
+            return (*c['marks'][box_name][:2], 0.0)  # sides stay on the map axes (skill_approach squares up on the box)
+        if not c['n']:
+            return None
+        px, py = corr['box_plan']
+        co, si = math.cos(c['dth']), math.sin(c['dth'])
+        return co * px - si * py + c['dx'], si * px + co * py + c['dy'], c['dth']
+
+    def box_seen():
+        c = corr.get('msg')
+        return bool(c) and box_name in c.get('marks', {})
+
+    def place(box):
+        """Box (x, y, dth) -> (box x, y, navigate goal, approach goal) - the chosen side, turned with the correction."""
+        sx, sy, yaw = SIDES[name]
+        co, si = math.cos(box[2]), math.sin(box[2])
+        sx, sy, yaw = co * sx - si * sy, si * sx + co * sy, math.remainder(yaw + box[2], 2 * math.pi)
+        n_ = (box[0] + sx * d, box[1] + sy * d, yaw)
+        return box[0], box[1], n_, (n_[0] + push * math.cos(yaw), n_[1] + push * math.sin(yaw), yaw)
+
+    def tail(goals_from):  # approach (+ exit) goals from step goals_from on, with the current hints
+        g = [SubGoal(step=2, skill='navigate', target=fmt(nav_hint), relation='look'),
+             SubGoal(step=3, skill='approach', target=fmt((*app_hint, a.gap, a.half), 4), relation=a.policy)] + \
+            ([SubGoal(step=4, skill='approach', target=f'{a.exit:.3f}', relation='exit')] if a.exit > 0 else [])
+        return [x for x in g if x.step >= goals_from]
+
+    def send_part2(nav_done):
+        """Part (2): around the box as corrected now. Navigate again unless it is done and the goals did not move."""
+        nonlocal plan_id, bx, by, nav, app, nav_hint, app_hint
+        t = round(time.time() - state['t0'], 1)
+        c = corr.get('msg')
+        seen = box_seen()
+        box = corrected()  # not seen: other boxes may still have moved the correction since (1)
+        new = place(box) if box else (bx, by, nav, app)
+        shift = (new[2][0] - nav[0], new[2][1] - nav[1])
+        moved = math.hypot(*shift) >= CORR_MIN or abs(math.remainder(new[2][2] - nav[2], 2 * math.pi)) >= 0.035
+        renav = False
+        if moved:  # else keep the stand point driven to (within CORR_MIN · 2°)
+            bx, by, nav, app = new
+            nav_hint, app_hint = nav, app
+            p = pose()
+            renav = p is None or math.hypot(p[0] - nav[0], p[1] - nav[1]) >= CORR_RENAV
+            labels[2] = 'navigate (corrected)'
+        corr.update(t_s=t, used=c, seen=seen, renav=renav, shift_mm=[round(v * 1000, 1) for v in shift],
+                    box_shift_mm=[round((bx - corr['box_plan'][0]) * 1000, 1), round((by - corr['box_plan'][1]) * 1000, 1)])
+        if not seen:
+            print(f'[{t:6.1f}s] {box_name} not seen by mission_manager - approach ' +
+                  ('the plan box' if not box else 'as corrected by other boxes') +
+                  (f' -> navigate ({nav[0]:.3f}, {nav[1]:.3f})' if renav else ''), flush=True)
+        else:
+            print(f'[{t:6.1f}s] {box_name} corrected to ({bx:.3f}, {by:.3f}) = plan {corr["box_shift_mm"][0] / 10:+.1f}, '
+                  f'{corr["box_shift_mm"][1] / 10:+.1f} cm (seen {c["marks"][box_name][2]}x)' +
+                  (f' -> navigate ({nav[0]:.3f}, {nav[1]:.3f})' if renav else ' -> approach from here' if moved else
+                   ' - goals kept'), flush=True)
+        plan_id += 100000  # new plan (part (1) has ended - nothing to preempt)
+        state.update(phase=2, last_step=4 if a.exit > 0 else 3)
+        state.pop('last', None)
+        state.pop('done', None)
+        pub.publish(SubGoalArray(plan_id=plan_id, goals=tail(2 if renav or not nav_done else 3)))
+
+    if corr['on'] and corrected():  # part (1) to the box as corrected so far (other boxes count too)
+        bx, by, nav, app = place(corrected())
+        nav_hint, app_hint = nav, app
+        print(f'  navigate (corrected) ({nav[0]:.3f}, {nav[1]:.3f}, {math.degrees(nav[2]):.0f}°)', flush=True)
     state['t0'] = time.time()
-    pub.publish(SubGoalArray(plan_id=plan_id, goals=[
-        SubGoal(step=1, skill='pose', target='stow'),
-        SubGoal(step=2, skill='navigate', target=fmt(nav_hint), relation='look'),
-        SubGoal(step=3, skill='approach', target=fmt((*app_hint, a.gap, a.half), 4), relation=a.policy)] +
-        ([SubGoal(step=4, skill='approach', target=f'{a.exit:.3f}', relation='exit')] if a.exit > 0 else [])))
+    if corr['on']:
+        state['last_step'] = 2  # part (1) ends after navigate
+        pub.publish(SubGoalArray(plan_id=plan_id, goals=[SubGoal(step=1, skill='pose', target='stow')] + tail(2)[:1]))
+    else:
+        pub.publish(SubGoalArray(plan_id=plan_id, goals=[SubGoal(step=1, skill='pose', target='stow')] + tail(2)))
     track, last = [], 0.0
     try:
-        while 'done' not in state and time.time() - state['t0'] < a.timeout:
+        while time.time() - state['t0'] < a.timeout:
             rclpy.spin_once(node, timeout_sec=0.05)
+            if a.real and (guard.get('mode') != 'AUTO' or not guard.get('collision', '').startswith('on')):
+                t = round(time.time() - state['t0'], 1)
+                print(f'[{t:6.1f}s] mode {guard.get("mode")} · collision {guard.get("collision")} - stopping the plan', flush=True)
+                steps.append({'step': 0, 'skill': '', 'ok': False, 'reason': f'guard: {guard.get("mode")} {guard.get("collision")}',
+                              'end_s': t, 'phase': state['phase']})
+                break
+            if corr['on'] and state['phase'] == 1:
+                if 'done' in state and state['done'].state == TaskStatus.SUCCEEDED and 'arrived' not in corr:
+                    corr['arrived'] = time.time()  # navigate done - look a moment
+                    print(f'[{time.time() - state["t0"]:6.1f}s] at the stand point - looking at {box_name} '
+                          f'({"seen" if box_seen() else "not seen yet"}, up to {CORR_WAIT:.0f} s)', flush=True)
+                if 'arrived' in corr:
+                    waited = time.time() - corr['arrived']
+                    if waited > CORR_WAIT or (waited > CORR_LOOK and box_seen()):
+                        send_part2(True)
+                elif 'done' in state and state['done'].state != TaskStatus.SUCCEEDED:
+                    break  # part (1) failed
+            elif 'done' in state:
+                break
             if time.time() - last > 1.0:
                 last = time.time()
                 p = pose()
@@ -461,10 +654,11 @@ def main():
                     track.append([round(last - state['t0'], 1), *(round(v, 4) for v in p), loc, box_meas(p, tp)])
     except KeyboardInterrupt:
         print('Ctrl-C — stopping the plan')
-    if 'done' not in state:
+    if 'done' not in state or state['phase'] == 1 and corr['on'] and state['done'].state == TaskStatus.SUCCEEDED:
         pub.publish(SubGoalArray(plan_id=0, goals=[]))  # coordinator: explicit stop
-        steps.append({'step': 0, 'skill': '', 'ok': False, 'reason': 'timeout/interrupted',
-                      'end_s': round(time.time() - state['t0'], 1)})
+        if not (steps and str(steps[-1]['reason']).startswith('guard:')):
+            steps.append({'step': 0, 'skill': '', 'ok': False, 'reason': 'timeout/interrupted',
+                          'end_s': round(time.time() - state['t0'], 1)})
     spin(2.0)  # let the robot settle, bag the tail
     end = pose()
 
@@ -473,6 +667,10 @@ def main():
               'track_fields': ['t_s', 'x', 'y', 'yaw (TF map)', 'loc_mm [dx, dy, dyaw_deg] TF - truth',
                                'meas [dx_mm, dy_mm] robot frame vs true box, [size_a, size_b] mm, yaw_deg, camera'], 'start_pose': start, 'end_pose': end,
               'ok': bool(state.get('done')) and state['done'].state == TaskStatus.SUCCEEDED, 'steps': steps, 'track': track}
+    if a.real:  # box_map = the box the goals were made from (corrected) · box_plan_map = plan.yaml
+        result['box_plan_map'] = list(corr['box_plan'])
+        result['corr'] = {k: corr[k] for k in ('at_start', 'used', 'seen', 't_s', 'shift_mm', 'box_shift_mm', 'renav')
+                          if k in corr} if corr['on'] else 'off'
     tend = true_pose()
     result['true_end_pose'] = tend
     if 'docked' in state:  # error = where the dock ended, before any exit
@@ -491,6 +689,18 @@ def main():
         e = result['error']
         print(f'end: along {e["along_mm"]:+.1f} mm · lateral {e["lateral_mm"]:+.1f} mm · yaw {e["yaw_deg"]:+.2f}° · '
               f'gap to box {e["gap_mm"]:.1f} mm (goal {a.gap * 1000:.0f})')
+    stop_syslog()
+    try:  # run summary of system.csv
+        import csv
+        rows = list(csv.DictReader(open(os.path.join(out, 'system.csv'))))
+        col = lambda k: [float(r[k]) for r in rows if r[k] not in ('', None)]
+        result['sys'] = {'mem_avail_min_mb': min(col('mem_avail_mb')), 'swap_max_mb': max(col('swap_mb')),
+                         'cpu_mean_pct': round(sum(col('cpu_pct')) / len(rows), 1), 'cpu_max_pct': max(col('cpu_pct')),
+                         'gpu_mean_pct': round(sum(col('gpu_pct')) / len(rows), 1), 'temp_max_c': max(col('temp_max_c'))}
+        print('sys: mem avail min {mem_avail_min_mb:.0f} MB · swap max {swap_max_mb:.0f} MB · CPU mean {cpu_mean_pct}% '
+              '(max {cpu_max_pct}%) · GPU mean {gpu_mean_pct}% · temp max {temp_max_c} C'.format(**result['sys']))
+    except (OSError, ValueError, KeyError, ZeroDivisionError):
+        pass
     with open(os.path.join(out, 'result.json'), 'w') as f:
         json.dump(result, f, indent=1, ensure_ascii=False)
     print(f'{"OK" if result["ok"] else "FAILED"} -> {out}')
