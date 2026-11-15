@@ -18,6 +18,12 @@ public:
     z_ = declare_parameter<double>("z_m", 0.15);
     occ_ = declare_parameter<int>("occupied_min", 65);
     base_ = declare_parameter<std::string>("base_frame", "base_footprint");
+    // 몸(base_footprint 기준 앞 0.069 · 뒤 −0.245 · 옆 ±0.151) + body_margin 안에 떨어진 도면 벽은 버림 — 로봇이 벽 안에 있을 수는 없으니
+    //   위치 오차(실기 11-16: SLAM이 11 cm 틀어져 벽 끝이 몸 안 → collision_monitor가 모든 방향을 막아 approach_blocked)
+    front_ = declare_parameter<double>("body_front_m", 0.069);
+    rear_ = declare_parameter<double>("body_rear_m", -0.245);
+    half_ = declare_parameter<double>("body_half_width_m", 0.151);
+    margin_ = declare_parameter<double>("body_margin_m", 0.02);
     pub_ = create_publisher<sensor_msgs::msg::PointCloud2>(declare_parameter<std::string>("output_topic", "/arena/walls_cloud"),
                                                             rclcpp::SensorDataQoS().keep_last(1));
     sub_ = create_subscription<nav_msgs::msg::OccupancyGrid>(
@@ -58,7 +64,9 @@ private:
         if (g.data[static_cast<size_t>(j) * g.info.width + i] < occ_) continue;
         const double gx = ox + (i + 0.5) * res, gy = oy + (j + 0.5) * res;
         if (std::hypot(gx - rx, gy - ry) > radius_) continue;
-        pts.emplace_back(static_cast<float>(c * gx - s * gy + tx), static_cast<float>(s * gx + c * gy + ty));
+        const double bx = c * gx - s * gy + tx, by = s * gx + c * gy + ty;
+        if (bx < front_ + margin_ && bx > rear_ - margin_ && std::abs(by) < half_ + margin_) { ++dropped_; continue; }  // 몸 안 = 위치 오차
+        pts.emplace_back(static_cast<float>(bx), static_cast<float>(by));
       }
     }
     sensor_msgs::msg::PointCloud2 out;
@@ -70,6 +78,10 @@ private:
     sensor_msgs::PointCloud2Iterator<float> x(out, "x"), y(out, "y"), z(out, "z");
     for (const auto & p : pts) { *x = p.first; *y = p.second; *z = static_cast<float>(z_); ++x; ++y; ++z; }
     pub_->publish(out);
+    if (dropped_) {
+      RCLCPP_WARN_THROTTLE(get_logger(), *get_clock(), 5000, "도면 벽 %zu칸이 몸 안 — 위치 오차로 보고 뺌 (안전 입력에서 제외)", dropped_);
+      dropped_ = 0;
+    }
   }
 
   tf2_ros::Buffer buf_;
@@ -78,6 +90,8 @@ private:
   rclcpp::Subscription<nav_msgs::msg::OccupancyGrid>::SharedPtr sub_;
   rclcpp::TimerBase::SharedPtr timer_;
   nav_msgs::msg::OccupancyGrid::ConstSharedPtr grid_;
+  double front_, rear_, half_, margin_;
+  size_t dropped_ = 0;
   double radius_ = 1.0, z_ = 0.15;
   int occ_ = 65;
   std::string base_;

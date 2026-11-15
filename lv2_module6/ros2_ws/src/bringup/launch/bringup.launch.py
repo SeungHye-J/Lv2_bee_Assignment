@@ -324,11 +324,11 @@ def generate_launch_description():
         DeclareLaunchArgument('core_composition', default_value='true',
                               description='작은 C++ 노드를 컨테이너 둘(control_nodes · mission_nodes)에 — 메모리 절약 (11-16) · '
                                           'false면 노드마다 프로세스 (예전, /cmd/restart node <이름>이 그 노드에 됨)'),
-        DeclareLaunchArgument('operation', default_value='MANUAL',
-                              description='초기 조작 모드: MANUAL(기본) | AUTO'),
+        DeclareLaunchArgument('operation', default_value='AUTO',
+                              description='초기 조작 모드: AUTO(기본, 11-16) | MANUAL'),
         DeclareLaunchArgument('start_pose', default_value='',
                               description='mission_manager 출발 자세 arena [x, y, yaw] YAML (비면 plan.yaml start_pose_arena)'),
-        DeclareLaunchArgument('taught_routes', default_value='false',
+        DeclareLaunchArgument('taught_routes', default_value='true',
                               description='움직임 정답표 재생 (~/.ros/routes/*.motion.csv · tools/cli start.sh route로 녹화) — 구간 표가 있으면 Nav2 경로 대신 표대로'),
         DeclareLaunchArgument('grasp_check', default_value='true',
                               description='coordinator 잡기 판정(그리퍼 위치 + 전류) — 물리 없는 대역(faker)은 손가락이 끝까지 닫혀 늘 빈손이라 false'),
@@ -342,10 +342,10 @@ def generate_launch_description():
                               description='지도 폴더들이 있는 곳 — <map_dir>/<map_name>/nvblox.nvblx (비면 ~/.ros/beebot_maps)'),
         DeclareLaunchArgument('map_name', default_value='',
                               description='지도 폴더 이름 — slam: 비우면 날짜_시각으로 새로 · saved: 비우면 가장 최근'),
-        # 주행 중 인지 끄기 (11-15 기본 켬): /skills/navigate 중엔 YOLO·AprilTag·상자 depth를 navigation_infer_hz(0 = 끔)로,
-        #   Nav2 남은 거리가 navigation_full_near_m 안이면 평소대로 (도착 직전 상자 측정 — approach). body_filter·nvblox·cuVSLAM은 그대로
+        # C++ cuVSLAM CPU 여유를 주행 인지에 일부 재사용 (11-16): 이동 중 YOLO·AprilTag·상자 depth를 2 Hz로,
+        #   Nav2 남은 거리가 navigation_full_near_m 안이면 평소대로 (도착 직전 상자 측정 — approach). 저메모리 profile은 0 Hz를 별도 override
         DeclareLaunchArgument('navigation_throttle', default_value='true'),
-        DeclareLaunchArgument('navigation_infer_hz', default_value='0.0'),
+        DeclareLaunchArgument('navigation_infer_hz', default_value='2.0'),
         DeclareLaunchArgument('navigation_full_near_m', default_value='1.0'),
         DeclareLaunchArgument('cv_threads', default_value='2'),
         DeclareLaunchArgument('perception', default_value='auto',
