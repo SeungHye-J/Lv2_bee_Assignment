@@ -11,7 +11,7 @@
                   RealSense ×2(pole_front_cam·gripper_cam), robot_localization EKF, SLAM(위치추정 모드)
   - SLAM (Jetson GPU — documents/jetson-orin-nano/CUVSLAM.md): 위쪽 노드는 map→odom TF · /map(latched) · 지도 원점 = 출발 자리만 받음
       cuVSLAM(scripts/cuvslam_slam.py) → map→odom · /cuvslam/odom(EKF)
-      + nvblox(depth → 3D TSDF → 2D 점유 격자) → scripts/nvblox_map.py가 /map(latched)으로 · 지도 파일 nvblox.nvblx
+      + nvblox(depth → 3D TSDF → 2D 점유 격자) → nvblox_map(src/nvblox_map.cpp · 파이썬판 scripts/nvblox_map.py)이 /map(latched)으로 · 지도 파일 nvblox.nvblx
   - Nav2 (use_nav2:=true, config/nav2_params.yaml): 서버를 직접 띄운다 — nav2_bringup navigation_launch는
           velocity_smoother 입력을 /cmd_vel_nav로 고정해 twist_mux를 건너뛰므로 안 씀.
           속도 체인: controller·behavior → /cmd_vel_nav → twist_mux
@@ -209,7 +209,9 @@ def generate_launch_description():
         flag('use_nav2', 'true', '진짜 Nav2 서버 (planner · controller · behavior · bt_navigator) — 바퀴 명령 체인(velocity_smoother · collision_monitor)은 use_cmd_chain'),
         flag('nav2_composition', 'true', 'Nav2 서버·관리자를 한 프로세스(nav2_container, 컴포넌트)로 — 메모리 절약 · false면 서버마다 프로세스 (예전)'),
         flag('py_helpers_one_process', 'true', 'python 보조 노드(pole_depth_gate · nvblox_map · rewind)를 한 프로세스(py_helpers)로 — 메모리 절약 · false면 따로 (예전)'),
+        flag('cuvslam_impl', 'auto', 'cuvslam_slam 구현: cpp(src/cuvslam_slam.cpp · GPU 입력) · py(scripts/cuvslam_slam.py) · auto = C++판이 빌드돼 있으면 cpp (11-16)'),
         flag('cuvslam_frame_skip', '1', 'cuVSLAM N장에 1장만 추적 (1=전부 15 Hz · 2=7.5 Hz) — CPU 줄이기 현장 비교용 (11-15)'),
+        flag('helpers_cpp', 'true', 'nvblox_map · rewind를 C++(cpp_helpers, src/nvblox_map.cpp · rewind.cpp)로 — 파이썬은 CPU 몰리면 ~1 s 멈춤 (11-16) · false면 예전 파이썬(py_helpers · nvblox_map · rewind)'),
         flag('depth_gate_cpp', 'true', 'pole_depth_gate를 C++(perception depth_gate)로 — 파이썬판은 15 Hz depth를 매번 복사 (bag 재생 11-14: 파이썬 6 % → C++ 2 %) · false면 예전 파이썬(scan_cam_gate)'),
         flag('nav2_params_file', share('config', 'nav2_params.yaml'), 'Nav2 파라미터 파일'),
         flag('nav2_container_params', 'true', 'true(11-15부터 기본) = nav2_container 전체에 Nav2 파라미터 파일 (costmap이 yaml 값으로 — nav2_nodes 설명) · false = 예전 (costmap 기본값)'),
@@ -250,7 +252,8 @@ def generate_launch_description():
             package='robot_localization', executable='ekf_node', name='ekf_filter_node', output='screen',
             condition=IfCondition(PythonExpression(["'", LaunchConfiguration('use_ekf'), "' == 'true' and '",
                                                     LaunchConfiguration('ekf_imu'), f"' == '{imu}'"])),
-            parameters=[share('config', 'ekf.yaml')] + ([] if imu == 'true' else [  # 바퀴 vx·vy + yaw 회전속도, IMU 안 씀
+            # ekf_imu false: 바퀴(odom0) vx·vy + yaw 회전속도, IMU 안 씀 · cuVSLAM(odom1)은 ekf.yaml 그대로 (11-16: odom0 = 바퀴로 되돌림)
+            parameters=[share('config', 'ekf.yaml')] + ([] if imu == 'true' else [
                 {'imu0_config': [False] * 15, 'odom0_config': [False] * 6 + [True, True, False, False, False, True] + [False] * 3}]))
           for imu in ('true', 'false')],
 
@@ -381,6 +384,7 @@ def check_slam(context):
 def slam_nodes():
     """SLAM = cuVSLAM(위치) + nvblox(지도) — use_slam일 때. 위쪽이 받는 것: map→odom TF(cuVSLAM) · /map latched(nvblox_map) · 원점 = 출발 자리
       cuvslam_slam   pole_front_cam RGB-D → map→odom (루프 클로저) + /cuvslam/odom (EKF odom1)
+      map_tf_relay   /cuvslam/map_to_odom → TF map→odom 30 Hz (C++)
       depth gate     scan_cam_gate 재사용 — nvblox에 줄 depth에서 카메라 0.5 m 안(자기 팔·손가락·폴대)을 0(측정 없음)으로.
                      pole_front_cam (+ use_pole_back_cam이면 pole_back_cam — pole_back_depth_gate) — gripper_cam(팔 끝)은
                      스캔 자세가 없어져(11-09) 지도에 안 넣음.
@@ -410,8 +414,24 @@ def slam_nodes():
     slam_nvblox = ["'", LaunchConfiguration('use_slam'), "'.lower() == 'true' and '", LaunchConfiguration('map_backend'), "' == 'nvblox'"]
     gate_cpp = ["'", LaunchConfiguration('depth_gate_cpp'), "'.lower() == 'true'"]
     one_proc = ["'", LaunchConfiguration('py_helpers_one_process'), "'.lower() == 'true'"]
+    # helpers_cpp:=true(기본, 11-16) — nvblox_map · rewind = C++ cpp_helpers (한 프로세스든 따로든 · 노드 이름 같음).
+    #   그때 파이썬 depth gate(depth_gate_cpp:=false)는 py_helpers 없이 따로
+    hcpp = ["'", LaunchConfiguration('helpers_cpp'), "'.lower() == 'true'"]
+
+    def helper_exe(py_exe):
+        return PythonExpression(["'cpp_helpers' if ", *hcpp, f" else '{py_exe}'"])
     back = ["('", LaunchConfiguration('use_cameras'), "'.lower() == 'true' or '", LaunchConfiguration('pole_back_cam_external'),
             "'.lower() == 'true') and '", LaunchConfiguration('use_pole_back_cam'), "'.lower() == 'true'"]
+
+    # cuvslam_impl auto: C++판(cuvslam_slam_cpp)이 설치돼 있으면 그것 — cuVSLAM 헤더·라이브러리 없는 곳(도커·CI)은 빌드에서 빠짐
+    try:
+        from ament_index_python.packages import get_package_prefix
+        cpp_built = os.path.exists(os.path.join(get_package_prefix('ros_system'), 'lib', 'ros_system', 'cuvslam_slam_cpp'))
+    except Exception:  # noqa: BLE001
+        cpp_built = False
+    impl = LaunchConfiguration('cuvslam_impl')
+    cuvslam_exe = PythonExpression(["'cuvslam_slam_cpp' if ('", impl, "' == 'cpp' or ('", impl, "' == 'auto' and ",
+                                    str(cpp_built), ")) else 'cuvslam_slam'"])
 
     def camera_remaps(i, cam):
         return [(f'camera_{i}/depth/image', f'/{cam}/aligned_depth_to_color/image_nvblox'),
@@ -419,11 +439,16 @@ def slam_nodes():
                 (f'camera_{i}/color/image', f'/{cam}/color/image_raw'),
                 (f'camera_{i}/color/camera_info', f'/{cam}/color/camera_info')]
     return [
-        Node(package='ros_system', executable='cuvslam_slam', name='cuvslam_slam', output='screen', condition=on,
+        # 노드 이름은 둘 다 cuvslam_slam (파라미터·진단·토픽 같음) — 실행 파일만 고름
+        Node(package='ros_system', executable=cuvslam_exe, name='cuvslam_slam', output='screen', condition=on,
              parameters=[{'publish_map_tf': True,
                           'frame_skip': ParameterValue(LaunchConfiguration('cuvslam_frame_skip'), value_type=int)}]),
+        # map→odom TF 이어 내기 (C++, 11-16) — cuvslam_slam이 낸 /cuvslam/map_to_odom을 30 Hz로 TF로 (파이썬이 멈춰도 안 끊김)
+        Node(package='ros_system', executable='map_tf_relay', name='map_tf_relay', output='screen', condition=on),
+        # 도면 벽(/arena/walls_only) → 로봇 주변 점구름 (src/grid_obstacle_cloud.cpp) — collision_monitor 두 번째 입력 (옆·뒤)
+        Node(package='ros_system', executable='grid_obstacle_cloud', name='grid_obstacle_cloud', output='screen', condition=on),
         Node(package='ros_system', executable='scan_cam_gate', name='pole_depth_gate', output='screen',
-             condition=IfCondition(PythonExpression([*slam_nvblox, ' and not ', *one_proc, ' and not ', *gate_cpp])),
+             condition=IfCondition(PythonExpression([*slam_nvblox, ' and (not ', *one_proc, ' or ', *hcpp, ') and not ', *gate_cpp])),
              parameters=[gate_params('pole_front_cam')]),
         # C++판 (기본) — py_helpers 한 프로세스 여부와 상관없이 따로 (파이썬 py_helpers에는 nvblox_map · rewind만)
         Node(package='perception', executable='depth_gate', name='pole_depth_gate', output='screen',
@@ -440,18 +465,24 @@ def slam_nodes():
                          {'after_shutdown_map_save_path': ParameterValue(save_path, value_type=str),
                           'num_cameras': ParameterValue(PythonExpression(['2 if ', *back, ' else 1']), value_type=int)}],
              remappings=camera_remaps(0, 'pole_front_cam') + camera_remaps(1, 'pole_back_cam')),
-        Node(package='ros_system', executable='nvblox_map', name='nvblox_map', output='screen', condition=separate,
-             parameters=[nvblox_map_params]),
+        # 인자(노드 이름)는 cpp_helpers가 띄울 노드 — 파이썬판은 인자를 안 읽음
+        Node(package='ros_system', executable=helper_exe('nvblox_map'), name='nvblox_map', output='screen', condition=separate,
+             arguments=['nvblox_map'], parameters=[nvblox_map_params]),
         # 주행 리와인드 — 실패(ABORTED) 뒤 실제 주행 궤적을 0.4 m 후진. 실기·테스트베드 공통 (SLAM 없어도 뜸)
-        Node(package='ros_system', executable='rewind', name='rewind', output='screen',
+        Node(package='ros_system', executable=helper_exe('rewind'), name='rewind', output='screen', arguments=['rewind'],
              condition=IfCondition(PythonExpression(["not ('", LaunchConfiguration('use_slam'), "'.lower() == 'true' and '",
                                                      LaunchConfiguration('map_backend'), "' == 'nvblox' and '",
                                                      LaunchConfiguration('py_helpers_one_process'), "'.lower() == 'true')"]))),
         # 셋을 한 프로세스로 — 이름 없이 띄움 (name을 주면 __node 리매핑이 세 노드 모두에 걸림). 노드 이름은 인자로
         *[Node(package='ros_system', executable='py_helpers', output='screen',
-               condition=IfCondition(PythonExpression([*slam_nvblox, ' and ', *one_proc, (' and ' if cpp else ' and not '), *gate_cpp])),
+               condition=IfCondition(PythonExpression([*slam_nvblox, ' and ', *one_proc, ' and not ', *hcpp,
+                                                       (' and ' if cpp else ' and not '), *gate_cpp])),
                arguments=(['nvblox_map', 'rewind'] if cpp else ['pole_depth_gate', 'nvblox_map', 'rewind']),
                parameters=[gate_params('pole_front_cam'), nvblox_map_params]) for cpp in (True, False)],
+        # C++판 한 프로세스 (helpers_cpp 기본) — 이름 없이 (py_helpers와 같은 까닭)
+        Node(package='ros_system', executable='cpp_helpers', output='screen',
+             condition=IfCondition(PythonExpression([*slam_nvblox, ' and ', *one_proc, ' and ', *hcpp])),
+             arguments=['nvblox_map', 'rewind'], parameters=[nvblox_map_params]),
         Node(package='nav2_map_server', executable='map_server', name='map_server', output='screen', condition=static_on,
              **QUICK_STOP, parameters=[{'yaml_filename': LaunchConfiguration('static_map_yaml'), 'frame_id': 'map', 'topic_name': 'map'}]),
         # static_2d엔 nvblox가 없어 RL 주행 controller 입력(/nvblox_node/combined_esdf_pointcloud)이 끊김 → 바이패스.

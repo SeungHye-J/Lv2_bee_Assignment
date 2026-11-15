@@ -3,8 +3,8 @@
 
 namespace control {
 
-ArmSafetyMonitor::ArmSafetyMonitor()
-: rclcpp::Node("arm_safety_monitor") {
+ArmSafetyMonitor::ArmSafetyMonitor(const rclcpp::NodeOptions & options)
+: rclcpp::Node("arm_safety_monitor", options) {
   threshold_ = declare_parameter<double>("effort_threshold", 3.0);  // A — 관절별로 나눌 것 (실측 전 중력 부하 여유)
   hold_s_ = declare_parameter<double>("hold_s", 0.3);
   stall_velocity_ = declare_parameter<double>("stall_velocity", 0.10);  // [rad/s] 이보다 느리면 "멈춘 것"으로 봄

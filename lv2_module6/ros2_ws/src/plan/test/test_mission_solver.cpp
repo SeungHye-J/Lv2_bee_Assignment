@@ -340,6 +340,24 @@ TEST(ArenaCorr, StepToLocalizationKeepsTotal) {
   EXPECT_LT(std::hypot(r.dx, r.dy), 0.03);
 }
 
+// 넘긴 조각을 이어 두면(compose_corr) 격자가 그대로일 때 같은 차이를 다시 봐도 남은 보정이 0으로 줄어 더 안 넘김 (위치 흘러감 방지)
+TEST(ArenaCorr, ComposeSentStepsStopsAtFit) {
+  const ArenaCorr f{0.13, -0.10, -0.026, 1000};  // 11-16 실기 벽 정합 차이
+  ArenaCorr sent;
+  int steps = 0;
+  for (; steps < 50; ++steps) {
+    const auto rem = corr_after_step(f, sent);  // 격자는 그대로 → 매번 같은 f를 봄
+    if (std::hypot(rem.dx, rem.dy) < 0.02 && std::abs(rem.dth) < 0.0087) break;
+    sent = compose_corr(sent, corr_step(rem, 0.05, M_PI / 180));
+  }
+  EXPECT_LT(steps, 12);
+  EXPECT_NEAR(sent.dx, f.dx, 0.03);  // 넘긴 합 ≈ f (넘치지 않음)
+  EXPECT_NEAR(sent.dy, f.dy, 0.03);
+  const ArenaCorr s1{0.05, 0.0, 0.017, 1}, s2{0.02, -0.04, 0.01, 1};
+  const auto a = corr_after_step(corr_after_step(f, s1), s2), b = corr_after_step(f, compose_corr(s1, s2));
+  EXPECT_NEAR(a.dx, b.dx, 1e-9); EXPECT_NEAR(a.dy, b.dy, 1e-9); EXPECT_NEAR(a.dth, b.dth, 1e-9);
+}
+
 TEST(ArenaCorr, ApplyUnapplyRoundTripAndToMap) {
   const auto m = arena_to_map({3.670, 3.152, 0.3}, kStart);
   const auto c = apply_corr(kTrue, m);  // mission_manager to_map = apply_corr(acorr_, arena_to_map(...))
@@ -395,6 +413,51 @@ TEST(ArenaCorr, MatchLandmarkGateAndUnique) {
   EXPECT_EQ(match_landmark(0.37, 0.0, boxes, 0.6), -1);  // 두 상자 가운데 — 헷갈림
   EXPECT_EQ(match_landmark(1.6, 1.6, boxes, 0.6), -1);   // 어느 상자에서도 gate 밖
   EXPECT_EQ(match_landmark(0.0, 0.0, {}, 0.6), -1);
+}
+
+TEST(ArenaCorr, MapToArenaInverse) {  // mission_manager to_arena = map_to_arena(unapply_corr(acorr_, m), start)
+  const Pose2 a{3.670, 3.152, 0.3};
+  const auto back = map_to_arena(arena_to_map(a, kStart), kStart);
+  EXPECT_NEAR(back.x, a.x, 1e-9);
+  EXPECT_NEAR(back.y, a.y, 1e-9);
+  EXPECT_NEAR(back.yaw, a.yaw, 1e-9);
+}
+
+TEST(ArenaCorr, PerceivedCenter) {  // 다가설 자리 박스 가운데 (approach_perceived, 11-16)
+  bool used = false;
+  auto c = perceived_center(1.0, 2.0, 1.08, 1.95, 3, 3, 0.6, used);  // 3번 · 9 cm — 인지
+  EXPECT_TRUE(used);
+  EXPECT_DOUBLE_EQ(c.first, 1.08);
+  EXPECT_DOUBLE_EQ(c.second, 1.95);
+  c = perceived_center(1.0, 2.0, 1.08, 1.95, 2, 3, 0.6, used);  // 덜 봄 — 도면
+  EXPECT_FALSE(used);
+  EXPECT_DOUBLE_EQ(c.first, 1.0);
+  EXPECT_DOUBLE_EQ(c.second, 2.0);
+  c = perceived_center(1.0, 2.0, 1.7, 2.0, 10, 3, 0.6, used);  // gate 밖 (70 cm) — 다른 것을 본 것으로 · 도면
+  EXPECT_FALSE(used);
+  EXPECT_DOUBLE_EQ(c.first, 1.0);
+}
+
+TEST(ArenaCorr, PerceivedCenterNavGoalOnPerceivedBox) {
+  // 인지(map) → to_arena(보정 뺌) → 다가설 자리 → to_map(보정 얹음): 보정이 있어도 다가설 자리는 인지 상자 둘레 · 변 법선 거리 그대로
+  const double bx = 3.670, by = 3.152, half = 0.1, standoff = 0.25;
+  const auto qm = apply_corr(kTrue, arena_to_map({bx + 0.07, by - 0.04, 0}, kStart));  // 본 상자 (map) — 도면보다 (7, −4) cm
+  const auto qa = map_to_arena(unapply_corr(kTrue, qm), kStart);
+  bool used = false;
+  const auto c = perceived_center(bx, by, qa.x, qa.y, 5, 3, 0.6, used);
+  ASSERT_TRUE(used);
+  EXPECT_NEAR(c.first - bx, 0.07, 1e-9);
+  EXPECT_NEAR(c.second - by, -0.04, 1e-9);
+  const auto drawn = approach_poses(bx, by, half, bx, by, standoff);
+  const auto seen = approach_poses(c.first, c.second, half, bx + (c.first - bx), by + (c.second - by), standoff);  // 점도 같이 옮김
+  ASSERT_EQ(drawn.size(), seen.size());
+  for (size_t i = 0; i < seen.size(); ++i) {
+    EXPECT_NEAR(seen[i].x - drawn[i].x, 0.07, 1e-9);  // 같은 변 순서 · 같은 만큼만 옮겨짐
+    EXPECT_NEAR(seen[i].y - drawn[i].y, -0.04, 1e-9);
+    EXPECT_DOUBLE_EQ(seen[i].yaw, drawn[i].yaw);
+    const auto m = apply_corr(kTrue, arena_to_map(seen[i], kStart));  // Nav2 목표 (to_map)
+    EXPECT_NEAR(std::hypot(m.x - qm.x, m.y - qm.y), half + standoff, 1e-9);  // 인지 상자 가운데에서 변 + standoff
+  }
 }
 
 namespace {

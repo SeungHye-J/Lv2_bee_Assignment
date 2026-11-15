@@ -86,7 +86,7 @@ private:
 
 class SignalDecoderNode : public rclcpp::Node {
 public:
-  SignalDecoderNode();
+  explicit SignalDecoderNode(const rclcpp::NodeOptions & options = rclcpp::NodeOptions());
 
 private:
   void on_objects(const perception::msg::TrackedObjectArray & m);

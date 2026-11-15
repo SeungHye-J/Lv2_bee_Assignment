@@ -60,6 +60,8 @@ struct Pose2 { double x = 0, y = 0, yaw = 0; };
 
 // 경기장(arena) 자세 → map 자세. start = 로봇이 켜진 자리의 arena 자세 (map 원점 = 그 자리, map x = 그때 로봇 앞)
 Pose2 arena_to_map(const Pose2 & p, const Pose2 & start);
+// 거꾸로 — map 자세 → arena (보정 없음. mission_manager to_arena = map_to_arena(unapply_corr(acorr_, m), start))
+Pose2 map_to_arena(const Pose2 & m, const Pose2 & start);
 
 // 도면 보정 — 도면 → map 변환(arena_to_map)이 실제와 어긋난 만큼 (출발 자세 오차 · 도면 오차). map 안의 2D 강체:
 //   보정 map 점 = R(dth)·(도면 map 점) + (dx, dy)  — 회전 중심 = map 원점(켠 자리)
@@ -70,6 +72,9 @@ Pose2 unapply_corr(const ArenaCorr & c, const Pose2 & m);
 ArenaCorr corr_step(const ArenaCorr & c, double max_m, double max_rad);
 // 조각 s를 로봇 위치로 넘긴 뒤 남는 보정 r — apply_corr(s, apply_corr(r, x)) == apply_corr(c, x) (n 유지)
 ArenaCorr corr_after_step(const ArenaCorr & c, const ArenaCorr & s);
+// 두 보정을 잇기 — apply_corr(compose_corr(a, b), x) == apply_corr(a, apply_corr(b, x)) (n = a.n). 넘긴 조각 합치기:
+//   corr_after_step(corr_after_step(c, s1), s2) == corr_after_step(c, compose_corr(s1, s2))
+ArenaCorr compose_corr(const ArenaCorr & a, const ArenaCorr & b);
 // 짝(도면 map 점 m ↔ 인지 map 점 q)으로 보정을 맞춤. 1개거나 도면 점끼리 min_sep보다 가까우면 이동만, 아니면 이동+회전 (2D 최소제곱).
 //   잔차가 outlier_m을 넘는 짝은 가장 큰 것부터 하나씩 빼고 다시 (2개 남을 때까지) · 회전은 ±max_rot, 이동은 max_shift로 자름
 //   n = 쓴 짝 수 (0 = 짝 없음 → 보정 0)
@@ -88,6 +93,10 @@ int match_landmark(double qx, double qy, const std::vector<std::pair<double, dou
 // 정사각 박스(중심 c, 반 변 half) 위의 점 p를 팔로 다루려고 다가설 자세 후보 — 가까운 변부터 (변 4개).
 //   변 바깥 standoff [m]에 서서 박스 안쪽을 바라봄, 변을 따라서는 p와 나란히 (박스 범위 안으로 자름). arena 좌표
 std::vector<Pose2> approach_poses(double cx, double cy, double half, double px, double py, double standoff);
+// 다가설 자리를 잡을 박스 가운데 (11-16) — 인지 상자 가운데 q(본 위치 평균, arena)가 hits ≥ min_hits이고 도면 가운데 b에서
+//   gate 안이면 q, 아니면 b (못 믿음 → 도면). used = q를 씀
+std::pair<double, double> perceived_center(double bx, double by, double qx, double qy, int hits, int min_hits, double gate,
+                                           bool & used);
 
 // 방문 순서 파라미터(1부터 번호) → 0부터 인덱스. n개의 순열이 아니면(빈 값·중복·범위 밖) 0..n-1 그대로
 std::vector<size_t> visit_order(const std::vector<int64_t> & order, size_t n);

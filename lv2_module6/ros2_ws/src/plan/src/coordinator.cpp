@@ -1,5 +1,6 @@
 // coordinator 구현 — 노드 설명·입출력·멤버 선언은 include/plan/coordinator.hpp, main은 coordinator_main.cpp
 #include "plan/coordinator.hpp"
+#include "plan/shared_tf.hpp"
 
 #include <algorithm>
 #include <cmath>
@@ -110,8 +111,7 @@ Coordinator::Coordinator(const rclcpp::NodeOptions & options)
     skills_[a] = rclcpp_action::create_client<Skill>(this, "/skills/" + a);
     step_timeout_s_[a] = declare_parameter<double>("step_timeout_s." + a, t);
   }
-  tf_buffer_ = std::make_unique<tf2_ros::Buffer>(get_clock());
-  tf_listener_ = std::make_shared<tf2_ros::TransformListener>(*tf_buffer_);
+  std::tie(tf_buffer_, tf_listener_) = shared_tf(*this);  // 같은 프로세스 plan 노드와 TF 하나 (plan/shared_tf.hpp)
   const auto latched = rclcpp::QoS(10).reliable().transient_local();
   status_pub_ = create_publisher<TaskStatus>("/task/status", latched);
   current_plan_pub_ = create_publisher<SubGoalArray>("/task/current_plan", rclcpp::QoS(1).reliable().transient_local());

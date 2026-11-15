@@ -73,8 +73,15 @@ struct TrtRunner {
   size_t in_n{0}, out_n{0};        // 입력·출력 float 개수
   std::vector<int64_t> in_shape;   // (1, 3, H, W)
   std::vector<int64_t> out_shape;  // (1, 4 + 클래스 수, N)
+  // CUDA 그래프 (11-16): enqueueV3는 커널 수백 개를 하나씩 띄움 — 실기처럼 CPU가 꽉 차면 띄우는 사이사이 스레드가 밀려
+  //   GPU가 놀면서 기다림 (실기 GPU 점유 12~24 %인데 YOLO 17~91 ms). 한 번 잡아 둔 그래프는 cudaGraphLaunch 한 번으로 다 띄움.
+  //   젯슨 실측 (실기 스택이 돌고 CPU 80~100 %일 때, 단독 프로그램 60회): 추론 중앙 14.2 → 4.0 ms · p90 31~41 → 6~7 ms ·
+  //   그 스레드 CPU 4.2 → 0.4 ms/장. 같은 커널·같은 버퍼라 출력 같음 (test_yolo_trt_graph). 못 잡으면 enqueueV3 그대로
+  cudaGraphExec_t graph{nullptr};
+  std::string graph_error;  // 그래프를 못 잡은 이유 ('' = 잡음 또는 안 씀)
 
   ~TrtRunner() {
+    if (graph) cudaGraphExecDestroy(graph);
     ctx.reset();
     engine.reset();
     runtime.reset();
@@ -127,10 +134,40 @@ struct TrtRunner {
     return "";
   }
 
+  // enqueueV3를 그래프로 잡음 (load 뒤 한 번) — 실패하면 graph 없이 (run이 enqueueV3로)
+  void capture_graph() {
+    // 첫 enqueueV3는 TensorRT가 안쪽 준비(메모리 · 전술 고르기)를 할 수 있어 그래프 밖에서 한 번 돌림
+    if (!ctx->enqueueV3(stream) || cudaStreamSynchronize(stream) != cudaSuccess) {
+      graph_error = "첫 enqueueV3 실패";
+      return;
+    }
+    cudaGraph_t g = nullptr;
+    if (cudaStreamBeginCapture(stream, cudaStreamCaptureModeThreadLocal) != cudaSuccess) {
+      graph_error = "cudaStreamBeginCapture 실패";
+      cudaGetLastError();
+      return;
+    }
+    const bool enq = ctx->enqueueV3(stream);
+    const cudaError_t end = cudaStreamEndCapture(stream, &g);
+    if (!enq || end != cudaSuccess || !g) {
+      graph_error = std::string("그래프로 못 잡음 (") + (enq ? cudaGetErrorString(end) : "enqueueV3") + ")";
+      if (g) cudaGraphDestroy(g);
+      cudaGetLastError();
+      return;
+    }
+    const cudaError_t inst = cudaGraphInstantiate(&graph, g, 0);
+    cudaGraphDestroy(g);
+    if (inst != cudaSuccess) {
+      graph = nullptr;
+      graph_error = std::string("cudaGraphInstantiate: ") + cudaGetErrorString(inst);
+      cudaGetLastError();
+    }
+  }
+
   // h_in(이미 채워 둠) → GPU → 추론 → h_out — 끝날 때까지 잠들어 기다림
   bool run() {
     if (cudaMemcpyAsync(d_in, h_in, in_n * sizeof(float), cudaMemcpyHostToDevice, stream) != cudaSuccess) return false;
-    if (!ctx->enqueueV3(stream)) return false;
+    if (graph ? cudaGraphLaunch(graph, stream) != cudaSuccess : !ctx->enqueueV3(stream)) return false;
     if (cudaMemcpyAsync(h_out, d_out, out_n * sizeof(float), cudaMemcpyDeviceToHost, stream) != cudaSuccess) return false;
     if (cudaEventRecord(done, stream) != cudaSuccess) return false;
     return cudaEventSynchronize(done) == cudaSuccess;
@@ -152,7 +189,7 @@ struct YoloOnnx::Impl {
 };
 
 YoloOnnx::YoloOnnx(const std::string & path, const std::string & device, int cpu_threads, int imgsz,
-                   const std::string & trt_engine)
+                   const std::string & trt_engine, bool trt_cuda_graph)
 : impl_(std::make_shared<Impl>()) {
   auto & m = *impl_;
   // GPU를 원하나: "cuda" · "cuda:0" · "0"(GPU 번호, ultralytics device 표기)
@@ -207,8 +244,13 @@ YoloOnnx::YoloOnnx(const std::string & path, const std::string & device, int cpu
           m.in_w = static_cast<int>(ishape[3]);
           auto names = probe.GetModelMetadata().LookupCustomMetadataMapAllocated("names", alloc);
           if (names) m.names = parse_names(names.get());
-          m.trt = std::move(trt);
           m.provider = "TensorRT";
+          if (trt_cuda_graph) {
+            trt->capture_graph();
+            if (trt->graph) m.provider = "TensorRT (CUDA 그래프)";
+            else m.error = "TensorRT CUDA 그래프 못 씀 — enqueueV3로: " + trt->graph_error;
+          }
+          m.trt = std::move(trt);
           return;  // ONNX Runtime 세션은 안 만듦
         }
       } catch (const Ort::Exception & e) {

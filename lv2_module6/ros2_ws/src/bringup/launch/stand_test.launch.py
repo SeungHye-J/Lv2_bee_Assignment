@@ -19,7 +19,7 @@ import os
 from launch import LaunchDescription
 from launch.actions import DeclareLaunchArgument, GroupAction, IncludeLaunchDescription, SetLaunchConfiguration
 from launch.launch_description_sources import PythonLaunchDescriptionSource
-from launch.substitutions import LaunchConfiguration, PathJoinSubstitution
+from launch.substitutions import LaunchConfiguration, PathJoinSubstitution, PythonExpression
 from launch_ros.actions import Node
 from launch_ros.parameter_descriptions import ParameterValue
 from launch_ros.substitutions import FindPackageShare
@@ -51,6 +51,8 @@ def generate_launch_description():
         DeclareLaunchArgument('grasp_min_effort', default_value='0.25', description='잡기 판정 전류 하한 [A]'),
         DeclareLaunchArgument('learning_enabled', default_value='true', description='false면 정책 Δ 0'),
         DeclareLaunchArgument('map_dir', default_value='', description='start.sh 호환용 (쓰지 않음)'),
+        DeclareLaunchArgument(_main.HAND_RELATIVE_PY_ARG[0], default_value=_main.HAND_RELATIVE_PY_ARG[1], description=_main.HAND_RELATIVE_PY_ARG[2]),
+        DeclareLaunchArgument('cmd_vel_relay_py', default_value='false', description='true면 cmd_vel_relay 예전 파이썬판 (scripts/cmd_vel_relay.py) · 기본 C++'),
         # 고정 인자도 밖(전역)에 둔다 — ros_system이 spawner 끝난 뒤(이벤트 처리기)에 use_moveit 등을 다시 읽는데,
         # GroupAction 안에서만 넘기면 그때는 사라져 launch 전체가 죽음 ("launch configuration 'use_moveit' does not exist")
         *[SetLaunchConfiguration(k, v) for k, v in FIXED.items()],
@@ -63,7 +65,7 @@ def generate_launch_description():
         # 다가가면 퍽이 카메라 0.7 m 안(화면 아래·가까움)에 들어와 YOLO가 놓침 → 그 안의 물체는 못 봐도 지우지 않음 (기억 유지)
         node('perception', 'perception_node', {'miss_min_range': ParameterValue(LaunchConfiguration('miss_min_range'), value_type=float),
                                                'device': LaunchConfiguration('perception_device')}),
-        node('perception', 'hand_relative'),
+        node('perception', _main.hand_relative_exe()),
         node('plan', 'coordinator'),
         GroupAction([IncludeLaunchDescription(
             PythonLaunchDescriptionSource(PathJoinSubstitution([FindPackageShare('skills'), 'launch', 'skills.launch.py'])),
@@ -75,7 +77,9 @@ def generate_launch_description():
         node('control', 'arm_safety_monitor'),
         node('control', 'manual_control'),
         # Nav2(velocity_smoother · collision_monitor)가 없으니 twist_mux 출력을 바퀴로 바로 — 수동 주행용
-        Node(package='bringup', executable='cmd_vel_relay', output='screen'),
+        #   C++판 cmd_vel_relay (src/cmd_vel_relay.cpp, 11-16) · cmd_vel_relay_py:=true면 예전 파이썬 — 노드 이름 같음
+        Node(package='bringup', output='screen', executable=PythonExpression(
+            ["'cmd_vel_relay_py' if '", LaunchConfiguration('cmd_vel_relay_py'), "'.lower() == 'true' else 'cmd_vel_relay'"])),
         node('manager', 'state_manager', {'map_mode': 'LOCALIZATION',
                                           'map_name': ParameterValue('', value_type=str),
                                           'map_dir': ParameterValue(LaunchConfiguration('map_dir'), value_type=str)}),

@@ -136,6 +136,11 @@ Pose2 arena_to_map(const Pose2 & p, const Pose2 & start) {
   return {c * dx - s * dy, s * dx + c * dy, std::remainder(p.yaw - start.yaw, 2 * M_PI)};
 }
 
+Pose2 map_to_arena(const Pose2 & m, const Pose2 & start) {
+  const double c = std::cos(start.yaw), s = std::sin(start.yaw);
+  return {start.x + c * m.x - s * m.y, start.y + s * m.x + c * m.y, std::remainder(m.yaw + start.yaw, 2 * M_PI)};
+}
+
 Pose2 apply_corr(const ArenaCorr & c, const Pose2 & m) {
   const double co = std::cos(c.dth), si = std::sin(c.dth);
   return {co * m.x - si * m.y + c.dx, si * m.x + co * m.y + c.dy, std::remainder(m.yaw + c.dth, 2 * M_PI)};
@@ -155,6 +160,11 @@ ArenaCorr corr_step(const ArenaCorr & c, double max_m, double max_rad) {
 ArenaCorr corr_after_step(const ArenaCorr & c, const ArenaCorr & s) {
   const double x = c.dx - s.dx, y = c.dy - s.dy, co = std::cos(s.dth), si = std::sin(s.dth);
   return {co * x + si * y, -si * x + co * y, std::remainder(c.dth - s.dth, 2 * M_PI), c.n};
+}
+
+ArenaCorr compose_corr(const ArenaCorr & a, const ArenaCorr & b) {
+  const double co = std::cos(a.dth), si = std::sin(a.dth);
+  return {co * b.dx - si * b.dy + a.dx, si * b.dx + co * b.dy + a.dy, std::remainder(a.dth + b.dth, 2 * M_PI), a.n};
 }
 
 ArenaCorr fit_arena_corr(std::vector<CorrPair> pairs, double min_sep, double max_shift, double max_rot, double outlier_m) {
@@ -308,6 +318,12 @@ std::vector<Pose2> approach_poses(double cx, double cy, double half, double px, 
   std::vector<Pose2> out;
   for (const auto & s : sides) out.push_back(s.second);
   return out;
+}
+
+std::pair<double, double> perceived_center(double bx, double by, double qx, double qy, int hits, int min_hits, double gate,
+                                           bool & used) {
+  used = hits >= min_hits && std::hypot(qx - bx, qy - by) < gate;
+  return used ? std::pair{qx, qy} : std::pair{bx, by};
 }
 
 std::vector<size_t> visit_order(const std::vector<int64_t> & order, size_t n) {

@@ -11,6 +11,7 @@
 
   <depend>rclpy</depend>
   <depend>rclcpp</depend>
+  <depend>rclcpp_components</depend>
   <depend>std_msgs</depend>
   <depend>action_msgs</depend>
   <depend>nav2_msgs</depend>

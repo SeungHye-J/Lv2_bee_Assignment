@@ -108,6 +108,15 @@ BodyFilter::BodyFilter(const rclcpp::NodeOptions & options)
   const auto no_floor = declare_parameter<std::string>("no_floor_topic", "/pole_front_cam/depth/color/points_no_floor");
   floor_frame_ = declare_parameter<std::string>("floor_frame", "base_footprint");
   floor_z_ = declare_parameter<double>("floor_z", 0.02);  // 바닥 여유 — depth 잡음(약 1cm)만 뺌 (그보다 높은 물체는 남김)
+  // 점마다 판정을 GPU로 (11-16) — 결과는 CPU판과 같음 (body_filter_core.hpp) · GPU가 없거나 실패하면 저절로 CPU판
+  use_gpu_ = declare_parameter<bool>("use_gpu", true);
+  if (use_gpu_) {
+    cuda_ = std::make_unique<BodyFilterCuda>();
+    if (!cuda_->available()) {
+      RCLCPP_WARN(get_logger(), "GPU 판정 못 씀 (%s) — CPU판", cuda_->error().c_str());
+      cuda_.reset();
+    }
+  }
   tf_ = std::make_shared<tf2_ros::Buffer>(get_clock());
   tf_listener_ = std::make_shared<tf2_ros::TransformListener>(*tf_);
   urdf_sub_ = create_subscription<std_msgs::msg::String>(
@@ -131,9 +140,11 @@ BodyFilter::BodyFilter(const rclcpp::NodeOptions & options)
     s.add("처리한 점구름", clouds_);
     s.add("뺀 점 (누적)", removed_);
     s.add("바닥이라 뺀 점 (누적, no_floor 출력)", floor_removed_);
+    s.add("판정 장치", cuda_ ? "GPU (CUDA)" : "CPU");
   });
-  RCLCPP_INFO(get_logger(), "%s → %s (padding %.2fm · 차체 %zu개 링크 %.2fm, stride %d) · 바닥 뺀 출력 %s (%s z ≤ %.2fm 뺌)",
-              in.c_str(), out.c_str(), padding_, base_links_.size(), base_padding_, stride_, no_floor.c_str(), floor_frame_.c_str(), floor_z_);
+  RCLCPP_INFO(get_logger(), "%s → %s (padding %.2fm · 차체 %zu개 링크 %.2fm, stride %d) · 바닥 뺀 출력 %s (%s z ≤ %.2fm 뺌) · 판정 %s",
+              in.c_str(), out.c_str(), padding_, base_links_.size(), base_padding_, stride_, no_floor.c_str(), floor_frame_.c_str(), floor_z_,
+              cuda_ ? "GPU" : "CPU");
 }
 
 void BodyFilter::on_cloud(const PointCloud2 & in) {
@@ -145,7 +156,8 @@ void BodyFilter::on_cloud(const PointCloud2 & in) {
     if (f.name == "y") oy = static_cast<int>(f.offset);
     if (f.name == "z") oz = static_cast<int>(f.offset);
   }
-  if (boxes_.empty() || ox < 0 || oy < 0 || oz < 0) {
+  const size_t n = static_cast<size_t>(in.width) * in.height;
+  if (boxes_.empty() || ox < 0 || oy < 0 || oz < 0 || in.point_step < 12 || in.data.size() < n * in.point_step) {
     pub_->publish(in);  // URDF 전이거나 xyz가 없으면 그대로 (Nav2가 센서를 잃지 않게)
     return;
   }
@@ -209,38 +221,50 @@ void BodyFilter::on_cloud(const PointCloud2 & in) {
     if (want_floor) tf2::fromMsg(ts.transform, to_floor);
   }
   PointCloud2 out_nf = out;  // 바닥까지 뺀 출력 (같은 필드·헤더)
-  size_t kept_nf = 0;
-  const size_t n = static_cast<size_t>(in.width) * in.height;
-  size_t kept = 0;
-  // 몸 점이 아닌 점을 출력에 넣음 — 바닥 뺀 출력에는 floor_frame 높이가 floor_z보다 높은 점만
-  auto keep = [&](const uint8_t * p, const tf2::Vector3 & pt) {
+  // 점마다 판정 (body_filter_core — GPU 또는 CPU, 결과 같음) → 남길 점만 출력에 복사
+  BodyCloudJob job;
+  job.data = in.data.data();
+  job.n = n;
+  job.point_step = in.point_step;
+  job.ox = ox; job.oy = oy; job.oz = oz;
+  // Gazebo RGBD는 depth 픽셀마다 점을 만든다. Nav2/collision_monitor에는
+  // 조밀한 원본이 필요 없으므로 stride로 솎아 대역폭과 voxel 비용을 줄인다.
+  job.stride = static_cast<size_t>(stride_);
+  job.boxes.resize(to_box.size());
+  for (size_t k = 0; k < to_box.size(); ++k) {
+    auto & b = job.boxes[k];
+    for (int r = 0; r < 3; ++r) {
+      const tf2::Vector3 row = to_box[k].getBasis().getRow(r);
+      b.r[r * 3] = row.x(); b.r[r * 3 + 1] = row.y(); b.r[r * 3 + 2] = row.z();
+      b.t[r] = to_box[k].getOrigin()[r];
+      b.half[r] = half[k][r];
+    }
+  }
+  job.sc[0] = sc.x(); job.sc[1] = sc.y(); job.sc[2] = sc.z();
+  job.sr2 = sr2;
+  job.want_floor = want_floor;
+  if (want_floor) {
+    const tf2::Vector3 fz = to_floor.getBasis().getRow(2);
+    job.fr[0] = fz.x(); job.fr[1] = fz.y(); job.fr[2] = fz.z();
+    job.ft = to_floor.getOrigin().z();
+    job.floor_z = floor_z_;
+  }
+  if (cuda_ && !cuda_->classify(job, mask_)) {
+    RCLCPP_ERROR(get_logger(), "GPU 판정 실패 (%s) — 이후 CPU판", cuda_->error().c_str());
+    cuda_.reset();
+  }
+  if (!cuda_) classify_body_cpu(job, mask_);
+  size_t kept = 0, kept_nf = 0;
+  for (size_t j = 0; j < mask_.size(); ++j) {
+    const uint8_t mk = mask_[j];
+    if (!mk) continue;
+    const uint8_t * p = &in.data[j * job.stride * in.point_step];
     out.data.insert(out.data.end(), p, p + in.point_step);
     ++kept;
-    if (want_floor && (to_floor * pt).z() > floor_z_) {
+    if (mk & BODY_ABOVE_FLOOR) {
       out_nf.data.insert(out_nf.data.end(), p, p + in.point_step);
       ++kept_nf;
     }
-  };
-  // Gazebo RGBD는 depth 픽셀마다 점을 만든다. Nav2/collision_monitor에는
-  // 조밀한 원본이 필요 없으므로 stride로 솎아 대역폭과 voxel 비용을 줄인다.
-  for (size_t i = 0; i < n; i += static_cast<size_t>(stride_)) {
-    const uint8_t * p = &in.data[i * in.point_step];
-    float x, y, z;
-    std::memcpy(&x, p + ox, 4);
-    std::memcpy(&y, p + oy, 4);
-    std::memcpy(&z, p + oz, 4);
-    const tf2::Vector3 pt(x, y, z);
-    bool body = false;
-    if ((pt - sc).length2() > sr2) {  // 몸 영역 밖 — 그대로 통과
-      keep(p, pt);
-      continue;
-    }
-    for (size_t k = 0; k < to_box.size() && !body; ++k) {
-      const tf2::Vector3 q = to_box[k] * pt;
-      body = std::abs(q.x()) <= half[k].x() && std::abs(q.y()) <= half[k].y() && std::abs(q.z()) <= half[k].z();
-    }
-    if (body) continue;
-    keep(p, pt);
   }
   removed_ += n - kept;
   out.width = static_cast<uint32_t>(kept);

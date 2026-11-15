@@ -127,8 +127,8 @@ std::string SignalDecoder::progress() const {
          " · " + std::to_string(seg_.size()) + "/" + std::to_string(p_.blinks);
 }
 
-SignalDecoderNode::SignalDecoderNode()
-: rclcpp::Node("signal_decoder") {
+SignalDecoderNode::SignalDecoderNode(const rclcpp::NodeOptions & options)
+: rclcpp::Node("signal_decoder", options) {
   SignalParams p;
   p.min_on_s = declare_parameter<double>("min_on_s", p.min_on_s);
   p.min_off_s = declare_parameter<double>("min_off_s", p.min_off_s);

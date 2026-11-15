@@ -197,6 +197,8 @@ PerceptionNode::PerceptionNode(const rclcpp::NodeOptions & options) : rclcpp::No
   // YOLO TensorRT (시작할 때만) — true면 ~/.cache/beebot/trt/<모델 이름>_fp16.engine 이 있을 때 추론을 TensorRT로
   //   (젯슨에서 trtexec로 만든 엔진 · 없거나 안 맞으면 ONNX Runtime 그대로, 이유와 만드는 명령은 경고로) · false = 늘 ONNX Runtime
   const bool tensorrt = declare_parameter<bool>("tensorrt", true);
+  // TensorRT 추론을 CUDA 그래프로 (시작할 때만, 11-16) — false = 예전처럼 enqueueV3 (yolo_onnx.hpp)
+  const bool tensorrt_cuda_graph = declare_parameter<bool>("tensorrt_cuda_graph", true);
   const char * home = std::getenv("HOME");
   const std::string trt_dir = std::string(home ? home : "") + "/.cache/beebot/trt";
   // .onnx 경로 → 엔진 경로 (예: .../bee_yolo11n_v6.onnx → ~/.cache/beebot/trt/bee_yolo11n_v6_fp16.engine) · '' = 안 씀
@@ -351,7 +353,7 @@ PerceptionNode::PerceptionNode(const rclcpp::NodeOptions & options) : rclcpp::No
       RCLCPP_WARN(get_logger(), "%s: .onnx만 읽음 (C++판) — %s", what, path.c_str());
       return nullptr;
     }
-    auto m = std::make_unique<YoloOnnx>(path, device_, cpu_threads_, imgsz_, trt_engine_for(path));
+    auto m = std::make_unique<YoloOnnx>(path, device_, cpu_threads_, imgsz_, trt_engine_for(path), tensorrt_cuda_graph);
     if (!m->ok()) {
       RCLCPP_WARN(get_logger(), "%s 로드 실패 (%s)", what, m->error().c_str());
       return nullptr;

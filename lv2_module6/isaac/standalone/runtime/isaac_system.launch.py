@@ -39,6 +39,8 @@ ARGS = {
     'map': 'slam',               # 매핑 — 새 폴더 ~/.ros/beebot_maps/<날짜_시각>/ (저장 지도로: map:=saved)
     'use_perception': 'true',    # YOLO · signal_decoder · hand_relative (매핑 중에도)
     'operation': 'AUTO',         # coordinator가 skill을 실행하는 모드
+    'taught_routes': os.environ.get('TAUGHT_ROUTES', 'false'),
+    'start_pose': os.environ.get('START_POSE', ''),  # '[x, y, yaw]' arena — SPAWN과 같게 (구간 하나만 시험, 11-16)  # 움직임 정답표 재생 (~/.ros/routes) — TAUGHT_ROUTES=true ./isaac_sim.sh (11-15)
 }
 HERE = os.path.dirname(os.path.abspath(__file__))
 SCENE = os.path.splitext(os.path.basename(os.environ.get('ISAAC_SCENE', 'scene_sim.usda')))[0]

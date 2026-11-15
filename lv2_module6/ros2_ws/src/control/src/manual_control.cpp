@@ -3,8 +3,8 @@
 
 namespace control {
 
-ManualControl::ManualControl()
-: rclcpp::Node("manual_control") {
+ManualControl::ManualControl(const rclcpp::NodeOptions & options)
+: rclcpp::Node("manual_control", options) {
   arm_joints_ = declare_parameter<std::vector<std::string>>("arm_joints", {"joint1", "joint2", "joint3", "joint4", "joint5"});
   gripper_joint_ = declare_parameter<std::string>("gripper_joint", "gripper_left_joint");
   arm_move_s_ = declare_parameter<double>("arm_move_s", 1.0);

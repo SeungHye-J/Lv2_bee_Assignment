@@ -25,6 +25,10 @@ perception:
                             #       --saveEngine=$HOME/.cache/beebot/trt/<모델 이름>_fp16.engine --fp16   (약 6분)
                             #   11/15 젯슨 실측 (v6, 초당 8장): 한 장 10 → 3.2 ms · CPU 한 코어의 14 → 3 % · 실물 시험 퍽 710 → 709/767
                             #   빌드에 libnvinfer-dev(TensorRT 헤더)가 필요 — 없으면 TensorRT 없이 빌드돼 이 값은 무시됨
+    tensorrt_cuda_graph: true  # TensorRT 추론을 CUDA 그래프 하나로 띄움 (시작할 때만, 11-16) — 출력 같음 · 못 잡으면 저절로 예전(enqueueV3)
+                            #   실기 진단 YOLO 17~91 ms는 GPU 다툼이 아니라 커널 수백 개를 띄우는 CPU 스레드가 밀린 것 (GPU 점유 12~24 %,
+                            #   GPU 이벤트로 잰 추론 구간도 CPU 바쁠 때만 늘어남). 단독 측정 (실기 스택 + CPU 80~100 %): 중앙 14.2 → 4.0 ms ·
+                            #   p90 31~41 → 6~7 ms · 스레드 CPU 4.2 → 0.4 ms/장 · false = 예전처럼
     cv_threads: 2           # OpenCV 스레드 수 (0 = OpenCV 기본 = 코어 수 · 시작할 때만 읽음) — ONNX Runtime 스레드(cpu_threads)와 따로.
                             #   프로세스 전체에 걸림: AprilTag(aruco, 원본·감마·반 크기 3번) · resize · cvtColor(HSV·회색) · LUT · morphologyEx · connectedComponents
                             #   AprilTag가 거의 전부 — 젯슨 640×360 3번 CPU 시간/프레임(중앙/p90/최대): 기본 6스레드 38/66/95 ms · 2스레드 24/41/75 · 1스레드 22/37/68,
@@ -85,7 +89,7 @@ perception:
     edge_px: 5              # 박스가 화면 가장자리 이 안에 닿으면 잘린 퍽 — 크기 하한·자세 안 봄 [px]
     near_px: 70             # 깊이 없는데 박스 짧은 변이 이 이상이면 너무 가까운 퍽 — 위치 갱신 없이 마지막 위치 유지 [px]
     depth_min_valid: 0.5    # 박스 가운데 깊이 화소가 이 비율보다 적으면 깊이 없음 (배경 몇 화소로 엉뚱한 거리 안 냄)
-hand_relative:               # 손 카메라 상대값 → 학습 보정 정책 입력 (scripts/hand_relative.py · 2026-11-03 배포 결정)
+hand_relative:               # 손 카메라 상대값 → 학습 보정 정책 입력 (src/hand_relative.cpp · 파이썬판 scripts/hand_relative.py · 2026-11-03 배포 결정)
   ros__parameters:
     base_frame: "base_link"  # 시뮬 정책(isaac/rl/bee_isaac/tasks)이 쓰던 좌표
     ee_frame: "end_effector_link"

@@ -48,7 +48,8 @@ include_directories(include)
 # --- 노드: 클래스 구현(src/<노드>.cpp)은 라이브러리 하나로 묶고, 실행 파일(src/<노드>_main.cpp)과 테스트가 함께 링크
 #     선언·설명은 include/plan/<노드>.hpp
 add_library(${PROJECT_NAME}_nodes STATIC src/coordinator.cpp
-  src/mission_solver.cpp src/mission_manager.cpp)
+  src/mission_solver.cpp src/mission_manager.cpp
+  src/shared_tf.cpp)  # TF 버퍼 하나를 같은 프로세스 plan 노드가 같이 (11-16 메모리)
 target_include_directories(${PROJECT_NAME}_nodes PUBLIC include ${ml_INCLUDE_DIRS})
 target_compile_features(${PROJECT_NAME}_nodes PUBLIC cxx_std_17)
 target_link_libraries(${PROJECT_NAME}_nodes PUBLIC rclcpp::rclcpp rclcpp_action::rclcpp_action
@@ -62,6 +63,13 @@ foreach(node coordinator mission_manager)
   target_link_libraries(${node} ${PROJECT_NAME}_nodes)
 endforeach()
 install(TARGETS coordinator mission_manager DESTINATION lib/${PROJECT_NAME})
+# 컴포넌트 (11-16 메모리) — 같은 클래스를 컨테이너 한 프로세스에 올림 (bringup core_composition). 실행 파일은 그대로
+find_package(rclcpp_components REQUIRED)
+set_target_properties(${PROJECT_NAME}_nodes PROPERTIES POSITION_INDEPENDENT_CODE ON)
+add_library(${PROJECT_NAME}_components SHARED src/components.cpp)
+target_link_libraries(${PROJECT_NAME}_components ${PROJECT_NAME}_nodes rclcpp_components::component)
+rclcpp_components_register_nodes(${PROJECT_NAME}_components "plan::Coordinator" "plan::MissionManager")
+install(TARGETS ${PROJECT_NAME}_components LIBRARY DESTINATION lib)
 
 # 파라미터 (bringup이 share/plan/config/plan.yaml을 노드에 넘긴다)
 install(DIRECTORY config DESTINATION share/${PROJECT_NAME})

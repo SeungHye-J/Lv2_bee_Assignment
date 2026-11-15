@@ -544,8 +544,8 @@ geometry_msgs::msg::TwistStamped RlNavController::computeVelocityCommands(
         geometry_msgs::msg::TwistStamped cmd;
         cmd.header.frame_id = costmap_ros_->getBaseFrameID();
         cmd.header.stamp = pose.header.stamp;
-        // ponytail: P 제어 (게인 2, 최소 0.3 rad/s) — 회전 중 충돌 검사 없음, 상자에 붙어 돌다 부딪히면 footprint 검사 추가
-        cmd.twist.angular.z = std::copysign(std::clamp(2.0 * std::abs(err), 0.3, 1.0), err);
+        // ponytail: P 제어 (게인 2, 최소 0.3 · 최대 0.5 rad/s) — 회전 중 충돌 검사 없음, 상자에 붙어 돌다 부딪히면 footprint 검사 추가
+        cmd.twist.angular.z = std::copysign(std::clamp(2.0 * std::abs(err), 0.3, 0.5), err);  // 11-16: 상한 1.0 → 0.5 (회전 절반)
         publish_status(0, 5, cmd);
         return cmd;
       }

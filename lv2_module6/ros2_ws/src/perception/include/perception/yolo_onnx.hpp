@@ -14,6 +14,8 @@
 //     전처리·후처리는 위와 그대로 같은 코드. TensorRT 없이 빌드됐거나(PERCEPTION_TENSORRT 없음) 엔진이 없거나 .onnx와
 //     안 맞으면(입출력 모양이 다름 · .onnx가 엔진보다 새것) ONNX Runtime 그대로 — 이유는 error()에
 //     클래스 이름·입력 크기는 엔진에 없어서 .onnx에서 읽음 (CPU 세션으로 잠깐 열고 닫음)
+//   CUDA 그래프 (11-16, tensorrt_cuda_graph): TensorRT 커널 수백 개를 그래프 하나로 — 실기에서 YOLO가 GPU가 아니라
+//     커널 띄우는 CPU 스레드가 밀려 늦었음 (GPU 점유 12~24 %) · 중앙 14 → 4 ms · p90 31~41 → 6~7 ms (yolo_onnx.cpp TrtRunner)
 #include <map>
 #include <memory>
 #include <string>
@@ -36,8 +38,9 @@ public:
   // device: "cuda" · "0"(GPU 번호) → GPU 시도 · 그 밖("cpu")은 CPU
   // cpu_threads: CPU로 돌 때 연산 스레드 수 (코어를 다 쓰면 제어·Nav2가 밀림) · imgsz: 입력 크기가 고정이 아닐 때 정사각형 한 변
   // trt_engine: TensorRT 엔진 파일 경로 ('' = 안 씀) — device가 GPU일 때만 · 파일이 없으면 ONNX Runtime
+  // trt_cuda_graph: TensorRT 추론을 CUDA 그래프로 한 번에 띄움 (11-16 — CPU가 바쁠 때 지연이 줄어듦, 출력 같음) · 못 잡으면 enqueueV3
   YoloOnnx(const std::string & path, const std::string & device, int cpu_threads, int imgsz,
-           const std::string & trt_engine = "");
+           const std::string & trt_engine = "", bool trt_cuda_graph = true);
   bool ok() const;               // 모델을 읽었나
   std::string provider() const;  // 실제로 쓰는 장치 (TensorRT / CUDAExecutionProvider / CPUExecutionProvider)
   std::string error() const;     // 못 읽었으면 이유 · GPU를 못 써서 CPU로 바꿨으면 그 이유

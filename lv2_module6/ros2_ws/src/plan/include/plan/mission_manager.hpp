@@ -84,7 +84,7 @@ const perception::msg::TrackedObject * puck_for(const perception::msg::TrackedOb
 
 class MissionManager : public rclcpp::Node {
 public:
-  MissionManager();
+  explicit MissionManager(const rclcpp::NodeOptions & options = rclcpp::NodeOptions());
 
 private:
   using Done = std::function<void(bool ok, const std::string & reason)>;
@@ -104,6 +104,7 @@ private:
   void run_retry(std::vector<SubGoal> goals, Done done, int tries = 0);
   // 박스 위 점(arena)을 다룰 자리로 navigate + approach — 점에서 가까운 변부터, 실패하면 다음 변 (최대 approach_tries)
   void go_near(const Box & box, double px, double py, Done done, size_t k = 0, std::vector<Pose2> poses = {}, bool retried = false);
+  //   박스 가운데는 near_center(인지 평균 또는 도면) — px·py(도면 기준 점)도 같은 만큼 옮김. 변 · @거리 · standoff는 그대로
 
   void go_observe();
   void barcode_phase();
@@ -170,6 +171,11 @@ private:
   std::vector<double> keepout_;  // 안 들어갈 구역 사각형 [x0, y0, x1, y1, …] (arena, m) — /arena/walls에 칸 100 · 다가설 자리 거르기
   bool in_keepout(double x, double y) const;
   double nav_turn_m_ = 0.55;     // [m] Nav2 목표를 박스 가운데에서 이만큼까지 물림 (제자리 회전 공간)
+  // 다가설 자리 · Nav2 목표의 박스 가운데 = 인지 상자 평균(marks_, min_hits · gate 안)이면 그것, 아니면 도면 (approach_perceived, 11-16)
+  bool near_perceived_ = true;
+  std::pair<double, double> near_c_{0.0, 0.0};  // 이번 go_near가 쓰는 박스 가운데 (arena) — 다가설 자리를 정할 때 한 번 정함
+  std::pair<double, double> near_center(const Box & box);
+  std::string box_label(const Box & box) const;  // S1..S6 · L1..L3 (로그용 — 목록에 없으면 "")
   double wall_clearance_ = 0.22; // [m] 다가설 자리가 벽에서 이보다 가까우면 그 변은 안 감 (로봇 반경 0.16 + 여유)
   std::vector<std::pair<double, double>> locations_;
   std::vector<int> loc_tags_;
@@ -290,6 +296,9 @@ private:
   bool loc_on_ = false;
   int loc_min_n_ = 3;
   double loc_step_m_ = 0.05, loc_step_rad_ = 0.0175, loc_min_m_ = 0.02, loc_min_rad_ = 0.0087, loc_settle_s_ = 1.5;
+  // 벽 정합 보정 중 로봇 위치로 이미 넘긴 몫 (조각을 이은 것) — nvblox 격자는 map에 쌓여 위치를 옮겨도 예전에 본 벽이 그대로라
+  //   벽 정합이 같은 차이를 다시 봄 → 빼지 않으면 같은 보정을 계속 넘겨 위치가 흘러감 (11-15 밤 시뮬 7 m). 벽 정합 차이가 작아지면 0
+  ArenaCorr loc_sent_;
   double loc_last_ = -1e9;            // 마지막으로 넘긴 시각 (wall_s) — settle 동안 상자 관측은 안 셈 (좌표가 옮겨지는 중)
   rclcpp::Publisher<std_msgs::msg::Float64MultiArray>::SharedPtr loc_pub_;
   rclcpp::TimerBase::SharedPtr loc_timer_;
@@ -304,6 +313,8 @@ private:
   bool verify_in_place_ = true;   // 장소의 마지막 퍽을 놓은 그 자리에서 바로 재검증 (11-15) · false = 다 놓은 뒤 L3·L2·L1 다시 감
   std::set<size_t> verified_;     // 이번 회차에 재검증한 장소
   int last_place_loc_ = -1;       // 마지막으로 놓기를 시작한 장소 (= 로봇이 그 앞에 섬)
+  std::string stop_;              // 로봇이 지금 선 곳 (start · S1~S6 · L1~L3, 모르면 '') — navigate에 'leg:<여기>_<갈 곳>'을 붙임 (움직임 정답표, 11-15)
+  std::string leg_to(const std::string & to) const { return stop_.empty() || to.empty() ? "" : " leg:" + stop_ + "_" + to; }
   std::vector<std::vector<int>> seen_tags_;      // 재검증 — 장소마다 본 tag (12개 중복·누락)
   // planner: rule (jobs_ 순서대로) | plan_next (학습된 플래너가 다음 퍽·복귀 시점을 고름 — 퍽 하나 처리는 bring 그대로)
   std::string planner_;
@@ -324,13 +335,14 @@ private:
   std::string run_dir_;
   perception::msg::TrackedObjectArray::ConstSharedPtr objects_;
 
-  std::unique_ptr<tf2_ros::Buffer> tf_buffer_;
+  std::shared_ptr<tf2_ros::Buffer> tf_buffer_;  // shared_tf — 같은 프로세스 plan 노드와 같이 씀
   std::shared_ptr<tf2_ros::TransformListener> tf_listener_;
   rclcpp_action::Client<ExecutePlan>::SharedPtr execute_client_;
   rclcpp::Publisher<MissionState>::SharedPtr state_pub_;
   rclcpp::Publisher<std_msgs::msg::Int32MultiArray>::SharedPtr beep_pub_;
   rclcpp::TimerBase::SharedPtr beep_timer_;
   rclcpp::Publisher<visualization_msgs::msg::MarkerArray>::SharedPtr markers_pub_;
+  rclcpp::Publisher<nav_msgs::msg::OccupancyGrid>::SharedPtr walls_only_pub_;  // /arena/walls_only — 벽만 (상자·금지 구역 없음) → collision_monitor 옆·뒤 입력
   rclcpp::Publisher<nav_msgs::msg::OccupancyGrid>::SharedPtr walls_pub_;  // /arena/walls (map, latched) → nvblox_map이 /map에 겹침
   void publish_walls();
   rclcpp::Subscription<std_msgs::msg::String>::SharedPtr cmd_sub_, barcode_sub_;

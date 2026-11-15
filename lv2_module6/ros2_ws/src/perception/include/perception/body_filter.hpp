@@ -12,11 +12,13 @@
 //             받는 쪽이 있을 때만 계산 (없으면 CPU 안 씀)
 // 판단: URDF <collision> 모양을 링크마다 TF로 카메라 프레임에 옮겨, 그 상자(+ padding) 안의 점을 뺀다.
 //   box는 그대로 · cylinder·sphere는 맞춤 상자 · mesh는 STL 경계 상자 (package:// → share 경로).
+// 점마다 판정은 body_filter_core (11-16): use_gpu true(기본)면 GPU(CUDA)판 · GPU가 없거나 실패하면 CPU판 — 결과 같음
 #include <memory>
 #include <string>
 #include <vector>
 
 #include "diagnostic_updater/diagnostic_updater.hpp"
+#include "perception/body_filter_core.hpp"
 #include "rclcpp/rclcpp.hpp"
 #include "sensor_msgs/msg/point_cloud2.hpp"
 #include "std_msgs/msg/string.hpp"
@@ -52,6 +54,9 @@ private:
   std::string floor_frame_;  // 바닥 높이를 잴 프레임 (z = 0이 바닥)
   double floor_z_;           // 이 높이 이하 점은 no_floor 출력에서 뺌 [m]
   std::vector<BodyBox> boxes_;
+  bool use_gpu_{true};
+  std::unique_ptr<BodyFilterCuda> cuda_;  // use_gpu이고 GPU가 보일 때만 (없으면 CPU판)
+  std::vector<uint8_t> mask_;             // 점마다 판정표 (body_filter_core.hpp BODY_*)
   size_t removed_ = 0, clouds_ = 0, floor_removed_ = 0;
   std::string last_error_;
   std::shared_ptr<tf2_ros::Buffer> tf_;

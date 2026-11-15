@@ -96,4 +96,13 @@ for min_depth, scale in ((0.5, 1000.0), (0.4999, 1000.0), (0.0, 1000.0), (0.3, 1
     old = ((d > 0) & (d < min_depth * scale)).astype(np.uint8)
     new = ns['near_mask'](d, lim)
     assert new.dtype == np.uint8 and (new == old).all(), (min_depth, new, old)
+# 회전 중 보정 멈춤 (11-16): 회전 중이면 지금 값 그대로 · 잠금·거름 수 안 셈 · 멈춘 뒤 다시 따라감
+g = G()
+g.update((0.0, 0.0, 0.0), 0.0)
+out, ok = g.update((0.01, 0.0, 0.02), 0.1, (0.0, 0.0, 0.0), True)
+assert not ok and out == (0.0, 0.0, 0.0) and g.held_rot == 1 and g.rejected == 0
+g.update((1.0, 0.0, 0.0), 0.2, (0.0, 0.0, 0.0), True)
+assert not g.locked
+out, ok = g.update((0.001, 0.0, 0.0), 0.3)
+assert ok and out == (0.001, 0.0, 0.0)
 print('test_map_gate OK')

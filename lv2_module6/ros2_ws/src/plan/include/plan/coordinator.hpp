@@ -154,7 +154,7 @@ private:
   std::string stopping_child_action_;
   rclcpp::TimerBase::SharedPtr stop_timer_;
   rclcpp::TimerBase::SharedPtr action_terminal_timer_;
-  std::unique_ptr<tf2_ros::Buffer> tf_buffer_;
+  std::shared_ptr<tf2_ros::Buffer> tf_buffer_;  // shared_tf — 같은 프로세스 plan 노드와 같이 씀
   std::shared_ptr<tf2_ros::TransformListener> tf_listener_;
   bool look_pending_ = false;                    // look_if_no_yaw의 inspect가 도는 중 — 실패해도 계획을 끝내지 않음
   size_t jam_retried_ = static_cast<size_t>(-1);  // arm_jam 재시도를 한 단계 (idx_) — 단계마다 한 번만

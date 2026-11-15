@@ -48,7 +48,7 @@ public:
   using GripperCommand = control_msgs::action::ParallelGripperCommand;
   using TwistStamped = geometry_msgs::msg::TwistStamped;
 
-  ManualControl();
+  explicit ManualControl(const rclcpp::NodeOptions & options = rclcpp::NodeOptions());
 
   bool manual() const;
 
