@@ -50,6 +50,8 @@ NAME_OVERRIDE = {
     'cowsjh': '송정혁',
     'SeungHye-J': '전승혜',
 }
+# 통계에 포함할 실제 팀원만 허용한다. 매핑되지 않은 git 작성자는 제외한다.
+TEAM_LOGINS = frozenset(NAME_OVERRIDE)
 # 공용 브랜치는 개인 브랜치 집계에서 뺀다.
 BASE_BRANCHES = {'main', 'develop'}
 # noreply 주소는 정규식으로 login을 뽑는다
@@ -61,6 +63,15 @@ def is_bot(login: str | None, user: dict | None = None) -> bool:
     if not login:
         return False
     return login.endswith('[bot]') or login in {'Copilot', 'copilot-swe-agent'}
+
+
+def canonical_team_login(login: str | None) -> str | None:
+    if not login:
+        return None
+    for known in TEAM_LOGINS:
+        if known.lower() == login.lower():
+            return known
+    return None
 
 
 def gh_json(endpoint: str) -> list:
@@ -254,9 +265,10 @@ def main() -> int:
     people: dict[str, dict] = {}
 
     def person(login: str | None, name: str | None = None) -> dict | None:
+        login = canonical_team_login(login)
         if not login or is_bot(login):
             return None
-        key = login if login.startswith('git:') else login.lower()
+        key = login.lower()
         p = people.setdefault(key, {
             'login': login, 'name': name or login,
             'commits': 0, 'add': 0, 'del': 0, 'weeks': [0] * 12, 'last_commit': None,
