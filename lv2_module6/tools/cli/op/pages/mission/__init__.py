@@ -19,7 +19,7 @@ from pathlib import Path
 from ...defs import STAY
 from ...dialog import FollowDialog
 from ...menus import ActionItem, GoMenu, Menu, MenuItem
-from ...terminal import BOLD, GREEN, RED, YELLOW, Terminal
+from ...terminal import BOLD, DIM, GREEN, RED, YELLOW, Terminal
 from ...bars.state.nav_state import collision_text, controller_text
 from ... import fielddebug as fd
 
@@ -59,8 +59,28 @@ def mission_lines(st, term) -> list[str]:
         name = f'{skill[0]} → {skill[1] or "-"}' if skill else '(current_plan 모름)'
         total = len(st.sub_goals[1]) if st.sub_goals[0] == plan_id else 0
         label = {0: p('RUNNING', YELLOW), 1: p('SUCCEEDED', GREEN), 2: p('FAILED', RED + BOLD)}.get(state, str(state))
-        out.append(f'[skill] step {step}{f"/{total}" if total else ""} {name} · {label} '
+        stage = st.skill_feedback
+        stage_text = ''
+        if stage and stage[:2] == (plan_id, step) and now - stage[4] < FRESH_S:
+            stage_text = f' · {stage[3]}'
+        out.append(f'[skill] step {step}{f"/{total}" if total else ""} {name} · {label}{stage_text} '
                    f'{now - st.task_since:.0f}s{" · " + p(reason, RED) if reason else ""}  (plan {plan_id})')
+    if st.plan_steps[0] and st.plan_steps[1]:
+        pid, rows = st.plan_steps
+        if st.task is not None and st.task[0] == pid:
+            marks = {0: '▶', 1: '✓', 2: '✕'}
+            parts = []
+            for i, (n, row) in enumerate(sorted(rows.items()), 1):
+                state = row['state']
+                if state is None:
+                    mark = '?' if n < st.task[1] else '·'
+                else:
+                    mark = marks.get(state, '?')
+                parts.append(f'{n}{mark}{row["skill"]}:{row["target"] or "-"}')
+            out.append('[계획] ' + '  '.join(parts))
+    if st.phase_history:
+        history = ' → '.join(phase for _, phase, _ in list(st.phase_history)[-5:])
+        out.append('[미션 단계] ' + history)
     out.append(f'[실패 이력 {len(st.failures)}/10]' + ('' if st.failures else ' 없음'))
     for at, _, src, reason in reversed(st.failures):
         out.append(' ' + p(f'{at} {src}: {reason}', RED))
@@ -121,6 +141,46 @@ def mission_lines(st, term) -> list[str]:
     for lv, n, msg in bad[:6]:
         out.append(' ' + p(f'{n.split(": ", 1)[-1]}: {msg}', RED if lv >= 2 else YELLOW))
     return out
+
+
+def step_trace_lines(st, term) -> list[str]:
+    """현재 ExecutePlan의 단계별 결과와 action feedback — 누락된 과거 이벤트는 성공으로 추정하지 않음."""
+    p, now = term.paint, time.monotonic()
+    lines = []
+    if st.mission is not None:
+        lines.append(f'미션 {st.mission.phase} · {st.mission.note or "-"}')
+    if not st.plan_steps[0] or not st.plan_steps[1]:
+        lines.append('현재 skill 계획 없음 (/task/current_plan 대기)')
+        return lines
+    plan_id, rows = st.plan_steps
+    lines.append(f'계획 {plan_id} · {len(rows)} steps')
+    task = st.task if st.task and st.task[0] == plan_id else None
+    for step, row in sorted(rows.items()):
+        state = row['state']
+        if state == 0:
+            label, color = '실행 중', YELLOW
+        elif state == 1:
+            label, color = '완료', GREEN
+        elif state == 2:
+            label, color = '실패', RED + BOLD
+        elif task and step < task[1]:
+            label, color = '결과 미수신', YELLOW
+        else:
+            label, color = '대기', DIM
+        elapsed = ''
+        if row['since']:
+            end = row['updated'] or now
+            elapsed = f' · {max(0.0, end - row["since"]):.0f}s'
+        stage = st.skill_feedback
+        detail = f' · 이유: {row["reason"]}' if row['reason'] else ''
+        if task and task[1] == step and stage and stage[:2] == (plan_id, step) and now - stage[4] < FRESH_S:
+            detail += f' · 현재: {stage[3]}'
+        lines.append(f'{step:02d} {row["skill"]:<10} {row["target"] or "-":<18} {p(label, color)}{elapsed}{detail}')
+    if st.phase_history:
+        lines.extend(['', '이번 TUI 연결 중 미션 단계: ' + ' → '.join(phase for _, phase, _ in st.phase_history)])
+    if st.failures:
+        lines.extend(['', '최근 실패:'] + [f'{at} {source}: {reason}' for at, _, source, reason in list(st.failures)[-5:]])
+    return lines
 
 
 def _barcode_extra(st, m, now) -> str:
@@ -462,6 +522,8 @@ class MissionMenu(Menu):
     def items(self):
         return [MissionCmdItem(self.app, '1', 'start', '미션 시작', '미션을 시작할까요?'),
                 MissionCmdItem(self.app, '2', 'abort', '미션 중지 (abort)', '미션을 중지할까요? (coordinator도 정지)'),
+                MissionMapItem(self.app),
+                SkillTraceItem(self.app),
                 PlanViewItem(self.app),
                 LogViewItem(self.app),
                 SnapshotItem(self.app),
@@ -480,6 +542,31 @@ class MissionMenu(Menu):
 
     def center(self):
         return mission_lines(self.state, self.term)
+
+
+class MissionMapItem(MenuItem):
+    """필요할 때만 live map·전역 경로·현재 인지 물체를 한 화면에 표시한다."""
+    key = 'v'
+    shows_busy = False
+
+    def label(self):
+        return '경로 · 인지 한눈에 (live 지도, 전역 경로, 보이는 물체)'
+
+    def run(self):
+        self.ui.window.navigate('map', mode='view', mission_view=True, title='미션 경로 · 인지')
+        return STAY
+
+
+class SkillTraceItem(MenuItem):
+    key = 't'
+    shows_busy = False
+
+    def label(self):
+        return '현재 미션 skill 단계·결과 자세히 보기'
+
+    def run(self):
+        self.ui.pager('미션 skill 단계', '\n'.join(step_trace_lines(self.state, self.term)))
+        return STAY
 
 
 # ---------- 현장 진단 미션 + 녹화 (x) — mission_manager "start:DIAG…" (실패해도 계속) + bag (tools/field/record_run.sh 토픽 목록)
@@ -544,6 +631,9 @@ def start_with_bag(item, cmd: str, label: str):
             rec = bagrec.start(label, regex=regex, extra=RECORD_OPTS)
         except (OSError, subprocess.CalledProcessError, RuntimeError) as e:
             print(f'녹화를 못 켬 — 녹화 없이 진행: {str(e)[-200:]}')
+    if rec:  # 녹화기가 토픽 수십 개를 구독하는 순간(~1 s) CPU가 몰림 — 그 뒤에 출발 (11-15: 겹쳐서 TF 끊김 → 출발 실패)
+        import time
+        time.sleep(2.0)
     item.bus.cmd_mission(cmd)
     if rec:
         threading.Thread(target=stop_bag_when_done, args=(item.state, rec['bag'], bagrec), daemon=True).start()

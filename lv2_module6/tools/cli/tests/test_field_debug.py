@@ -10,7 +10,8 @@ from ros.fake.FakeRos import FakeRos  # noqa: E402
 
 FakeRos.install()
 from op import fielddebug as fd  # noqa: E402
-from op.pages.mission import mission_lines  # noqa: E402
+from op.pages.mission import mission_lines, step_trace_lines  # noqa: E402
+from op.pages.map import MapPage  # noqa: E402
 from op.state import StateStore  # noqa: E402
 from op.terminal import Terminal  # noqa: E402
 from ros.msgs import _Msg  # noqa: E402
@@ -145,6 +146,23 @@ for want in ('[신호등 지금] R 켜짐 · 0/12', '정답 R G R R G R G G Y G 
              '[인지] pole_front_cam YOLO 35/60 전체 80/120ms', '시각 차 초과 TF 3 · 오래된 영상 제외 1 · TF 최신 대체 7 · 주행 중 인지 쉼',
              '인지 읽음 P2-01', 'gripper_cam가 봄', '[Nav2] planner ✓ · controller inactive · bt 없음'):
     assert want in text, (want, text)
+
+# 현재 계획의 각 skill 단계 상태와 action feedback을 한 줄에서 본다. 연결 뒤에 못 받은 과거 결과는 성공으로 추정하지 않는다.
+st.on_sub_goals(_Msg(plan_id=77, goals=[_Msg(step=1, skill='navigate', target='1.0,2.0'),
+                                        _Msg(step=2, skill='pick', target='5')]))
+st.on_task(77, 1, 0, '')
+st.on_task(77, 1, 1, '')
+st.on_task(77, 2, 0, '')
+st.on_skill_feedback('pick', '파지 후보')
+text = '\n'.join(mission_lines(st, Terminal(color=False)))
+assert '[계획] 1✓navigate:1.0,2.0  2▶pick:5' in text, text
+assert '[skill] step 2/2 pick → 5 · RUNNING · 파지 후보' in text, text
+assert '[미션 단계] BARCODE' in text, text
+trace = '\n'.join(step_trace_lines(st, Terminal(color=False)))
+assert '01 navigate   1.0,2.0' in trace and '현재: 파지 후보' in trace, trace
+map_page = MapPage.__new__(MapPage); map_page.state = st
+glance = '\n'.join(map_page._mission_glance())
+assert '미션 BARCODE' in glance and '인지 쉼' in glance and '물체' in glance, glance
 from op.bars.state.perception_state import PerceptionState  # noqa: E402 — 상단 칸: 주행 중 인지 쉼 표시
 ps = PerceptionState.__new__(PerceptionState); ps.app = type('A', (), {'state': st})()
 ps_state = st

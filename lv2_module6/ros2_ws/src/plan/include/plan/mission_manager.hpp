@@ -27,13 +27,14 @@
 //              → 12개 한 번에 할당 (mission_solver allocate)
 //     → BUILD 퍽마다: 장소 앞 → 장소 태그로 칸 위치 보정 → [적재함 칸에서 꺼냄 | 못 실은 퍽은 시작 박스에서 직접 집어 옴]
 //              (적재함이면 unload <칸>) → place 칸 "x,y,z" → 내려다보고 10 mm 밖·쓰러짐이면 다시 집어 놓기
-//     → VERIFY 장소마다 새로 본 퍽만으로 칸별 판정 + 12개 중복·누락 → RETURN 출발 구역 가운데 → 외곽이 구역 안인지
+//     → VERIFY 장소마다 새로 본 퍽만으로 칸별 판정 (verify_in_place: 장소의 마지막 퍽을 놓은 그 자리에서 · 못 한 장소만 다시 감) + 12개 중복·누락 → RETURN 출발 구역 가운데 → 외곽이 구역 안인지
 //              확인·보정 → home_hold_s 정지 → DONE
 //   실패: skill마다 retries번 다시 · 그래도 안 되면 그 퍽·장소만 실패로 results에 남기고 다음으로 (복귀까지).
 //     관측(신호·바코드) 오류와 복귀 이동 실패만 ERROR로 멈추고 coordinator 정지
 //   좌표: 설정은 경기장(arena, m) — start_pose_arena 하나로 map으로 바꾼다 (mission_solver arena_to_map).
 //   판단(정렬·배정·할당·칸·판정)은 전부 mission_solver 순수 함수. 이 노드는 순서·기록·skill 요청만.
 #include <functional>
+#include <deque>
 #include <map>
 #include <set>
 #include <string>
@@ -56,6 +57,7 @@
 #include "sensor_msgs/msg/joint_state.hpp"
 #include "diagnostic_msgs/msg/diagnostic_array.hpp"
 #include "std_msgs/msg/float64_multi_array.hpp"
+#include "std_msgs/msg/int32_multi_array.hpp"
 #include "std_msgs/msg/string.hpp"
 #include "tf2_ros/buffer.h"
 #include "tf2_ros/transform_listener.h"
@@ -93,6 +95,7 @@ private:
   void finish(bool ok, const std::string & why = "");
   void note(const std::string & text);           // 지금 하는 일 → /mission/state
   void result(const std::string & text);         // 퍽·장소 결과 (실패해도 계속) → /mission/state · build.json
+  void beep_phase(Phase phase);                  // 단계마다 pitch가 올라감 · 완료/오류는 긴 끝 신호
   void stop(const std::string & why);            // ERROR — coordinator 정지
 
   // skill 요청 — 계획 하나를 ExecutePlan action으로 보내고 result를 기다림. run_retry는 실패하면 retries번까지 다시
@@ -113,7 +116,8 @@ private:
   void build(size_t i);
   void bring(size_t i);                          // 그 퍽을 장소 앞에서 손에 쥘 때까지 (적재함 · 시작 박스)
   void place_check(size_t i, int tries);         // 놓기 → 내려다보고 확인 → 벗어났으면 다시
-  void verify(size_t k);   // k = 재확인 순서 (build_location_order 거꾸로)
+  void verify(size_t k);   // k = 재확인 순서 (build_location_order 거꾸로) — 그 자리에서 이미 한 장소는 건너뜀
+  void verify_at(size_t li, std::function<void()> then);  // 지금 선 자리에서 장소 li 재검증 (가서 서는 건 부르는 쪽)
   void go_home(bool corrected = false);
 
   // 장소 상자로 장소 li 칸 보정 — 지금 /tracked_objects에 그 태그의 location_box가 있으면 corr_[li]를 갱신
@@ -162,6 +166,8 @@ private:
   std::vector<size_t> survey_order_, build_loc_order_;  // 시작 박스 · 장소 방문 순서 (0부터, plan.yaml survey_order · build_location_order)
   size_t survey_k_ = 0;                                  // 지금 몇 번째 박스를 도는지 (survey_order_ 인덱스)
   std::vector<double> walls_;    // 경기장 벽 선분 [x0, y0, x1, y1, …] (arena, m) — 다가설 자리 거르기 · /arena/walls
+  std::vector<double> keepout_;  // 안 들어갈 구역 사각형 [x0, y0, x1, y1, …] (arena, m) — /arena/walls에 칸 100 · 다가설 자리 거르기
+  bool in_keepout(double x, double y) const;
   double nav_turn_m_ = 0.55;     // [m] Nav2 목표를 박스 가운데에서 이만큼까지 물림 (제자리 회전 공간)
   double wall_clearance_ = 0.22; // [m] 다가설 자리가 벽에서 이보다 가까우면 그 변은 안 감 (로봇 반경 0.16 + 여유)
   std::vector<std::pair<double, double>> locations_;
@@ -215,6 +221,9 @@ private:
 
   // 진행 상태
   Phase phase_ = Phase::IDLE;
+  bool phase_beeps_ = true;
+  bool beep_timer_active_ = false;
+  std::deque<std::pair<int, int>> beep_queue_;
   std::string note_, error_;
   bool active_ = false;
   using ExecuteGoalHandle = rclcpp_action::ClientGoalHandle<ExecutePlan>;
@@ -284,6 +293,9 @@ private:
   void update_corr(const perception::msg::TrackedObjectArray & m);
   std::vector<std::string> results_;
   std::string build_json_, verify_json_;
+  bool verify_in_place_ = true;   // 장소의 마지막 퍽을 놓은 그 자리에서 바로 재검증 (11-15) · false = 다 놓은 뒤 L3·L2·L1 다시 감
+  std::set<size_t> verified_;     // 이번 회차에 재검증한 장소
+  int last_place_loc_ = -1;       // 마지막으로 놓기를 시작한 장소 (= 로봇이 그 앞에 섬)
   std::vector<std::vector<int>> seen_tags_;      // 재검증 — 장소마다 본 tag (12개 중복·누락)
   // planner: rule (jobs_ 순서대로) | plan_next (학습된 플래너가 다음 퍽·복귀 시점을 고름 — 퍽 하나 처리는 bring 그대로)
   std::string planner_;
@@ -308,6 +320,8 @@ private:
   std::shared_ptr<tf2_ros::TransformListener> tf_listener_;
   rclcpp_action::Client<ExecutePlan>::SharedPtr execute_client_;
   rclcpp::Publisher<MissionState>::SharedPtr state_pub_;
+  rclcpp::Publisher<std_msgs::msg::Int32MultiArray>::SharedPtr beep_pub_;
+  rclcpp::TimerBase::SharedPtr beep_timer_;
   rclcpp::Publisher<visualization_msgs::msg::MarkerArray>::SharedPtr markers_pub_;
   rclcpp::Publisher<nav_msgs::msg::OccupancyGrid>::SharedPtr walls_pub_;  // /arena/walls (map, latched) → nvblox_map이 /map에 겹침
   void publish_walls();

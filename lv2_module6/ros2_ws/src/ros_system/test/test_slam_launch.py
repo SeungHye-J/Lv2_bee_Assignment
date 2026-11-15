@@ -128,6 +128,8 @@ def main():
         ('SLAM 없으면 rewind만 따로', 'rewind' in helpers_off and 'py_helpers' not in helpers_off),
         ('py_helpers_one_process:=false = 따로', {'pole_depth_gate', 'nvblox_map', 'rewind'} <= on and 'py_helpers' not in on),
         ('cuVSLAM이 map→odom', params('cuvslam_slam', **base).get('publish_map_tf') is True),
+        ('cuVSLAM frame_skip 기본 1 · 인자로 바뀜', params('cuvslam_slam', **base).get('frame_skip') == 1
+                                                and params('cuvslam_slam', **base, cuvslam_frame_skip='2').get('frame_skip') == 2),
         ('Nav2·lifecycle_manager는 끌 때 3+3초', all(stop_timeouts(n) == ('3', '3') for n in
                                                   ('nav2_container', 'planner_server', 'controller_server',
                                                    'lifecycle_manager_base', 'lifecycle_manager_navigation'))),

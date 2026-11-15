@@ -212,10 +212,18 @@ class CuvslamSlam(Node):
         # map→odom을 이만큼 미래 시각으로 냄 (0.5 s — 영상 지연 + 발행 간격 최대 0.33 s 때문에 0.2로는 Nav2 controller가 '미래 외삽'으로 목표를 중단함, 실기 2026-11-09)
         # 최신 map→odom이 방금 들어온 depth 영상보다 옛 시각이라, nvblox가 그 영상 시각으로 TF를 찾으면 '미래 외삽'으로 실패해
         # depth를 버렸음 (실기 2026-10-29: 지도가 시작 몇 프레임 뒤로 안 자람). map→odom은 천천히 바뀌어 미래로 내도 안전
-        self.map_tf_tolerance = Duration(seconds=float(self.declare_parameter('map_tf_tolerance', 0.5).value))
+        self.map_tf_tolerance = Duration(seconds=float(self.declare_parameter('map_tf_tolerance', 1.0).value))
+        #   map→odom 시각을 이만큼 미래로 (AMCL transform_tolerance 기본 1.0과 같게) — 11-15: 0.5면 미션 시작(bag 녹화·팔 동작) 순간 CPU 몰림에
+        #   cuVSLAM이 ~1 s 멈춰 TF가 끊김 → controller "Failed to transform end pose" (error 102)로 출발 못 함
         self.depth_scale = float(self.declare_parameter('depth_scale_factor', 1000.0).value)  # 16UC1 mm → m
         self.min_depth = float(self.declare_parameter('min_depth', 0.5).value)  # [m] 이 안 픽셀(자기 팔)은 추적에서 뺌
+        # N장에 한 장만 추적 (1 = 전부 · 2 = 15 → 7.5 Hz) — CPU 줄이기 시험용 (11-15). 빠른 제자리 회전(최대 1.8 rad/s)에서
+        #   추적을 잃는지 '잃음' 수로 확인한 뒤 기본값을 바꿀 것. 속도(EKF)·map→odom은 처리한 프레임 사이 간격으로 그대로 계산됨
+        self.frame_skip = max(1, int(self.declare_parameter('frame_skip', 1).value))
+        self.frame_n = 0
         self.near_raw = max(math.ceil(self.min_depth * self.depth_scale) - 1, 0)  # depth 원값 < min_depth·scale ⇔ ≤ 이 값 (정수)
+        # SLAM 지도 키프레임 수 상한 (cuVSLAM 기본 300) — 경기장이 작아 150이면 충분, 메모리 절약 (11-15)
+        self.max_map_size = int(self.declare_parameter('max_map_size', 150).value)
         # EKF에 주는 속도 분산 — 실측으로 맞출 값 (σ 0.05 m/s · 0.05 rad/s에서 시작)
         self.lin_var = float(self.declare_parameter('linear_variance', 0.0025).value)
         self.ang_var = float(self.declare_parameter('angular_variance', 0.0025).value)
@@ -343,17 +351,21 @@ class CuvslamSlam(Node):
         rgbd.enable_depth_stereo_tracking = False
         odom_cfg = cuvslam.Tracker.OdometryConfig(odometry_mode=cuvslam.Tracker.OdometryMode.RGBD, async_sba=True,
                                                   rgbd_settings=rgbd)
-        slam_cfg = cuvslam.Tracker.SlamConfig(planar_constraints=True) if self.publish_map_tf else None
+        slam_cfg = cuvslam.Tracker.SlamConfig(planar_constraints=True, max_map_size=self.max_map_size) \
+            if self.publish_map_tf else None
         if self.vis:
             odom_cfg.enable_observations_export = odom_cfg.enable_landmarks_export = True
             if slam_cfg is not None:
                 slam_cfg.enable_reading_internals = True  # get_slam_landmarks · get_pose_graph
         self.tracker = cuvslam.Tracker(cuvslam.Rig([cam]), odom_cfg, slam_cfg)
         self.get_logger().info(f'cuVSLAM {cuvslam.get_version()[0]} 시작 ({"단독 SLAM" if slam_cfg else "시각 오도메트리"}) · '
-                               f'{self.info.width}x{self.info.height} · 카메라 {frame}')
+                               f'{self.info.width}x{self.info.height} · 카메라 {frame}' + (f' · {self.frame_skip}장에 1장 추적' if self.frame_skip > 1 else ''))
 
     def on_rgbd(self, c, d):
         if self.info is None:
+            return
+        self.frame_n += 1
+        if self.frame_skip > 1 and self.frame_n % self.frame_skip:
             return
         if self.tracker is None:
             self.start(c.header.frame_id)
@@ -484,8 +496,8 @@ class CuvslamSlam(Node):
         ps.pose.orientation.z, ps.pose.orientation.w = math.sin(base[2] / 2), math.cos(base[2] / 2)
         self.path.header.stamp = stamp
         self.path.poses.append(ps)
-        del self.path.poses[:-3000]  # 최근 3000개(15Hz면 약 3분20초)만 — 계속 쌓이면 발행이 무거워짐
-        # 경로는 3Hz 정도로만 · 받는 쪽(RViz·bag)이 있을 때만 — 3000개 Path 변환이 한 번 26 ms (실기 Orin, CPU ~8%)
+        del self.path.poses[:-300]  # 최근 300개(15Hz면 약 20초)만 — 11-15: 3000개는 Path 변환이 한 번 26 ms(CPU ~8%)라 줄임 (보기용)
+        # 경로는 3Hz 정도로만 · 받는 쪽(RViz·Foxglove)이 있을 때만 — TUI·현장 녹화는 이 토픽을 안 받음 (map→odom은 /tf에 있음)
         if self.ok % 5 == 0 and self.path_pub.get_subscription_count() > 0:
             self.path_pub.publish(self.path)
 

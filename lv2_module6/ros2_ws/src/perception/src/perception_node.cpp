@@ -7,6 +7,7 @@
 #include <algorithm>
 #include <chrono>
 #include <cmath>
+#include <cstdlib>
 #include <cstring>
 #include <stdexcept>
 #include <functional>
@@ -193,6 +194,18 @@ PerceptionNode::PerceptionNode(const rclcpp::NodeOptions & options) : rclcpp::No
   device_ = ps("device", "cuda");                       // cuda (젯슨 GPU — ONNX Runtime CUDA, 안 되면 저절로 CPU) · cpu
                                                         //   bringup은 device를 안 넘겨서 기본값이 쓰임 → GPU부터 시도
   cpu_threads_ = pi("cpu_threads", 2);                  // CPU 추론 스레드 수 (제어·Nav2가 밀리지 않게)
+  // YOLO TensorRT (시작할 때만) — true면 ~/.cache/beebot/trt/<모델 이름>_fp16.engine 이 있을 때 추론을 TensorRT로
+  //   (젯슨에서 trtexec로 만든 엔진 · 없거나 안 맞으면 ONNX Runtime 그대로, 이유와 만드는 명령은 경고로) · false = 늘 ONNX Runtime
+  const bool tensorrt = declare_parameter<bool>("tensorrt", true);
+  const char * home = std::getenv("HOME");
+  const std::string trt_dir = std::string(home ? home : "") + "/.cache/beebot/trt";
+  // .onnx 경로 → 엔진 경로 (예: .../bee_yolo11n_v6.onnx → ~/.cache/beebot/trt/bee_yolo11n_v6_fp16.engine) · '' = 안 씀
+  const auto trt_engine_for = [&](const std::string & onnx) -> std::string {
+    if (!tensorrt || !home) return "";
+    const auto slash = onnx.find_last_of('/');
+    const std::string file = slash == std::string::npos ? onnx : onnx.substr(slash + 1);
+    return trt_dir + "/" + file.substr(0, file.size() - 5) + "_fp16.engine";  // ".onnx" 뗌 (load가 .onnx만 넘김)
+  };
   // OpenCV 스레드 수 — 프로세스 전체 (AprilTag 3번 · resize · cvtColor · morphology …). 0 = OpenCV 기본(코어 수) · 시작할 때만
   if (const auto n = declare_parameter<int>("cv_threads", 0); n > 0) cv::setNumThreads(n);
   RCLCPP_INFO(get_logger(), "OpenCV 스레드 %d개 (cv_threads)", cv::getNumThreads());
@@ -338,7 +351,7 @@ PerceptionNode::PerceptionNode(const rclcpp::NodeOptions & options) : rclcpp::No
       RCLCPP_WARN(get_logger(), "%s: .onnx만 읽음 (C++판) — %s", what, path.c_str());
       return nullptr;
     }
-    auto m = std::make_unique<YoloOnnx>(path, device_, cpu_threads_, imgsz_);
+    auto m = std::make_unique<YoloOnnx>(path, device_, cpu_threads_, imgsz_, trt_engine_for(path));
     if (!m->ok()) {
       RCLCPP_WARN(get_logger(), "%s 로드 실패 (%s)", what, m->error().c_str());
       return nullptr;

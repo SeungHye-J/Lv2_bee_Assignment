@@ -212,7 +212,8 @@ cd tools
 | 줄 | 내용 | 출처 |
 |---|---|---|
 | [미션] | 단계 + 단계 경과 + note · 바코드 · 신호 R/Y/G · 배정 · 놓음/전체 · 결과 6개 · 오류 | `/mission/state` |
-| [skill] | step/전체 · skill → 대상 · RUNNING/FAILED + 경과 · 이유 | `/task/status` + `/task/current_plan` (legacy fallback `/task/sub_goals`) |
+| [skill] | step/전체 · skill → 대상 · RUNNING/FAILED + 경과 · 현재 skill 내부 stage · 이유 | `/task/status` + `/task/current_plan` + `/skills/<skill>/_action/feedback` |
+| [계획] · [미션 단계] | 현재 계획의 skill별 완료/실행/대기 표시 · TUI가 받은 미션 phase 이력 | `/task/status` + `/task/current_plan` · `/mission/state` |
 | [실패 이력] | 최근 10건 (시각 · skill 실패 이유 · 미션 ERROR 이유) — 이유 문자열은 그대로 표시 | 위 둘 |
 | [적재함] | 칸:tag (`?` 모름 · `!` 확인 필요) · 손에 든 퍽 · 실은 순서 (장부를 못 받으면 /mission/state의 tray 사본) | `/coordinator/basket` |
 | [주행] | 남은 거리 · 회복 횟수 · 경과 · 제어기 RL/DWB(이유) · cloud 나이 · scan_min · v·w · 충돌 감시 켬/끔 + 지금 정지·감속 | Nav2 feedback · `/controller_server/FollowPath/status` · manual_control 진단 · `/collision_monitor_state` |
@@ -226,6 +227,10 @@ cd tools
 - `3) 세부 명령`: navigate · pick · place … skill 한 단계를 직접 보냄 (AUTO가 아니면 전환을 물음) · `s` 전부 취소.
 - `4) 적재함 장부 비우기`: 적재함을 손으로 비웠을 때 `/coordinator/basket_clear`.
 - `5) 실패 이력 지우기`.
+- `v) 경로 · 인지 한눈에`: map 위에 현재 로봇, Nav2 전역 경로, 최신 map detections를 겹쳐 봅니다. 표식은 `P/숫자=퍽 · B=상자 · T=신호등 · H=사람 · !=장애물`; 아래 줄에는 미션·active skill stage, 카메라 Hz, YOLO/AprilTag 시간, CPU load가 나옵니다. `p`로 전역 경로 표시를 토글하고 `r`로 로봇을 따라갑니다.
+- `t) 현재 미션 skill 단계·결과 자세히 보기`: 모든 단계의 target, 상태, 경과, 실패 이유와 skill feedback을 스크롤합니다. TUI가 중간에 붙어 이전 결과를 못 받은 단계는 성공으로 추정하지 않고 `결과 미수신`으로 표시합니다.
+- 관제 지도는 이미 TUI가 받은 `/tracked_objects`와 diagnostics를 사용하고, 지도를 여는 동안 `/plan`만 depth 1로 받습니다. 이미지·점구름·costmap 스트림은 구독하지 않습니다.
+- OpenCR 부저는 mission_manager가 phase 시작마다 음을 올려 진행을 알리고, DONE은 높은 긴 음, ERROR는 낮은 긴 음으로 구분합니다. `plan.yaml`의 `mission_manager.ros__parameters.phase_beeps: false`로 끌 수 있습니다.
 - 상단바 미션 칸(Tab → Enter)으로도 이 화면이 열립니다.
 
 ### 비상정지

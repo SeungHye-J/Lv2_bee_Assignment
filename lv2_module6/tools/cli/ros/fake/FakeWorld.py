@@ -25,6 +25,20 @@ RES = 0.05                      # 가짜 세계 격자 [m] (Nav2 costmap과 같�
 SCAN_FOV, SCAN_RANGE = 87.0, 3.0   # 앞 카메라(pole_front_cam) 시야 [°] · 깊이 최대 [m] — 매핑이 이만큼 지도를 채움
 WHEEL_R, WHEEL_L = 0.033, 0.287
 ARM = ['joint1', 'joint2', 'joint3', 'joint4', 'joint5', 'gripper_left_joint']
+# 가짜 인지 물체 — 실세계(isaac_maze) 빈 곳에 놓아 둔 것. 앞 카메라 시야(SCAN_FOV · SCAN_RANGE) 안 + 벽에 안 가리면 /tracked_objects로.
+#   (class_name, x, y [map m], yaw [°], color, details, size(x, y, z) [m]) — 필드·값은 perception TrackedObject와 같게 (msg 주석)
+OBJECTS = [
+    ('puck', 0.60, 0.00, 30, 'red', {'posture': 'standing', 'tag': '3', 'shape': 'cyl', 'yaw_period': '180'}, (0.06, 0.08, 0.08)),
+    ('puck', 0.40, 0.30, 0, 'blue', {'posture': 'lying', 'tag': '7', 'shape': 'box', 'yaw_period': '90'}, (0.08, 0.05, 0.05)),
+    ('traffic_light', 0.30, 0.60, -90, 'green', {'state': 'green'}, (0.10, 0.25, 0.30)),
+    ('location_box', 1.20, 0.60, 180, '', {'tag': '12', 'yaw_period': '360'}, (0.20, 0.15, 0.15)),
+    ('start_box', -0.60, 0.40, 0, '', {'yaw_period': '90'}, (0.25, 0.20, 0.10)),
+    ('barcode', -0.50, -1.00, 90, '', {'content': 'R3-B7-Y5'}, (0.08, 0.04, 0.20)),
+    ('puck', 0.00, -2.00, 45, 'yellow', {'posture': 'standing', 'tag': '5', 'shape': 'cyl', 'yaw_period': '180'}, (0.06, 0.08, 0.08)),
+    ('location_box', 1.00, -2.50, 90, '', {'tag': '13', 'yaw_period': '360'}, (0.20, 0.15, 0.15)),
+    ('puck', 1.60, -2.00, 0, 'purple', {'posture': 'standing', 'tag': '9', 'shape': 'box', 'yaw_period': '90'}, (0.06, 0.08, 0.08)),
+]
+CAM_W, CAM_H = 640, 480   # pole_front_cam 영상 — px(박스 중심 픽셀) 환산용
 POSES = {'stow': [0.0, -1.0, 1.3, 0.7, 0.0], 'carry_left': [1.57, -0.5, 0.8, 0.4, 0.0],
          'carry_right': [-1.57, -0.5, 0.8, 0.4, 0.0],
          'look': [0.0, 0.3, 0.3, 0.9, 0.0]}
@@ -116,6 +130,50 @@ class FakeWorld:
                 if self.known[i] != 100:
                     self.known[i] = 0
                 d += step
+
+    def _visible(self, x, y):
+        """앞 카메라에서 (x, y)가 보이나 — 시야각·거리 안이고 그 사이에 실세계 벽이 없음. (거리, 방위[rad]) 또는 None."""
+        dx, dy = x - self.x, y - self.y
+        d = math.hypot(dx, dy)
+        b = (math.atan2(dy, dx) - self.yaw + math.pi) % (2 * math.pi) - math.pi
+        if d > SCAN_RANGE or d < 0.15 or abs(math.degrees(b)) > SCAN_FOV / 2:
+            return None
+        t = self.res / 2
+        while t < d - self.res:
+            k = self._cell(self.x + dx * t / d, self.y + dy * t / d)
+            if k is None or self.occ[k[1] * self.w + k[0]]:
+                return None
+            t += self.res / 2
+        return d, b
+
+    def _seen_objects(self):
+        """OBJECTS 중 지금 보이는 것 → TrackedObject (위치는 map · 공분산·크기·픽셀·관측 시각까지 진짜처럼)."""
+        now = time.time()
+        fx = (CAM_W / 2) / math.tan(math.radians(SCAN_FOV / 2))
+        out = []
+        for i, (cls, x, y, yaw, color, det, size) in enumerate(OBJECTS):
+            seen = self._visible(x, y)
+            if seen is None:
+                continue
+            d, b = seen
+            u = int(CAM_W / 2 - fx * math.tan(b))
+            v = int(min(CAM_H - 1, CAM_H / 2 + 90 / max(d, 0.3)))   # 바닥 물체 — 가까울수록 영상 아래
+            sig = 0.01 + 0.02 * d                                      # 멀수록 위치 오차 큼
+            cov = [0.0] * 36
+            cov[0] = cov[7] = sig * sig
+            r = math.radians(yaw)
+            details = [KeyValue(key=k, value=v_) for k, v_ in det.items()]
+            if cls in ('puck',):
+                details.append(KeyValue(key='distance', value=f'{d:.2f}'))
+            out.append(_Msg(
+                id=101 + i, class_name=cls, confidence=round(max(0.5, 0.97 - 0.12 * d), 2),
+                pose=_Msg(pose=_Msg(position=_Msg(x=x, y=y, z=size[2] / 2),
+                                    orientation=_Msg(x=0.0, y=0.0, z=math.sin(r / 2), w=math.cos(r / 2))),
+                          covariance=cov),
+                size=_Msg(x=size[0], y=size[1], z=size[2]),
+                last_seen=_Msg(sec=int(now), nanosec=int((now % 1) * 1e9)),
+                cameras=['pole_front_cam'], px=[u, v], color=color, details=details))
+        return out
 
     def _pub_map(self):
         if not self.map_on:
@@ -424,7 +482,7 @@ class FakeWorld:
             self._scan()
         if self._every('slow', now, 1.0):
             self.node.state._touch_state()   # 가짜 state_manager 생존 신호 — 없으면 15초 뒤 '연결 ✗'로 보고 CLI가 스스로 재시작함
-            d('/tracked_objects', TrackedObjectArray(objects=[_Msg() for _ in range(12 if self.mission else 3)]))
+            d('/tracked_objects', TrackedObjectArray(objects=self._seen_objects()))
             d('/diagnostics_agg', self._diag())
             d('/motor_status', MotorStatus(joints=list(self.joints), temperature=[38 + i * 2 for i in range(6)],
                                            text=['' for _ in range(6)], battery_voltage=self.batt))

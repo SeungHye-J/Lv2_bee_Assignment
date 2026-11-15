@@ -280,8 +280,9 @@ class Path(_Msg):
         super().__init__(**kw)
 
 
-class TrackedObjectArray(_Msg):
+class TrackedObjectArray(_Msg):   # perception/msg/TrackedObjectArray — header(map) + objects
     def __init__(self, **kw):
+        self.header = Header(frame_id='map')
         self.objects = []
         super().__init__(**kw)
 

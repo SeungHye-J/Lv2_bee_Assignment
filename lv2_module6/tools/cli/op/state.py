@@ -68,6 +68,8 @@ class StateStore:
         # 상시 상태바용 (없으면 0/빈 값으로 표시, 보드 미동작 아님)
         self.tracked_count = 0
         self.tracked: list = []                  # /tracked_objects 마지막 메시지의 물체들 (보이는 물체 화면 — 인지가 2 s 안 보이면 빼고 보냄)
+        self.tracked_frame = 'map'
+        self.tracked_at = 0.0
         self.task_status = ''
         self.rates: dict[str, Rate] = {}  # 상단 생존 표시 — 키는 bars/state/top_state_bar.py TOPIC_RATES
         self.rl_status: list[float] = []  # controller_server FollowPath RL/DWB 상태
@@ -78,9 +80,12 @@ class StateStore:
         self.mission = None                      # /mission/state (plan/MissionState)
         self.mission_since = 0.0                 # 지금 phase가 시작된 시각
         self.mission_phase = ''
+        self.phase_history: deque[tuple[float, str, str]] = deque(maxlen=12)  # TUI 연결 중 관측한 phase 전환
         self.task: tuple | None = None           # /task/status (plan_id, step, state, reason)
         self.task_since = 0.0                    # 지금 step이 시작된 시각
         self.sub_goals: tuple[int, dict] = (0, {})  # /task/current_plan (legacy /task/sub_goals도 호환)
+        self.plan_steps: tuple[int, dict] = (0, {})  # 현재 계획의 각 skill 결과 — 모르면 UNKNOWN으로 표시
+        self.skill_feedback: tuple[int, int, str, str, float] | None = None  # plan, step, skill, stage, 받은 시각
         self.failures: deque = deque(maxlen=10)  # 최근 실패 (HH:MM:SS, monotonic, 출처, 이유) — 오래된 것부터
         self.basket = None                       # /coordinator/basket (plan/BasketState)
         self.signal = None                       # /mission/signal_status (perception/MissionSignal), 시각
@@ -204,12 +209,14 @@ class StateStore:
             self.diagnostics[status.name] = (level, status.message)
             self.diag_values[status.name] = [(kv.key, kv.value) for kv in status.values]
 
-    def on_objects(self, objects):
+    def on_objects(self, objects, frame_id: str = 'map'):
         self._touch()
         self.tick('tracked_objects')
         try:
             self.tracked_count = len(objects)
             self.tracked = list(objects)
+            self.tracked_frame = frame_id or 'map'
+            self.tracked_at = time.monotonic()
         except Exception:
             self.tracked_count = 0
             self.tracked = []
@@ -256,13 +263,36 @@ class StateStore:
             skill = self.sub_goals[1].get(step, ('', ''))[0] if self.sub_goals[0] == plan_id else ''
             self._fail('skill', f'{skill or "step"}#{step}: {reason or "?"}')
         self.task = (plan_id, step, state, reason)
+        if self.plan_steps[0] == plan_id:
+            row = self.plan_steps[1].get(step)
+            if row is not None:
+                row['state'] = state
+                row['reason'] = reason or ''
+                row['since'] = self.task_since
+                row['updated'] = time.monotonic()
         skill = self.current_skill()
         self.task_status = (f'plan={plan_id} step={step}{" " + skill[0] if skill else ""} '
                             f'{TASK_STATES.get(state, state)} {reason}').strip()
 
     def on_sub_goals(self, msg):
         self._touch()
-        self.sub_goals = (msg.plan_id, {g.step: (g.skill, g.target) for g in msg.goals})
+        goals = {g.step: (g.skill, g.target) for g in msg.goals}
+        self.sub_goals = (msg.plan_id, goals)
+        if self.plan_steps[0] != msg.plan_id:
+            self.plan_steps = (msg.plan_id, {step: {'skill': skill, 'target': target, 'state': None,
+                                                    'reason': '', 'since': 0.0, 'updated': 0.0}
+                                          for step, (skill, target) in goals.items()})
+            if self.task is not None and self.task[0] == msg.plan_id and self.task[1] in self.plan_steps[1]:
+                row = self.plan_steps[1][self.task[1]]
+                row.update(state=self.task[2], reason=self.task[3] or '', since=self.task_since,
+                           updated=time.monotonic())
+
+    def on_skill_feedback(self, skill: str, stage: str):
+        self._touch()
+        task = self.task
+        current = self.current_skill()
+        if task is not None and task[2] == 0 and current and current[0] == skill:
+            self.skill_feedback = (task[0], task[1], skill, stage, time.monotonic())
 
     def current_skill(self) -> tuple[str, str] | None:
         """지금 step의 (skill, target) — accepted current_plan에서 찾음. 모르면 None."""
@@ -275,6 +305,7 @@ class StateStore:
         if msg.phase != self.mission_phase:   # 단계는 문자열로 따로 둠 — 같은 msg 객체를 고쳐 다시 보내는 발행자(fake)도 있음
             self.mission_phase = msg.phase
             self.mission_since = time.monotonic()
+            self.phase_history.append((self.mission_since, msg.phase, msg.note or ''))
             if msg.phase == 'ERROR':
                 self._fail('미션', msg.error or msg.note or 'ERROR')
         self.mission = msg

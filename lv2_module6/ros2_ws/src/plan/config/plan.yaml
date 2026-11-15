@@ -39,6 +39,7 @@ coordinator:
     approach_m: 0.20         # [m] 다가간 뒤 로봇 중심 ~ 물체 중심 (stand 궤적 실측 안전 한계 0.234m 아래로 여유를 둠)
 mission_manager:             # 주사위 기억 미션 (documents/mission/README.md) — 좌표는 경기장(arena) m · 왼쪽 아래 기둥 원점 · +Y 위
   ros__parameters:
+    phase_beeps: true         # OpenCR: 미션 단계별 음 높이 · DONE/ERROR는 긴 끝 신호 (false면 끔)
     # 로봇을 켠 자리의 arena 자세 [x, y, yaw] — 운영 규칙: 출발 관측 위치에서 −X(π)를 보고 켬. 다르면 launch 인자 start_pose:=x,y,yaw
     start_pose_arena: [0.734, 0.950, 3.14159]
     start_zone: [0.434, 0.650, 1.034, 1.250]   # 출발 구역 [x0, y0, x1, y1] (복귀 판정·RViz)
@@ -59,6 +60,12 @@ mission_manager:             # 주사위 기억 미션 (documents/mission/README
                   1.090, 2.030, 1.838, 2.030, 2.593, 2.030, 3.229, 2.030, 1.090, 1.300, 1.838, 1.300, 2.593, 1.300, 4.084, 1.300,
                   1.125, 4.971, 1.125, 5.599, 2.511, 4.971, 2.511, 5.704, 3.229, 4.971, 3.229, 5.644, 1.090, 3.502, 1.090, 4.236,
                   3.229, 2.030, 3.229, 3.591, 1.090, 2.030, 1.090, 2.862, 1.838, 1.300, 1.838, 2.030, 1.090, 0.605, 1.090, 1.300]
+    # 안 들어갈 구역 사각형 [x0, y0, x1, y1, …] (arena, m · 11-15 사용자 지정) — /arena/walls에 칸 100으로 채워 Nav2 전역·local이 피함
+    #   · 다가설 자리가 이 안이면 그 변은 뺌. 위 띠(안쪽 벽 끝 x 4.044 ~ 바깥 벽) · 왼쪽 띠(가로벽 끝 y 5.60~5.70 ~ 바깥 벽) ·
+    #   왼쪽 아래 띠(벽 0.36→1.09 @ y 4.236의 끝 ~ 바깥 벽). 비우면 ([]) 예전처럼
+    keepout_zones: [4.040, -0.050, 4.450, 6.350,
+                    -0.050, 5.620, 4.450, 6.350,
+                    -0.050, 4.150, 0.360, 6.350]
     # 박스마다 다가갈 변 (arena 축, 박스 가운데에서 그 변 쪽 · 11-13 사용자 지정 — 빈 변은 일부러 뺌). 개수가 박스 수와 다르면 무시
     #   벽 거르기(wall_clearance)는 그대로 같이 걸림. 시도 순서 = 적은 순서 (11-14: 첫 면 = 진입 면 · 뒤는 실패할 때 대신)
     #   "+x@0.41" = 그 변은 박스 가운데에서 0.41 m(법선)에 서서 approach 시작 (지도 그림의 빨간 점에서 읽음 · 없으면 변 + standoff)
@@ -76,7 +83,7 @@ mission_manager:             # 주사위 기억 미션 (documents/mission/README
     #   도면 상자와 짝지어 arena → map 변환에 (dx, dy, dθ)를 더함. 다가설 자리·장소·복귀·/arena/walls 전부 (회차 시작마다 0부터)
     #   기록: 로그 "도면 보정 dx … (근거 n개)" · <회차>/arena_correction.jsonl · /arena/correction (latched JSON)
     #   영상 끝에 잘린 상자(cut)와 같은 관측의 재발행(last_seen 그대로)은 안 셈
-    arena_correction: true
+    arena_correction: false        # 11-15 사용자: 상자 보정 끔 — 벽 정합(arena_corr_wall_fit)만
     arena_corr_idle: true          # 미션이 없을 때도 보정해 /arena/correction으로 냄 (approach_loop.py --real이 그 값으로 목표를 잡음) — 미션 시작하면 0부터
     arena_corr_gate: 0.6           # [m] 인지 상자가 (지금 보정한) 도면 상자에서 이 안이고 다른 상자는 그보다 0.25 m 넘게 멀 때만 짝
     arena_corr_range: 2.5          # [m] 로봇에서 이보다 먼 상자는 안 씀 (depth 오차)
@@ -92,7 +99,7 @@ mission_manager:             # 주사위 기억 미션 (documents/mission/README
     #   벽 전부가 근거라 상자 인지 없이 회전까지. 맞으면 보정(dx, dy, dθ)은 벽으로, 상자 인지는 상자마다 위치(marks)만 — 상자 둘로 맞춘
     #   회전은 10°씩 틀림 (11-15 bag approach_1115_094224 재생). 안 맞으면(벽이 한 방향만 · 칸 부족) 예전처럼 상자로
     #   상자(7 cm)는 격자에 없음 (esdf_slice_min_height 0.08) — 벽만
-    arena_corr_wall_fit: false     # 11-15 실기 주행이 이상해 예전(상자 보정)으로 되돌림 — 시험할 때 true
+    arena_corr_wall_fit: true      # 11-15 사용자: 다시 켬 (상자 보정 arena_correction은 끔). 예전 메모: 실기 주행이 이상해 상자 보정으로 되돌렸었음
     arena_corr_wall_gate: 0.3      # [m] 도면 벽에서 이 안의 칸만 (그 밖 = 상자·사람·도면에 없는 것)
     arena_corr_wall_min_cells: 60  # 맞은 칸(벽 겉면 — 빈 칸과 맞닿은 점유 칸)이 이보다 적으면 안 씀 (5 cm 칸 → 벽 3 m)
     arena_corr_wall_min_eig: 0.03  # x · y · 회전이 다 묶여야 (벽 한 줄만 보이면 그 벽을 따라가는 방향을 모름)
@@ -129,6 +136,7 @@ mission_manager:             # 주사위 기억 미션 (documents/mission/README
     stand_check_s: 1.0                       # [s] 누운 퍽 stand 뒤 인지가 섰는지 볼 때까지 기다림 → 섰으면 선 퍽을 pick (못 보면 stand_pick), 아직 누웠으면 stand 다시 (retries번)
     stand_find_m: 0.10                       # [m] stand 뒤 look에서 누운 가운데 이 안의 퍽: 누움 → 다시 stand · 섬 → pick · 없음 → stand_lost (선 퍽은 약 45 mm 옆 · 실패하면 6~7 cm 튐) — 11-15
     verify_radius: 0.15                      # [m] 재검증 때 장소 중심에서 이 안의 퍽만
+    verify_in_place: true                    # 장소의 마지막 퍽을 놓은 그 자리에서 바로 재검증 (11-15) — false면 다 놓은 뒤 L3·L2·L1을 다시 찾아감
     # 바코드 보는 자세 [x, y, yaw] (출발 구역 안) — 비우면 출발(관측) 자리에서 그대로 봄 (이동 없음)
     #   실기 11-12: 출발 자리에서 신호등·바코드 둘 다 인지됨 → 이동 안 함. 예전 시뮬 값 [0.950, 0.800, 3.3126]은
     #   26 cm 뒤 자리라 Nav2가 돌아섰다 다시 돌아 한 바퀴를 돌았음 (시뮬 렌더에선 바코드가 화면 끝에 걸렸음)

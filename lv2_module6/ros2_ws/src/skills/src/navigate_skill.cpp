@@ -11,17 +11,21 @@
 //     시뮬 재현). 먼저 /compute_path_to_pose로 경로를 받아 지나는 문마다 들어가기 점(문 앞, 문 축 방향으로 제자리 회전) ·
 //     나가기 점(문 너머, 일직선 유지)을 끼워 차례로 NavigateToPose. 목표가 문 바로 너머면 나가기 점은 뺌.
 //     문은 경기장(arena) 좌표 — start_pose_arena로 map에 옮김 (door_use_correction이면 /arena/correction도 얹음 — 기본 끔)
+//   가르친 경로 (routes_dir, 11-15 teach & repeat): 사람이 수동으로 몬 경로(tools/field/route_record.py)의 시작이 로봇 근처 ·
+//     끝이 목표 근처면(거꾸로도) 문 경유점 대신 그 경로의 꺾이는 점들을 경유점으로 (skills/route_plan.hpp)
 #include <sstream>
 #include "skills/arm_io.hpp"
 #include "nav2_msgs/action/compute_path_to_pose.hpp"
 #include "nav2_msgs/action/navigate_to_pose.hpp"
 #include "rclcpp_components/register_node_macro.hpp"
 #include "skills/progress_watch.hpp"
+#include "skills/route_plan.hpp"
 #include "skills/skill_node.hpp"
 #include "std_msgs/msg/string.hpp"
 
 #include <cmath>
 #include <cstdlib>
+#include <filesystem>
 #include <map>
 #include <memory>
 #include <set>
@@ -51,6 +55,11 @@ public:
     //   경로와 문 경유점이 다른 벽을 봐서, 돌아오는 길에 들어가기 점이 문 축에서 9 cm 어긋나 위쪽 벽 끝에 막혔음.
     //   보정은 이제 로봇 위치(map→odom)로 들어감 (mission_manager arena_corr_to_localization → cuvslam_slam) — 그러면 벽·문 모두 맞음
     door_use_corr_ = declare_parameter<bool>("door_use_correction", false);
+    routes_dir_ = declare_parameter<std::string>("routes_dir", "~/.ros/routes");  // 가르친 경로 *.txt ('' = 안 씀)
+    if (routes_dir_.rfind("~/", 0) == 0 && std::getenv("HOME")) routes_dir_ = std::string(std::getenv("HOME")) + routes_dir_.substr(1);
+    route_start_m_ = declare_parameter<double>("route_start_m", 0.5);   // 경로 시작이 로봇에서 이 안이어야
+    route_goal_m_ = declare_parameter<double>("route_goal_m", 0.4);     // 경로 끝이 목표에서 이 안이어야
+    route_tol_m_ = declare_parameter<double>("route_simplify_m", 0.10); // 꺾이는 점만 남길 때 허용 오차
     corr_sub_ = create_subscription<std_msgs::msg::String>(
       "/arena/correction", rclcpp::QoS(1).reliable().transient_local(), [this](std_msgs::msg::String::ConstSharedPtr m) {
         if (!door_use_corr_) return;
@@ -79,7 +88,10 @@ public:
         opt.result_callback = [this, goal, flags, seq, done](const rclcpp_action::ClientGoalHandle<ComputePath>::WrappedResult & r) {
           if (seq != nav_seq_) return;  // 그사이 멈춤
           auto legs = std::make_shared<std::vector<Pose>>();
-          if (r.code == rclcpp_action::ResultCode::SUCCEEDED && r.result) *legs = door_legs(r.result->path.poses, goal);
+          if (r.code == rclcpp_action::ResultCode::SUCCEEDED && r.result && !r.result->path.poses.empty()) {
+            *legs = route_legs(r.result->path.poses.front(), goal);  // 가르친 경로가 있으면 그것 (문도 이미 사람이 지남)
+            if (legs->empty()) *legs = door_legs(r.result->path.poses, goal);
+          }
           legs->push_back(goal);  // 경로 실패면 문 없이 그대로 (Nav2가 다시 계획하며 실패를 알림)
           drive(legs, 0, flags, seq, done);
         };
@@ -149,6 +161,42 @@ private:
       if (std::hypot(g.x - cx, g.y - cy) > fwd + door_goal_skip_m_) legs.push_back(point(fwd));
       RCLCPP_INFO(get_logger(), "문 (%.2f, %.2f) 지남 — 경유 %zu개", cx, cy, legs.size());
     }
+    return legs;
+  }
+
+  // 가르친 경로 → 경유점 (map). 로봇 자리 = 플래너 경로 첫 점. 없거나 안 맞으면 빈 목록
+  std::vector<Pose> route_legs(const Pose & robot, const Pose & goal) {
+    std::vector<Pose> legs;
+    std::error_code ec;
+    if (routes_dir_.empty() || !std::filesystem::is_directory(routes_dir_, ec)) return legs;
+    const double c0 = std::cos(-start_[2]), s0 = std::sin(-start_[2]);  // arena → map (문과 같은 식, 보정은 로봇 위치에 들어감)
+    std::vector<std::vector<Pt>> routes;
+    std::vector<std::string> names;
+    for (const auto & e : std::filesystem::directory_iterator(routes_dir_, ec)) {
+      if (e.path().extension() != ".txt") continue;
+      auto pts = load_route(e.path().string());
+      for (auto & p : pts) {
+        const double ax = p.first - start_[0], ay = p.second - start_[1];
+        p = {c0 * ax - s0 * ay, s0 * ax + c0 * ay};
+      }
+      routes.push_back(std::move(pts));
+      names.push_back(e.path().stem().string());
+    }
+    const Pt r{robot.pose.position.x, robot.pose.position.y}, g{goal.pose.position.x, goal.pose.position.y};
+    const auto pts = pick_route(routes, r, g, route_start_m_, route_goal_m_, route_tol_m_);
+    for (size_t i = 0; i < pts.size(); ++i) {
+      const Pt nxt = i + 1 < pts.size() ? pts[i + 1] : g;  // 다음 점을 보는 방향
+      const double yaw = std::atan2(nxt.second - pts[i].second, nxt.first - pts[i].first);
+      Pose p = goal;
+      p.pose.position.x = pts[i].first;
+      p.pose.position.y = pts[i].second;
+      p.pose.orientation.x = p.pose.orientation.y = 0.0;
+      p.pose.orientation.z = std::sin(yaw / 2);
+      p.pose.orientation.w = std::cos(yaw / 2);
+      legs.push_back(p);
+    }
+    if (!routes.empty())
+      RCLCPP_INFO(get_logger(), "가르친 경로 %zu개 중 %s — 경유 %zu개", routes.size(), legs.empty() ? "맞는 것 없음 (플래너)" : "맞음", legs.size());
     return legs;
   }
 
@@ -237,6 +285,8 @@ private:
   std::vector<double> doors_, start_;
   std::map<std::string, double> corr_{{"dx", 0.0}, {"dy", 0.0}, {"dth", 0.0}};
   bool door_use_corr_ = false;
+  std::string routes_dir_;
+  double route_start_m_ = 0.5, route_goal_m_ = 0.4, route_tol_m_ = 0.10;
   ArmIO arm_;
   std::vector<double> look_q_;
 };

@@ -27,7 +27,7 @@ SESSION_ROOT = Path.home() / '.cache' / 'beebot' / 'field-tests'
 ROS_DISTRO = os.environ.get('ROS_DISTRO_NAME', 'lyrical')
 
 BAG_REGEX = (
-    r'^/(tf|tf_static|joint_states|imu|odom|odometry/filtered|cuvslam/odom|cuvslam/path|'
+    r'^/(tf|tf_static|joint_states|imu|odom|odometry/filtered|cuvslam/odom|'
     r'cmd_vel.*|cmd/.*|state/.*|diagnostics_agg|diagnostics_toplevel_state|rosout|plan|local_plan|map|'
     r'tracked_objects|global_costmap/costmap|local_costmap/costmap|controller_server/FollowPath/status|'
     r'mission/.*|coordinator/.*|task/.*|skills/.*/_action/.*|skill_context|rl_arm_correction/debug|hand_relative.*|'

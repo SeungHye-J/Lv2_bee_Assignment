@@ -22,6 +22,7 @@ from pathlib import Path
 
 from ...defs import BACK, MAIN, QUIT, STAY
 from ...dialog import fmt_pose
+from ... import fielddebug as fd
 from ...views.map import FREE, OCC, UNKNOWN, CostGrid, MapGrid, MapView
 from ...views.map.map_view import LOCAL_PLAN_RGB, PLAN_RGB
 PREVIEW_RGB = (0, 200, 120)   # planner에 계산만 요청한 예상 경로 (초록)
@@ -44,11 +45,12 @@ TITLES = {'view': '지도 보기', 'goals': 'A/B 경로 — 지도에서 찍기'
 
 class MapPage(Menu):
     def __init__(self, app, mode: str = 'view', source=None, start: dict | None = None, goals: list[dict] | None = None,
-                 on_save=None, on_pose=None, title: str | None = None):
+                 on_save=None, on_pose=None, title: str | None = None, mission_view: bool = False):
         super().__init__(app)
         if mode not in TITLES:
             raise ValueError(f'mode는 {"/".join(TITLES)} 중 하나: {mode!r}')
         self.mode, self.source, self.on_save, self.on_pose = mode, (Path(source) if source else None), on_save, on_pose
+        self.mission_view = bool(mission_view and mode == 'view' and source is None)
         self.title = title or (TITLES[mode] + (f' · {self.source.parent.name}' if self.source else ''))
         self.start = start
         self.goals = [dict(g) for g in (goals or [])]
@@ -71,7 +73,7 @@ class MapPage(Menu):
         self._cost_at: dict = {'global': 0.0, 'local': 0.0}
         self._cost_inbox: dict = {'global': [], 'local': []}
         self._cost_subs: list = []
-        self.plan_on = False          # p — Nav2 전역(/plan)·지역(/local_plan) 경로 겹침
+        self.plan_on = self.mission_view  # 미션 관제 지도에서는 Nav2 전역 경로를 기본 표시
         self._plans: dict = {'plan': None, 'local_plan': None}   # 종류 → (받은 시각, [(x, y)…])
         self._waypoints: tuple[int, list[tuple[float, float]]] | None = None   # (plan_id, 경유점) — /task/sub_goals의 navigate·approach 목표
         self._preview: list[tuple[float, float]] | None = None   # v — planner에 계산만 요청한 예상 경로
@@ -353,7 +355,7 @@ class MapPage(Menu):
             self.clear_preview()
         elif k in ('[', ']', '{', '}') and self.mode != 'view':   # [ ] = 15° · { } = 1° (미세) — 왼쪽 키([ {)는 좌회전(반시계, +) · 오른쪽 키(] })는 우회전(시계, −)
             self.turn({'[': YAW_STEP, ']': -YAW_STEP, '{': 1.0, '}': -1.0}[k])
-        elif k in ('c', 'C'):
+        elif k in ('c', 'C') and not self.mission_view:
             self.toggle_cost()
         elif k in ('p', 'P'):
             self.toggle_plan()
@@ -434,11 +436,13 @@ class MapPage(Menu):
         if self._preview and len(self._preview) > 1:
             out.append((self._preview, PREVIEW_RGB))
             info.append(f'미리보기(초록) {len(self._preview)}점')
+        task, skill = self.state.task, self.state.current_skill()
+        fresh_s = 120.0 if (self.mission_view and task is not None and task[2] == 0 and skill and skill[0] == 'navigate') else self.PLAN_FRESH_S
         for kind, label, rgb in (('plan', '전역(파랑 G)', PLAN_RGB), ('local_plan', '지역(보라 L)', LOCAL_PLAN_RGB)):
             if not self.plan_on:
                 break
             got = self._plans.get(kind)
-            if got and now - got[0] <= self.PLAN_FRESH_S and len(got[1]) > 1:
+            if got and now - got[0] <= fresh_s and len(got[1]) > 1:
                 out.append((got[1], rgb))
                 info.append(f'{label} {len(got[1])}점')
         wps = self._waypoint_pts() if self.plan_on else []
@@ -566,6 +570,7 @@ class MapPage(Menu):
         v.show_cost = self.cost_mode != 0 and v.cost is not None
         v.plans, plan_info = self._plan_lines()
         v.waypoints = self._waypoint_pts()
+        v.perceived = self._perception_points() if self.mission_view else []
         v.robot, v.start, v.goals, v.yaw = (self._pose(), ((self.start['x'], self.start['y']) if self.start else None),
                                             self.goals if self._show_goals else [], self.yaw)
         if not self._fitted:
@@ -590,6 +595,9 @@ class MapPage(Menu):
                    else '보기 전용')]
         if plan_info:
             status.append(plan_info)
+        if self.mission_view:
+            status.extend(self._mission_glance())
+            status.append('표식: P/숫자 퍽 · B 상자 · T 신호등 · H 사람 · ! 장애물')
         cg = self._cost_grid('global')   # goal/시작 판정은 항상 전역 costmap
         if cg is not None:
             cc = cg.code(x, y)
@@ -635,6 +643,87 @@ class MapPage(Menu):
                      else f' · base_footprint ●({self._robot[0]:+.2f},{self._robot[1]:+.2f})' if self._robot else ' · base_footprint TF 없음'))
         return lines + status + [frames, self.msg, legend]
 
+    def _perception_points(self):
+        """map 좌표 detections만 작은 글리프로 겹친다. 카메라 영상·점구름은 TUI에서 구독하지 않는다."""
+        if self.state.tracked_frame != 'map':
+            return []
+        rate = self.state.rates.get('tracked_objects')
+        if rate is None or rate.age() is None or rate.age() > 2.5:
+            return []
+        color_rgb = {'red': (235, 75, 75), 'yellow': (230, 190, 40), 'green': (65, 200, 100),
+                     'blue': (80, 130, 240), 'purple': (190, 100, 220), 'orange': (240, 145, 50)}
+        out = []
+        for obj in self.state.tracked:
+            cls = getattr(obj, 'class_name', '')
+            pos = obj.pose.pose.position
+            x, y = float(pos.x), float(pos.y)
+            if not math.isfinite(x) or not math.isfinite(y):
+                continue
+            if cls in ('puck', 'puck_lying'):
+                detail = next((kv.value for kv in getattr(obj, 'details', ()) if kv.key == 'tag'), '')
+                label = detail[-1] if detail.isdigit() else 'P'
+                rgb = color_rgb.get(getattr(obj, 'color', ''), (245, 245, 245))
+            elif cls in ('location_box', 'start_box'):
+                label, rgb = 'B', (70, 210, 230)
+            elif cls == 'traffic_light':
+                label, rgb = 'T', color_rgb.get(getattr(obj, 'color', ''), (245, 200, 60))
+            elif cls == 'person':
+                label, rgb = 'H', (250, 90, 90)
+            elif cls == 'obstacle':
+                label, rgb = '!', (250, 125, 60)
+            else:
+                continue
+            out.append((x, y, label, rgb))
+        return out
+
+    def _mission_glance(self) -> list[str]:
+        st = self.state
+        mission = st.mission
+        phase = mission.phase if mission is not None else '미션 상태 없음'
+        skill = st.current_skill()
+        task = st.task
+        active = ''
+        if task is not None and task[2] == 0 and skill:
+            active = f' · step {task[1]} {skill[0]}→{skill[1] or "-"} {time.monotonic() - st.task_since:.0f}s'
+            fb = st.skill_feedback
+            if fb and fb[:2] == task[:2] and time.monotonic() - fb[4] < 3.0:
+                active += f' · {fb[3]}'
+        if st.nav is not None:
+            (distance, recoveries, elapsed), received = st.nav
+            if now - received < 3.0:
+                active += f' · Nav2 {distance:.2f}m · 회복 {recoveries} · 주행 {elapsed:.0f}s'
+        status = f'미션 {phase}{active}'
+        short = {'puck': 'P', 'puck_lying': 'P', 'location_box': 'B', 'start_box': 'B',
+                 'traffic_light': 'T', 'person': 'H', 'obstacle': '!'}
+        counts: dict[str, int] = {}
+        for name, count in st.class_counts.items():
+            key = short.get(name)
+            if key:
+                counts[key] = counts.get(key, 0) + count
+        seen = ' '.join(f'{name}:{count}' for name, count in sorted(counts.items())) or '검출 없음'
+        perception = fd.perception_diag(st.diag_values)
+        load = perception.get('주행 중 인지', '')
+        cams = []
+        for key, label in (('front_cam', '앞'), ('gripper_cam', '손')):
+            rate = st.rates.get(key)
+            if rate and rate.age() is not None and rate.age() < 3.0:
+                cams.append(f'{label} {rate.hz():.0f}Hz')
+            else:
+                cams.append(f'{label} 지연')
+        timing = []
+        for cam, label in (('pole_front_cam', '앞'), ('gripper_cam', '손')):
+            values = perception.get(f'처리 시간 ms 평균/최대 {cam}', '')
+            stages = dict(part.split(' ', 1) for part in values.split(' · ') if ' ' in part)
+            if values:
+                timing.append(f'{label} {stages.get("YOLO", "-")}/{stages.get("AprilTag", "-")}')
+        proc = f'인지 {load or "?"} · 카메라 {"/".join(cams)} · 물체 {seen}'
+        detail = f'YOLO/Tag ms {" · ".join(timing) if timing else "-"}'
+        load_avg = fd.load_ratio()
+        if load_avg:
+            top = ' · '.join(f'{name} {pct:.0f}%' for pct, name in fd.top_procs(2))
+            detail += f' · load {load_avg[0]:.1f}/{load_avg[1]}' + (f' · {top}' if top else '')
+        return [status, proc, detail]
+
     # ---------------------------------------------------------------- 실행
     def _load_grid(self, timeout: float = 10.0):
         if self.source:
@@ -676,23 +765,28 @@ class MapPage(Menu):
             print('FAIL: /map을 못 받음 — 지도 서버(map_server)·Nav가 떠 있는지 확인', file=sys.stderr)
             return STAY
         self.view = MapView(grid, self.term.color, extra_key=self._extra_key)
+        if self.mission_view:
+            self.view.hints = 'p 경로 표시/숨김 · r 로봇 따라가기 · f 전체 · 확대/축소 · Tab 메뉴 · q 종료'
         if self.mode == 'goal':
             self.view.hints += ' · g 전송 · v 예상 경로 · V 지우기 · d 전체 지우기 · i 초기 위치 · s 중앙 스냅 · x 취소 · Backspace 마지막 취소'
         if self.source is None:  # live 지도일 때만 costmap 겹침 — 저장 지도에는 현재 costmap이 없다
-            from nav_msgs.msg import OccupancyGrid
             from rclpy.qos import QoSDurabilityPolicy, QoSProfile, QoSReliabilityPolicy
             qos = QoSProfile(depth=1, reliability=QoSReliabilityPolicy.RELIABLE,
                              durability=QoSDurabilityPolicy.TRANSIENT_LOCAL)
-            for kind, topic in (('global', '/global_costmap/costmap'), ('local', '/local_costmap/costmap')):
-                self._cost_inbox[kind] = []
-                self._cost_subs.append(self.app.create_subscription(
-                    OccupancyGrid, topic, self._cost_inbox[kind].append, qos))
+            if not self.mission_view:  # 관제 지도는 costmap(큰 OccupancyGrid)을 구독하지 않음
+                from nav_msgs.msg import OccupancyGrid
+                for kind, topic in (('global', '/global_costmap/costmap'), ('local', '/local_costmap/costmap')):
+                    self._cost_inbox[kind] = []
+                    self._cost_subs.append(self.app.create_subscription(
+                        OccupancyGrid, topic, self._cost_inbox[kind].append, qos))
             try:   # Nav2 경로 — 메시지가 없는 환경(fake)이면 p만 빈 화면
                 from nav_msgs.msg import Path as PathMsg
-                for kind, topic in (('plan', '/plan'), ('local_plan', '/local_plan')):
+                paths = (('plan', '/plan'),) if self.mission_view else (('plan', '/plan'), ('local_plan', '/local_plan'))
+                path_qos = QoSProfile(depth=1, reliability=QoSReliabilityPolicy.BEST_EFFORT)
+                for kind, topic in paths:
                     self._cost_subs.append(self.app.create_subscription(
                         PathMsg, topic, lambda m, k=kind: self._on_path(k, m),
-                        QoSProfile(depth=1, reliability=QoSReliabilityPolicy.RELIABLE)))
+                        path_qos))
             except Exception:
                 pass
             try:   # 경유점 — plan 메시지가 없는 환경이면 건너뜀

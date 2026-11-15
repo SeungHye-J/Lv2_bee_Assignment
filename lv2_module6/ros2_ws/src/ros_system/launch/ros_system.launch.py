@@ -208,6 +208,7 @@ def generate_launch_description():
         flag('use_nav2', 'true', '진짜 Nav2 서버 (planner · controller · behavior · bt_navigator) — 바퀴 명령 체인(velocity_smoother · collision_monitor)은 use_cmd_chain'),
         flag('nav2_composition', 'true', 'Nav2 서버·관리자를 한 프로세스(nav2_container, 컴포넌트)로 — 메모리 절약 · false면 서버마다 프로세스 (예전)'),
         flag('py_helpers_one_process', 'true', 'python 보조 노드(pole_depth_gate · nvblox_map · rewind)를 한 프로세스(py_helpers)로 — 메모리 절약 · false면 따로 (예전)'),
+        flag('cuvslam_frame_skip', '1', 'cuVSLAM N장에 1장만 추적 (1=전부 15 Hz · 2=7.5 Hz) — CPU 줄이기 현장 비교용 (11-15)'),
         flag('depth_gate_cpp', 'true', 'pole_depth_gate를 C++(perception depth_gate)로 — 파이썬판은 15 Hz depth를 매번 복사 (bag 재생 11-14: 파이썬 6 % → C++ 2 %) · false면 예전 파이썬(scan_cam_gate)'),
         flag('nav2_params_file', share('config', 'nav2_params.yaml'), 'Nav2 파라미터 파일'),
         flag('nav2_container_params', 'true', 'true(11-15부터 기본) = nav2_container 전체에 Nav2 파라미터 파일 (costmap이 yaml 값으로 — nav2_nodes 설명) · false = 예전 (costmap 기본값)'),
@@ -418,7 +419,8 @@ def slam_nodes():
                 (f'camera_{i}/color/camera_info', f'/{cam}/color/camera_info')]
     return [
         Node(package='ros_system', executable='cuvslam_slam', name='cuvslam_slam', output='screen', condition=on,
-             parameters=[{'publish_map_tf': True}]),
+             parameters=[{'publish_map_tf': True,
+                          'frame_skip': ParameterValue(LaunchConfiguration('cuvslam_frame_skip'), value_type=int)}]),
         Node(package='ros_system', executable='scan_cam_gate', name='pole_depth_gate', output='screen',
              condition=IfCondition(PythonExpression([*slam_nvblox, ' and not ', *one_proc, ' and not ', *gate_cpp])),
              parameters=[gate_params('pole_front_cam')]),

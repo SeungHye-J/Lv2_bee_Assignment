@@ -63,6 +63,12 @@ class Ui:
             except Exception:   # ssh가 끊겨 터미널에 못 씀
                 pass
             raise SystemExit(128 + signum)
+        # Ctrl+Z(SIGTSTP)는 무시 — 11-15 실기: 눌린 TUI가 정지(T) 상태로 멈춰 '안 뜬다'로 보였음 (fg 해야 돌아옴).
+        #   cbreak라 ISIG가 살아 있어 Ctrl+Z가 그대로 정지 신호가 됨. 끄는 건 q · Ctrl+C
+        try:
+            signal.signal(signal.SIGTSTP, signal.SIG_IGN)
+        except (AttributeError, ValueError, OSError):
+            pass
         for name in ('SIGTERM', 'SIGHUP'):
             sig = getattr(signal, name, None)
             if sig is None:

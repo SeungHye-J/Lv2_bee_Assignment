@@ -197,7 +197,7 @@ class OperatorTool(Node):
             from perception.msg import TrackedObjectArray  # type: ignore
             self.create_subscription(
                 TrackedObjectArray, '/tracked_objects',
-                lambda m: self.state.on_objects(m.objects), LIVE)
+                lambda m: self.state.on_objects(m.objects, m.header.frame_id), LIVE)
         except Exception:
             pass
         try:
@@ -272,6 +272,14 @@ class OperatorTool(Node):
             from nav2_msgs.action import NavigateToPose  # type: ignore
             self.create_subscription(NavigateToPose.Impl.FeedbackMessage, '/navigate_to_pose/_action/feedback',
                                      lambda m: self.state.on_nav_feedback(m.feedback), LIVE)
+        except Exception:
+            pass
+        try:  # 각 skill의 실제 진행 단계 (stage feedback) — feedback은 skill이 바뀔 때만 저빈도로 발행
+            from plan.action import Skill  # type: ignore
+            for skill in ('navigate', 'approach', 'pick', 'pick_far', 'place', 'load', 'unload', 'stand', 'pose', 'inspect'):
+                self.create_subscription(
+                    Skill.Impl.FeedbackMessage, f'/skills/{skill}/_action/feedback',
+                    lambda m, name=skill: self.state.on_skill_feedback(name, m.feedback.stage), LIVE)
         except Exception:
             pass
 
@@ -396,6 +404,14 @@ class OperatorTool(Node):
             self.ui.window.resume_queue = path
         return int(MainMenu(self).show() or 0)
 
+    def cmd_route(self, args) -> int:
+        """가르친 경로 녹화 (op/routerec.py) — 수동 조작은 다른 터미널의 TUI·teleop으로."""
+        from op import routerec
+        if not hasattr(self, '_tf_buf'):
+            print('tf2_ros 없음 — 녹화 못 함', file=sys.stderr)
+            return 1
+        return routerec.record(self, self._tf_buf, args.name)
+
     def __getattr__(self, name: str):
         # cmd_* 한 번 명령은 Bus에 위임 (run-cli status/mode/drive/... 그대로 동작)
         if name.startswith('cmd_') or name in ('map_args', 'status_args'):
@@ -466,6 +482,9 @@ ROS 층 선택 (모든 명령 앞에 붙임):
     bag.add_argument('--topics', nargs='*', default=None, help='start: 이 토픽만 (생략하면 진단 프리셋)')
     bag.add_argument('--regex', default=None, help='start: 토픽 정규식 (프리셋 대신)')
     bag.add_argument('--no-sys', action='store_true', help='start: 부하(sys.csv) 기록 끔')
+
+    route = sub.add_parser('route', help='가르친 경로 녹화 — 수동으로 몰며 ~/.ros/routes/<이름>.txt (AUTO navigate가 경유점으로 씀)')
+    route.add_argument('name', help='경로 이름 (예: day1) — 한 번에 몰며 구간마다 Enter → <이름>_01.txt, _02.txt … (고르는 건 시작·끝 위치, 이름은 표시용)')
 
     drive = sub.add_parser('drive', help='바퀴 수동 주행 (MANUAL 모드)')
     drive.add_argument('direction', type=str.lower, choices=('forward', 'back', 'left', 'right', 'stop'))

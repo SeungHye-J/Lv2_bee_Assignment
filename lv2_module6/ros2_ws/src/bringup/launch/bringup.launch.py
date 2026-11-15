@@ -82,6 +82,7 @@ ROS_SYSTEM_ARGS = {
     'nav2_container_params': ('true', 'true(11-15부터 기본) = costmap이 nav2_params.yaml 값으로 (전역·local 모두 /arena/walls 실측 벽 · 튜닝값) · false = 예전 (전역 costmap이 Nav2 기본값 robot_radius 0.1) — ros_system nav2_nodes 설명'),
     'nav2_composition': ('true', 'Nav2 서버·관리자(+ map_saver)를 한 프로세스(nav2_container)로 — 메모리 절약 · false면 서버마다 프로세스 (예전)'),
     'py_helpers_one_process': ('true', 'python 보조 노드(pole_depth_gate · nvblox_map · rewind)를 한 프로세스로 — 메모리 절약 · false면 따로 (예전)'),
+    'cuvslam_frame_skip': ('1', 'cuVSLAM N장에 1장만 추적 (1=전부 · 2=7.5 Hz) — CPU 줄이기 현장 비교용'),
     'depth_gate_cpp': ('true', 'pole_depth_gate를 C++(perception depth_gate)로 — CPU 절약 (bag 재생 11-14: 파이썬 6 % → C++ 2 %) · false면 예전 파이썬'),
     'use_moveit': ('true', '진짜 move_group — coordinator의 pick/place가 씀 (ros_system 기본은 false라 실기에서 팔 작업이 안 됐음)'),
 }
