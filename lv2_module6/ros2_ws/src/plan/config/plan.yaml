@@ -271,6 +271,10 @@ mission_manager: # 주사위 기억 미션 (documents/mission/README.md) — 좌
     place_tol: 0.010 # [m] 놓은 뒤 확인 · 재검증 — 칸 중심에서 이 안이어야 성공
     place_search: 0.05 # [m] 놓은 뒤 확인 때 칸에서 이 안의 퍽만 그 퍽으로 봄
     match_radius: 0.04 # [m] 조사 때 퍽 자리와 트랙을 짝짓는 거리
+    # 조사 (11-16): 상자 윗면 안의 태그 퍽을 그 상자 퍽으로 — 퍽은 윗면 아무 데나 놓임. 위 match_radius는 집기 직전 다시 찾을 때만
+    survey_box_margin: 0.05          # [m] 인지 상자 가운데일 때 윗면 반폭(box_half 0.1025)에 더하는 여유
+    survey_box_margin_nominal: 0.20  # [m] 상자를 못 봐서 도면 가운데일 때 (위치 추정 오차 감안 · 상자끼리 0.7 m 넘게 떨어짐)
+    survey_pucks_per_box: 2          # 상자마다 등록할 퍽 최대 개수 (가운데에 가까운 순서)
     stand_check_s: 1.0 # [s] 누운 퍽 stand 뒤 인지가 섰는지 볼 때까지 기다림 → 섰으면 선 퍽을 pick (못 보면 stand_pick), 아직 누웠으면 stand 다시 (retries번)
     stand_find_m: 0.10 # [m] stand 뒤 look에서 누운 가운데 이 안의 퍽: 누움 → 다시 stand · 섬 → pick · 없음 → stand_lost (선 퍽은 약 45 mm 옆 · 실패하면 6~7 cm 튐) — 11-15
     verify_radius: 0.15 # [m] 재검증 때 장소 중심에서 이 안의 퍽만

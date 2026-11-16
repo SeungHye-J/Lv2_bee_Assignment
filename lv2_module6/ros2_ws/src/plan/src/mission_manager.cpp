@@ -139,6 +139,10 @@ MissionManager::MissionManager(const rclcpp::NodeOptions & options)
   approach_tries_ = static_cast<int>(declare_parameter<int64_t>("approach_tries", 3));
   retries_ = static_cast<int>(declare_parameter<int64_t>("retries", 2));
   match_radius_ = declare_parameter<double>("match_radius", 0.04);
+  // 조사 때 상자 윗면 안의 퍽을 그 상자 퍽으로 (11-16) — 윗면 반폭(box_half)에 더하는 여유 [m] · 상자마다 퍽 최대 개수
+  survey_margin_ = declare_parameter<double>("survey_box_margin", survey_margin_);                  // 인지 상자 가운데일 때
+  survey_margin_nominal_ = declare_parameter<double>("survey_box_margin_nominal", survey_margin_nominal_);  // 도면 가운데일 때 (위치 오차만큼)
+  survey_pucks_per_box_ = static_cast<int>(declare_parameter<int64_t>("survey_pucks_per_box", survey_pucks_per_box_));
   stand_check_s_ = declare_parameter<double>("stand_check_s", 1.0);
   stand_find_m_ = declare_parameter<double>("stand_find_m", 0.10);  // [m] stand 뒤 선 퍽을 누운 가운데에서 이 안에서 찾음 → pick
   verify_radius_ = declare_parameter<double>("verify_radius", 0.15);
@@ -737,24 +741,40 @@ void MissionManager::survey(size_t k) {  // k = 방문 순서 인덱스 (survey_
       if (!ok2) RCLCPP_WARN(get_logger(), "시작 박스 %zu inspect 실패 (%s) — 본 것만", b + 1, why2.c_str());
       snap("box" + str(static_cast<int>(b) + 1));
       std::vector<int> found;
-      for (double dx : puck_dx_) {  // 그 자리(map)에서 match_radius 안 퍽 중 tag를 읽은 것
-        const auto m = to_map(box.x + dx, box.y);
-        const TrackedObject * best = nullptr;
-        double best_d = match_radius_;
-        if (objects_) for (const auto & o : objects_->objects) {
-          if (!is_puck(o) || detail(o, "tag").empty()) continue;
-          const double d = std::hypot(o.pose.pose.position.x - m.x, o.pose.pose.position.y - m.y);
-          if (d < best_d) { best_d = d; best = &o; }
-        }
-        if (!best) { result("box " + str(static_cast<int>(b) + 1) + fmt(" (%+.2f): tag_unread", dx)); continue; }
+      // 상자 윗면 안의 퍽 전부 (11-16) — 퍽은 상자 위 아무 데나 놓임 (경기 규칙). 예전: 도면상 자리(puck_offsets_x ±40 mm)에서
+      //   match_radius(4 cm) 안 태그만 인정 → 위치 추정이 11~25 cm 틀어지거나 퍽이 자리에서 벗어나면 태그를 읽고도 버림
+      //   (11-16 실기 S5: 태그 #3 · #6을 읽고도 tag_unread).
+      //   상자 가운데 = 인지 상자(near_center · approach_perceived)면 퍽도 같은 map에서 봤으니 오차가 상쇄 → 윗면 반폭 + 작은 여유,
+      //   인지 상자가 없어 도면 가운데면 위치 오차만큼 큰 여유 (상자끼리 0.7 m 넘게 떨어져 옆 상자 퍽은 안 섞임)
+      const auto [cx, cy] = near_center(box);
+      const bool perceived = std::abs(cx - box.x) > 1e-6 || std::abs(cy - box.y) > 1e-6;
+      const double hw = box.half + (perceived ? survey_margin_ : survey_margin_nominal_);
+      struct Cand { const TrackedObject * o; double d, ax; };
+      std::vector<Cand> cands;
+      if (objects_) for (const auto & o : objects_->objects) {
+        if (!is_puck(o) || detail(o, "tag").empty()) continue;
+        const auto a = to_arena(o.pose.pose.position.x, o.pose.pose.position.y);
+        if (std::abs(a.x - cx) > hw || std::abs(a.y - cy) > hw) continue;
+        cands.push_back({&o, std::hypot(a.x - cx, a.y - cy), a.x});
+      }
+      // 가운데에 가까운 순서로 survey_pucks_per_box개까지 (상자마다 퍽 2개 — 그보다 많으면 오검출일 가능성이 큼)
+      std::sort(cands.begin(), cands.end(), [](const Cand & p, const Cand & q) { return p.d < q.d; });
+      if (cands.size() > static_cast<size_t>(survey_pucks_per_box_)) cands.resize(static_cast<size_t>(survey_pucks_per_box_));
+      for (const auto & cd : cands) {
+        const TrackedObject * best = cd.o;
         const int tag = std::stoi(detail(*best, "tag"));
         if (puck_at_.count(tag)) continue;
+        // x 오프셋은 본 자리 (적재함에 못 실은 퍽을 되돌려 놓거나 다시 볼 때 씀) — 윗면 밖으로 안 나가게 자름
+        const double dx = std::clamp(cd.ax - box.x, -box.half, box.half);
         pucks_.push_back({tag, best->color, detail(*best, "shape")});
         puck_at_[tag] = {b, dx};
         if (is_lying(*best)) lying_.insert(tag);  // 실을 때 세워서 집음 (stand → stand_pick)
         found.push_back(tag);
-        RCLCPP_INFO(get_logger(), "퍽 %d: %s %s (박스 %zu)", tag, best->color.c_str(), detail(*best, "shape").c_str(), b + 1);
+        RCLCPP_INFO(get_logger(), "퍽 %d: %s %s (박스 %zu · 가운데에서 %.1f cm)", tag, best->color.c_str(), detail(*best, "shape").c_str(), b + 1,
+                    cd.d * 100);
       }
+      if (cands.size() < puck_dx_.size())
+        result("box " + str(static_cast<int>(b) + 1) + fmt(": tag_unread (윗면에서 태그 읽은 퍽 %zu/%zu)", cands.size(), puck_dx_.size()));
       publish_state();
       // 선 퍽 먼저 싣고 누운 퍽은 나중에 (세우다 옆 퍽을 칠 수 있음 · 11-15 사용자)
       std::stable_partition(found.begin(), found.end(), [this](int tag) { return !lying_.count(tag); });
