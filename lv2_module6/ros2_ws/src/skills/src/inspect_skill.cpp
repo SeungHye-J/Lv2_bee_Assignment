@@ -11,7 +11,10 @@
 #include <limits>
 #include <mutex>
 
+#include "nav2_msgs/action/back_up.hpp"
+#include "nav2_msgs/action/drive_on_heading.hpp"
 #include "perception/msg/tracked_object_array.hpp"
+#include "rclcpp_action/rclcpp_action.hpp"
 #include "rclcpp_components/register_node_macro.hpp"
 #include "skills/arm_io.hpp"
 #include "skills/look_plan.hpp"
@@ -29,6 +32,12 @@ public:
     look_q_ = declare_parameter<std::vector<double>>("pose_look", {0.0, -1.682497, 0.324631, 1.926843, 0.0});  // arm.yaml이 덮음
     look_wait_s_ = declare_parameter<double>("inspect_look_wait_s", 1.5);  // [s] 상자 보기 자세마다 (궤적 끝 · 처짐 보정 수렴 + 추론)
     box_radius_m_ = declare_parameter<double>("inspect_box_radius_m", 0.16);  // [m] 상자 가운데에서 이 안 퍽만 셈 (반 변 0.1025 + 여유)
+    // 퍽이 몸 가까이 있어 look 자세 · 위에서 보기로 다 못 보면 look 자세로 뒤로 back_step_m씩 back_max_m까지 물러나며 봄 —
+    //   다 보이면 물러난 만큼 앞으로 되돌아옴 (그다음 pick이 원래 도킹 자리에서) · 0이면 끔 (11-16 시뮬: 하나 남은 퍽이 가까워 inspect_failed)
+    back_step_m_ = declare_parameter<double>("inspect_back_step_m", 0.05);
+    back_max_m_ = declare_parameter<double>("inspect_back_max_m", 0.20);
+    backup_ = rclcpp_action::create_client<nav2_msgs::action::BackUp>(this, "/backup");
+    drive_ = rclcpp_action::create_client<nav2_msgs::action::DriveOnHeading>(this, "/drive_on_heading");
     objects_sub_ = create_subscription<perception::msg::TrackedObjectArray>("/tracked_objects", rclcpp::QoS(5).reliable(),
       [this](perception::msg::TrackedObjectArray::ConstSharedPtr m) { std::lock_guard<std::mutex> lk(mu_); objects_ = m; });
     serve("inspect", [this](const SkillGoal & g, Done done) {
@@ -51,8 +60,8 @@ private:
     at.pose.orientation = geometry_msgs::msg::Quaternion();
     const double yaw = g.values.empty() ? std::numeric_limits<double>::quiet_NaN() : g.values[0];
     stage("위에서 내려다보기");
-    const auto look = [this, done](bool ok) {
-      if (!ok) { done(false, "inspect_failed"); return; }
+    const auto look = [this, done, g](bool ok) {
+      if (!ok) { look_back(g.pose, 1, done); return; }  // 위에서 못 봄 (가까워 IK 밖 등) — look 자세로 물러나며
       stage("기다림");
       arm_.wait_step(wait_s_)([done](bool) { done(true, ""); });
     };
@@ -107,6 +116,71 @@ private:
     return true;
   }
 
+  // look 자세로 뒤로 물러나며 c 둘레 퍽을 want개 · 태그까지 다 볼 때까지 (back_step씩 back_max까지) → 물러난 만큼 앞으로 되돌아옴
+  void look_back(const geometry_msgs::msg::PoseStamped & c0, size_t want, Done done) {
+    auto c = c0;
+    if (c.header.frame_id.empty()) c.header.frame_id = "map";
+    if (back_step_m_ <= 0.0 || back_max_m_ <= 0.0 || look_q_.size() != 5 || !backup_->action_server_is_ready()) {
+      done(false, "inspect_partial");
+      return;
+    }
+    stage("look 자세로 물러나며 보기");
+    arm_.move_joints(look_q_, [this, c, want, done](bool ok) {
+      if (!ok) { done(false, "inspect_failed"); return; }
+      back_step(c, want, 0.0, done);
+    });
+  }
+
+  void back_step(const geometry_msgs::msg::PoseStamped & c, size_t want, double backed, Done done) {
+    arm_.wait_step(look_wait_s_)([this, c, want, backed, done](bool) {
+      std::vector<look::V3> tops;
+      int tagged = 0;
+      const bool all = box_pucks(c, tops, tagged) && tops.size() >= want && tagged >= static_cast<int>(tops.size());
+      if (all || backed + back_step_m_ > back_max_m_ + 1e-6) {
+        if (backed > 0.0) RCLCPP_INFO(get_logger(), "물러나 보기 %.2f m — %s", backed, all ? "다 보임" : "그래도 모자람");
+        come_back(backed, [done, all]() { done(all, all ? "" : "inspect_partial"); });
+        return;
+      }
+      stage("뒤로 " + std::to_string(static_cast<int>(std::lround((backed + back_step_m_) * 100))) + " cm");
+      nav2_msgs::action::BackUp::Goal g;
+      g.target.x = back_step_m_;
+      g.speed = 0.05f;
+      g.time_allowance.sec = static_cast<int32_t>(back_step_m_ / 0.05 + 4);
+      g.disable_collision_checks = false;  // 뒤는 카메라가 못 봄 — costmap 검사로 벽 앞에서 멈춤
+      rclcpp_action::Client<nav2_msgs::action::BackUp>::SendGoalOptions o;
+      o.result_callback = [this, c, want, backed, done](const rclcpp_action::ClientGoalHandle<nav2_msgs::action::BackUp>::WrappedResult & r) {
+        if (r.code != rclcpp_action::ResultCode::SUCCEEDED) {  // 뒤가 막힘 — 여기까지 본 것으로
+          std::vector<look::V3> tops;
+          int tagged = 0;
+          const bool all = box_pucks(c, tops, tagged) && tops.size() >= want && tagged >= static_cast<int>(tops.size());
+          RCLCPP_WARN(get_logger(), "물러나기 막힘 (%.2f m에서)", backed);
+          come_back(backed, [done, all]() { done(all, all ? "" : "inspect_partial"); });
+          return;
+        }
+        back_step(c, want, backed + back_step_m_, done);
+      };
+      o.goal_response_callback = [this, backed, done](const rclcpp_action::ClientGoalHandle<nav2_msgs::action::BackUp>::SharedPtr & h) {
+        if (!h) come_back(backed, [done]() { done(false, "inspect_partial"); });
+      };
+      backup_->async_send_goal(g, o);
+    });
+  }
+
+  // 물러난 만큼 곧게 앞으로 (도킹 자리로) — 실패해도 then
+  void come_back(double d, std::function<void()> then) {
+    if (d <= 1e-3 || !drive_->action_server_is_ready()) { then(); return; }
+    stage("제자리로");
+    nav2_msgs::action::DriveOnHeading::Goal g;
+    g.target.x = d;
+    g.speed = 0.05f;
+    g.time_allowance.sec = static_cast<int32_t>(d / 0.05 + 4);
+    g.disable_collision_checks = true;  // 방금 지나온 길 — 앞의 상자는 costmap 팽창 안이라 검사하면 거절됨
+    rclcpp_action::Client<nav2_msgs::action::DriveOnHeading>::SendGoalOptions o;
+    o.result_callback = [then](const rclcpp_action::ClientGoalHandle<nav2_msgs::action::DriveOnHeading>::WrappedResult &) { then(); };
+    o.goal_response_callback = [then](const rclcpp_action::ClientGoalHandle<nav2_msgs::action::DriveOnHeading>::SharedPtr & h) { if (!h) then(); };
+    drive_->async_send_goal(g, o);
+  }
+
   void look_box(const SkillGoal & g, Done done) {
     const auto c = g.pose;
     const size_t want = g.values.empty() ? 2 : static_cast<size_t>(std::max(1.0, g.values[0]));
@@ -147,7 +221,8 @@ private:
             int tagged2 = 0;
             box_pucks(c, tops2, tagged2);
             const bool all = tops2.size() >= want && tagged2 >= static_cast<int>(tops2.size());
-            done(all, all ? "" : "inspect_partial");
+            if (all) { done(true, ""); return; }
+            look_back(c, want, done);  // 그래도 모자라면 look 자세로 물러나며
           });
         });
       });
@@ -155,7 +230,9 @@ private:
   }
 
   ArmIO arm_;
-  double height_m_, wait_s_, look_wait_s_, box_radius_m_;
+  double height_m_, wait_s_, look_wait_s_, box_radius_m_, back_step_m_ = 0.05, back_max_m_ = 0.20;
+  rclcpp_action::Client<nav2_msgs::action::BackUp>::SharedPtr backup_;
+  rclcpp_action::Client<nav2_msgs::action::DriveOnHeading>::SharedPtr drive_;
   std::vector<double> look_q_;
   std::mutex mu_;
   perception::msg::TrackedObjectArray::ConstSharedPtr objects_;

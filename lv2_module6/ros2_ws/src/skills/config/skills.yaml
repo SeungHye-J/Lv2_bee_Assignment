@@ -110,6 +110,8 @@ skill_inspect:
   ros__parameters:
     inspect_height_m: 0.15   # [m] 손끝을 퍽 윗면 위 이만큼 (16mm 태그 ≈ 50px — 한 칸 약 6px) · 시뮬 camera_look_down 0.08에서 100 %
     inspect_wait_s: 1.0      # [s] 그 자리에서 기다림 (perception 추론 4Hz × 몇 장)
+    inspect_back_step_m: 0.05 # [m] 퍽이 가까워 다 못 보면 look 자세로 이만큼씩 뒤로 물러나며 봄 → 다 보이면 물러난 만큼 앞으로 (0 = 끔)
+    inspect_back_max_m: 0.20  # [m] 물러나는 최대 (뒤는 costmap 충돌 검사)
 skill_pick:
   ros__parameters:
     max_grasp_tries: 2       # 파지 후보를 점수순으로 몇 개까지
