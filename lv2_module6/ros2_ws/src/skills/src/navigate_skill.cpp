@@ -35,6 +35,7 @@
 #include "nav2_msgs/action/drive_on_heading.hpp"
 #include "nav2_msgs/action/follow_path.hpp"
 #include "nav2_msgs/action/spin.hpp"
+#include "nav_msgs/msg/occupancy_grid.hpp"
 #include "nav2_msgs/action/navigate_to_pose.hpp"
 #include "rclcpp_components/register_node_macro.hpp"
 #include "skills/progress_watch.hpp"
@@ -91,6 +92,10 @@ public:
     // 출발 전 첫 경유점(없으면 목표) 쪽이 이보다 틀어져 있으면 먼저 제자리 회전 (0 = 끔) — DWB는 뒤쪽 경로도 크게 돌아 나가다
     //   상자·벽에 걸림 (11-16 시뮬: S4에서 exit 뒤 돌아 나오다 벽)
     pre_spin_rad_ = declare_parameter<double>("nav_pre_spin_deg", 45.0) * M_PI / 180.0;
+    // 충돌 검사한 회전이 Collision Ahead면, 상자 가운데가 이보다 멀 때만 검사 없이 다시 돎 (벽 옆 · 출발 자리)
+    //   11-16 시뮬: 출발 자리(벽 0.11 m)에서 검사 회전이 거절 → DWB도 'No valid trajectories' → 복구 회전이 벽을 밂.
+    //   상자 옆은 검사 없이 돌면 상자를 밀어서(L1) 그대로 둠
+    pre_spin_box_m_ = declare_parameter<double>("nav_pre_spin_box_m", 0.55);
     look_q_ = declare_parameter<std::vector<double>>("pose_look", {0.0, -1.682497, 0.324631, 1.926843, 0.0});  // arm.yaml이 덮음
     doors_ = declare_parameter<std::vector<double>>("doors", std::vector<double>{});  // 문마다 7개 — skills.yaml 설명
     gates_ = declare_parameter<std::vector<double>>("gates", std::vector<double>{});  // 길목마다 6개 — skills.yaml 설명
@@ -141,8 +146,13 @@ public:
       for (size_t i = 0; i + 2 < boxes.size(); i += 3) {
         const auto [mx, my] = to_map(boxes[i], boxes[i + 1]);
         via_.add_box(mx, my, boxes[i + 2]);  // 반 변 축 정렬 — start yaw가 π라 map에서도 축 정렬
+        box_c_.push_back({mx, my});
       }
     }
+    // local costmap — 끼임 풀기 방향 (가장 가까운 장애물 반대쪽으로 빠짐)
+    lcost_sub_ = create_subscription<nav_msgs::msg::OccupancyGrid>(
+      "/local_costmap/costmap", rclcpp::QoS(1).transient_local().reliable(),
+      [this](nav_msgs::msg::OccupancyGrid::ConstSharedPtr m) { lcost_ = m; });
     corr_sub_ = create_subscription<std_msgs::msg::String>(
       "/arena/correction", rclcpp::QoS(1).reliable().transient_local(), [this](std_msgs::msg::String::ConstSharedPtr m) {
         if (!door_use_corr_) return;
@@ -248,10 +258,21 @@ private:
           if (std::abs(err) > pre_spin_rad_ && std::hypot(dx, dy) >= 0.30) {
             RCLCPP_INFO(get_logger(), "출발 전 제자리 회전 %.0f°", err * 180.0 / M_PI);
             stage("출발 전 회전");
-            send_spin(err, seq, [this, go](bool ok, const std::string & why) {
-              if (!ok) RCLCPP_WARN(get_logger(), "출발 전 회전 실패 (%s) — 그대로 출발", why.c_str());
-              go();
-            }, true);  // 몸이 상자·벽에 닿을 회전은 하지 않음 (Collision Ahead면 돌지 않고 Nav2로)
+            double box_d = 1e9;
+            for (const auto & [bx, by] : box_c_) box_d = std::min(box_d, std::hypot(bx - me.x, by - me.y));
+            send_spin(err, seq, [this, go, err, seq, box_d](bool ok, const std::string & why) {
+              if (ok) { go(); return; }
+              if (box_d < pre_spin_box_m_) {  // 상자 옆 — 검사 없이 돌면 상자를 밂
+                RCLCPP_WARN(get_logger(), "출발 전 회전 실패 (%s) — 상자 %.2f m 옆이라 그대로 출발", why.c_str(), box_d);
+                go();
+                return;
+              }
+              RCLCPP_WARN(get_logger(), "출발 전 회전 실패 (%s) — 상자에서 %.2f m라 충돌 검사 없이 다시 돎", why.c_str(), box_d);
+              send_spin(err, seq, [this, go](bool ok2, const std::string & why2) {
+                if (!ok2) RCLCPP_WARN(get_logger(), "출발 전 회전 실패 (%s) — 그대로 출발", why2.c_str());
+                go();
+              });
+            }, true);  // 먼저 충돌 검사하며 돎 (Collision Ahead면 위에서 상자 거리로 판단)
             return;
           }
           break;
@@ -491,12 +512,17 @@ private:
 
   // 경로 점이 막은 구역(no_path_zones, arena 사각형) 안이면 그 구역 번호 (0부터), 아니면 −1
   int blocked_zone(const std::vector<Pose> & path) {
-    for (const auto & p : path) {
+    const auto inside = [this](const Pose & p, size_t i) {
       const auto [ax, ay] = to_arena(p.pose.position.x, p.pose.position.y);
-      for (size_t i = 0; i + 3 < no_path_.size(); i += 4)
-        if (ax >= std::min(no_path_[i], no_path_[i + 2]) && ax <= std::max(no_path_[i], no_path_[i + 2]) &&
-            ay >= std::min(no_path_[i + 1], no_path_[i + 3]) && ay <= std::max(no_path_[i + 1], no_path_[i + 3]))
-          return static_cast<int>(i / 4);
+      return ax >= std::min(no_path_[i], no_path_[i + 2]) && ax <= std::max(no_path_[i], no_path_[i + 2]) &&
+             ay >= std::min(no_path_[i + 1], no_path_[i + 3]) && ay <= std::max(no_path_[i + 1], no_path_[i + 3]);
+    };
+    for (size_t i = 0; i + 3 < no_path_.size(); i += 4) {
+      // 로봇이 이미 그 구역 안이면 그 구역은 안 봄 — 빠져나가는 길까지 막으면 그 뒤 모든 이동이 nav_no_path_zone
+      //   (11-16 시뮬: 위치가 밀려 S3를 구역 안 자리로 다가간 뒤 복귀까지 전부 0 s 실패)
+      if (path.empty() || inside(path.front(), i)) continue;
+      for (const auto & p : path)
+        if (inside(p, i)) return static_cast<int>(i / 4);
     }
     return -1;
   }
@@ -845,6 +871,24 @@ private:
     through_->async_send_goal(goal, opt);
   }
 
+  // 몸 근처 가장 가까운 장애물 칸(local costmap 99 이상)의 로봇 앞뒤 좌표 [m] (+ 앞 · − 뒤) · 없거나 모르면 +1 (= 예전처럼 후진)
+  double nearest_obstacle_x() {
+    const auto g = lcost_;
+    Pose2d me;
+    if (!g || g->data.empty() || !odom_pose(me, g->header.frame_id)) return 1.0;
+    const double res = g->info.resolution, c = std::cos(me.yaw), sn = std::sin(me.yaw);
+    const int w = static_cast<int>(g->info.width), h = static_cast<int>(g->info.height);
+    double best = 0.5, bx = 1.0;
+    for (int r = 0; r < h; ++r)
+      for (int k = 0; k < w; ++k) {
+        if (g->data[static_cast<size_t>(r) * w + k] < 99) continue;
+        const double dx = g->info.origin.position.x + (k + 0.5) * res - me.x, dy = g->info.origin.position.y + (r + 0.5) * res - me.y;
+        const double d = std::hypot(dx, dy);
+        if (d < best) { best = d; bx = c * dx + sn * dy; }
+      }
+    return bx;
+  }
+
   // 끼임 풀기: 곧게 후진 → 다시 받은 경로의 0.4 m 앞 쪽으로 제자리 회전 → then(). 어느 단계가 실패해도 다음으로 넘어감
   //   (후진이 뒤 벽에 막혀도 회전 · 재출발은 해 봄). 후진은 costmap 충돌 검사를 끔 — 이미 팽창 칸 안이라 거절됨 (collision_monitor는 그대로)
   void unstuck(const Pose & here, const Pose & target, uint64_t seq, std::function<void()> then) {
@@ -884,6 +928,22 @@ private:
       };
       path_->async_send_goal(pg, po);
     };
+    // 벽 반대쪽으로 (11-16 시뮬: 몸이 costmap 벽에 겹치면 DWB가 모든 궤적을 거절 — 후진 방향에 벽이 있으면 계속 막힘)
+    //   몸 근처(0.5 m) 가장 가까운 장애물 칸이 뒤에 있으면 앞으로, 아니면 뒤로
+    if (const double ox = nearest_obstacle_x(); ox < 0.0 && drive_->action_server_is_ready()) {
+      RCLCPP_WARN(get_logger(), "끼임 풀기 — 가장 가까운 장애물이 뒤(%.2f m)라 앞으로 %.2f m", ox, unstuck_back_m_);
+      stage("끼임 풀기: 앞으로");
+      Drive::Goal dg;
+      dg.target.x = unstuck_back_m_;
+      dg.speed = 0.05f;
+      dg.time_allowance.sec = static_cast<int32_t>(unstuck_back_m_ / 0.05 + 4);
+      dg.disable_collision_checks = true;
+      rclcpp_action::Client<Drive>::SendGoalOptions dopt;
+      dopt.result_callback = [turn](const rclcpp_action::ClientGoalHandle<Drive>::WrappedResult &) { turn(); };
+      dopt.goal_response_callback = [turn](const rclcpp_action::ClientGoalHandle<Drive>::SharedPtr & h) { if (!h) turn(); };
+      drive_->async_send_goal(dg, dopt);
+      return;
+    }
     if (!backup_->action_server_is_ready()) { turn(); return; }
     BackUp::Goal bg;
     bg.target.x = unstuck_back_m_;
@@ -922,6 +982,10 @@ private:
   int unstuck_tries_ = 2;
   double unstuck_back_m_ = 0.15;
   double pre_spin_rad_ = 0.0;
+  double pre_spin_box_m_ = 0.55;
+  rclcpp::Subscription<nav_msgs::msg::OccupancyGrid>::SharedPtr lcost_sub_;
+  nav_msgs::msg::OccupancyGrid::ConstSharedPtr lcost_;
+  std::vector<std::pair<double, double>> box_c_;  // 상자 가운데 (map) — 출발 전 회전을 검사 없이 해도 되는지
   rclcpp::Subscription<std_msgs::msg::String>::SharedPtr corr_sub_;
   rclcpp_action::ClientGoalHandle<NavigateToPose>::SharedPtr nav_goal_;  // 지금 보낸 Nav2 goal (stop이 이것만 취소)
   rclcpp_action::ClientGoalHandle<NavigateThrough>::SharedPtr through_goal_;  // 경유점 지도 길 goal (via_through)
