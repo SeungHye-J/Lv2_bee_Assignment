@@ -114,6 +114,7 @@ private:
   std::vector<std::string> goto_;  // start:GOTO 목록 (S1~S6 · L1~L3)
   void goto_seq(size_t k);         // 목록 k번째 상자에 SURVEY처럼 다가감 → 다음 · 끝나면 RETURN
   void load(size_t box, std::vector<int> found, size_t k);  // 찾은 퍽(tag)을 적재함에 — 트랙 id는 집기 직전에 다시 찾음
+  void put_back(int tag, size_t box, std::vector<double> dxs, size_t i, std::function<void(bool)> done);  // 적재 실패 퍽을 상자 위로
   void solve_allocation();
   void build(size_t i);
   void bring(size_t i);                          // 그 퍽을 장소 앞에서 손에 쥘 때까지 (적재함 · 시작 박스)
@@ -171,6 +172,7 @@ private:
   std::vector<double> keepout_;  // 안 들어갈 구역 사각형 [x0, y0, x1, y1, …] (arena, m) — /arena/walls에 칸 100 · 다가설 자리 거르기
   bool in_keepout(double x, double y) const;
   double nav_turn_m_ = 0.55;     // [m] Nav2 목표를 박스 가운데에서 이만큼까지 물림 (제자리 회전 공간)
+  double return_direct_m_ = 1.0;  // [m] 복귀 navigate 실패 뒤 직선(park_home)으로 마저 갈 최대 거리
   double exit_turn_clear_ = 0.35;  // [m] exit 뒤 상자 면 ~ base_footprint 최소 (180° 제자리 회전, 11-16)
   double exit_rear_m_ = 0.265;     // [m] base_footprint ~ 몸 뒤 끝 (collision_monitor Approach 뒤 변)
   double exit_rear_clear_ = 0.05;  // [m] exit을 늘릴 때 몸 뒤 끝이 벽에서 이만큼은 남김

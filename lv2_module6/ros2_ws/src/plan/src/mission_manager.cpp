@@ -134,6 +134,7 @@ MissionManager::MissionManager(const rclcpp::NodeOptions & options)
   approach_gap_ = declare_parameter<double>("approach_gap", 0.085);
   nav_turn_m_ = declare_parameter<double>("nav_turn_m", 0.55);
   exit_turn_clear_ = declare_parameter<double>("exit_turn_clear", 0.35);
+  return_direct_m_ = declare_parameter<double>("return_direct_m", 1.0);  // 복귀 navigate가 끝내 실패해도 이 안이면 직선 park_home
   exit_rear_m_ = declare_parameter<double>("exit_rear_m", 0.265);
   exit_rear_clear_ = declare_parameter<double>("exit_rear_clear", 0.05);
   approach_tries_ = static_cast<int>(declare_parameter<int64_t>("approach_tries", 3));
@@ -796,15 +797,28 @@ void MissionManager::load(size_t b, std::vector<int> found, size_t k) {
       if (ok2) { load(b, found, k + 1); return; }
       // 놓은 뒤 실패 — 퍽은 칸에 있음 (coordinator 장부 '확인 필요'). 상자에 되돌리지 않고 다음 퍽
       if (why2.rfind("load_released", 0) == 0) { result("puck " + str(tag) + ": " + why2 + " (칸에 둔 것으로 봄)"); load(b, found, k + 1); return; }
-      // 적재함에 못 실음 — 손에 든 퍽을 박스 제자리에 되돌려 두고 BUILD 때 직접 운반
+      // 적재함에 못 실음 — 손에 든 퍽을 상자 위에 되돌려 두고 BUILD 때 직접 운반
+      //   제자리 → 상자 가운데 → 반대쪽 자리 순 (11-16 시뮬: 제자리가 IK 밖이라 실패 → 퍽을 쥔 채 다음 상자로 감)
       const auto [bb, dx] = puck_at_[tag];
-      run({SubGoal().set__skill("place").set__target(point(start_boxes_[bb].x + dx, start_boxes_[bb].y, box_top_z_))},
-        [this, b, found, k, tag, why2](bool ok3, const std::string &) {
-          result("puck " + str(tag) + ": load_tray_failed " + why2 + (ok3 ? " (박스에 되돌림 · 직접 운반)" : " (되돌리기도 실패)"));
-          load(b, found, k + 1);
-        });
+      put_back(tag, bb, {dx, 0.0, -dx}, 0, [this, b, found, k, tag, why2](bool ok3) {
+        result("puck " + str(tag) + ": load_tray_failed " + why2 + (ok3 ? " (상자에 되돌림 · 직접 운반)" : " (되돌리기도 실패 — 손에 쥔 채)"));
+        // 손이 차 있으면 이 상자의 남은 퍽은 못 집음 — 건너뜀
+        load(b, found, ok3 ? k + 1 : found.size());
+      });
     });
   });
+}
+
+// 손에 든 퍽(tag)을 시작 박스 bb 위 x 오프셋 후보 차례로 놓아 봄 — 놓으면 그 자리를 puck_at_에 적음
+void MissionManager::put_back(int tag, size_t bb, std::vector<double> dxs, size_t i, std::function<void(bool)> done) {
+  if (i >= dxs.size()) { done(false); return; }
+  const double dx = dxs[i];
+  run({SubGoal().set__skill("place").set__target(point(start_boxes_[bb].x + dx, start_boxes_[bb].y, box_top_z_))},
+    [this, tag, bb, dxs, i, dx, done](bool ok, const std::string & why) {
+      if (ok) { puck_at_[tag] = {bb, dx}; done(true); return; }
+      RCLCPP_WARN(get_logger(), "퍽 %d 상자 위 되돌리기 실패 (x %+.2f · %s) — 다음 자리", tag, dx, why.c_str());
+      put_back(tag, bb, dxs, i + 1, done);
+    });
 }
 
 void MissionManager::solve_allocation() {
@@ -1125,10 +1139,20 @@ void MissionManager::go_home(bool corrected) {
   const auto p = to_map(zx, zy, M_PI);
   // 처음엔 Nav2로 · 보정은 approach로 (구역 가운데로 저속 직선 — Nav2 허용 오차 0.10보다 정확). 보정은 park_home 정책
   //   (skill_approach — 시뮬 drive_env park: 5 cm · 10° 안에 3 s 정지, 81.1 → 96.5 %)
-  run({stow(), SubGoal().set__skill(corrected ? "approach" : "navigate").set__target(fmt("%.4f,%.4f,%.4f", p.x, p.y, p.yaw))
+  // 처음엔 navigate를 retries번까지 다시 (끼임 풀기는 navigate 안에서) — 그래도 안 되면 출발 구역이 return_direct_m 안일 때만
+  //   approach(park_home, 직선)로 마저 감. 멀면 직선은 벽을 지나므로 ERROR (11-16 시뮬: navigate 한 번 실패로 바로 ERROR였음)
+  run_retry({stow(), SubGoal().set__skill(corrected ? "approach" : "navigate").set__target(fmt("%.4f,%.4f,%.4f", p.x, p.y, p.yaw))
                  .set__relation(corrected ? "park_home" : leg_to("start"))},  // " leg:L3_start" — 앞 공백은 skill이 무시
-    [this, corrected](bool ok, const std::string & why) {
-      if (!ok && !corrected) { finish(false, "return_nav:" + why); return; }
+    [this, corrected, zx, zy](bool ok, const std::string & why) {
+      if (!ok && !corrected) {
+        Pose2 r;
+        const double d = robot_arena(r) ? std::hypot(r.x - zx, r.y - zy) : 1e9;
+        if (d > return_direct_m_) { finish(false, "return_nav:" + why); return; }
+        RCLCPP_WARN(get_logger(), "복귀 navigate 실패 (%s) — 출발 구역 %.2f m 앞이라 직선으로 (park_home)", why.c_str(), d);
+        result("return: nav_failed " + why + " → park_home");
+        go_home(true);
+        return;
+      }
       Pose2 r;
       const bool known = robot_arena(r);
       const bool in = known && footprint_in_zone(r, footprint_[0], footprint_[1], footprint_[2], start_zone_);

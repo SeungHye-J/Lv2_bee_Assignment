@@ -58,6 +58,7 @@ skill_navigate:
     via_arrows: [4, 0, 14, 12, 12, 1, 14, 13, 14, 8, 8, 2, 15, 10, 15, 11, 16, 17, 17, 16, 18, 19, 19, 18]
     via_clearance: 0.18
     nav_pre_spin_deg: 45.0   # 출발 전 첫 경유점 쪽이 이보다 틀어져 있으면 먼저 제자리 회전 (0 = 끔) — 11-16 시뮬: S4에서 돌아 나오다 벽
+    nav_pre_spin_box_m: 0.55 # 검사 회전이 Collision Ahead면, 상자 가운데가 이보다 멀 때만 검사 없이 다시 돎 (벽 옆 · 출발 자리) · 상자 옆이면 안 돌고 출발
     via_through: true        # 11-16: 경유점 + 목표를 NavigateThroughPoses 한 번으로 — 경유점에서 서지 않고 지나감 (0.40 m 안이면 지난 것, navigate_through_poses.xml) · false = 경유점마다 NavigateToPose
     # 벽 · 상자 — plan.yaml arena_walls · start_boxes + location_boxes와 같게 (점끼리 보이는지만 봄)
     #   마지막 하나(2.593, 2.030 → 2.593, 2.600)는 도면에 없는 가상 벽 (11-16): B6 · B3 · L2top 쪽에서 G1로 바로 가는 대각선이

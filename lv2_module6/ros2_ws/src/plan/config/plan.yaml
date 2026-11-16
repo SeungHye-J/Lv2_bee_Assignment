@@ -299,6 +299,7 @@ mission_manager: # 주사위 기억 미션 (documents/mission/README.md) — 좌
     light_check_s: 8.0 # [s] 관측 시작 뒤 이만큼 pole_front_cam에 신호등이 안 보이면 경고 (방향·팔 가림)
     signal_error_cycles: 2 # 오류 사이클(count·unknown·range)이 이만큼 이어지면 ERROR — 한 번은 잡음일 수 있어 다음 사이클을 봄
     home_hold_s: 3.0 # [s] 출발 구역에서 정지 (발제: 3초)
+    return_direct_m: 1.0 # [m] 복귀 navigate가 다시 시도까지 실패해도 출발 구역 가운데가 이 안이면 직선(approach park_home)으로 마저 감 · 멀면 ERROR (11-16)
     # 현장 진단 실행 (실기 시험용) — true면 관측(바코드·신호) 실패도 기록만 하고 다음 단계로, 끝에 실패 목록 + RETURN.
     #   치명 이유(estop·manual·arm_contact·collision·overcurrent·abort… — mission_solver.hpp diag_fatal)면 지금처럼 바로 정지.
     #   기본 false = 대회 규칙대로 (관측 실패 = 안전 정지). TUI 미션 메뉴 'x' 또는 /cmd/mission "start:DIAG"는 그 회차만 켬
