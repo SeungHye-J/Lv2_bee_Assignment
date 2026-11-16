@@ -102,6 +102,11 @@ std::pair<double, double> perceived_center(double bx, double by, double qx, doub
 std::vector<size_t> visit_order(const std::vector<int64_t> & order, size_t n);
 // 점 (x, y)에서 가장 가까운 벽 선분까지 거리 [m] — walls = [x0, y0, x1, y1, …] (arena). 벽이 없으면 무한대
 double wall_distance(double x, double y, const std::vector<double> & walls);
+// 상자에서 exit 후진 거리 (11-16) — back이 need(180° 제자리 회전에 필요한 후진)보다 짧으면 need까지 늘림.
+//   단 몸 뒤 끝(dock에서 뒤로 back + rear_m)이 벽에서 rear_clear 안으로 들어가는 거리는 안 감 (뒤는 카메라가 못 봄)
+//   dock = 붙은 자리 (x, y, yaw, arena) · 늘릴 수 없으면 back 그대로
+double exit_back(double back, double need, double dx, double dy, double dyaw, double rear_m, double rear_clear,
+                 const std::vector<double> & walls);
 
 // ---------- 미션 단계 (순서와 실패 시 갈 곳만 정한다. 각 단계에서 무엇을 하는지는 mission_manager)
 enum class Phase { IDLE, GO_OBSERVE, BARCODE, READ, SURVEY, BUILD, VERIFY, RETURN, DONE, ERROR };

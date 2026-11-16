@@ -171,6 +171,9 @@ private:
   std::vector<double> keepout_;  // 안 들어갈 구역 사각형 [x0, y0, x1, y1, …] (arena, m) — /arena/walls에 칸 100 · 다가설 자리 거르기
   bool in_keepout(double x, double y) const;
   double nav_turn_m_ = 0.55;     // [m] Nav2 목표를 박스 가운데에서 이만큼까지 물림 (제자리 회전 공간)
+  double exit_turn_clear_ = 0.35;  // [m] exit 뒤 상자 면 ~ base_footprint 최소 (180° 제자리 회전, 11-16)
+  double exit_rear_m_ = 0.265;     // [m] base_footprint ~ 몸 뒤 끝 (collision_monitor Approach 뒤 변)
+  double exit_rear_clear_ = 0.05;  // [m] exit을 늘릴 때 몸 뒤 끝이 벽에서 이만큼은 남김
   // 다가설 자리 · Nav2 목표의 박스 가운데 = 인지 상자 평균(marks_, min_hits · gate 안)이면 그것, 아니면 도면 (approach_perceived, 11-16)
   bool near_perceived_ = true;
   std::pair<double, double> near_c_{0.0, 0.0};  // 이번 go_near가 쓰는 박스 가운데 (arena) — 다가설 자리를 정할 때 한 번 정함
@@ -287,6 +290,9 @@ private:
   std::vector<WallPt> wall_pts_;
   std::set<long long> wall_prev_;     // 지난 격자의 겉면 칸 (map 칸 번호) — 새로 생긴 칸만 고름
   double wall_keep_s_ = 120.0;        // [s] 이보다 오래된 점은 버림
+  double wall_rot_rad_ = 0.26;        // [rad] 지난 정합 뒤 로봇이 이보다 많이 돌았으면 이번 정합 건너뜀 (11-16)
+  double wall_yaw_ = 0.0;             // 지난 정합 때 로봇 방향 (odom)
+  bool wall_yaw_ok_ = false;
   rclcpp::Subscription<nav_msgs::msg::OccupancyGrid>::SharedPtr grid_sub_;
   rclcpp::TimerBase::SharedPtr wall_timer_;
   void wall_tick();

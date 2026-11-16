@@ -107,6 +107,16 @@ TEST(ProgressWatch, StuckAtWallStallsAfterWindow) {  // 벽 앞: 회복 동작�
   EXPECT_TRUE(hit);
   EXPECT_NEAR(t, 25.5, 1.0);  // 4~5분 대신 약 25 s
 }
+TEST(StillWatch, StoppedRobotHitsSpinDoesNot) {  // 11-16 실기: collision_monitor 정지 · 제자리 180° 회전 (0.45 rad/s)
+  skills::StillWatch w(3.0, 0.02, 3.0 * M_PI / 180.0);
+  double t = 0;
+  for (; t < 7.0; t += 0.1) EXPECT_FALSE(w.update(t, 0.0, 0.0, 0.45 * t)) << t;  // 회전 7 s — 위치는 그대로
+  bool hit = false;
+  const double t_stop = t;
+  for (; t < 12.0 && !hit; t += 0.1) hit = w.update(t, 0.003, 0.0, 0.45 * t_stop);  // 멈춤 (잡음 3 mm)
+  EXPECT_TRUE(hit);
+  EXPECT_NEAR(t - t_stop, 3.1, 0.2);
+}
 TEST(ProgressWatch, DetourReplanIsNotStall) {  // 남쪽 통로 막혀 북쪽 우회로(1.0 → 4.0 m)로 재계획 뒤 정상 주행 (T3)
   skills::ProgressWatch w(25.0, 0.10);
   double t = 0;
