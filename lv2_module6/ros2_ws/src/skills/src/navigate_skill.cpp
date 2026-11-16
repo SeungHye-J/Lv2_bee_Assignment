@@ -251,7 +251,7 @@ private:
             send_spin(err, seq, [this, go](bool ok, const std::string & why) {
               if (!ok) RCLCPP_WARN(get_logger(), "출발 전 회전 실패 (%s) — 그대로 출발", why.c_str());
               go();
-            });
+            }, true);  // 몸이 상자·벽에 닿을 회전은 하지 않음 (Collision Ahead면 돌지 않고 Nav2로)
             return;
           }
           break;
@@ -266,11 +266,12 @@ private:
   }
 
   // Spin (odom 기준 상대 각도) — 결과를 cb(ok, why)로
-  void send_spin(double yaw, uint64_t seq, std::function<void(bool, const std::string &)> cb) {
+  //   check: costmap 충돌 검사 (출발 전 회전 — 11-16 시뮬: 검사 없이 돌다 L1 상자를 밂) · 표 재생은 사람이 몬 길이라 검사 없이
+  void send_spin(double yaw, uint64_t seq, std::function<void(bool, const std::string &)> cb, bool check = false) {
     Spin::Goal g;
     g.target_yaw = static_cast<float>(yaw);
     g.time_allowance.sec = static_cast<int32_t>(std::abs(yaw) / 0.3 + 10.0);
-    g.disable_collision_checks = true;  // 사람이 몬 길 — 벽 옆 회전도 그대로 (collision_monitor는 계속 켜짐)
+    g.disable_collision_checks = !check;  // collision_monitor는 계속 켜짐
     rclcpp_action::Client<Spin>::SendGoalOptions opt;
     opt.goal_response_callback = [this, seq, cb](const rclcpp_action::ClientGoalHandle<Spin>::SharedPtr & h) {
       if (seq != nav_seq_) { if (h) spin_->async_cancel_goal(h); return; }
