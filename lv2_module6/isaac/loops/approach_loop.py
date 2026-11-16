@@ -251,7 +251,7 @@ def main():
     ap.add_argument('--exit', type=float, default=0.0,
                     help='[m] after docking, back straight out this far (approach exit, as mission_manager does) - 0 = off')
     ap.add_argument('--standoff', type=float, default=0.25, help='[m] Nav2 stops this far from the side (plan.yaml standoff)')
-    ap.add_argument('--gap', type=float, default=0.085, help='[m] approach to this gap base_footprint-side (plan.yaml approach_gap)')
+    ap.add_argument('--gap', type=float, default=0.099, help='[m] approach to this gap base_footprint-side (plan.yaml approach_gap)')
     ap.add_argument('--wall-clearance', type=float, default=0.22, help='[m] skip sides closer to a wall (plan.yaml)')
     ap.add_argument('--timeout', type=float, default=240.0, help='[s] whole plan')
     ap.add_argument('--wait-ready', type=float, default=90.0, metavar='SEC',

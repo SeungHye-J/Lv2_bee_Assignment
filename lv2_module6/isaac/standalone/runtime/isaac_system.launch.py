@@ -37,6 +37,9 @@ ARGS = {
     'pole_back_cam_external': 'true',  # 드라이버 없이 Isaac 토픽으로
     'nav2_container_params': os.environ.get('BEE_NAV2_PARAMS', 'true'),  # 실기 기본(true, #240)과 같게 · false = costmap Nav2 기본값
     'map': 'slam',               # 매핑 — 새 폴더 ~/.ros/beebot_maps/<날짜_시각>/ (저장 지도로: map:=saved)
+    'map_name': '',              # 아래 셋은 bringup 기본값 그대로 — isaac_mission.sh가 실기 start.sh 값으로 바꿈
+    'map_dir': '',
+    'perception': 'auto',
     'use_perception': 'true',    # YOLO · signal_decoder · hand_relative (매핑 중에도)
     'operation': 'AUTO',         # coordinator가 skill을 실행하는 모드
     'taught_routes': os.environ.get('TAUGHT_ROUTES', 'false'),
@@ -58,12 +61,12 @@ DEPTH_INFO = NS + '/aligned_depth_to_color/camera_info'  # image_transport가 �
 
 
 def generate_launch_description():
-    arena = IfCondition(PythonExpression(["'", LaunchConfiguration('arena_map'), "' != ''"]))
+    arena = IfCondition(PythonExpression(["'", LaunchConfiguration('arena_map'), "' not in ('', 'none')"]))
     best_effort = {f'qos_overrides.{t}.subscription.reliability': 'best_effort' for t in (DEPTH, INFO, DEPTH_INFO)}
     return LaunchDescription([
         *[DeclareLaunchArgument(k, default_value=v) for k, v in ARGS.items()],
         DeclareLaunchArgument('arena_map', default_value=ARENA_MAP if os.path.exists(ARENA_MAP) else '',
-                              description="nvblox_map walls_in으로 줄 장면 벽 지도 ('' = 실기처럼 /arena/walls)"),
+                              description="nvblox_map walls_in으로 줄 장면 벽 지도 ('' · none = 실기처럼 /arena/walls — 명령줄은 빈 값을 못 받아 none)"),
         # Isaac 시계(/clock) — ros2_ws 패키지는 손대지 않고 여기서 모든 노드(bringup·ros_system include 포함)에 준다
         SetParameter(name='use_sim_time', value=True),
         IncludeLaunchDescription(

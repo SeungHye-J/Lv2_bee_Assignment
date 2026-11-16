@@ -351,6 +351,18 @@ double wall_distance(double x, double y, const std::vector<double> & walls) {
   return best;
 }
 
+double exit_back(double back, double need, double dx, double dy, double dyaw, double rear_m, double rear_clear,
+                 const std::vector<double> & walls) {
+  const double c = std::cos(dyaw), s = std::sin(dyaw);
+  double best = back;
+  while (best < need) {  // 1 cm씩 늘리며 몸 뒤 끝이 벽에 닿기 전까지
+    const double b = std::min(best + 0.01, need), r = b + rear_m;
+    if (wall_distance(dx - r * c, dy - r * s, walls) < rear_clear) break;
+    best = b;
+  }
+  return best;
+}
+
 const char * phase_name(Phase p) {
   static const char * names[] = {"IDLE", "GO_OBSERVE", "BARCODE", "READ", "SURVEY", "BUILD", "VERIFY", "RETURN", "DONE", "ERROR"};
   return names[static_cast<int>(p)];

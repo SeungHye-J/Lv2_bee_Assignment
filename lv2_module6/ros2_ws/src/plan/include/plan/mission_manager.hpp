@@ -27,7 +27,7 @@
 //              → 12개 한 번에 할당 (mission_solver allocate)
 //     → BUILD 퍽마다: 장소 앞 → 장소 태그로 칸 위치 보정 → [적재함 칸에서 꺼냄 | 못 실은 퍽은 시작 박스에서 직접 집어 옴]
 //              (적재함이면 unload <칸>) → place 칸 "x,y,z" → 내려다보고 10 mm 밖·쓰러짐이면 다시 집어 놓기
-//     → VERIFY 장소마다 새로 본 퍽만으로 칸별 판정 (verify_in_place: 장소의 마지막 퍽을 놓은 그 자리에서 · 못 한 장소만 다시 감) + 12개 중복·누락 → RETURN 출발 구역 가운데 → 외곽이 구역 안인지
+//     → VERIFY 장소마다 새로 본 퍽만으로 칸별 판정 (마지막에 놓은 장소는 그 자리에서 · 나머지는 build_location_order 거꾸로 다시 감 · verify_in_place면 장소마다 놓은 자리에서) + 12개 중복·누락 → RETURN 출발 구역 가운데 → 외곽이 구역 안인지
 //              확인·보정 → home_hold_s 정지 → DONE
 //   실패: skill마다 retries번 다시 · 그래도 안 되면 그 퍽·장소만 실패로 results에 남기고 다음으로 (복귀까지).
 //     관측(신호·바코드) 오류와 복귀 이동 실패만 ERROR로 멈추고 coordinator 정지
@@ -171,6 +171,9 @@ private:
   std::vector<double> keepout_;  // 안 들어갈 구역 사각형 [x0, y0, x1, y1, …] (arena, m) — /arena/walls에 칸 100 · 다가설 자리 거르기
   bool in_keepout(double x, double y) const;
   double nav_turn_m_ = 0.55;     // [m] Nav2 목표를 박스 가운데에서 이만큼까지 물림 (제자리 회전 공간)
+  double exit_turn_clear_ = 0.35;  // [m] exit 뒤 상자 면 ~ base_footprint 최소 (180° 제자리 회전, 11-16)
+  double exit_rear_m_ = 0.265;     // [m] base_footprint ~ 몸 뒤 끝 (collision_monitor Approach 뒤 변)
+  double exit_rear_clear_ = 0.05;  // [m] exit을 늘릴 때 몸 뒤 끝이 벽에서 이만큼은 남김
   // 다가설 자리 · Nav2 목표의 박스 가운데 = 인지 상자 평균(marks_, min_hits · gate 안)이면 그것, 아니면 도면 (approach_perceived, 11-16)
   bool near_perceived_ = true;
   std::pair<double, double> near_c_{0.0, 0.0};  // 이번 go_near가 쓰는 박스 가운데 (arena) — 다가설 자리를 정할 때 한 번 정함
@@ -287,6 +290,9 @@ private:
   std::vector<WallPt> wall_pts_;
   std::set<long long> wall_prev_;     // 지난 격자의 겉면 칸 (map 칸 번호) — 새로 생긴 칸만 고름
   double wall_keep_s_ = 120.0;        // [s] 이보다 오래된 점은 버림
+  double wall_rot_rad_ = 0.26;        // [rad] 지난 정합 뒤 로봇이 이보다 많이 돌았으면 이번 정합 건너뜀 (11-16)
+  double wall_yaw_ = 0.0;             // 지난 정합 때 로봇 방향 (odom)
+  bool wall_yaw_ok_ = false;
   rclcpp::Subscription<nav_msgs::msg::OccupancyGrid>::SharedPtr grid_sub_;
   rclcpp::TimerBase::SharedPtr wall_timer_;
   void wall_tick();

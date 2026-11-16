@@ -133,6 +133,9 @@ MissionManager::MissionManager(const rclcpp::NodeOptions & options)
   standoff_ = declare_parameter<double>("standoff", 0.25);
   approach_gap_ = declare_parameter<double>("approach_gap", 0.085);
   nav_turn_m_ = declare_parameter<double>("nav_turn_m", 0.55);
+  exit_turn_clear_ = declare_parameter<double>("exit_turn_clear", 0.35);
+  exit_rear_m_ = declare_parameter<double>("exit_rear_m", 0.265);
+  exit_rear_clear_ = declare_parameter<double>("exit_rear_clear", 0.05);
   approach_tries_ = static_cast<int>(declare_parameter<int64_t>("approach_tries", 3));
   retries_ = static_cast<int>(declare_parameter<int64_t>("retries", 2));
   match_radius_ = declare_parameter<double>("match_radius", 0.04);
@@ -153,6 +156,7 @@ MissionManager::MissionManager(const rclcpp::NodeOptions & options)
   acorr_on_ = declare_parameter<bool>("arena_correction", acorr_on_);
   acorr_idle_ = declare_parameter<bool>("arena_corr_idle", acorr_idle_);
   wall_fit_ = declare_parameter<bool>("arena_corr_wall_fit", wall_fit_);
+  wall_rot_rad_ = declare_parameter<double>("arena_corr_wall_rot_deg", 15.0) * M_PI / 180.0;
   acorr_boxes_ = declare_parameter<bool>("arena_corr_boxes", acorr_boxes_);
   wall_gate_ = declare_parameter<double>("arena_corr_wall_gate", wall_gate_);
   wall_min_cells_ = static_cast<int>(declare_parameter<int64_t>("arena_corr_wall_min_cells", wall_min_cells_));
@@ -614,12 +618,9 @@ bool MissionManager::observe_still() const {
 
 void MissionManager::barcode_done(bool ok, const std::string & why) {
   if (!gaze_sent_) { ok ? finish(true, "") : finish(false, why); return; }  // 팔을 안 움직였음
-  // 뻗던·다가가던 중이면 이 계획이 진행 중 goal을 취소함 · 팔 접고 → 다가갔으면 원래 자리로 똑바로 후진
+  // 뻗던·다가가던 중이면 이 계획이 진행 중 goal을 취소함 · 팔만 접음 — 다가간 자리에서 그대로 SURVEY로 출발
+  //   (11-16 사용자: 원래 자리로 후진할 필요 없음 · 다가간 거리는 최대 barcode_advance_max_m)
   std::vector<SubGoal> back{stow()};
-  if (advanced_m_ > 0.0 || moving_) {
-    const auto o = to_map(barcode_origin_.x, barcode_origin_.y, barcode_origin_.yaw);
-    back.push_back(SubGoal().set__skill("approach").set__target(fmt("%.4f,%.4f,%.4f", o.x, o.y, o.yaw)).set__relation("drive_straight"));
-  }
   moving_ = false;
   returning_ = true;
   run(back, [this, ok, why](bool sok, const std::string & swhy) {  // 실패해도 접고(·돌아오고) 끝냄
@@ -1022,6 +1023,8 @@ void MissionManager::verify(size_t k) {  // k = 재확인 순서 인덱스 — �
   const std::string name = "L" + str(static_cast<int>(li) + 1);
   ctx_ = "\"loc\": " + q(name);
   note(name + " 재검증");
+  // 마지막에 놓은 장소 앞에 아직 서 있으면 그 자리에서 (다시 다가가지 않음) — 나머지 장소는 다시 찾아감
+  if (last_place_loc_ == static_cast<int>(li)) { verify_at(li, [this, k]() { verify(k + 1); }); return; }
   const double lx = locations_[li].first, ly = locations_[li].second;
   go_near(loc_boxes_[li], lx, ly, [this, k, li, name](bool ok, const std::string & why) {
     if (!ok) {
@@ -1424,7 +1427,21 @@ void MissionManager::go_near(const Box & box, double px, double py, Done done, s
         return;
       }
       // 붙은 뒤 exit은 Nav2 목표 자리(n)까지 물러남 — approach 시작 자리(@d)는 돌 공간이 없을 수 있음
-      if (ok) { back_ = fmt("%.3f", std::hypot(cx - n.x, cy - n.y) - box.half - approach_gap_ + box.retreat); done(true, ""); return; }
+      //   11-16: 그 거리가 180° 제자리 회전에 모자라면(벽 쪽으로 n이 당겨짐) exit_turn_clear까지 늘림 — 몸 뒤가 벽에 안 닿는 데까지만
+      if (ok) {
+        const double back = std::hypot(cx - n.x, cy - n.y) - box.half - approach_gap_ + box.retreat;
+        const double dist = box.half + approach_gap_, c = std::cos(n.yaw), s = std::sin(n.yaw);
+        const double b = exit_back(back, exit_turn_clear_ - approach_gap_, cx - dist * c, cy - dist * s, n.yaw, exit_rear_m_,
+                                   exit_rear_clear_, walls_);
+        if (b > back + 1e-3)
+          RCLCPP_INFO(get_logger(), "%s exit %.3f → %.3f m (180° 회전 공간 · 상자 면에서 %.3f m)", to.c_str(), back, b, b + approach_gap_);
+        if (b + approach_gap_ < exit_turn_clear_ - 1e-3)
+          RCLCPP_WARN(get_logger(), "%s exit %.3f m — 뒤 벽 때문에 상자 면에서 %.3f m까지만 (회전 공간 %.2f m 모자람)", to.c_str(), b,
+                      b + approach_gap_, exit_turn_clear_);
+        back_ = fmt("%.3f", b);
+        done(true, "");
+        return;
+      }
       RCLCPP_WARN(get_logger(), "접근 자리 %zu 실패 (%s) — 다음 변", k + 1, why.c_str());
       // 상자 앞에서 끝남(붙다 멈춤 · 상자를 못 봐 다가설 자리에 섬) — 그대로 Nav2를 보내면 제자리에서 돌다 상자를 밀거나(11-13),
       //   후진 금지라 몸 뒤가 벽에 걸려 못 빠져나옴 (11-13 headless) → 먼저 똑바로 물러남
@@ -1692,6 +1709,27 @@ void MissionManager::wall_tick() {
   const auto & q = mo.transform.rotation;
   const double myaw = std::atan2(2 * (q.w * q.z + q.x * q.y), 1 - 2 * (q.y * q.y + q.z * q.z));
   const double mx = mo.transform.translation.x, my = mo.transform.translation.y, mc = std::cos(myaw), ms = std::sin(myaw);
+  // 회전 중이면 건너뜀 (11-16 실기 nav_1116_062046: 제자리 −138° 회전 중 번진 격자로 dθ +9.0° 정합(맞은 칸 871 · 평소 1400~2200)
+  //   → 1°씩 넘기다 cuvslam MapGate가 0.30 m로 잠겨 끝까지 바퀴+IMU만 — 0.6 m 밀려 approach_box_unseen).
+  //   지난 정합 뒤 wall_rot_rad 넘게 돌았으면 이번 격자의 새 칸은 버리고(wall_prev_만 갱신) 정합도 안 함
+  try {
+    const auto br = tf_buffer_->lookupTransform("odom", "base_footprint", tf2::TimePointZero).transform.rotation;
+    const double yaw = std::atan2(2 * (br.w * br.z + br.x * br.y), 1 - 2 * (br.y * br.y + br.z * br.z));
+    const bool turned = wall_yaw_ok_ && wall_rot_rad_ > 0.0 && std::abs(std::remainder(yaw - wall_yaw_, 2 * M_PI)) > wall_rot_rad_;
+    wall_yaw_ = yaw;
+    wall_yaw_ok_ = true;
+    if (turned) {
+      std::set<long long> cur;
+      for (int r = 0; r < h; ++r)
+        for (int k = 0; k < w; ++k)
+          if (at(r, k) >= 50)
+            cur.insert(static_cast<long long>(std::lround((g.info.origin.position.x + (k + 0.5) * res) / res)) * 1000003LL +
+                       std::lround((g.info.origin.position.y + (r + 0.5) * res) / res));
+      wall_prev_ = std::move(cur);
+      return;
+    }
+  } catch (const std::exception &) {
+  }
   // 새로 생긴 겉면 칸 → odom (받은 지금의 map→odom ≈ 쌓을 때의 것). 이미 있던 칸은 옛 map 좌표라 다시 안 넣음
   const double t_now = wall_s();
   std::set<long long> cur;

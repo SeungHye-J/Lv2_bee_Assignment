@@ -286,4 +286,4 @@ python3 approach_summary.py logs/approach_<ts> ...  # 이미 있는 결과 폴�
 | `arm_vib_test.py` | `goto.py`의 앞선 판 — 관절 목표 · 손 자세 · 이름 자세 하나로 보내고 진동 측정 (칸 자세는 `goto.py`) |
 | `sys_log.py` | Jetson과 ROS 프로세스별 메모리 · CPU · GPU를 1초마다 CSV로 (`system.csv` · `procs.csv`). `approach_loop.py --real`이 스스로 띄움 |
 | `vis/rviz.sh` | 팔 시험용 RViz: MoveIt 경로 + `/tracked_objects` 퍽 상자(`puck_box.py`) + `rl_arm_correction` 유령 로봇 3개(`correction_ghost.py`, `ghost.rviz`). launcher가 떠 있을 때 실행 |
-| `vis/odom_nvblox.sh` | 주행용 RViz(`odom_nvblox.rviz`) — `tools/rviz/start.sh`로 띄우고 bag도 같이 (`RVIZ_RECORD=0`이면 bag 없음) |
+| `vis/odom_nvblox.sh [domain]` | 주행용 RViz(`odom_nvblox.rviz`) — `tools/rviz/start.sh`로 띄우고 bag도 같이 (`RVIZ_RECORD=0`이면 bag 없음). 첫 인자가 숫자면 `ROS_DOMAIN_ID` |

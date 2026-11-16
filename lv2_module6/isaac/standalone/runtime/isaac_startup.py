@@ -192,6 +192,10 @@ async def _setup():
         # Physics rate = Isaac Lab training (SimulationCfg dt 1/200): the scene default is 60 Hz.
         # Also lets opencr_bridge send S lines every 10 ms like the firmware. BEE_PHYSICS_HZ=60 if the sim gets too slow.
         scene.CreateTimeStepsPerSecondAttr().Set(int(os.environ.get("BEE_PHYSICS_HZ", "200")))
+        code = os.environ.get("BEE_BARCODE")  # P2-01..P2-04 (isaac_mission.sh); unset = what the file selects
+        if code and stage.GetPrimAtPath("/World/barcode"):
+            stage.GetPrimAtPath("/World/barcode").GetVariantSet("code").SetVariantSelection(code)
+            print(f"[isaac_startup] barcode {code}", flush=True)
     pucks = [str(p.GetPath()) for p in stage.Traverse() if PUCK.match(p.GetName())]
     orig = {}  # scene_pick_bot: world poses as the file has them, for apply_case
     if os.path.basename(SCENE) == "scene_pick_bot.usda" and os.path.exists(CASE_FILE):  # only that scene (other sims share /tmp)
@@ -201,6 +205,9 @@ async def _setup():
             apply_case(stage, orig)
     bridge = os.path.join(HERE, "opencr_bridge.py")  # creates the pty now; it attaches to the robot on the first physics step
     exec(compile(open(bridge).read(), bridge, "exec"), {"__name__": "__main__", "__file__": bridge})
+    if os.environ.get("BEE_BLINK") == "1":  # traffic light sequence (usda/sign/blink.py, waits for Play) - isaac_mission.sh
+        blink = os.path.join(HERE, "..", "..", "usda", "sign", "blink.py")
+        exec(compile(open(blink).read(), blink, "exec"), {"__name__": "__main__", "__file__": blink})
     timeline = omni.timeline.get_timeline_interface()
     if os.environ.get("ISAAC_AUTOPLAY") == "1":  # 시연: Play를 자동으로
         timeline.play()

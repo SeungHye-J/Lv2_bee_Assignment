@@ -80,10 +80,17 @@ public:
     unstuck_back_m_ = declare_parameter<double>("nav_unstuck_back_m", 0.15);
     stall_s_ = declare_parameter<double>("nav_stall_s", 15.0);       // 0이면 감시 안 함
     stall_gain_m_ = declare_parameter<double>("nav_stall_gain_m", 0.10);
+    // 멈춤 감시 (11-16): 자세가 nav_still_s 동안 nav_still_m · nav_still_deg 넘게 안 바뀌면 nav_stall_s를 기다리지 않고 끼임 풀기 (0 = 끔)
+    still_s_ = declare_parameter<double>("nav_still_s", 3.0);
+    still_m_ = declare_parameter<double>("nav_still_m", 0.02);
+    still_rad_ = declare_parameter<double>("nav_still_deg", 3.0) * M_PI / 180.0;
     look_m_ = declare_parameter<double>("nav_look_m", 0.6);
     near_m_ = declare_parameter<double>("nav_near_m", 0.15);
     near_yaw_ = declare_parameter<double>("nav_near_yaw", 0.8);  // [rad]
     via_through_ = declare_parameter<bool>("via_through", true);  // 경유점 지도 길을 NavigateThroughPoses 한 번으로 (머리말)
+    // 출발 전 첫 경유점(없으면 목표) 쪽이 이보다 틀어져 있으면 먼저 제자리 회전 (0 = 끔) — DWB는 뒤쪽 경로도 크게 돌아 나가다
+    //   상자·벽에 걸림 (11-16 시뮬: S4에서 exit 뒤 돌아 나오다 벽)
+    pre_spin_rad_ = declare_parameter<double>("nav_pre_spin_deg", 45.0) * M_PI / 180.0;
     look_q_ = declare_parameter<std::vector<double>>("pose_look", {0.0, -1.682497, 0.324631, 1.926843, 0.0});  // arm.yaml이 덮음
     doors_ = declare_parameter<std::vector<double>>("doors", std::vector<double>{});  // 문마다 7개 — skills.yaml 설명
     gates_ = declare_parameter<std::vector<double>>("gates", std::vector<double>{});  // 길목마다 6개 — skills.yaml 설명
@@ -226,8 +233,31 @@ private:
         }
       }
       legs->push_back(goal);  // 경로 실패면 문 없이 그대로 (Nav2가 다시 계획하며 실패를 알림)
-      if (via && via_through_ && through_->action_server_is_ready()) drive_through(legs, flags, seq, done);
-      else drive(legs, 0, flags, seq, done);
+      auto go = [this, legs, via, flags, seq, done]() {
+        if (seq != nav_seq_) return;
+        if (via && via_through_ && through_->action_server_is_ready()) drive_through(legs, flags, seq, done);
+        else drive(legs, 0, flags, seq, done);
+      };
+      // 먼저 제자리 회전 — 첫 점 쪽 방향 (그 점이 너무 가까우면 다음 점). 회전이 실패해도 그대로 출발
+      Pose2d me;
+      if (pre_spin_rad_ > 0.0 && spin_->action_server_is_ready() && odom_pose(me, legs->front().header.frame_id)) {
+        for (const auto & l : *legs) {
+          const double dx = l.pose.position.x - me.x, dy = l.pose.position.y - me.y;
+          if (std::hypot(dx, dy) < 0.30 && &l != &legs->back()) continue;
+          const double err = std::remainder(std::atan2(dy, dx) - me.yaw, 2 * M_PI);
+          if (std::abs(err) > pre_spin_rad_ && std::hypot(dx, dy) >= 0.30) {
+            RCLCPP_INFO(get_logger(), "출발 전 제자리 회전 %.0f°", err * 180.0 / M_PI);
+            stage("출발 전 회전");
+            send_spin(err, seq, [this, go](bool ok, const std::string & why) {
+              if (!ok) RCLCPP_WARN(get_logger(), "출발 전 회전 실패 (%s) — 그대로 출발", why.c_str());
+              go();
+            });
+            return;
+          }
+          break;
+        }
+      }
+      go();
     };
     opt.goal_response_callback = [this, goal, flags, seq, done](const rclcpp_action::ClientGoalHandle<ComputePath>::SharedPtr & h) {
       if (!h && seq == nav_seq_) drive(std::make_shared<std::vector<Pose>>(1, goal), 0, flags, seq, done);
@@ -646,6 +676,7 @@ private:
     rclcpp_action::Client<NavigateToPose>::SendGoalOptions opt;
     auto finished = std::make_shared<bool>(false);  // 감시가 먼저 끝내면 취소 뒤 오는 결과는 무시
     auto watch = std::make_shared<ProgressWatch>(stall_s_, stall_gain_m_);
+    auto still = std::make_shared<StillWatch>(still_s_, still_m_, still_rad_);
     auto look = std::make_shared<bool>(last && flags.count("look") > 0);  // true = 아직 팔을 안 올림
     const bool near = last && flags.count("near") > 0;
     auto left = std::make_shared<double>(1e9);  // 목표까지 직선 거리 (마지막 피드백)
@@ -667,8 +698,8 @@ private:
       }
       done(ok, ok ? "" : why);
     };
-    if (stall_s_ > 0.0 || *look || near) {
-      opt.feedback_callback = [this, finished, watch, look, left, yaw_err, here, gp, gyaw, finish](
+    if (stall_s_ > 0.0 || still_s_ > 0.0 || *look || near) {
+      opt.feedback_callback = [this, finished, watch, still, look, left, yaw_err, here, gp, gyaw, finish](
           rclcpp_action::ClientGoalHandle<NavigateToPose>::SharedPtr h, const std::shared_ptr<const NavigateToPose::Feedback> fb) {
         if (*finished) return;
         *here = fb->current_pose;
@@ -681,10 +712,16 @@ private:
             arm_.move_joints(look_q_, [this](bool ok) { if (!ok) RCLCPP_WARN(get_logger(), "주행 중 look 자세 실패"); });
           else RCLCPP_WARN(get_logger(), "MoveIt 없음 — 주행 중 look 자세 건너뜀");
         }
-        if (stall_s_ <= 0.0 || !watch->update(now().seconds(), fb->distance_remaining)) return;
+        if (stopped(*still, fb->current_pose, fb->distance_remaining)) {
+          RCLCPP_WARN(get_logger(), "멈춤 — 남은 %.2f m에서 %.0f s 동안 그대로 (회복 %d회) → 취소", fb->distance_remaining, still_s_,
+                      fb->number_of_recoveries);
+        } else if (stall_s_ <= 0.0 || !watch->update(now().seconds(), fb->distance_remaining)) {
+          return;
+        } else {
+          RCLCPP_WARN(get_logger(), "진척 없음 — 남은 %.2f m가 %.0f s 동안 %.2f m도 안 줄음 (회복 %d회) → 취소",
+                      fb->distance_remaining, stall_s_, stall_gain_m_, fb->number_of_recoveries);
+        }
         *finished = true;
-        RCLCPP_WARN(get_logger(), "진척 없음 — 남은 %.2f m가 %.0f s 동안 %.2f m도 안 줄음 (회복 %d회) → 취소",
-                    fb->distance_remaining, stall_s_, stall_gain_m_, fb->number_of_recoveries);
         nav_->async_cancel_goal(h);
         finish(false, "nav_no_progress");
       };
@@ -739,6 +776,7 @@ private:
     rclcpp_action::Client<NavigateThrough>::SendGoalOptions opt;
     auto finished = std::make_shared<bool>(false);
     auto watch = std::make_shared<ProgressWatch>(stall_s_, stall_gain_m_);
+    auto still = std::make_shared<StillWatch>(still_s_, still_m_, still_rad_);
     auto look = std::make_shared<bool>(flags.count("look") > 0);
     const bool near = flags.count("near") > 0;
     auto left = std::make_shared<double>(1e9);
@@ -759,7 +797,7 @@ private:
       }
       done(ok, ok ? "" : why);
     };
-    opt.feedback_callback = [this, finished, watch, look, left, yaw_err, here, remain, gp, gyaw, finish](
+    opt.feedback_callback = [this, finished, watch, still, look, left, yaw_err, here, remain, gp, gyaw, finish](
         rclcpp_action::ClientGoalHandle<NavigateThrough>::SharedPtr h, const std::shared_ptr<const NavigateThrough::Feedback> fb) {
       if (*finished) return;
       *here = fb->current_pose;
@@ -773,10 +811,16 @@ private:
           arm_.move_joints(look_q_, [this](bool ok) { if (!ok) RCLCPP_WARN(get_logger(), "주행 중 look 자세 실패"); });
         else RCLCPP_WARN(get_logger(), "MoveIt 없음 — 주행 중 look 자세 건너뜀");
       }
-      if (stall_s_ <= 0.0 || !watch->update(now().seconds(), fb->distance_remaining)) return;
+      if (stopped(*still, fb->current_pose, fb->distance_remaining)) {
+        RCLCPP_WARN(get_logger(), "멈춤 — 남은 %.2f m에서 %.0f s 동안 그대로 (회복 %d회 · 남은 점 %d) → 취소", fb->distance_remaining,
+                    still_s_, fb->number_of_recoveries, fb->number_of_poses_remaining);
+      } else if (stall_s_ <= 0.0 || !watch->update(now().seconds(), fb->distance_remaining)) {
+        return;
+      } else {
+        RCLCPP_WARN(get_logger(), "진척 없음 — 남은 %.2f m가 %.0f s 동안 %.2f m도 안 줄음 (회복 %d회 · 남은 점 %d) → 취소",
+                    fb->distance_remaining, stall_s_, stall_gain_m_, fb->number_of_recoveries, fb->number_of_poses_remaining);
+      }
       *finished = true;
-      RCLCPP_WARN(get_logger(), "진척 없음 — 남은 %.2f m가 %.0f s 동안 %.2f m도 안 줄음 (회복 %d회 · 남은 점 %d) → 취소",
-                  fb->distance_remaining, stall_s_, stall_gain_m_, fb->number_of_recoveries, fb->number_of_poses_remaining);
       through_->async_cancel_goal(h);
       finish(false, "nav_no_progress");
     };
@@ -861,6 +905,12 @@ private:
   rclcpp_action::Client<Follow>::SharedPtr follow_;
   rclcpp_action::Client<BackUp>::SharedPtr backup_;
   uint64_t unstuck_seq_ = 0;
+  double still_s_ = 3.0, still_m_ = 0.02, still_rad_ = 0.05;
+  // 멈춤 감시 한 번 — 남은 거리가 0.01 m 넘을 때만 (첫 피드백은 경로 전이라 0일 수 있음)
+  bool stopped(StillWatch & w, const Pose & p, double remaining) {
+    if (still_s_ <= 0.0 || remaining <= 0.01) return false;
+    return w.update(now().seconds(), p.pose.position.x, p.pose.position.y, yaw_of(p.pose.orientation));
+  }
   double max_end_err_ = 0.6, unstick_m_ = 0.15;
   rclcpp_action::ClientGoalHandle<Follow>::SharedPtr follow_goal_;
   std::string route_mode_ = "follow";
@@ -870,6 +920,7 @@ private:
   bool fallback_nav2_ = false;
   int unstuck_tries_ = 2;
   double unstuck_back_m_ = 0.15;
+  double pre_spin_rad_ = 0.0;
   rclcpp::Subscription<std_msgs::msg::String>::SharedPtr corr_sub_;
   rclcpp_action::ClientGoalHandle<NavigateToPose>::SharedPtr nav_goal_;  // 지금 보낸 Nav2 goal (stop이 이것만 취소)
   rclcpp_action::ClientGoalHandle<NavigateThrough>::SharedPtr through_goal_;  // 경유점 지도 길 goal (via_through)

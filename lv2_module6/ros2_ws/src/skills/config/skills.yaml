@@ -11,6 +11,12 @@ skill_navigate:
     #   같으면 Nav2 복구(후진 0.10 m · 회전 · costmap 비우기)가 돌기 전에 끊음 (11-15 실기 approach_1115_112020~113543: 문 모서리
     #   21 cm 앞에서 collision_monitor가 멈춘 채 15 s → 복구 없이 실패 ×4). 코드 기본값 15 위에 덮음
     nav_stall_s: 12.0        # 11-16: 25 → 12 (progress_checker 15 → 6에 맞춤 · 복구 한 번 돌 시간은 남김)
+    # 멈춤 감시 (11-16) — 자세(위치 + 방향)가 nav_still_s 동안 안 바뀌면 nav_stall_s를 기다리지 않고 끼임 풀기 (0 = 끔)
+    #   실기 nav_1116_062046: collision_monitor 정지 뒤 8~11 s 그대로 서 있다가 끼임 풀기 ×5 (사용자 "막히면 생각을 너무 오래함")
+    #   제자리 회전은 방향이 바뀌므로 안 걸림 · 끼임 풀기 횟수(nav_unstuck_tries)는 그대로
+    nav_still_s: 3.0
+    nav_still_m: 0.02        # [m]
+    nav_still_deg: 3.0       # [deg]
     # 끼임 풀기 (11-15) — 진척 없음이면 곧게 후진 → 다시 받은 경로 쪽으로 제자리 회전 → 같은 점으로 다시 출발, 이 횟수까지 (0 = 끔)
     nav_unstuck_tries: 2
     nav_unstuck_back_m: 0.15
@@ -50,6 +56,7 @@ skill_navigate:
     via_points: [3.659, 4.620, 3.670, 2.710, 3.275, 0.965, 2.936, 3.886, 2.936, 4.620, 2.724, 3.661, 2.275, 4.134, 2.275, 3.174, 2.275, 0.950, 1.840, 3.661, 1.515, 5.354, 0.734, 4.620, 3.670, 1.764, 2.275, 2.390, 2.275, 1.764, 1.515, 4.620, 1.515, 3.174, 0.607, 3.174, 1.515, 0.370, 0.607, 0.370]
     via_arrows: [4, 0, 14, 12, 12, 1, 14, 13, 14, 8, 8, 2, 15, 10, 15, 11, 16, 17, 17, 16, 18, 19, 19, 18]
     via_clearance: 0.18
+    nav_pre_spin_deg: 45.0   # 출발 전 첫 경유점 쪽이 이보다 틀어져 있으면 먼저 제자리 회전 (0 = 끔) — 11-16 시뮬: S4에서 돌아 나오다 벽
     via_through: true        # 11-16: 경유점 + 목표를 NavigateThroughPoses 한 번으로 — 경유점에서 서지 않고 지나감 (0.40 m 안이면 지난 것, navigate_through_poses.xml) · false = 경유점마다 NavigateToPose
     # 벽 · 상자 — plan.yaml arena_walls · start_boxes + location_boxes와 같게 (점끼리 보이는지만 봄)
     via_walls: [0.000, 0.000, 4.404, 0.000, 0.000, 6.304, 4.404, 6.304, 0.000, 0.000, 0.000, 6.304, 4.404, 0.000, 4.404, 6.304,
@@ -73,7 +80,7 @@ skill_approach:
     approach_carrot_m: 0.05  # [m] sim: 목표 방향 직선 위 이만큼 앞 점을 향해 조향 (옆 어긋남을 도착 전에 없앰)
     approach_v_max: 0.06     # [m/s] sim 전진 상한 (11-13: 0.12는 빠름 — 사용자)
     approach_w_max: 0.5      # [rad/s] sim 회전 상한 (11-13: 1.0은 면 맞출 때 크게 돎)
-    approach_exit_m: 0.165   # [m] goal.target "exit" 기본 후진 거리 (values[0]이 있으면 그 값) — 상자에서 standoff까지
+    approach_exit_m: 0.151   # [m] goal.target "exit" 기본 후진 거리 (values[0]이 있으면 그 값) — 상자에서 standoff까지 (0.25 − gap 0.099)
     # 상자 도킹 (goal.values = [gap, half]): 도면 자리는 힌트 — 인지 상자로 목표를 정함 (11-12). 팔은 pose_look으로 천천히 (launch arm_velocity_scale 0.15)
     box_match_m: 0.45        # [m] 힌트 상자 가운데에서 이만큼 안의 start_box · location_box만 (11-13: 0.35 → 0.45 — 지도 오차 20~25 cm에 측정이 밖으로 나감, 상자끼리는 0.7 m 넘게 떨어짐)
     box_wait_s: 8.0          # [s] 첫 측정까지 정지해서 기다림 — 넘으면 approach_box_unseen

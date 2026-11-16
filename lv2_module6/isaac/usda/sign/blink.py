@@ -7,6 +7,7 @@ gives the same sequence. Random sequences are limited to counts the pucks under 
 solve (same rule as mission_solver allocate); a fixed SEQUENCE that cannot be solved only warns.
 Running again cancels the previous run first.
 To abort: set STOP = True and Run (all lights off).
+isaac_startup.py runs this file itself when BEE_BLINK=1 (BEE_BLINK_SEQ / BEE_BLINK_SEED override the settings).
 
 Rule: each blink = one color ON 1 s + all OFF 1 s; after the 12th blink all lights stay OFF
 for 3 s (the trailing 1 s off plus END_OFF_S more), then the same sequence repeats forever.
@@ -18,6 +19,7 @@ Comments/strings stay English: the Script Editor breaks Korean text.
 """
 import asyncio
 import builtins
+import os
 import random
 from collections import Counter
 
@@ -27,8 +29,8 @@ import omni.usd
 from pxr import Usd
 
 # ---- settings ----
-SEQUENCE = None  # e.g. "RGRRGRGGYGYG"; None = random from SEED
-SEED = 43
+SEQUENCE = os.environ.get("BEE_BLINK_SEQ") or None  # e.g. "RGRRGRGGYGYG"; None = random from SEED
+SEED = int(os.environ.get("BEE_BLINK_SEED", "43"))
 STOP = False
 # ------------------
 

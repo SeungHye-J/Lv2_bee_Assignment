@@ -8,6 +8,7 @@
 #   ISAAC_HEADLESS=1 ISAAC_AUTOPLAY=1 isaac/standalone/isaac_sim.sh approach   # 창 없이 (자동 시험 · approach_batch.sh), Play 자동
 #   BEE_START_MINIMIZED=1 isaac/standalone/isaac_sim.sh   # 로딩 중 창을 계속 최소화 (기본 끔 · 첫 10초 튀는 건 Kit이 먼저라 못 막음 — 완전히 피하려면 ISAAC_HEADLESS=1)
 #   BEE_MAP_FREEZE=1 isaac/standalone/isaac_sim.sh <scene>   # cuVSLAM map→odom 보정 끔 (시험용 — 출발 값에 고정, TF map = EKF odom)
+#   ISAAC_ROS_ARGS="map:=saved map_name:=scene_sim" isaac/standalone/isaac_sim.sh   # ROS launch 인자 (공백으로 구분 · isaac_mission.sh가 씀)
 #   BEE_SIM_NOISE=0 isaac/standalone/isaac_sim.sh   # 센서 노이즈 끔 (기본 1 = 컬러 모션블러 · 깊이 노이즈 · IMU 노이즈, 실물보다 약하게 · 2 = 두 배)
 #   필요: ros2_ws 빌드(install/), sudo apt install ros-lyrical-depth-image-proc
 #
@@ -35,7 +36,8 @@ export OPENCR_TWIST_SCALE="${OPENCR_TWIST_SCALE:-1}"
 # 다른 터미널의 ros2 CLI도 같은 파일이어야 토픽이 보인다 (fastdds.xml(SHM+UDP)과 섞으면 서로 못 찾음, 2026-11-06 실측).
 # 개인 프로파일(TypeLookup 켜짐)로 띄우면 노드 40개 규모에서 기동 직후 약 2분간 controller_manager 서비스가 안 보여
 # spawner가 실패 → joint_states 없음 → nvblox가 gripper_cam TF를 못 구한 depth에 막혀 지도가 멈췄다 (2026-10-30 실측)
-export FASTDDS_DEFAULT_PROFILES_FILE="$HERE/../../ros2_ws/fastdds_local_only.xml"
+# 터미널에 FASTDDS_DEFAULT_PROFILES_FILE가 있으면 그것(예: bashrc의 fastdds.xml) · 없으면 local_only. RViz · CLI도 같은 파일이어야 함
+export FASTDDS_DEFAULT_PROFILES_FILE="${FASTDDS_DEFAULT_PROFILES_FILE:-$HERE/../../ros2_ws/fastdds_local_only.xml}"
 # 범위는 SUBNET 고정 (이 프로파일이 정한 값 — SHM뿐이라 밖으로 안 나감). bashrc의 LOCALHOST를 물려받으면 Fast DDS가
 # localhost 참가자 몇 개에만 discovery를 보내 노드 일부가 서로 안 보였다 (11-12: camera_adapter · coordinator가 안 보여
 # camera_info·depth 없음 → nvblox 격자 0 · /coordinator/basket_clear 응답 없음)
@@ -57,14 +59,24 @@ stop_pids() {  # SIGINT로 정상 종료 → 5초 뒤 남은 것만 SIGKILL
   for _ in $(seq 10); do kill -0 $* 2>/dev/null || return 0; sleep 0.5; done
   kill -KILL $* 2>/dev/null
 }
-OLD=$(pgrep -f "isaac/standalone/runtime/${ISAAC_ROS_LAUNCH:-isaac_system.launch.py}" | tr '\n' ' ')
+OLD=$(pgrep -f "isaac/standalone/runtime/${ISAAC_ROS_LAUNCH:-isaac_system.launch.py}" | paste -sd,)
 [ -n "$OLD" ] && echo "지난 isaac_system launch 정리: $OLD" && stop_pids $OLD $(for p in $OLD; do pgrep -g "$(ps -o pgid= -p $p | tr -d ' ')"; done)
 ORPHAN_PARENTS="1 $(pgrep -u "$USER" -x systemd | tr '\n' ' ')"
 ORPHANS=$(ps -u "$USER" -o pid=,ppid=,args= | awk -v parents=" $ORPHAN_PARENTS " \
-  '/--ros-args/ && index(parents, " "$2" ") {print $1}' | tr '\n' ' ')
+  '/--ros-args/ && index(parents, " "$2" ") {print $1}' | paste -sd,)
 [ -n "${ORPHANS// /}" ] && echo "고아 ROS 노드 정리: $ORPHANS" && stop_pids $ORPHANS
-fastdds shm clean >/dev/null 2>&1
 ros2 daemon stop >/dev/null 2>&1
+# Fast DDS 공유 메모리 비우기: fastdds shm clean은 잠금이 풀린 것만 지워 포트 mutex(sem.fastdds_port*_mutex) 등이 남는다
+#   (11-16: 남은 채로 띄운 5번 모두 controller_manager가 /robot_description · /clock을 못 받음). 이 머신에 Fast DDS를 쓰는
+#   프로세스가 하나도 없을 때만 전부 지운다 — 쓰는 중인 파일을 지우면 그 프로세스와 새 노드가 서로 못 찾음. 있으면 알리고 clean만
+SHM_USERS=$(for p in /proc/[0-9]*; do grep -qs "/dev/shm/fastdds_" "$p/maps" && echo "${p#/proc/}"; done | paste -sd,)
+if [ -z "$SHM_USERS" ]; then
+  rm -f /dev/shm/fastdds_* /dev/shm/sem.fastdds_*
+else
+  echo "Fast DDS 공유 메모리를 쓰는 프로세스가 있어 다 비우지 않음 (RViz · ros2 CLI 등을 끄면 다음 실행에 비움):"
+  ps -o pid=,args= -p "$SHM_USERS" | cut -c1-120 | sed 's/^/  /'
+  fastdds shm clean >/dev/null 2>&1
+fi
 # 같은 ROS_DOMAIN_ID에 다른 실행(예: MoveIt mock)이 있으면 노드 이름이 겹쳐 꼬인다 — 남의 실행이라 끄지 않고 알리고 멈춘다
 OTHERS=$(ros2 node list --no-daemon --spin-time 3 2>/dev/null | grep -vE '^/(rviz|transform_listener_impl_|_ros2cli_)')  # RViz는 겹쳐도 무해
 if [ -n "$OTHERS" ] && [ "${ALLOW_OTHER_NODES:-0}" != 1 ]; then
@@ -99,7 +111,9 @@ fi
 # 실측 2026-10-30: 백그라운드 launch는 SIGINT를 무시해 안 꺼졌고, SIGTERM을 주면 launch만 죽고 노드 10개가 고아로 남았다.
 # 노드는 SIGINT로 정상 종료한다(nvblox는 매핑이면 이때 지도 저장). 15초 안에 안 끝나면 그룹을 SIGKILL.
 start_ros() {
-setsid ros2 launch "$HERE/runtime/${ISAAC_ROS_LAUNCH:-isaac_system.launch.py}" &
+# 화면 출력을 ~/.ros/log/isaac_launch_<시각>.log에도 남김 — 노드가 죽은 이유(abort 메시지)는 launch.log엔 안 남고 화면에만 나옴
+LAUNCH_LOG="$HOME/.ros/log/isaac_launch_$(date +%Y%m%d_%H%M%S).log"
+setsid ros2 launch "$HERE/runtime/${ISAAC_ROS_LAUNCH:-isaac_system.launch.py}" $ISAAC_ROS_ARGS > >(tee -a "$LAUNCH_LOG") 2>&1 &  # 인자는 일부러 안 묶음 — 인자마다 나눔
 ROS_PID=$!
 # 앞먹임·인지 처짐 보정 기본값은 켜짐 — 비틀림을 끈 Isaac에서만 둘 다 끈다.
 # shortcut: 끌 때 한 번만 보낸다 — rl_arm_correction·perception만 다시 띄우면 켜지니 그때는 ros2 param set 또는 이 스크립트를 다시 실행

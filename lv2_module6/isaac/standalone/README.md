@@ -43,6 +43,7 @@ develop을 머지한 뒤에는 꼭 다시 빌드한다. 새 설정 파일이 `in
 | 팔만 시연 (SLAM · Nav2 없음) | `ISAAC_ROS_LAUNCH=isaac_manipulator_demo.launch.py ISAAC_AUTOPLAY=1 isaac/standalone/isaac_sim.sh` |
 | 센서 노이즈 끔 | `BEE_SIM_NOISE=0 isaac/standalone/isaac_sim.sh` |
 | 관절 비틀림 모델과 그 보정 끔 | `OPENCR_TWIST_SCALE=0 isaac/standalone/isaac_sim.sh` |
+| 실기 start.sh와 같은 인자로 미션 (인지 전부 ROS · 폴 뒤 캠 끔) | `isaac/standalone/isaac_mission.sh map`(처음 한 번 매핑) → `isaac/standalone/isaac_mission.sh` — 사용법은 스크립트 머리말 |
 
 팔 시험 루프를 돌릴 때는 Isaac에서 Play를 누른 뒤 다른 터미널에서 `isaac/loops/manipulator-launcher.sh use_sim:=true`를 실행한다.
 

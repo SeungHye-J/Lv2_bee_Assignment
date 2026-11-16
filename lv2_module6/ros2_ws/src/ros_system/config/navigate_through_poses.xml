@@ -2,9 +2,10 @@
 <!--
   bt_navigator through-poses 행동 트리 — Nav2 기본 navigate_through_poses_w_replanning_and_recovery.xml(Lyrical) 복사본.
   바꾼 곳 넷:
-  ① RemovePassedGoals radius 0.7 → 0.40 m. 기본 0.7은 출발점에서 0.7 m 안의 첫 웨이포인트를
+  ① RemovePassedGoals radius 0.7 → 0.40 → 0.10 m. 기본 0.7은 출발점에서 0.7 m 안의 첫 웨이포인트를
      '이미 지나갔다'고 지워 버린다. 반대로 0.15는 컨트롤러 추종 오차(0.2~0.3 m)로 지나친 점을
      체크하지 못해 같은 웨이포인트로 되돌아가며 맴돈다 (테스트베드 실측) → 0.40으로 절충.
+     → 0.10 (11-16 시뮬): 0.40이면 모서리 경유점을 40 cm 앞에서 지워 다음 재계획이 모서리를 질러가 첫 통로에서 늦게 돌다 막힘.
   ② 복구 순서: [코스트맵 지우기 → 제자리 회전(1.57 rad, 5초) → 안 되면 0.10 m 후진] → 대기.
      회전이 벽에 막혀 실패하면 RoundRobin이 다음 복구에서 바로 후진한다.
      회전이 성공해도 경로추종이 다시 105로 막히면 다음 복구가 후진이다 (회전만으로 못 빠져나온 경우).
@@ -39,7 +40,7 @@
                 <ValidatePath path="{remaining_path}"/>
               </ReactiveSequence>
               <ReactiveSequence>
-                <RemovePassedGoals input_goals="{goals}" output_goals="{goals}" radius="0.40" input_waypoint_statuses="{waypoint_statuses}" output_waypoint_statuses="{waypoint_statuses}"/>
+                <RemovePassedGoals input_goals="{goals}" output_goals="{goals}" radius="0.10" input_waypoint_statuses="{waypoint_statuses}" output_waypoint_statuses="{waypoint_statuses}"/>
                 <ComputePathThroughPoses goals="{goals}" path="{path}" planner_id="{selected_planner}" error_code_id="{compute_path_error_code}" error_msg="{compute_path_error_msg}"/>
               </ReactiveSequence>
             </Fallback>

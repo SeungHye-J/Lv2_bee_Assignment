@@ -219,6 +219,7 @@ mission_manager: # 주사위 기억 미션 (documents/mission/README.md) — 좌
     arena_corr_wall_min_cells: 60 # 맞은 칸(벽 겉면 — 빈 칸과 맞닿은 점유 칸)이 이보다 적으면 안 씀 (5 cm 칸 → 벽 3 m)
     arena_corr_wall_min_eig: 0.03 # x · y · 회전이 다 묶여야 (벽 한 줄만 보이면 그 벽을 따라가는 방향을 모름)
     arena_corr_wall_period: 2.0 # [s] 다시 맞추는 주기 (nvblox 격자 2 Hz)
+    arena_corr_wall_rot_deg: 15.0 # [deg] 지난 정합 뒤 이보다 많이 돌았으면 이번 정합 건너뜀 · 새 칸도 안 씀 (11-16 실기: 회전 중 번진 격자로 +9° 정합 → cuVSLAM 잠금) · 0 = 끔
     arena_corr_walls_m:
       0.0 # [m] /arena/walls(도면 벽)를 다시 보내는 최소 변화 — 보낼 때마다 Nav2 costmap이 다시 잡힘 · 0 = 안 보냄
       #   11-15: 0.15 → 0 — 전역 경로가 /arena/walls를 봄. 상자 하나(근거 1개)로 dy −0.2 m 보정이 벽까지 옮겨 문이 실제보다 위로 →
@@ -249,8 +250,15 @@ mission_manager: # 주사위 기억 미션 (documents/mission/README.md) — 좌
       #   arena_correction을 꺼도 상자 인지 위치(marks)는 셈. 로그 "S3 다가설 자리 — 인지 상자 가운데 (도면에서 …)"
     nav_turn_m: 0.55 # [m] Nav2 목표는 박스 가운데에서 이만큼까지 법선으로 물림 (몸 외접 0.30 m가 박스에 안 걸리고 제자리 회전 · 벽 쪽으로는 덜) — 나머지는 approach가 직선으로 (11-14)
     approach_gap:
-      0.085 # [m] 그다음 approach로 base_footprint ~ 박스 변을 이만큼까지 (로봇 앞면 0.069 → 1.6 cm)
-      #   Isaac 도달 지도(dice_reach.py): 0.08이면 3×3 칸 9개 다 닿음 · 0.10이면 먼 줄 양끝 못 닿음
+      0.099 # [m] 그다음 approach로 base_footprint ~ 박스 변을 이만큼까지 (로봇 앞면 0.069 → 3.0 cm)
+      #   11-16 실기: 0.085(여유 1.6 cm)에서 도착이 2~7 mm 지나쳐 상자를 살짝 밂 → 여유 3 cm (사용자)
+      #   Isaac 도달 지도(dice_reach.py): 0.08이면 3×3 칸 9개 다 닿음 · 0.10이면 먼 줄 양끝 못 닿음 — 0.099는 다시 확인 필요
+    # exit 뒤 180° 제자리 회전 공간 (11-16 사용자) — exit(Nav2 자리 n까지)이 상자 면에서 exit_turn_clear보다 가까우면 늘림
+    #   회전 반경: 몸 뒤 모서리 0.288 · collision_monitor Approach 뒤 모서리 0.316 m (+ 여유 3.4 cm)
+    #   뒤는 카메라가 못 봄 → 몸 뒤 끝(base에서 exit_rear_m)이 도면 벽에서 exit_rear_clear 안이 되는 거리는 안 감 (그땐 WARN)
+    exit_turn_clear: 0.35
+    exit_rear_m: 0.265
+    exit_rear_clear: 0.05
     approach_tries: 3 # 접근 자리 실패 시 다른 변으로 몇 번까지
     retries: 2 # skill(집기·놓기·inspect)이 실패하면 다시 하는 횟수. 그래도 안 되면 그 퍽만 실패로 두고 다음
     planner: "rule" # BUILD 순서: rule (배정 순서대로) | plan_next (학습된 플래너가 다음 퍽·복귀 시점을 고름 — 마지막 단계)
@@ -261,7 +269,7 @@ mission_manager: # 주사위 기억 미션 (documents/mission/README.md) — 좌
     stand_check_s: 1.0 # [s] 누운 퍽 stand 뒤 인지가 섰는지 볼 때까지 기다림 → 섰으면 선 퍽을 pick (못 보면 stand_pick), 아직 누웠으면 stand 다시 (retries번)
     stand_find_m: 0.10 # [m] stand 뒤 look에서 누운 가운데 이 안의 퍽: 누움 → 다시 stand · 섬 → pick · 없음 → stand_lost (선 퍽은 약 45 mm 옆 · 실패하면 6~7 cm 튐) — 11-15
     verify_radius: 0.15 # [m] 재검증 때 장소 중심에서 이 안의 퍽만
-    verify_in_place: true # 장소의 마지막 퍽을 놓은 그 자리에서 바로 재검증 (11-15) — false면 다 놓은 뒤 L3·L2·L1을 다시 찾아감
+    verify_in_place: false # true = 장소마다 마지막 퍽을 놓은 그 자리에서 바로 재검증 (11-15) · false = 다 놓은 뒤 L3(놓은 그 자리) → L2 → L1 재확인 (11-16 경로)
     # 바코드 보는 자세 [x, y, yaw] (출발 구역 안) — 비우면 출발(관측) 자리에서 그대로 봄 (이동 없음)
     #   실기 11-12: 출발 자리에서 신호등·바코드 둘 다 인지됨 → 이동 안 함. 예전 시뮬 값 [0.950, 0.800, 3.3126]은
     #   26 cm 뒤 자리라 Nav2가 돌아섰다 다시 돌아 한 바퀴를 돌았음 (시뮬 렌더에선 바코드가 화면 끝에 걸렸음)
