@@ -181,6 +181,9 @@ private:
   std::vector<int> loc_tags_;
   std::vector<double> puck_dx_;
   double box_top_z_, puck_h_, grid_step_, standoff_, approach_gap_, verify_radius_, match_radius_;
+  double survey_margin_ = 0.05;          // [m] 조사: 인지 상자 가운데일 때 윗면 반폭에 더하는 여유 (11-16)
+  double survey_margin_nominal_ = 0.20;  // [m] 조사: 도면 가운데일 때 (위치 추정 오차 10~25 cm 감안)
+  int survey_pucks_per_box_ = 2;         // 조사: 상자마다 등록할 퍽 최대 개수 (가운데에 가까운 순서)
   double place_tol_, place_search_, corr_max_;
   Pose2 barcode_pose_;
   std::string barcode_arm_pose_;
