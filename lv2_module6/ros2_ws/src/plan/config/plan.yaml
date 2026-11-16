@@ -232,7 +232,7 @@ mission_manager: # 주사위 기억 미션 (documents/mission/README.md) — 좌
     #   같은 방향으로 계속 (위치를 옮기면 nvblox 지도도 따라 옮겨져 벽 정합이 같은 차이를 다시 봄 · 시뮬 벽은 plan 벽과 ≤11 cm 다름).
     #   실기 녹화 중 map 1~4 m 튐(day1_03~06)도 같은 원인으로 보임. 고치기 전까지 false
     #   11-16: 넘긴 몫(loc_sent_)을 벽 정합 차이에서 빼 같은 차이를 다시 넘기지 않게 고침
-    arena_corr_to_localization: false # map→odom은 이동까지 시킴
+    arena_corr_to_localization: true # map→odom은 이동까지 시킴
     arena_corr_loc_min_n: 3 # 상자 근거 이만큼(또는 벽 정합)일 때만 — 상자 1~2개로는 안 옮김
     arena_corr_loc_step_m: 0.05 # [m] 한 번에 넘기는 조각 (MapGate 잠금 0.30 m보다 훨씬 작게)
     arena_corr_loc_step_rad: 0.0175 # [rad] (1°)
