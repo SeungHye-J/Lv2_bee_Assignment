@@ -4,9 +4,9 @@
 
 Isaac Lab 6.1 (`~/pa-course/IsaacLab-6.1/.venv`)에서 돈다. 로봇·퍽·상자는 `usda/`, 기구학은 `../../urdf/beebot_mesh/beebot.urdf`를 쓴다. ROS는 쓰지 않는다.
 
-## 현황 (2026-11-10)
+## 현황 (2026-11-15)
 
-아래 "무엇이 학습됐나" 이후 절은 place_pip 첫 학습(10-31) 기록이다. 그 뒤 11-08~09에 pick · load · unload · stand를 추가로 학습했고, 현재 환경과 사용법은 이 절이 기준이다.
+아래 "무엇이 학습됐나" 이후 절은 place_pip 첫 학습(10-31) 기록이다. 그 뒤 11-08~11에 pick · load · unload · stand를 추가로 학습했고, 현재 환경과 사용법은 이 절이 기준이다.
 
 ### 환경 (`train.py --task`)
 
@@ -43,11 +43,25 @@ pick 환경의 인식 모델: 영상 15 fps(측정 간격 0.25 s), 검출 지연
 
 - pick은 학습한 inspect 오차 상한(축당 10 mm)이 실측(rms 11.9 mm)보다 작아서, 실측 크기에서는 오차 판 73.7 %, 섞음 약 91 %로 추정된다.
 - 실기에서는 11-08 새벽 pick · load 정책이 처짐 적분 입력이 학습 범위 밖이거나 보정이 첫 스텝부터 상한에 붙어 이전 정책(pick 11-04, load 11-03)으로 되돌렸다. 시뮬 앞먹임에 짝이 되는 비틀림이 없었던 것이 원인이다. 재학습용 시뮬 변경(`--cfg twist=1`, Δ 변화 속도 제한, load · unload 도착 오차 ±5 mm)이 들어가 있다.
-- 정책 가중치(`rl/policies/`)는 git 제외다.
+- 11-10~11 재학습(커리큘럼 없이 새 네트워크, `twist=1`)의 배포본은 아래 "정책 버전과 배포" 표를 본다.
+
+### 정책 버전과 배포
+
+정책은 `rl/policies/<skill>/vNN/`에 버전별로 두고 git에 올린다. 폴더마다 `manifest.yaml`(사람이 읽는 표지: 실행 명령 · cfg · 로그 폴더 · 코드 커밋 · 평가 · 상태)이 있다. `train.py --mode train`이 학습 로그 폴더에 `manifest.yaml` · `env.yaml` · `agent.yaml` · `bee.diff`(미커밋 수정)를 먼저 쓰고, 끝나면 `--out` 옆에 복사한다. `eval`과 `status` 줄은 직접 채운다. 로봇용 ONNX는 `rl/policies/export_onnx.py`로 만들어 `models/skills/<skill>/`에 넣는다.
+
+| skill | 배포 버전 | 시뮬 (잔차 0 → 정책, 1024판 seed 7) | 실기 `use` (11-15) |
+|---|---|---|---|
+| `pick_standing_puck` | v03 (pick_rtB, 11-10, 입력 `pick_box` 67) | 53.1 → 98.7 %, 중심 오차 p90 3.9 mm | 켬 (11-14 배포) |
+| `load_slot` | v04 (load_rtA2, 11-11, `w_act` 0.02) | 94.0 → 99.9 %, Δ 상한 도달 5.3 % | 끔 |
+| `stand_grasp` | v01 (도달 학습 v1, 11-10) | 2.9 → 20.8 % (닫는 순간 ±1 mm 기준) | 켬 |
+| `unload_slot` | 11-03 | 93.7 → 98.1 % | 켬 |
+| `place_cell` | 팀원 place_residual_sag | 96.3 → 99.0 % | 켬 |
+
+배포 값의 기준은 `models/skills/<skill>/meta.yaml`(`use` · `sim_baseline` · `sim_policy` · `source`)이다. 정책을 켜고 끄면 `colcon build`가 필요하다.
 
 ### 먼 퍽
 
-퍽 위 5 cm 수직 자세 IK가 안 풀리는 먼 퍽은 `rl/scripts/pick_far/`에서 분석했다. 45° 기울여 진입해 피치 다운한 뒤 수직으로 닫으면 도달 영역이 448 → 533 cm²(+19 %), 최대 반경이 +26 mm 늘어난다. 시뮬 계산만 했고 학습 환경(`pick_env.py`)에는 아직 없다.
+퍽 위 5 cm 수직 자세 IK가 안 풀리는 먼 퍽은 `rl/scripts/pick_far/`에서 분석했다. 45° 기울여 진입해 피치 다운한 뒤 수직으로 닫으면 도달 영역이 448 → 533 cm²(+19 %), 최대 반경이 +26 mm 늘어난다. 이 브랜치의 학습 환경(`pick_env.py`)에는 없다. 팀원 브랜치에서 `--task pick_far`로 학습한 `pick_standing_far`(시뮬 78.0 → 99.3 %)가 `models/skills/`에 있지만, 11-13 실기에서 손이 퍽 윗부분으로 가 놓쳐 `use: false`다.
 
 ## 무엇이 학습됐나
 

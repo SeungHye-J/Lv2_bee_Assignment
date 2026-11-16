@@ -88,6 +88,9 @@ public:
     near_m_ = declare_parameter<double>("nav_near_m", 0.15);
     near_yaw_ = declare_parameter<double>("nav_near_yaw", 0.8);  // [rad]
     via_through_ = declare_parameter<bool>("via_through", true);  // 경유점 지도 길을 NavigateThroughPoses 한 번으로 (머리말)
+    // 출발 전 첫 경유점(없으면 목표) 쪽이 이보다 틀어져 있으면 먼저 제자리 회전 (0 = 끔) — DWB는 뒤쪽 경로도 크게 돌아 나가다
+    //   상자·벽에 걸림 (11-16 시뮬: S4에서 exit 뒤 돌아 나오다 벽)
+    pre_spin_rad_ = declare_parameter<double>("nav_pre_spin_deg", 45.0) * M_PI / 180.0;
     look_q_ = declare_parameter<std::vector<double>>("pose_look", {0.0, -1.682497, 0.324631, 1.926843, 0.0});  // arm.yaml이 덮음
     doors_ = declare_parameter<std::vector<double>>("doors", std::vector<double>{});  // 문마다 7개 — skills.yaml 설명
     gates_ = declare_parameter<std::vector<double>>("gates", std::vector<double>{});  // 길목마다 6개 — skills.yaml 설명
@@ -230,8 +233,31 @@ private:
         }
       }
       legs->push_back(goal);  // 경로 실패면 문 없이 그대로 (Nav2가 다시 계획하며 실패를 알림)
-      if (via && via_through_ && through_->action_server_is_ready()) drive_through(legs, flags, seq, done);
-      else drive(legs, 0, flags, seq, done);
+      auto go = [this, legs, via, flags, seq, done]() {
+        if (seq != nav_seq_) return;
+        if (via && via_through_ && through_->action_server_is_ready()) drive_through(legs, flags, seq, done);
+        else drive(legs, 0, flags, seq, done);
+      };
+      // 먼저 제자리 회전 — 첫 점 쪽 방향 (그 점이 너무 가까우면 다음 점). 회전이 실패해도 그대로 출발
+      Pose2d me;
+      if (pre_spin_rad_ > 0.0 && spin_->action_server_is_ready() && odom_pose(me, legs->front().header.frame_id)) {
+        for (const auto & l : *legs) {
+          const double dx = l.pose.position.x - me.x, dy = l.pose.position.y - me.y;
+          if (std::hypot(dx, dy) < 0.30 && &l != &legs->back()) continue;
+          const double err = std::remainder(std::atan2(dy, dx) - me.yaw, 2 * M_PI);
+          if (std::abs(err) > pre_spin_rad_ && std::hypot(dx, dy) >= 0.30) {
+            RCLCPP_INFO(get_logger(), "출발 전 제자리 회전 %.0f°", err * 180.0 / M_PI);
+            stage("출발 전 회전");
+            send_spin(err, seq, [this, go](bool ok, const std::string & why) {
+              if (!ok) RCLCPP_WARN(get_logger(), "출발 전 회전 실패 (%s) — 그대로 출발", why.c_str());
+              go();
+            });
+            return;
+          }
+          break;
+        }
+      }
+      go();
     };
     opt.goal_response_callback = [this, goal, flags, seq, done](const rclcpp_action::ClientGoalHandle<ComputePath>::SharedPtr & h) {
       if (!h && seq == nav_seq_) drive(std::make_shared<std::vector<Pose>>(1, goal), 0, flags, seq, done);
@@ -894,6 +920,7 @@ private:
   bool fallback_nav2_ = false;
   int unstuck_tries_ = 2;
   double unstuck_back_m_ = 0.15;
+  double pre_spin_rad_ = 0.0;
   rclcpp::Subscription<std_msgs::msg::String>::SharedPtr corr_sub_;
   rclcpp_action::ClientGoalHandle<NavigateToPose>::SharedPtr nav_goal_;  // 지금 보낸 Nav2 goal (stop이 이것만 취소)
   rclcpp_action::ClientGoalHandle<NavigateThrough>::SharedPtr through_goal_;  // 경유점 지도 길 goal (via_through)

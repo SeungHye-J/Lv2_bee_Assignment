@@ -1,0 +1,6 @@
+# Arm joint zero offsets before reset to 0 (2026-11-14). Servo value = joint value + offset [rad]. Restore: put these back into urdf.xacro <param name="offset">.
+joint1: 0.013
+joint2: 0.010
+joint3: 0.040
+joint4: -0.036
+joint5: -0.027

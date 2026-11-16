@@ -259,6 +259,8 @@ def main():
                          'exit 3 if not (approach_batch.sh then resets again)')
     ap.add_argument('--no-corr', '--no-snap', dest='no_corr', action='store_true',
                     help='--real: keep the plan.yaml box - do not move the goals by /arena/correction (mission_manager)')
+    ap.add_argument('--via', type=float, nargs='+', default=[], metavar='X Y YAW_DEG',
+                    help='door waypoints first (arena x y yaw_deg, repeat): drive there, turn on the spot, then the plan below')
     ap.add_argument('--bag', choices=['on', 'full', 'off'], default='on')
     ap.add_argument('--plan-error', type=float, nargs=2, default=[0.0, 0.0], metavar=('DX', 'DY'),
                     help='[m] shift the box hint sent to the robot (map frame) — the true box stays where the USD has it')
@@ -613,6 +615,25 @@ def main():
         bx, by, nav, app = place(corrected())
         nav_hint, app_hint = nav, app
         print(f'  navigate (corrected) ({nav[0]:.3f}, {nav[1]:.3f}, {math.degrees(nav[2]):.0f}°)', flush=True)
+    if a.via:  # 11-15: the planner cuts the door diagonally onto the wall tip (collision_monitor stops 0.2 m off it) ->
+        #   stand on the door axis with room to turn (rear swings 0.37 m round base_footprint), turn there, then drive straight
+        vstart = a.start_pose or plan_cfg()['start_pose_arena']
+        vias = [arena_to_map(a.via[i], a.via[i + 1], math.radians(a.via[i + 2]), vstart) for i in range(0, len(a.via) - 2, 3)]
+        vst, vid = {}, plan_id + 50000
+        node.create_subscription(TaskStatus, '/task/status', lambda m: vst.__setitem__('m', m) if m.plan_id == vid else None, q)
+        pub.publish(SubGoalArray(plan_id=vid, goals=[SubGoal(step=1, skill='pose', target='stow')] +
+                                 [SubGoal(step=2 + i, skill='navigate', target=fmt(v)) for i, v in enumerate(vias)]))
+        t0 = time.time()
+        print(f'  via {[tuple(round(c, 3) for c in v) for v in vias]} (map)', flush=True)
+        while time.time() - t0 < a.timeout:
+            rclpy.spin_once(node, timeout_sec=0.05)
+            m = vst.get('m')
+            if m and (m.state == TaskStatus.FAILED or (m.step == 1 + len(vias) and m.state == TaskStatus.SUCCEEDED)):
+                break
+        m = vst.get('m')
+        print(f'[{time.time() - t0:6.1f}s] via: {m and ["RUNNING", "SUCCEEDED", "FAILED"][m.state]} {m and m.reason}', flush=True)
+        steps.append({'step': 0, 'skill': 'via', 'ok': bool(m) and m.state == TaskStatus.SUCCEEDED,
+                      'reason': m.reason if m else 'timeout', 'end_s': round(time.time() - t0, 1), 'phase': 0})
     state['t0'] = time.time()
     if corr['on']:
         state['last_step'] = 2  # part (1) ends after navigate

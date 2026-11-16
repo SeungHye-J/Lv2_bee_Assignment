@@ -622,12 +622,9 @@ bool MissionManager::observe_still() const {
 
 void MissionManager::barcode_done(bool ok, const std::string & why) {
   if (!gaze_sent_) { ok ? finish(true, "") : finish(false, why); return; }  // 팔을 안 움직였음
-  // 뻗던·다가가던 중이면 이 계획이 진행 중 goal을 취소함 · 팔 접고 → 다가갔으면 원래 자리로 똑바로 후진
+  // 뻗던·다가가던 중이면 이 계획이 진행 중 goal을 취소함 · 팔만 접음 — 다가간 자리에서 그대로 SURVEY로 출발
+  //   (11-16 사용자: 원래 자리로 후진할 필요 없음 · 다가간 거리는 최대 barcode_advance_max_m)
   std::vector<SubGoal> back{stow()};
-  if (advanced_m_ > 0.0 || moving_) {
-    const auto o = to_map(barcode_origin_.x, barcode_origin_.y, barcode_origin_.yaw);
-    back.push_back(SubGoal().set__skill("approach").set__target(fmt("%.4f,%.4f,%.4f", o.x, o.y, o.yaw)).set__relation("drive_straight"));
-  }
   moving_ = false;
   returning_ = true;
   run(back, [this, ok, why](bool sok, const std::string & swhy) {  // 실패해도 접고(·돌아오고) 끝냄
@@ -1046,6 +1043,8 @@ void MissionManager::verify(size_t k) {  // k = 재확인 순서 인덱스 — �
   const std::string name = "L" + str(static_cast<int>(li) + 1);
   ctx_ = "\"loc\": " + q(name);
   note(name + " 재검증");
+  // 마지막에 놓은 장소 앞에 아직 서 있으면 그 자리에서 (다시 다가가지 않음) — 나머지 장소는 다시 찾아감
+  if (last_place_loc_ == static_cast<int>(li)) { verify_at(li, [this, k]() { verify(k + 1); }); return; }
   const double lx = locations_[li].first, ly = locations_[li].second;
   go_near(loc_boxes_[li], lx, ly, [this, k, li, name](bool ok, const std::string & why) {
     if (!ok) {

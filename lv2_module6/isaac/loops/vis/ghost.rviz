@@ -1,0 +1,950 @@
+Panels:
+  - Class: rviz_common/Displays
+    Help Height: 0
+    Name: Displays
+    Property Tree Widget:
+      Expanded:
+        - /Planned path (MoveIt)1
+        - /Image1
+        - /Image1/Topic1
+      Splitter Ratio: 0.6183035969734192
+    Tree Height: 341
+  - Class: rviz_common/Views
+    Expanded:
+      - /Current View1
+    Name: Views
+    Splitter Ratio: 0.5
+Visualization Manager:
+  Class: ""
+  Displays:
+    - Alpha: 0.5
+      Cell Size: 0.10000000149011612
+      Class: rviz_default_plugins/Grid
+      Color: 160; 160; 164
+      Enabled: true
+      Line Style:
+        Line Width: 0.029999999329447746
+        Value: Lines
+      Name: Grid
+      Normal Cell Count: 0
+      Offset:
+        X: 0
+        Y: 0
+        Z: 0
+      Plane: XY
+      Plane Cell Count: 20
+      Reference Frame: <Fixed Frame>
+      Value: true
+    - Alpha: 1
+      Class: rviz_default_plugins/RobotModel
+      Collision Enabled: false
+      Description File: ""
+      Description Source: Topic
+      Description Topic:
+        Depth: 5
+        Durability Policy: Transient Local
+        History Policy: Keep Last
+        Reliability Policy: Reliable
+        Value: /robot_description
+      Enabled: true
+      Links:
+        All Links Enabled: true
+        Expand Joint Details: false
+        Expand Link Details: false
+        Expand Tree: false
+        Link Tree Style: Links in Alphabetic Order
+        arm_base_link:
+          Alpha: 1
+          Show Axes: false
+          Show Trail: false
+          Value: true
+        base_footprint:
+          Alpha: 1
+          Show Axes: false
+          Show Trail: false
+        base_link:
+          Alpha: 1
+          Show Axes: false
+          Show Trail: false
+          Value: true
+        basket_slot_0:
+          Alpha: 1
+          Show Axes: false
+          Show Trail: false
+        basket_slot_1:
+          Alpha: 1
+          Show Axes: false
+          Show Trail: false
+        basket_slot_10:
+          Alpha: 1
+          Show Axes: false
+          Show Trail: false
+        basket_slot_11:
+          Alpha: 1
+          Show Axes: false
+          Show Trail: false
+        basket_slot_2:
+          Alpha: 1
+          Show Axes: false
+          Show Trail: false
+        basket_slot_3:
+          Alpha: 1
+          Show Axes: false
+          Show Trail: false
+        basket_slot_4:
+          Alpha: 1
+          Show Axes: false
+          Show Trail: false
+        basket_slot_5:
+          Alpha: 1
+          Show Axes: false
+          Show Trail: false
+        basket_slot_6:
+          Alpha: 1
+          Show Axes: false
+          Show Trail: false
+        basket_slot_7:
+          Alpha: 1
+          Show Axes: false
+          Show Trail: false
+        basket_slot_8:
+          Alpha: 1
+          Show Axes: false
+          Show Trail: false
+        basket_slot_9:
+          Alpha: 1
+          Show Axes: false
+          Show Trail: false
+        battery_link:
+          Alpha: 1
+          Show Axes: false
+          Show Trail: false
+          Value: true
+        end_effector_link:
+          Alpha: 1
+          Show Axes: false
+          Show Trail: false
+        finger_left_link:
+          Alpha: 1
+          Show Axes: false
+          Show Trail: false
+          Value: true
+        finger_right_link:
+          Alpha: 1
+          Show Axes: false
+          Show Trail: false
+          Value: true
+        forearm_link:
+          Alpha: 1
+          Show Axes: false
+          Show Trail: false
+          Value: true
+        gripper_cam_color_optical_frame:
+          Alpha: 1
+          Show Axes: false
+          Show Trail: false
+        gripper_cam_depth_optical_frame:
+          Alpha: 1
+          Show Axes: false
+          Show Trail: false
+        gripper_cam_link:
+          Alpha: 1
+          Show Axes: false
+          Show Trail: false
+          Value: true
+        gripper_link:
+          Alpha: 1
+          Show Axes: false
+          Show Trail: false
+          Value: true
+        imu_link:
+          Alpha: 1
+          Show Axes: false
+          Show Trail: false
+        pole_front_cam_color_optical_frame:
+          Alpha: 1
+          Show Axes: false
+          Show Trail: false
+        pole_front_cam_depth_optical_frame:
+          Alpha: 1
+          Show Axes: false
+          Show Trail: false
+        pole_front_cam_link:
+          Alpha: 1
+          Show Axes: false
+          Show Trail: false
+          Value: true
+        shoulder_link:
+          Alpha: 1
+          Show Axes: false
+          Show Trail: false
+          Value: true
+        upper_arm_link:
+          Alpha: 1
+          Show Axes: false
+          Show Trail: false
+          Value: true
+        wheel_left_link:
+          Alpha: 1
+          Show Axes: false
+          Show Trail: false
+          Value: true
+        wheel_right_link:
+          Alpha: 1
+          Show Axes: false
+          Show Trail: false
+          Value: true
+        wrist_link:
+          Alpha: 1
+          Show Axes: false
+          Show Trail: false
+          Value: true
+      Mass Properties:
+        Inertia: false
+        Mass: false
+      Name: Robot (measured q)
+      TF Prefix: ""
+      Update Interval: 0
+      Value: true
+      Visual Enabled: true
+    - Attached Body Color: 150; 50; 150
+      Class: moveit_rviz_plugin/RobotState
+      Collision Enabled: false
+      Enabled: true
+      Links:
+        All Links Enabled: true
+        Expand Joint Details: false
+        Expand Link Details: false
+        Expand Tree: false
+        Link Tree Style: Links in Alphabetic Order
+        arm_base_link:
+          Alpha: 1
+          Show Axes: false
+          Show Trail: false
+          Value: true
+        base_footprint:
+          Alpha: 1
+          Show Axes: false
+          Show Trail: false
+        base_link:
+          Alpha: 1
+          Show Axes: false
+          Show Trail: false
+          Value: true
+        basket_slot_0:
+          Alpha: 1
+          Show Axes: false
+          Show Trail: false
+        basket_slot_1:
+          Alpha: 1
+          Show Axes: false
+          Show Trail: false
+        basket_slot_10:
+          Alpha: 1
+          Show Axes: false
+          Show Trail: false
+        basket_slot_11:
+          Alpha: 1
+          Show Axes: false
+          Show Trail: false
+        basket_slot_2:
+          Alpha: 1
+          Show Axes: false
+          Show Trail: false
+        basket_slot_3:
+          Alpha: 1
+          Show Axes: false
+          Show Trail: false
+        basket_slot_4:
+          Alpha: 1
+          Show Axes: false
+          Show Trail: false
+        basket_slot_5:
+          Alpha: 1
+          Show Axes: false
+          Show Trail: false
+        basket_slot_6:
+          Alpha: 1
+          Show Axes: false
+          Show Trail: false
+        basket_slot_7:
+          Alpha: 1
+          Show Axes: false
+          Show Trail: false
+        basket_slot_8:
+          Alpha: 1
+          Show Axes: false
+          Show Trail: false
+        basket_slot_9:
+          Alpha: 1
+          Show Axes: false
+          Show Trail: false
+        battery_link:
+          Alpha: 1
+          Show Axes: false
+          Show Trail: false
+          Value: true
+        end_effector_link:
+          Alpha: 1
+          Show Axes: false
+          Show Trail: false
+        finger_left_link:
+          Alpha: 1
+          Show Axes: false
+          Show Trail: false
+          Value: true
+        finger_right_link:
+          Alpha: 1
+          Show Axes: false
+          Show Trail: false
+          Value: true
+        forearm_link:
+          Alpha: 1
+          Show Axes: false
+          Show Trail: false
+          Value: true
+        gripper_cam_color_optical_frame:
+          Alpha: 1
+          Show Axes: false
+          Show Trail: false
+        gripper_cam_depth_optical_frame:
+          Alpha: 1
+          Show Axes: false
+          Show Trail: false
+        gripper_cam_link:
+          Alpha: 1
+          Show Axes: false
+          Show Trail: false
+          Value: true
+        gripper_link:
+          Alpha: 1
+          Show Axes: false
+          Show Trail: false
+          Value: true
+        imu_link:
+          Alpha: 1
+          Show Axes: false
+          Show Trail: false
+        pole_front_cam_color_optical_frame:
+          Alpha: 1
+          Show Axes: false
+          Show Trail: false
+        pole_front_cam_depth_optical_frame:
+          Alpha: 1
+          Show Axes: false
+          Show Trail: false
+        pole_front_cam_link:
+          Alpha: 1
+          Show Axes: false
+          Show Trail: false
+          Value: true
+        shoulder_link:
+          Alpha: 1
+          Show Axes: false
+          Show Trail: false
+          Value: true
+        upper_arm_link:
+          Alpha: 1
+          Show Axes: false
+          Show Trail: false
+          Value: true
+        wheel_left_link:
+          Alpha: 1
+          Show Axes: false
+          Show Trail: false
+          Value: true
+        wheel_right_link:
+          Alpha: 1
+          Show Axes: false
+          Show Trail: false
+          Value: true
+        wrist_link:
+          Alpha: 1
+          Show Axes: false
+          Show Trail: false
+          Value: true
+      Name: Ghost ref (plan, blue)
+      Robot Alpha: 0.4000000059604645
+      Robot Description: robot_description
+      Robot State Topic: /viz/ref/robot_state
+      Show All Links: true
+      Show Highlights: true
+      Value: true
+      Visual Enabled: true
+    - Attached Body Color: 150; 50; 150
+      Class: moveit_rviz_plugin/RobotState
+      Collision Enabled: false
+      Enabled: false
+      Links:
+        All Links Enabled: true
+        Expand Joint Details: false
+        Expand Link Details: false
+        Expand Tree: false
+        Link Tree Style: Links in Alphabetic Order
+        arm_base_link:
+          Alpha: 1
+          Show Axes: false
+          Show Trail: false
+          Value: true
+        base_footprint:
+          Alpha: 1
+          Show Axes: false
+          Show Trail: false
+        base_link:
+          Alpha: 1
+          Show Axes: false
+          Show Trail: false
+          Value: true
+        basket_slot_0:
+          Alpha: 1
+          Show Axes: false
+          Show Trail: false
+        basket_slot_1:
+          Alpha: 1
+          Show Axes: false
+          Show Trail: false
+        basket_slot_10:
+          Alpha: 1
+          Show Axes: false
+          Show Trail: false
+        basket_slot_11:
+          Alpha: 1
+          Show Axes: false
+          Show Trail: false
+        basket_slot_2:
+          Alpha: 1
+          Show Axes: false
+          Show Trail: false
+        basket_slot_3:
+          Alpha: 1
+          Show Axes: false
+          Show Trail: false
+        basket_slot_4:
+          Alpha: 1
+          Show Axes: false
+          Show Trail: false
+        basket_slot_5:
+          Alpha: 1
+          Show Axes: false
+          Show Trail: false
+        basket_slot_6:
+          Alpha: 1
+          Show Axes: false
+          Show Trail: false
+        basket_slot_7:
+          Alpha: 1
+          Show Axes: false
+          Show Trail: false
+        basket_slot_8:
+          Alpha: 1
+          Show Axes: false
+          Show Trail: false
+        basket_slot_9:
+          Alpha: 1
+          Show Axes: false
+          Show Trail: false
+        battery_link:
+          Alpha: 1
+          Show Axes: false
+          Show Trail: false
+          Value: true
+        end_effector_link:
+          Alpha: 1
+          Show Axes: false
+          Show Trail: false
+        finger_left_link:
+          Alpha: 1
+          Show Axes: false
+          Show Trail: false
+          Value: true
+        finger_right_link:
+          Alpha: 1
+          Show Axes: false
+          Show Trail: false
+          Value: true
+        forearm_link:
+          Alpha: 1
+          Show Axes: false
+          Show Trail: false
+          Value: true
+        gripper_cam_color_optical_frame:
+          Alpha: 1
+          Show Axes: false
+          Show Trail: false
+        gripper_cam_depth_optical_frame:
+          Alpha: 1
+          Show Axes: false
+          Show Trail: false
+        gripper_cam_link:
+          Alpha: 1
+          Show Axes: false
+          Show Trail: false
+          Value: true
+        gripper_link:
+          Alpha: 1
+          Show Axes: false
+          Show Trail: false
+          Value: true
+        imu_link:
+          Alpha: 1
+          Show Axes: false
+          Show Trail: false
+        pole_front_cam_color_optical_frame:
+          Alpha: 1
+          Show Axes: false
+          Show Trail: false
+        pole_front_cam_depth_optical_frame:
+          Alpha: 1
+          Show Axes: false
+          Show Trail: false
+        pole_front_cam_link:
+          Alpha: 1
+          Show Axes: false
+          Show Trail: false
+          Value: true
+        shoulder_link:
+          Alpha: 1
+          Show Axes: false
+          Show Trail: false
+          Value: true
+        upper_arm_link:
+          Alpha: 1
+          Show Axes: false
+          Show Trail: false
+          Value: true
+        wheel_left_link:
+          Alpha: 1
+          Show Axes: false
+          Show Trail: false
+          Value: true
+        wheel_right_link:
+          Alpha: 1
+          Show Axes: false
+          Show Trail: false
+          Value: true
+        wrist_link:
+          Alpha: 1
+          Show Axes: false
+          Show Trail: false
+          Value: true
+      Name: Ghost target = ref + delta (green)
+      Robot Alpha: 0.4000000059604645
+      Robot Description: robot_description
+      Robot State Topic: /viz/target/robot_state
+      Show All Links: true
+      Show Highlights: true
+      Value: false
+      Visual Enabled: true
+    - Attached Body Color: 150; 50; 150
+      Class: moveit_rviz_plugin/RobotState
+      Collision Enabled: false
+      Enabled: true
+      Links:
+        All Links Enabled: true
+        Expand Joint Details: false
+        Expand Link Details: false
+        Expand Tree: false
+        Link Tree Style: Links in Alphabetic Order
+        arm_base_link:
+          Alpha: 1
+          Show Axes: false
+          Show Trail: false
+          Value: true
+        base_footprint:
+          Alpha: 1
+          Show Axes: false
+          Show Trail: false
+        base_link:
+          Alpha: 1
+          Show Axes: false
+          Show Trail: false
+          Value: true
+        basket_slot_0:
+          Alpha: 1
+          Show Axes: false
+          Show Trail: false
+        basket_slot_1:
+          Alpha: 1
+          Show Axes: false
+          Show Trail: false
+        basket_slot_10:
+          Alpha: 1
+          Show Axes: false
+          Show Trail: false
+        basket_slot_11:
+          Alpha: 1
+          Show Axes: false
+          Show Trail: false
+        basket_slot_2:
+          Alpha: 1
+          Show Axes: false
+          Show Trail: false
+        basket_slot_3:
+          Alpha: 1
+          Show Axes: false
+          Show Trail: false
+        basket_slot_4:
+          Alpha: 1
+          Show Axes: false
+          Show Trail: false
+        basket_slot_5:
+          Alpha: 1
+          Show Axes: false
+          Show Trail: false
+        basket_slot_6:
+          Alpha: 1
+          Show Axes: false
+          Show Trail: false
+        basket_slot_7:
+          Alpha: 1
+          Show Axes: false
+          Show Trail: false
+        basket_slot_8:
+          Alpha: 1
+          Show Axes: false
+          Show Trail: false
+        basket_slot_9:
+          Alpha: 1
+          Show Axes: false
+          Show Trail: false
+        battery_link:
+          Alpha: 1
+          Show Axes: false
+          Show Trail: false
+          Value: true
+        end_effector_link:
+          Alpha: 1
+          Show Axes: false
+          Show Trail: false
+        finger_left_link:
+          Alpha: 1
+          Show Axes: false
+          Show Trail: false
+          Value: true
+        finger_right_link:
+          Alpha: 1
+          Show Axes: false
+          Show Trail: false
+          Value: true
+        forearm_link:
+          Alpha: 1
+          Show Axes: false
+          Show Trail: false
+          Value: true
+        gripper_cam_color_optical_frame:
+          Alpha: 1
+          Show Axes: false
+          Show Trail: false
+        gripper_cam_depth_optical_frame:
+          Alpha: 1
+          Show Axes: false
+          Show Trail: false
+        gripper_cam_link:
+          Alpha: 1
+          Show Axes: false
+          Show Trail: false
+          Value: true
+        gripper_link:
+          Alpha: 1
+          Show Axes: false
+          Show Trail: false
+          Value: true
+        imu_link:
+          Alpha: 1
+          Show Axes: false
+          Show Trail: false
+        pole_front_cam_color_optical_frame:
+          Alpha: 1
+          Show Axes: false
+          Show Trail: false
+        pole_front_cam_depth_optical_frame:
+          Alpha: 1
+          Show Axes: false
+          Show Trail: false
+        pole_front_cam_link:
+          Alpha: 1
+          Show Axes: false
+          Show Trail: false
+          Value: true
+        shoulder_link:
+          Alpha: 1
+          Show Axes: false
+          Show Trail: false
+          Value: true
+        upper_arm_link:
+          Alpha: 1
+          Show Axes: false
+          Show Trail: false
+          Value: true
+        wheel_left_link:
+          Alpha: 1
+          Show Axes: false
+          Show Trail: false
+          Value: true
+        wheel_right_link:
+          Alpha: 1
+          Show Axes: false
+          Show Trail: false
+          Value: true
+        wrist_link:
+          Alpha: 1
+          Show Axes: false
+          Show Trail: false
+          Value: true
+      Name: Ghost cmd = ref + corr + delta + grav (orange)
+      Robot Alpha: 0.4000000059604645
+      Robot Description: robot_description
+      Robot State Topic: /viz/cmd/robot_state
+      Show All Links: true
+      Show Highlights: true
+      Value: true
+      Visual Enabled: true
+    - Class: moveit_rviz_plugin/Trajectory
+      Color Enabled: true
+      Enabled: false
+      Interrupt Display: false
+      Links:
+        All Links Enabled: true
+        Expand Joint Details: false
+        Expand Link Details: false
+        Expand Tree: false
+        Link Tree Style: Links in Alphabetic Order
+        arm_base_link:
+          Alpha: 1
+          Show Axes: false
+          Show Trail: false
+          Value: true
+        base_footprint:
+          Alpha: 1
+          Show Axes: false
+          Show Trail: false
+        base_link:
+          Alpha: 1
+          Show Axes: false
+          Show Trail: false
+          Value: true
+        basket_slot_0:
+          Alpha: 1
+          Show Axes: false
+          Show Trail: false
+        basket_slot_1:
+          Alpha: 1
+          Show Axes: false
+          Show Trail: false
+        basket_slot_10:
+          Alpha: 1
+          Show Axes: false
+          Show Trail: false
+        basket_slot_11:
+          Alpha: 1
+          Show Axes: false
+          Show Trail: false
+        basket_slot_2:
+          Alpha: 1
+          Show Axes: false
+          Show Trail: false
+        basket_slot_3:
+          Alpha: 1
+          Show Axes: false
+          Show Trail: false
+        basket_slot_4:
+          Alpha: 1
+          Show Axes: false
+          Show Trail: false
+        basket_slot_5:
+          Alpha: 1
+          Show Axes: false
+          Show Trail: false
+        basket_slot_6:
+          Alpha: 1
+          Show Axes: false
+          Show Trail: false
+        basket_slot_7:
+          Alpha: 1
+          Show Axes: false
+          Show Trail: false
+        basket_slot_8:
+          Alpha: 1
+          Show Axes: false
+          Show Trail: false
+        basket_slot_9:
+          Alpha: 1
+          Show Axes: false
+          Show Trail: false
+        battery_link:
+          Alpha: 1
+          Show Axes: false
+          Show Trail: false
+          Value: true
+        end_effector_link:
+          Alpha: 1
+          Show Axes: false
+          Show Trail: false
+        finger_left_link:
+          Alpha: 1
+          Show Axes: false
+          Show Trail: false
+          Value: true
+        finger_right_link:
+          Alpha: 1
+          Show Axes: false
+          Show Trail: false
+          Value: true
+        forearm_link:
+          Alpha: 1
+          Show Axes: false
+          Show Trail: false
+          Value: true
+        gripper_cam_color_optical_frame:
+          Alpha: 1
+          Show Axes: false
+          Show Trail: false
+        gripper_cam_depth_optical_frame:
+          Alpha: 1
+          Show Axes: false
+          Show Trail: false
+        gripper_cam_link:
+          Alpha: 1
+          Show Axes: false
+          Show Trail: false
+          Value: true
+        gripper_link:
+          Alpha: 1
+          Show Axes: false
+          Show Trail: false
+          Value: true
+        imu_link:
+          Alpha: 1
+          Show Axes: false
+          Show Trail: false
+        pole_front_cam_color_optical_frame:
+          Alpha: 1
+          Show Axes: false
+          Show Trail: false
+        pole_front_cam_depth_optical_frame:
+          Alpha: 1
+          Show Axes: false
+          Show Trail: false
+        pole_front_cam_link:
+          Alpha: 1
+          Show Axes: false
+          Show Trail: false
+          Value: true
+        shoulder_link:
+          Alpha: 1
+          Show Axes: false
+          Show Trail: false
+          Value: true
+        upper_arm_link:
+          Alpha: 1
+          Show Axes: false
+          Show Trail: false
+          Value: true
+        wheel_left_link:
+          Alpha: 1
+          Show Axes: false
+          Show Trail: false
+          Value: true
+        wheel_right_link:
+          Alpha: 1
+          Show Axes: false
+          Show Trail: false
+          Value: true
+        wrist_link:
+          Alpha: 1
+          Show Axes: false
+          Show Trail: false
+          Value: true
+      Loop Animation: false
+      Name: Planned path (MoveIt)
+      Robot Alpha: 0.10000000149011612
+      Robot Color: 150; 50; 150
+      Robot Description: robot_description
+      Show Robot Collision: false
+      Show Robot Visual: true
+      Show Trail: true
+      State Display Time: 0.05 s
+      Trail Step Size: 3
+      Trajectory Topic: /display_planned_path
+      Use Sim Time: false
+      Value: false
+    - Class: rviz_default_plugins/MarkerArray
+      Enabled: true
+      Name: Pucks (tracked_objects)
+      Namespaces:
+        {}
+      Topic:
+        Depth: 5
+        Durability Policy: Volatile
+        History Policy: Keep Last
+        Reliability Policy: Reliable
+        Value: /viz/pucks
+      Value: true
+    - Class: rviz_default_plugins/Image
+      Enabled: true
+      Max Value: 1
+      Median window: 5
+      Min Value: 0
+      Name: Image
+      Normalize Range: true
+      Topic:
+        Depth: 5
+        Durability Policy: Volatile
+        History Policy: Keep Last
+        Reliability Policy: Best Effort
+        Transport Override: ""
+        Value: /perception/gripper_cam/debug_image
+      Value: true
+  Enabled: true
+  Global Options:
+    Background Color: 48; 48; 48
+    Fixed Frame: base_footprint
+    Frame Rate: 30
+  Name: root
+  Tools:
+    - Class: rviz_default_plugins/Interact
+      Hide Inactive Objects: true
+    - Class: rviz_default_plugins/MoveCamera
+  Transformation:
+    Current:
+      Class: rviz_default_plugins/TF
+  Value: true
+  Views:
+    Current:
+      Class: rviz_default_plugins/Orbit
+      Distance: 0.7989999055862427
+      Enable Stereo Rendering:
+        Stereo Eye Separation: 0.05999999865889549
+        Stereo Focal Distance: 1
+        Swap Stereo Eyes: false
+        Value: false
+      Focal Point:
+        X: 0.08640602231025696
+        Y: 0.05034690722823143
+        Z: 0.1698063760995865
+      Focal Shape Fixed Size: true
+      Focal Shape Size: 0.05000000074505806
+      Invert Z Axis: false
+      Name: Current View
+      Near Clip Distance: 0.009999999776482582
+      Pitch: 0.06000010296702385
+      Target Frame: <Fixed Frame>
+      Value: Orbit (rviz_default_plugins)
+      Yaw: 4.985046863555908
+    Saved: ~
+Window Geometry:
+  Displays:
+    collapsed: false
+  Height: 973
+  Hide Left Dock: false
+  Hide Right Dock: false
+  Image:
+    collapsed: false
+  Planned path (MoveIt) - Trajectory Slider:
+    collapsed: false
+  QMainWindow State: 000000ff00000000fd0000000100000000000001c200000371fc0200000004fb000000520050006c0061006e006e006500640020007000610074006800200028004d006f007600650049007400290020002d0020005400720061006a006500630074006f0072007900200053006c00690064006500720000000000ffffffff0000001600000016fb0000000a0049006d006100670065010000003e000000de0000001600fffffffb000000100044006900730070006c006100790073010000012200000193000000ca00fffffffb0000000a0056006900650077007301000002bb000000f4000000a600ffffff0000049b0000037100000004000000040000000800000008fc0000000100000002000000010000000a0054006f006f006c00730100000000ffffffff0000000000000000
+  Views:
+    collapsed: false
+  Width: 1635
+  X: 829
+  Y: 152

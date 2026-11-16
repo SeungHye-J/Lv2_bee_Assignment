@@ -27,7 +27,7 @@
 //              → 12개 한 번에 할당 (mission_solver allocate)
 //     → BUILD 퍽마다: 장소 앞 → 장소 태그로 칸 위치 보정 → [적재함 칸에서 꺼냄 | 못 실은 퍽은 시작 박스에서 직접 집어 옴]
 //              (적재함이면 unload <칸>) → place 칸 "x,y,z" → 내려다보고 10 mm 밖·쓰러짐이면 다시 집어 놓기
-//     → VERIFY 장소마다 새로 본 퍽만으로 칸별 판정 (verify_in_place: 장소의 마지막 퍽을 놓은 그 자리에서 · 못 한 장소만 다시 감) + 12개 중복·누락 → RETURN 출발 구역 가운데 → 외곽이 구역 안인지
+//     → VERIFY 장소마다 새로 본 퍽만으로 칸별 판정 (마지막에 놓은 장소는 그 자리에서 · 나머지는 build_location_order 거꾸로 다시 감 · verify_in_place면 장소마다 놓은 자리에서) + 12개 중복·누락 → RETURN 출발 구역 가운데 → 외곽이 구역 안인지
 //              확인·보정 → home_hold_s 정지 → DONE
 //   실패: skill마다 retries번 다시 · 그래도 안 되면 그 퍽·장소만 실패로 results에 남기고 다음으로 (복귀까지).
 //     관측(신호·바코드) 오류와 복귀 이동 실패만 ERROR로 멈추고 coordinator 정지
