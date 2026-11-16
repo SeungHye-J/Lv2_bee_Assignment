@@ -160,11 +160,7 @@ mission_manager: # 주사위 기억 미션 (documents/mission/README.md) — 좌
     # [m] 박스마다 도킹 뒤 다가설 자리보다 더 물러남 (뒤 벽까지 몸 뒤 0.245 m + 여유 계산, 11-15) — B6: 칸 입구 밖 회전 자리까지 ·
     #   B2: 뒤가 넓음 → 0.25였다가 0 (11-16 사용자: 너무 많이 물러남 · navigate가 출발 전 제자리 회전을 하고 exit_turn_clear가 최소 회전 공간은 지킴).
     #   나머지는 첫 진입 면 뒤가 좁아 0 (B4·B5는 물러나면 뒤 벽 0.1 m 안)
-    #   B6: 0.25였다가 0 (11-16 시뮬): 더 물러나면 L2 상자 옆(동쪽 면에서 0.31 m)이라 출발 전 회전이 Collision Ahead → DWB 'No valid
-    #   trajectories'로 비빔. 0이면 칸 입구(x 3.229) 밖 0.29 m · 입구 벽 끝에서 0.41 m · L2 면에서 0.56 m — 제자리 회전 공간 됨
-    start_box_retreat: [0.0, 0.0, 0.0, 0.0, 0.0, 0.0]
-    # L1: "-x@0.44" → "-x@0.60" (11-16 시뮬): 0.44면 나올 때 상자 면에서 0.35 m에서 돌아 몸 뒤 모서리(약 0.30 m)가 L1을 밂
-    #   → 옆(서쪽)으로 바로 들어가되 0.60 자리(상자 면에서 0.50 m)까지 똑바로 물러난 뒤 돎. 그 자리에서 위 벽(y 1.300)까지 0.335 m
+     : [0.0, 0.0, 0.0, 0.0, 0.0, 0.25]
     location_box_sides:
       ["-x@0.60", "-y@0.49 +x@0.45 +y@0.47 -x@0.43", "-y@0.67 +x@0.32 +y@0.37"]
     wall_clearance: 0.22 # [m] 다가설 자리가 벽에서 이보다 가까우면 그 변은 안 감 (Nav2 robot_radius 0.16 + 여유)
@@ -303,7 +299,7 @@ mission_manager: # 주사위 기억 미션 (documents/mission/README.md) — 좌
     # 현장 진단 실행 (실기 시험용) — true면 관측(바코드·신호) 실패도 기록만 하고 다음 단계로, 끝에 실패 목록 + RETURN.
     #   치명 이유(estop·manual·arm_contact·collision·overcurrent·abort… — mission_solver.hpp diag_fatal)면 지금처럼 바로 정지.
     #   기본 false = 대회 규칙대로 (관측 실패 = 안전 정지). TUI 미션 메뉴 'x' 또는 /cmd/mission "start:DIAG"는 그 회차만 켬
-    continue_on_fail: true
-    diag_stuck_limit: 5 # 진단 실행에서 주행 갇힘(nav_no_progress · nav_failed)이 이만큼 이어지면 치명으로 정지
+    continue_on_fail: false
+    diag_stuck_limit: 3 # 진단 실행에서 주행 갇힘(nav_no_progress · nav_failed)이 이만큼 이어지면 치명으로 정지
     log_dir: "~/.ros/mission" # 회차별 signal · allocation · build · verify · return (· error) .json + photos/
     photo_topic: "/gripper_cam/color/image_raw" # 단계 사진 (찍을 때만 잠깐 구독) — 빈 문자열이면 안 찍음
