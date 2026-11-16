@@ -527,3 +527,17 @@ TEST(MissionFlow, ParseGoto) {  // start:GOTO:<목록> — 실기 이동 시험
   EXPECT_FALSE(parse_start("start:GOTO", sc, why));
   EXPECT_FALSE(parse_start("start:GOTO:L4", sc, why));
 }
+
+// exit 후진 거리 (11-16): 회전 공간이 모자라면 늘리고, 뒤 벽 앞에서 멈춤
+TEST(MissionSolver, ExitBackFloorAndRearWall) {
+  const std::vector<double> none;
+  // 붙은 자리 (0, 0) · 상자는 +x 쪽 · 뒤(−x)에 벽 없음 → need까지
+  EXPECT_NEAR(plan::exit_back(0.20, 0.251, 0.0, 0.0, 0.0, 0.265, 0.05, none), 0.251, 1e-9);
+  // 이미 충분하면 그대로
+  EXPECT_NEAR(plan::exit_back(0.36, 0.251, 0.0, 0.0, 0.0, 0.265, 0.05, none), 0.36, 1e-9);
+  // 뒤 벽 x = −0.55 (세로) → 몸 뒤 끝이 −0.50까지 = 후진 0.235까지만
+  const std::vector<double> wall{-0.55, -1.0, -0.55, 1.0};
+  const double b = plan::exit_back(0.20, 0.251, 0.0, 0.0, 0.0, 0.265, 0.05, wall);
+  EXPECT_LE(b, 0.235 + 1e-9);
+  EXPECT_GT(b, 0.225);
+}

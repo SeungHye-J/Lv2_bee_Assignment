@@ -47,7 +47,7 @@ public:
     res_v_ = declare_parameter<double>("residual_v", 0.02);          // 시뮬 res_v · res_w (행동 1 = 이만큼)
     res_w_ = declare_parameter<double>("residual_w", 0.1);
     min_speed_ = declare_parameter<double>("approach_min_speed", 0.03);  // [m/s] 실기 바퀴 데드밴드 위 (sim 모드 기준 제어)
-    exit_m_ = declare_parameter<double>("approach_exit_m", 0.165);  // exit 기본 후진 거리 [m] (= standoff 0.25 − gap 0.085)
+    exit_m_ = declare_parameter<double>("approach_exit_m", 0.151);  // exit 기본 후진 거리 [m] (= standoff 0.25 − gap 0.099)
     release_m_ = declare_parameter<double>("approach_release_m", 0.03);  // sim: 도착(tol_m×0.6) 뒤 이만큼 벗어나야 다시 위치 맞춤
     carrot_m_ = declare_parameter<double>("approach_carrot_m", 0.05);    // sim: 목표 직선 위 이만큼 앞 점을 향해 조향
     v_max_ = declare_parameter<double>("approach_v_max", 0.06);          // sim: 전진 상한 [m/s]
