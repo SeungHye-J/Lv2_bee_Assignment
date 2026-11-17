@@ -26,8 +26,8 @@ flowchart LR
       INS["inspect"]
     end
     subgraph ARM["팔 skill — PR #48"]
-      POSE["pose<br/>stow · carry_left · carry_right"]
-      PICK["pick<br/>+ 잡기 판정"]
+      POSE["pose<br/>stow · carry_left · carry_right · look · gaze"]
+      PICK["pick (못 닿으면 pick_far)<br/>+ 잡기 판정"]
       LOAD["load<br/>적재함 12칸"]
       UNLOAD["unload<br/>+ 잡기 판정"]
       PLACE["place<br/>location_box 윗면"]
@@ -80,7 +80,7 @@ flowchart TB
   end
   subgraph L["load 안 (칸이 carry 방향을 정함)"]
     direction LR
-    l1["carry_칸방향"] --> l2["q_over"] --> l3["q_low"] --> l4["벌림"] --> l5["q_lift"] --> l6["stow"]
+    l1["carry_칸방향"] --> l2["q_over"] --> l3["q_low"] --> l4["벌림"] --> l5["q_over"] --> l6["끝 자세<br/>(기본 over)"]
   end
   subgraph U["unload 안"]
     direction LR
@@ -107,7 +107,10 @@ flowchart TB
 | `stow` | `[0, -1.9024, 1.344, 0.9023, 0]` | 기본·주행 자세. 기동 때 `initial_pose`도 이 값 | basket.yaml `pose_stow`, SRDF `stow`, skills.yaml `initial_pose` |
 | `carry_left` | `[1.5708, -0.4650, 0.1023, 1.9334, 1.5708]` | 퍽을 들고 적재함 왼쪽 칸으로 가는 경유 | basket.yaml `pose_carry_left` |
 | `carry_right` | `[-1.5708, -0.4650, 0.1023, 1.9334, -1.5708]` | 퍽을 들고 적재함 오른쪽 칸으로 가는 경유 | basket.yaml `pose_carry_right` |
-| `scan` | `[2.618, 0.681, -1.414, 1.082, 0]` | 지도 만들 때 gripper_cam을 두 번째 카메라로 씀. coordinator가 알아서 감 | `ros_system/config/scan_pose.yaml` |
+| `look` | `[0, -1.6825, 0.3246, 1.9268, 0]` | `inspect` 상자 보기 1차 자세 (상자 앞 퍽 둘을 gripper_cam 한 장에) | skills/params/arm.yaml `pose_look` |
+| `gaze` | `[0, 0.6631, 0.3916, -1.1518, 0]` | 손 카메라로 앞 벽·물체를 가까이 봄 (지금은 미션 BARCODE) | arm.yaml `pose_gaze` |
+
+`scan` 자세는 없앴습니다(2026-11-09). 팔을 뻗은 채 주행·회전하면 관성으로 밀리고 무게중심이 쏠려서, 관측·주행은 `stow`로 합니다. `pose scan`은 `invalid_plan`입니다(`pose_names`에 없음).
 
 carry 방향은 **칸이 정합니다**. basket.yaml `basket_carry`에서 칸 0·1·4·5·8·9는 right, 2·3·6·7·10·11은 left입니다.
 
@@ -117,17 +120,19 @@ carry 방향은 **칸이 정합니다**. basket.yaml `basket_carry`에서 칸 0�
 
 | skill | target | 하는 일 | 끝 자세 |
 |---|---|---|---|
-| `navigate` | 물체 id · `"x,y[,yaw]"` | Nav2로 이동 (`relation front`와 `offset_m`을 주면 물체 앞으로, 좌표면 그 자세로) | — |
-| `approach` | `"x,y,yaw"` (map) | 박스 앞 마지막 몇 cm를 `/cmd_vel_nav`로 저속 직선. 목표 뒤 `approach_pre_m` 자리에서 돌고 직선으로 들어감 (박스 바로 앞 제자리 회전 안 함). 4초 동안 진행 없으면 `approach_blocked` | — |
-| `inspect` | 퍽 id · `"x,y,z"` | 손끝을 퍽 윗면(또는 그 점) `inspect_height_m`(0.15m) 위로 옮겨 gripper_cam이 16mm 태그를 읽게 함. 좌표면 손 방향 = 로봇 → 점. 집지 않음 | 그 자리 |
-| `pose` | `stow` · `carry_left` · `carry_right` · `scan` | 이름 있는 관절 자세로 이동 | 그 자세 |
-| `pick` | 퍽 id | 위에서 집기: 접근 → 벌림 → 내려감 → 닫기 → **잡기 판정** → 들어올림. 파지 후보는 grasp_scorer가 냄 | 들어올린 자리 |
-| `load` | 칸 `0`~`11` · `next` | 손에 든 퍽을 적재함 칸에 싣기: **carry(칸 방향) → q_over → q_low → 벌림 → q_lift → stow** | `stow` |
+| `navigate` | 물체 id · `"x,y[,yaw]"` | Nav2로 이동 (`relation front`와 `offset_m`을 주면 물체 앞으로, 좌표면 그 자세로). `relation`은 skill 옵션(공백으로 여럿): `near`(목표 `nav_near_m` 0.20m 안이면 성공) · `look`(도착 전 팔 look 자세) · `leg:<구간>`(가르친 경로 선택). 진척이 없으면 끼임 풀기(후진 → 회전 → 다시, `nav_unstuck_tries` 2) 뒤 `nav_no_progress`. 경로는 문 경유점 · `via_points`(지도에 찍은 점) · 가르친 경로를 씀 ([3-1](#3-1-navigate-경로--경유점과-가르친-경로)) | — |
+| `approach` | `"x,y,yaw"` (map) | 박스 앞 마지막 몇 cm를 `/cmd_vel_nav`로 저속 직선. `relation`이 주행 정책: `dock_box`(기본 — 인지한 상자 기준으로 `gap`까지 도킹) · `park_home`(출발 구역) · `drive_straight` · `drive_arc` · `exit`(target = 똑바로 후진할 거리 [m]). 학습 정책은 `models/skills/<정책>/`(meta `use`). 4초 동안 진행 없으면 `approach_blocked` | — |
+| `inspect` | 퍽 id · `"x,y,z"` | 손끝을 퍽 윗면(또는 그 점) `inspect_height_m`(0.15m) 위로 옮겨 gripper_cam이 16mm 태그를 읽게 함. 좌표면 손 방향 = 로봇 → 점. 집지 않음. `relation box`면 상자 보기: `look` 자세로 한 번에 보고, 퍽이 모자라거나 태그를 못 읽으면 본 퍽을 담는 자세로 다시 봄(모자라면 `inspect_partial`) | 그 자리 |
+| `pose` | `stow` · `carry_left` · `carry_right` · `look` · `gaze` | 이름 있는 관절 자세로 이동 | 그 자세 |
+| `pick` | 퍽 id | 위에서 집기: 접근 → 벌림 → 내려감 → 닫기 → **잡기 판정** → 들어올림. 파지 후보는 grasp_scorer가 냄. 닿는 구간은 학습 정책(`pick_standing_puck`, `contact_mode: sim`)이 보정함([4절](#pick-정책--contact_mode)). 손을 수직으로 못 두는 먼 퍽은 coordinator가 같은 목표로 `pick_far`를 한 번 더 부름 (계획 단계 이름은 아님) | 들어올린 자리 |
+| `load` | 칸 `0`~`11` · `next` | 손에 든 퍽을 적재함 칸에 싣기: **carry(칸 방향) → q_over → q_low → 벌림 → q_over → 끝 자세**. 닿는 구간(q_over → q_low → 벌림 → q_over)은 `contact_mode: sim`이면 `load_slot` 정책 흐름, `moveit`이면 예전 순서(q_lift → stow). 옮기는 동안 쥐는 힘은 `grip_current_a` × `load_grip_scale`(2) | `load_end_pose`(기본 `over` — 칸 위 그대로, 다음 `pick`이 carry를 지나 퍽 위로. `stow` · `carry`도 가능) |
 | `unload` | 칸 `0`~`11` · `last` | 적재함 칸의 퍽 꺼내기: **carry(칸 방향) → 벌림 → q_over → q_grasp → 닫기 → 잡기 판정 → q_over → carry** | `carry_<칸 방향>` |
-| `place` | `location_box` id (다른 물체도 됨) · `"x,y,z"` | 손에 든 퍽을 상자 윗면에 놓기 ([4절](#place--상자-값)). 좌표면 **손 안 퍽 바닥이 z**가 되게: 위 `place_approach_m` → 내려가 `place_release_m`에서 벌림 → 다시 위 (주사위 칸) | 상자 위 · 그 점 위 |
+| `place` | `location_box` id (다른 물체도 됨) · `"x,y,z"` | 손에 든 퍽을 상자 윗면에 놓기 ([4절](#place-상자-값)). 좌표면 **손 안 퍽 바닥이 z**가 되게: 칸 위까지 MoveIt → 닿는 구간(`place_cell` 정책) 또는 `contact_mode: moveit`이면 위 `place_approach_m` → 내려가 `place_release_m`에서 벌림 → 다시 위 (주사위 칸) | 상자 위 · 그 점 위 |
 | `stand` | 퍽 id (`puck_lying`) | 누운 퍽을 세워 놓음 — 먼 끝을 가볍게(0.4N) 쥐고 가까운 아래 모서리를 축으로 돌려 세운 뒤 벌리고 위로 (팀원 `right_env` tilt 방식). 경유점 `stand_waypoints`: `ik`(기본) · `table` | 있음 ([6-1](#6-1-세우기--stand--stand_pick)) |
 | `stand_pick` | 아무 값 (직전 `stand`의 퍽 — 기록용으로 퍽 id) | 세운 퍽을 다시 집기 — 직전 `stand` 계획의 같은 손목으로 선 퍽 위 → 바로 아래로 → 제 힘으로 쥐고 잡기 판정 → 들어올림. 성공하면 그 퍽(tag·색·모양)을 손에 든 것으로 장부에 | 있음 |
 
+- **`pick_far`** (coordinator 안에서만 씀): `pick`이 `pick_unreachable`로 끝났거나, `grasp_failed_all`인데 퍽이 로봇 중심에서 `pick_far_min_m`(0.25m)보다 멀면 같은 목표로 한 번 더. 손을 45° 기울여 밀고 들어가 집습니다(`skill_pick_far`, 정책 `pick_standing_far`는 실기에서 놓쳐 지금 `use: false` — 기준 동작만). 실패 이유는 `pick_far_unreachable` · `pick_far_jump` · `grasp_*` 등.
+- **다가가기 거리** (coordinator, plan.yaml): 대상이 로봇 중심에서 `reach_m`(0.20m)을 넘으면 `approach_m`(0.20m) 앞까지 먼저 navigate합니다. 박스 위 선 퍽 `pick`은 `pick_far_max_m`(0.50m) 안이면, 박스 위 누운 퍽 `stand`는 `stand_box_max_m`(0.50m) 안이면 다가가지 않고 바로 합니다(멀면 `stand`가 퍽을 `stand_pull_to_m` 0.20m까지 끌어온 뒤 끝나고, 계획 쪽이 다시 `stand`).
 - **적재함 12칸**: 칸 위치는 URDF 링크 `basket_slot_0`~`11`(3줄 × 4칸)입니다. `load`·`unload`는 basket.yaml에서 칸과 퍽 모양(`box`·`cyl`)에 맞는 `q_over`·`q_low`·`q_lift`·`q_grasp`를 관절 목표로 씁니다. 적재함은 로봇에 고정돼 있어 매번 같은 값입니다.
   - 손 안 퍽 위치가 기준(`held_bottom_m`)과 다를 때 쓰는 보정(slot_table의 `P_*`)은 아직 쓰지 않습니다. **(예정 — 손 안 퍽 위치를 잴 수 있을 때)**
 - **칸 고르기**: `next`는 `basket_use` 칸 중 빈 칸의 가장 낮은 번호(팔이 잘 못 닿는 칸은 설정에서 뺌), `last`는 마지막에 실은 칸입니다.
@@ -157,21 +162,47 @@ flowchart LR
 ```
 - **옛 `tray` (호환)**: `place tray`는 `load next`, `pick tray`는 `unload last`와 같습니다. 그래서 기존 계획이 그대로 돌아갑니다. 적재함 용량(`tray_capacity`)은 4에서 12로 바꿨습니다.
 
+## 3-1. navigate 경로 — 경유점과 가르친 경로
+
+`skill_navigate`는 Nav2 앞에서 경로를 다듬습니다 (값은 skills.yaml `skill_navigate`, 좌표는 경기장 arena m).
+- **문 경유점** (`doors`): 경로가 지나는 문마다 들어가기 점(문 앞에서 문 축으로 제자리 회전) · 나가기 점(문 너머 일직선)을 끼워, 문을 대각선으로 질러 벽 끝에서 멈추는 일을 막습니다.
+- **경유점 지도** (`via_points` · `via_arrows`): 사람이 도면에 찍은 점을 보이는 점끼리 최단으로 이어 경유점으로 씁니다(화살표 a → b는 b에 a에서만 들어감). `via_through`(기본)면 경유점 + 목표를 `NavigateThroughPoses` 한 번으로 보내 서지 않고 지나갑니다.
+- **막은 구역** (`no_path_zones`): 처음 받은 Nav2 경로가 이 안을 지나면 `nav_no_path_zone`으로 실패합니다.
+- **가르친 경로 (teach & repeat)**: 사람이 수동으로 몬 경로(`tools/field/route_record.py`)가 `routes_dir`(`~/.ros/routes`)에 있고 시작·끝이 맞으면 문 경유점 대신 그 경로의 꺾이는 점을 씁니다. launch 인자 `taught_routes:=true`이고 `relation`에 `leg:<구간>`(mission_manager가 붙임, 예 `S4_S5`)이 있으며 `*_<구간>.motion.csv`(움직임 정답표 = 답지)가 있으면, Nav2 계획 대신 표대로 Spin · DriveOnHeading를 차례로 합니다. odom 자세가 기대에서 `route_dev_m`(0.30m) · `route_dev_deg`(15°) 넘게 벗어나거나 동작이 실패하면 `route_deviation`으로 멈춥니다(`route_fallback_nav2: true`면 남은 길을 Nav2로). `taught_routes` 기본은 끔입니다.
+- **끼임 풀기 · 멈춤 감시**: 자세가 `nav_still_s`(3초) 안 바뀌거나 진척이 없으면(`nav_stall_s` 12초) 후진 → 제자리 회전 → 다시 출발을 `nav_unstuck_tries`(2)번까지 합니다.
+
 ## 4. skill 안에서 쓰는 값
 
 ### 시작할 때: 처짐 보정 초기화
-팔 skill(`pick`, `place`, `load`, `unload`)을 **시작할 때 한 번** `/rl_arm_correction/reset_sag`(std_srvs/Trigger)를 부릅니다. skill 중간에는 부르지 않습니다. 팔이 안 닿아 먼저 다가가는 이동이 끝나고, 팔이 움직이기 직전에 부릅니다.
-- 서비스가 없으면 WARN을 한 번 남기고 계속합니다. 지금 develop에는 없고 feature/isaac-lab에만 있습니다.
-- `stand`도 시작할 때 부릅니다. **`stand_pick`은 부르지 않습니다** — 세운 직후 보정을 0으로 되돌리면 손이 처진 만큼 떨어지기 때문입니다(팀원 `stand_dummy.py`). 같은 손목으로 이어 갑니다.
+`rl_arm_correction`이 두 서비스(std_srvs/Trigger)를 줍니다. skill 중간에는 부르지 않고, 팔이 움직이기 직전(다가가는 이동이 끝난 뒤)에 한 번 부릅니다.
+- **`stand`**: `/rl_arm_correction/reset_sag`로 처짐 적분을 0으로 되돌립니다. **`stand_pick`은 부르지 않습니다** — 세운 직후 보정을 0으로 되돌리면 손이 처진 만큼 떨어지기 때문입니다(팀원 `stand_dummy.py`). 같은 손목으로 이어 갑니다.
+- **`pick` · `load` · `unload` · `place`(칸)**: reset 대신 `/rl_arm_correction/fade_sag`로 앞 MoveIt 이동 동안 적분을 0으로 풀어 닿는 구간 시작에서 안 튀게 합니다(`sag_fade` — `pick`은 launch가 켜고, 나머지는 arm.yaml 값 false를 따름). 실기에서 reset으로 팔이 처졌다 올라오는 ~0.45초 멈춤이 있어 바꿨습니다(11/08).
+- 서비스가 없으면 WARN을 한 번 남기고 계속합니다.
+
+### 처짐 보정 — twist_state
+서보 엔코더는 joint2·3의 중력 비틀림 d = c·τ를 못 봅니다. `twist_state`(기본 켜짐 — 하드웨어와 `rl_arm_correction`이 같은 값, ros_system launch가 함께 켬)면 하드웨어가 상태 위치에 d를 더해 `/joint_states` · TF · MoveIt · JTC가 **실제 각**을 보게 합니다. 명령은 그대로 엔코더 기준이고, d는 `rl_arm_correction`의 중력 앞먹임(`gravity_enabled`)이 뺍니다. 정책 관측에서는 앞먹임을 빼지 않습니다(상태가 이미 실제 각이라 d가 두 번 빠지기 때문). 팔을 뻗은 채 오래 기다리면 joint2가 과부하로 처지므로 미션은 `arm_sag_rad`로 감시합니다([03-plan.md](03-plan.md)).
 
 ### 잡기 판정 (`pick`, `unload`)
 닫은 뒤 `/joint_states`의 `gripper_left_joint` 위치와 전류(effort)로 판정합니다.
 - **위치 ≥ `grasp_min_pos_m`(0.003)**: 퍽이 끼어 손가락이 끝까지 닫히지 않은 상태입니다. 실측으로 퍽에 닿는 곳이 약 5mm(`gripper_left_joint` ≈ 0.005)입니다.
-- **전류 |effort| ≥ `grasp_min_effort`(0.25A)**: 실측값은 원기둥 0.33~0.42A, 팀 기준 0.3~0.4A(약 22~29N), 한계 0.6A입니다. effort가 오지 않으면(NaN) 위치만 봅니다.
+- **전류 |effort| ≥ `grasp_min_effort`(0.25A)**: 실측값은 원기둥 0.33~0.42A(0.35A로 쥘 때), 한계 0.6A입니다. 쥐는 전류 상한이 낮으면 기준도 `grip_current_a`의 절반까지 낮춥니다(0.1A로 쥐면 쥔 퍽도 0.09~0.10A). 또 손가락이 닫는 목표(`grip_close_gap_m`) 바로 앞(`grasp_stop_margin_m`)에서 멈췄으면 위치로 판정합니다. effort가 오지 않으면(NaN) 위치만 봅니다.
 - **실패 처리**: `pick`은 그리퍼를 벌리고 다음 파지 후보로 넘어갑니다. 후보를 다 써도 못 잡으면 `grasp_empty`로 실패합니다. `unload`는 바로 `grasp_empty`로 실패합니다.
 - **기준값**: 문턱은 plan.yaml에 있고 실기에서 다시 맞춥니다.
 - **끄기**: launch 인자 `grasp_check:=false`로 끕니다. 테스트베드 faker는 그리퍼가 퍽 없이 끝까지 닫혀 늘 빈손이므로 꺼 둡니다.
-- **쥐는 힘**: 닫을 때 `grip_current_a`(0.35A, 팀 결정 0.3~0.4A ≈ 22~29N)를 그리퍼 액션 goal `effort`로 보냅니다. 경로: goal effort → `gripper_controller`(`max_effort_interface`) → BeebotSystemHardware → 펌웨어 C 줄 9번째 칸(Goal Current). 펌웨어가 0.00269~1.2A로 자릅니다(PR #50 — 최소값 50mA → 2.69mA). 비우면 `max_effort` 0.6A로, 놓을 때 전류가 0.75~0.80A까지 튑니다(시뮬 보고서 6장).
+- **쥐는 힘**: 닫을 때 `grip_current_a`(실기 11/08 기준 0.1A ≈ 7N, `grip_close_gap_m` 0.026m와 함께 — 팀 결정 0.3~0.4A에서 낮춤)를 그리퍼 액션 goal `effort`로 보냅니다. `pick` 닿는 구간 전 손가락 간격은 `pick_open_gap_m`(0.060m). 경로: goal effort → `gripper_controller`(`max_effort_interface`) → BeebotSystemHardware → 펌웨어 C 줄 9번째 칸(Goal Current). 펌웨어가 0.00269~1.2A로 자릅니다(PR #50 — 최소값 50mA → 2.69mA). 비우면 `max_effort` 0.6A로, 놓을 때 전류가 0.75~0.80A까지 튑니다(시뮬 보고서 6장).
+
+### pick 정책 — contact_mode
+팔 공통값 `contact_mode`(arm.yaml): `sim`(기본)은 퍽·칸에 닿는 구간을 시뮬(Isaac)과 같은 기준 동작 + 학습 보정으로 하고, `moveit`은 예전처럼 MoveIt만 씁니다. 정책은 `models/skills/<정책>/meta.yaml`의 `use`로 켜고 끕니다(`use: false`면 기준 동작만).
+
+| skill | 정책 | use |
+|---|---|---|
+| `pick` | `pick_standing_puck` | true |
+| `pick_far` | `pick_standing_far` | false (11/13 실기: 켜면 손이 퍽 윗부분으로 가 놓침 — 시뮬 처짐이 실물보다 커서) |
+| `place` | `place_cell` | true |
+| `load` · `unload` | `load_slot` · `unload_slot` | false |
+| `stand` | `stand_grasp` | true |
+| `stand_pick` | `regrasp_after_stand` | false |
+| `approach` | `dock_box` · `park_home` · `drive_straight` · `drive_arc` | true |
 
 ### pick: 인지 값
 | 값 | 출처 | 쓰는 법 |
@@ -196,12 +227,12 @@ flowchart LR
 
 | 흐름 | 단계 (`/task/sub_goals`) | 팀원 스펙의 표기 |
 |---|---|---|
-| 집어 싣기 | `pose stow` → `navigate <퍽>` → `pick <퍽>` → `load next` | stow → pick → carry → load → stow |
+| 집어 싣기 | `pose stow` → `navigate <퍽>` → `pick <퍽>` → `load next` | stow → pick → carry → load → stow (실제 끝 자세는 `load_end_pose`) |
 | 세워 싣기 | `pose stow` → `navigate <퍽>` → `stand <퍽>` → `stand_pick <퍽>` → `load next` | stow → right → right-pick → carry → load → stow |
 | 꺼내 놓기 | `navigate <상자>` → `unload last` → `place <상자>` → `pose stow` | stow → unload → carry → place |
 
 - 퍽 여러 개: 퍽마다 "집어 싣기"를 반복 → `navigate <location_box>` → "꺼내 놓기" × N.
-- 주행(`navigate`) 동안 팔은 `stow`입니다(`load`가 stow로 끝남). 꺼내 놓기 뒤의 `pose stow`는 다음 주행 전에 필요해서 넣었습니다.
+- 주행(`navigate`) 동안 팔은 `stow`여야 하므로, 주행 앞에 `pose stow`를 넣습니다(`load`는 기본 `over`로 끝나서 mission_manager가 주행 전에 따로 보냄). 꺼내 놓기 뒤의 `pose stow`도 같은 이유입니다.
 
 ## 6. 실패 이유 (`TaskStatus.reason`)
 
@@ -211,17 +242,20 @@ flowchart LR
 | `skill_unavailable:<skill>` | skill 노드(`/skills/<skill>`)가 coordinator `server_wait_s` 안에 안 뜸 |
 | `arm_unavailable` · `pick_unavailable` · `nav_unavailable` | skill 노드 안에서 MoveIt·그리퍼·grasp_scorer·Nav2 서버가 `server_wait_s` 안에 안 뜸 |
 | `<skill>_timeout` | skill이 `step_timeout_s.<skill>` 안에 결과를 안 줌 → coordinator가 취소 (skill이 멈췄을 때의 안전망) |
-| `nav_failed` · `nav_bad_target` · `approach_failed` · `approach_blocked` · `approach_bad_target` · `approach_no_tf` | 이동·다가가기 실패 · 좌표 형식 오류 · 직선 접근이 막힘 · 로봇 위치 모름 |
-| `no_grasp` · `grasp_failed_all` · `grasp_empty` · `arm_contact` | 파지 후보 없음 · 후보 다 실패 · 닫았는데 빈손 · 팔 접촉 |
-| `pose_failed` | 그 자세로 못 감 |
+| `nav_failed` · `nav_rejected` · `nav_bad_target` · `nav_unavailable` · `approach_failed` · `approach_blocked` · `approach_bad_target` · `approach_no_tf` · `approach_box_unseen` | 이동·다가가기 실패 · 좌표 형식 오류 · 직선 접근이 막힘 · 로봇 위치 모름 · 도킹할 상자를 `box_wait_s` 안에 못 봄 |
+| `nav_no_progress` · `nav_no_path_zone` · `route_deviation` | 끼임 풀기 뒤에도 진척 없음 · Nav2 경로가 막은 구역(`no_path_zones`)을 지남 · 가르친 경로(정답표)에서 벗어남(`route_fallback_nav2` 꺼짐일 때) |
+| `no_grasp` · `grasp_failed_all` · `grasp_empty` · `arm_contact` · `arm_jam` | 파지 후보 없음 · 후보 다 실패 · 닫았는데 빈손 · 팔 접촉(과전류) · 닿는 구간에서 막힘(위로 빼고 실패 — `pick`은 다음 후보, `load`는 `jam_current_a` 0.3A) |
+| `pick_no_target` · `pick_unreachable` · `pick_far_unreachable` · `pick_far_jump` | 대상 id 아님 · 손을 수직으로 못 둠(→ coordinator가 `pick_far`) · 기울여 들어갈 경로도 못 풂 · 경유 관절이 한 번에 크게 튐 |
+| `pose_failed` · `pose_unknown` | 그 자세로 못 감 · 자세 표에 없음(5축 아님) |
 | `slot_invalid` · `slot_full` · `slot_empty` | 칸 번호가 0~11 밖 · `load` 칸이 차 있음(`next`면 다 참) · `unload` 칸이 빔(`last`면 실린 게 없음) |
-| `load_failed` · `unload_failed` | 칸 경유 자세 중 하나를 못 감 |
+| `load_failed` · `unload_failed` · `load_released_<이유>` | 칸 경유 자세 중 하나를 못 감 · 벌린 뒤에 실패(퍽은 칸에 놓였을 가능성이 커서 mission_manager는 다시 하지 않고 빈손으로 다음 칸) |
 | `basket_table_missing` | basket.yaml 표가 안 들어옴 (launch 확인) |
-| `place_failed` · `place_no_target` · `inspect_no_target` · `inspect_failed` | 놓기·보기 실패, 대상 없음 |
-| `manual_*` · `estop*` · `cancelled` | 모드 전환·비상정지·정지 요청 |
+| `place_failed` · `place_no_target` · `place_bad_target` · `inspect_no_target` · `inspect_failed` · `inspect_partial` · `inspect_no_look_pose` | 놓기·보기 실패, 대상 없음 · `place` target이 `cell`·`over`가 아님 · 상자 보기에서 기대한 퍽 수를 못 봄 · look 자세 표 없음 |
+| `manual_mode` · `manual_teach_mode` · `explore_mode` · `estop_blocked` · `cancelled` | 모드 전환(수동·TEACH·탐사)·비상정지·정지 요청. 이 중 사람·안전 때문에 멈춘 것은 mission_manager가 다시 시도하지 않음 |
 | `stand_no_grip` · `stand_grip_timeout` | 위치형 쥐기: 손가락이 `stand_empty_m`보다 닫힘(빈손) · `stand_grip_timeout_s` 안에 판단 못 함 — 벌리고 실패 |
 | `stand_failed` · `stand_not_lying` · `stand_no_target` · `stand_no_yaw` · `stand_no_tf` | 세우기 실패 · 대상이 누운 퍽이 아님 · 대상 없음 · 긴 축 방향을 못 구함 · TF 없음 |
 | `stand_ik_unreachable` · `stand_table_missing` · `stand_table_out_of_limits` | 경유점 계산 실패 (ik) · 표 없음 · 표 값이 관절 한계 밖 (table) |
+| `stand_pull_unreachable` · `stand_pull_failed` | 먼 퍽을 `stand_pull_to_m`까지 끌어오는 동작이 안 풀림·실패 |
 | `stand_pick_no_stand` · `stand_pick_failed` · `hand_full` | 직전 stand 없음 · 다시 집기 실패 · 이미 손에 퍽 |
 
 옛 `tray_full`·`tray_empty`·`tray_place_failed`·`tray_pick_failed`는 없어졌습니다. 같은 경우에 `slot_full`·`slot_empty`·`load_failed`·`unload_failed`가 나옵니다.
@@ -237,7 +271,7 @@ flowchart LR
 flowchart LR
   subgraph S1["stand — 누운 퍽 세우기 (손 놓고 끝)"]
     direction LR
-    s1["reset_sag"] --> s2["먼 끝 위로"] --> s3["내려감"] --> s4["가볍게 쥠<br/>0.4N"] --> s5["가까운 아래 모서리 축으로<br/>호 0° → 120° (+10mm)"] --> s6["멈춤"] --> s7["90°로 되돌려<br/>10mm 눌러 놓음"] --> s8["벌림 · 위로"]
+    s1["reset_sag"] --> s2["먼 끝 위로"] --> s3["내려감"] --> s4["가볍게 쥠<br/>0.4N"] --> s5["가까운 아래 모서리 축으로<br/>호 0° → 100° (실기값)"] --> s6["멈춤"] --> s7["90°로 되돌려<br/>10mm 눌러 놓음"] --> s8["벌림 · 위로"]
   end
   subgraph S2["stand_pick — 세운 퍽 다시 집기"]
     direction LR
@@ -307,7 +341,7 @@ flowchart TB
    ```
 4. **팀원에게 확인할 것**: 세우기 성공률(보정 켬/끔), dock 자세 오차 허용 범위.
 
-**실기 방식 (11/03~04, 기본값)**: 큰 호는 퍽을 너무 높이 들어, `stand_drag_m`이 0보다 크면 호 대신 먼 끝을 쥔 채 로봇 쪽으로 4cm 끌며 3.5cm 올린 뒤 2cm 눌러 놓습니다 (`stand_drag_lift_m` · `stand_set_dz_m`). 쥐기는 위치형입니다: 목표 `stand_pinch_m` 0.007을 `stand_close_current_a` 16.14mA로 닫고, 전류 7mA 이상 + 0.2초 멈춤으로 쥠을 확인한 뒤 `stand_pinch_current_a` 5.38mA로 낮춥니다. 대기·손 빼기 높이는 안 닿으면 낮춰 가며, 이웃 경유점이 0.8rad 넘게 튀면 실패합니다. `stand_waypoints: table`과 `stand_drag_m: 0`은 아래 호 방식입니다.
+**실기 방식 (skills.yaml 현재값, 11-15 기준)**: 호를 쓰되 실기에 맞춰 바꿨습니다. 호 끝 `stand_arc_end_deg` 100°(코드 기본 120°) · 호가 `stand_release_deg` 80°를 지날 때 그리퍼를 벌림 · 호의 퍽 축 방향 배율 `stand_arc_k` 0.5 · 끝까지 `stand_tilt_over_m` 0.03m 더 올림 · 손목 roll 180°(`stand_flip_roll`, 손 카메라가 퍽 몸통 쪽 — `stand_grasp` 정책이 이 방향으로 학습됨) · 내려가기 전 손 카메라 재측정은 끔(`stand_cam: false`) · 속도 `stand_vel_scale` 0.7 · `stand_arc_vel_scale` 1.0. 대각선 끌기(`stand_drag_m` > 0)는 지금 0(안 씀)입니다. 쥐기는 위치형입니다: 목표 `stand_pinch_m` 0.0062를 `stand_close_current_a` 16.14mA로 닫고, 전류 7mA 이상 + 0.2초 멈춤으로 쥠을 확인한 뒤 `stand_pinch_current_a` 5.38mA로 낮춥니다. 대기·손 빼기 높이는 안 닿으면 낮춰 가며, 이웃 경유점이 0.8rad 넘게 튀면 실패합니다. 정책 `stand_grasp`는 켜져 있습니다(`regrasp_after_stand`는 꺼짐).
 
 **구현 (skill_stand)**
 

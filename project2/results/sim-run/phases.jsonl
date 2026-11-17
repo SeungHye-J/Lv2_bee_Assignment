@@ -1,0 +1,6 @@
+{"t0": 1794882683.587, "t1": 1794882683.587, "dur_s": 0.000, "phase": "GO_OBSERVE", "ok": true, "reason": "", "next": "BARCODE"}
+{"t0": 1794882683.587, "t1": 1794882684.589, "dur_s": 1.002, "phase": "BARCODE", "ok": true, "reason": "", "next": "READ"}
+{"t0": 1794882684.589, "t1": 1794882685.590, "dur_s": 1.000, "phase": "READ", "ok": true, "reason": "", "next": "SURVEY"}
+{"t0": 1794882685.590, "t1": 1794883387.256, "dur_s": 701.666, "phase": "SURVEY", "ok": false, "reason": "puck_count:0", "next": "RETURN"}
+{"t0": 1794883387.256, "t1": 1794883554.556, "dur_s": 167.300, "phase": "RETURN", "ok": true, "reason": "", "next": "DONE"}
+{"t0": 1794882683.587, "t1": 1794883554.556, "dur_s": 870.969, "phase": "MISSION", "ok": true, "reason": "", "diag": false, "only": "", "placed": 0, "total": 0, "results": ["box 4: approach_failed approach_failed", "box 5: approach_failed approach_failed", "box 3: approach_failed approach_failed", "box 6: approach_failed approach_failed", "box 2: approach_failed approach_failed", "box 1: approach_failed approach_failed", "SURVEY: puck_count:0", "return: nav_failed nav_no_progress → park_home"]}

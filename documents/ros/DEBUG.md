@@ -244,17 +244,36 @@ ros2 topic echo /state/devices/arm --once --qos-durability transient_local --fie
 ros2 topic echo /mission/signal --once --qos-durability transient_local
 # 사이클마다 결과 (ok=false면 error: count · unknown · range · unconfirmed)
 ros2 topic echo /mission/signal_status
-# mission_manager가 낸 계획 · coordinator 진행 (FAILED면 reason)
-ros2 topic echo /task/sub_goals --once --qos-durability transient_local
+# coordinator가 실제 수락한 계획 (mission_manager는 /task/execute_plan Action으로 보냄 — /task/sub_goals는 legacy 입력) · 진행 (FAILED면 reason)
+ros2 topic echo /task/current_plan --once --qos-durability transient_local
 ros2 topic echo /task/status --qos-durability transient_local
+# 미션 단계·결과 (phase · note · results · error)
+ros2 topic echo /mission/state --once --qos-durability transient_local
+~/Lv2_bee_Assignment/lv2_module6/tools/run-cli mission status
 # mission_manager 판단 이유 — "신호등 미션"(carry·inspect·wait·fail) · "수납 확인"(look·ok·recarry·missing)
 ~/Lv2_bee_Assignment/lv2_module6/tools/run-cli status --diagnostics mission_manager
 ```
 
 - 신호가 안 잡힘: `/tracked_objects`에 `traffic_light`가 있고 `color`가 바뀌는지. 점멸이 쪼개지거나 합쳐지면 `ros2 topic hz /perception/pole_front_cam/detections`(추론 주기, 목표 4Hz)와 `perception.yaml` `signal_decoder`(`min_off_s` · `gap_s`).
-- 새 신호(12회 점멸)는 mission_manager가 아직 해석하지 않는다 — 신호 미션 계획은 미션 흐름 작업 뒤.
+- mission_manager는 `/mission/signal`과 `/mission/signal_status`를 둘 다 구독한다 — `ok`면 확정, `unconfirmed`는 대기, `count`·`unknown`·`range`가 `signal_error_cycles`(기본 2)번 이어지면 `signal_<error>`로 정지(`signal.json`에 기록). 확정 전에는 팔을 접고 기다린다(`barcode_gaze_after_signal`), `signal_timeout_s`(기본 150초)가 지나면 기다리지 않는다.
 - 계속 `wait`: 목적지 장소 상자(`location_box`, tag 12~14)를 아직 못 봤다. 퍽 번호(`details.tag`)는 gripper_cam이 위에서 봐야 읽힌다 (`inspect`).
 - 수납 확인은 옮긴 직후 한 번, 그 뒤 `verify_period_s`(기본 60초)마다 AUTO이고 하던 계획이 없을 때만 돈다.
+
+### 비상정지·충돌 감시·launch 인자·bag
+
+```bash
+CLI=~/Lv2_bee_Assignment/lv2_module6/tools/run-cli
+$CLI estop status                      # on|off — /cmd/e_stop → state_manager → /state/emergency (true면 twist_mux 잠금 · coordinator 중단)
+$CLI collision status                  # on|off|status — /cmd/collision (기본 auto: MANUAL이면 끔 · AUTO면 켬) · 값은 /state/collision ("on:auto" 등)
+$CLI start use_mission:=false          # 미션용 노드·인지 전부 끔 (주행·수동만)
+$CLI start use_mission_manager:=false  # mission_manager만 끔 (매핑·주행 시험)
+$CLI start use_perception:=false       # 인지(perception_node · signal_decoder · hand_relative)만 끔 — true면 use_mission:=false여도 켬
+$CLI map list ; $CLI map switch <이름> # 지도 선택 (= /cmd/map_name → launch를 map:=saved map_name:=<이름>으로 재시작)
+$CLI bag start -l <라벨> ; $CLI bag stop   # 진단 프리셋 bag + 부하(sys.csv) — 저장 ~/.cache/beebot/bags
+```
+
+- 실기 블랙박스(실패 때만 저장)·전체 녹화는 `lv2_module6/tools/bag/record.sh blackbox|full|snap` (저장 `~/bee_bags`).
+- `start`의 launch 인자는 `key:=value` 그대로 `ros2_ws/start.sh`로 간다. `/state/collision`·`/state/emergency`도 `transient_local`이다.
 
 `state_manager` 진단도 확인:
 
@@ -385,7 +404,8 @@ ros2 daemon stop
 ros2 topic list
 ```
 
-- 양쪽 `ROS_DOMAIN_ID` 동일
+- 양쪽 `ROS_DOMAIN_ID` 동일 (`start.sh`는 값이 없으면 **88**을 씀 — 새 터미널은 `export ROS_DOMAIN_ID=88`)
+- DDS 프로파일: `start.sh` 기본은 `fastdds.xml`(SHM + UDP). 기기 안 격리는 `FASTDDS_DEFAULT_PROFILES_FILE=…/fastdds_local_only.xml`(SHM만) — 새 CLI·`ros2` 터미널도 같은 프로파일이어야 보인다
 - Wi-Fi면 `ROS_STATIC_PEERS` 확인
 - `ROS_AUTOMATIC_DISCOVERY_RANGE` 확인
 - DDS 캐시가 의심되면 `ros2 daemon stop` 후 다시

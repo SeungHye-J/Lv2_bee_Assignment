@@ -1,0 +1,149 @@
+{
+ "_example": "가상 데이터 — 실제 기록 아님. 퍽 ID·색·모양은 isaac/usda/scene_sim.usda 실제 장면, 박스 번호는 근접 2개씩 묶은 임의 번호, 할당은 R5Y3G4·P2-01 규칙(Y는 같은 모양 3개)으로 맞는 조합 (README.md)",
+ "pucks": [
+  {
+   "tag": 0,
+   "color": "red",
+   "shape": "box",
+   "box": 1
+  },
+  {
+   "tag": 1,
+   "color": "red",
+   "shape": "box",
+   "box": 2
+  },
+  {
+   "tag": 2,
+   "color": "red",
+   "shape": "box",
+   "box": 3
+  },
+  {
+   "tag": 3,
+   "color": "red",
+   "shape": "cyl",
+   "box": 4
+  },
+  {
+   "tag": 4,
+   "color": "red",
+   "shape": "cyl",
+   "box": 5
+  },
+  {
+   "tag": 5,
+   "color": "red",
+   "shape": "cyl",
+   "box": 6
+  },
+  {
+   "tag": 6,
+   "color": "green",
+   "shape": "box",
+   "box": 1
+  },
+  {
+   "tag": 7,
+   "color": "green",
+   "shape": "box",
+   "box": 2
+  },
+  {
+   "tag": 8,
+   "color": "red",
+   "shape": "box",
+   "box": 3
+  },
+  {
+   "tag": 9,
+   "color": "green",
+   "shape": "cyl",
+   "box": 4
+  },
+  {
+   "tag": 10,
+   "color": "green",
+   "shape": "cyl",
+   "box": 5
+  },
+  {
+   "tag": 11,
+   "color": "green",
+   "shape": "cyl",
+   "box": 6
+  }
+ ],
+ "ok": true,
+ "why": "",
+ "partial": false,
+ "empty": [],
+ "locations": {
+  "L1": {
+   "group": "Y",
+   "pucks": [
+    {
+     "tag": 4,
+     "cell": 4
+    },
+    {
+     "tag": 5,
+     "cell": 0
+    },
+    {
+     "tag": 11,
+     "cell": 8
+    }
+   ],
+   "empty_cells": []
+  },
+  "L2": {
+   "group": "G",
+   "pucks": [
+    {
+     "tag": 6,
+     "cell": 0
+    },
+    {
+     "tag": 7,
+     "cell": 2
+    },
+    {
+     "tag": 9,
+     "cell": 6
+    },
+    {
+     "tag": 10,
+     "cell": 8
+    }
+   ],
+   "empty_cells": []
+  },
+  "L3": {
+   "group": "R",
+   "pucks": [
+    {
+     "tag": 0,
+     "cell": 0
+    },
+    {
+     "tag": 1,
+     "cell": 2
+    },
+    {
+     "tag": 2,
+     "cell": 4
+    },
+    {
+     "tag": 8,
+     "cell": 6
+    },
+    {
+     "tag": 3,
+     "cell": 8
+    }
+   ],
+   "empty_cells": []
+  }
+ }
+}

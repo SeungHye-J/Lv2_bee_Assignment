@@ -1,0 +1,1 @@
+{"barcode": "P2-01", "ascending": true, "sequence": ["red","green","yellow","red","green","red","yellow","green","red","green","yellow","red"], "raw": "R G Y R G R Y G R G Y R", "cycles": 2, "counts": {"R": 5, "Y": 3, "G": 4}, "order": "YGR"}

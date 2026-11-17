@@ -1,0 +1,13 @@
+퍽 ID,색상,모양,시작 박스,장면 x [m],장면 y [m],비고
+puck_box_red_0,red,box,B1,-1.2986,-2.4624,"모의 문제: isaac/usda/scene_sim.usda 실제 장면 (좌표는 Isaac 장면 기준, 박스 번호는 근접 2개씩 묶은 번호)"
+puck_box_green_6,green,box,B1,-1.2194,-2.4667,"모의 문제: isaac/usda/scene_sim.usda 실제 장면 (좌표는 Isaac 장면 기준, 박스 번호는 근접 2개씩 묶은 번호)"
+puck_box_red_1,red,box,B2,0.9006,-0.2717,"모의 문제: isaac/usda/scene_sim.usda 실제 장면 (좌표는 Isaac 장면 기준, 박스 번호는 근접 2개씩 묶은 번호)"
+puck_box_green_7,green,box,B2,0.9877,-0.2631,"모의 문제: isaac/usda/scene_sim.usda 실제 장면 (좌표는 Isaac 장면 기준, 박스 번호는 근접 2개씩 묶은 번호)"
+puck_box_red_2,red,box,B3,0.1701,1.9414,"모의 문제: isaac/usda/scene_sim.usda 실제 장면 (좌표는 Isaac 장면 기준, 박스 번호는 근접 2개씩 묶은 번호)"
+puck_box_red_8,red,box,B3,0.263,1.9251,"모의 문제: isaac/usda/scene_sim.usda 실제 장면 (좌표는 Isaac 장면 기준, 박스 번호는 근접 2개씩 묶은 번호)"
+puck_cyl_red_3,red,cyl,B4,-2.0313,1.9361,"모의 문제: isaac/usda/scene_sim.usda 실제 장면 (좌표는 Isaac 장면 기준, 박스 번호는 근접 2개씩 묶은 번호)"
+puck_cyl_green_9,green,cyl,B4,-1.9475,1.9215,"모의 문제: isaac/usda/scene_sim.usda 실제 장면 (좌표는 Isaac 장면 기준, 박스 번호는 근접 2개씩 묶은 번호)"
+puck_cyl_red_4,red,cyl,B5,-0.5636,1.946,"모의 문제: isaac/usda/scene_sim.usda 실제 장면 (좌표는 Isaac 장면 기준, 박스 번호는 근접 2개씩 묶은 번호)"
+puck_cyl_green_10,green,cyl,B5,-0.4709,1.9208,"모의 문제: isaac/usda/scene_sim.usda 실제 장면 (좌표는 Isaac 장면 기준, 박스 번호는 근접 2개씩 묶은 번호)"
+puck_cyl_red_5,red,cyl,B6,0.9103,0.4654,"모의 문제: isaac/usda/scene_sim.usda 실제 장면 (좌표는 Isaac 장면 기준, 박스 번호는 근접 2개씩 묶은 번호)"
+puck_cyl_green_11,green,cyl,B6,0.9857,0.4776,"모의 문제: isaac/usda/scene_sim.usda 실제 장면 (좌표는 Isaac 장면 기준, 박스 번호는 근접 2개씩 묶은 번호)"

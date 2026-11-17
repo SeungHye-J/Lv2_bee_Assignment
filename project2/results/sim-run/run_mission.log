@@ -1,0 +1,16 @@
+[INFO] [1794882682.579617879] [run_mission]: 적재함 장부: 적재함 장부를 비웠습니다
+[INFO] [1794882682.582974967] [run_mission]: /mission/state 기다리는 중 (mission_manager)
+[INFO] [1794882682.593518378] [run_mission]: [IDLE] /cmd/mission start 대기 · 놓음 0/0
+[INFO] [1794882683.586829952] [run_mission]: start · 신호 R G Y R G R Y G R G Y R (R5Y3G4) · 바코드 P2-01
+[INFO] [1794882683.587491276] [run_mission]: [BARCODE] 관측 — 바코드(pole 3초 뒤 손 카메라 gaze) + 신호(pole_front_cam) 같이 · 놓음 0/0
+[INFO] [1794882684.589728063] [run_mission]: [READ] 신호 12회 관측 중 (바코드 뒤 팔 접고 계속) · 놓음 0/0
+[INFO] [1794882685.590810572] [run_mission]: [SURVEY] 시작 박스 4 조사 · 놓음 0/0
+[INFO] [1794882905.913121171] [run_mission]: [SURVEY] 시작 박스 5 조사 · 놓음 0/0 · 결과 box 4: approach_failed approach_failed
+[INFO] [1794883048.773394335] [run_mission]: [SURVEY] 시작 박스 3 조사 · 놓음 0/0 · 결과 box 5: approach_failed approach_failed
+[INFO] [1794883187.604094858] [run_mission]: [SURVEY] 시작 박스 6 조사 · 놓음 0/0 · 결과 box 3: approach_failed approach_failed
+[INFO] [1794883257.050327365] [run_mission]: [SURVEY] 시작 박스 2 조사 · 놓음 0/0 · 결과 box 6: approach_failed approach_failed
+[INFO] [1794883300.440484825] [run_mission]: [SURVEY] 시작 박스 1 조사 · 놓음 0/0 · 결과 box 2: approach_failed approach_failed
+[INFO] [1794883387.256096934] [run_mission]: [RETURN] 출발 구역으로 · 놓음 0/0 · 결과 SURVEY: puck_count:0
+[INFO] [1794883538.334422611] [run_mission]: [RETURN] 출발 구역 안으로 보정 · 놓음 0/0 · 결과 return: nav_failed nav_no_progress → park_home
+[INFO] [1794883551.552697257] [run_mission]: [RETURN] 출발 구역에서 정지 · 놓음 0/0 · 결과 return: nav_failed nav_no_progress → park_home
+[INFO] [1794883554.556290262] [run_mission]: [DONE] 기록: /root/.ros/mission/20261117_023123 · 실패 8건 (결과 목록) · 놓음 0/0 · 결과 return: nav_failed nav_no_progress → park_home
