@@ -73,40 +73,68 @@
 - 설명: 신호 읽기부터 복귀까지: 출발 구역에서 바코드(Code 128)와 신호등 12회 점멸을 읽어 색 순서와 R·Y·G 횟수를 기억하고(`BARCODE`·`READ`), 바코드가 오름/내림차순을 정한다. 시작 박스 6곳을 돌며 퍽을 확인해 적재함에 싣고 12개를 L1~L3 그룹에 한 번에 할당한다(`SURVEY`). 퍽마다 장소 앞으로 가서 주사위 칸에 놓고(`BUILD`), 새 관측으로 칸별 판정과 중복·누락을 재검증한 뒤(`VERIFY`) 출발 구역으로 돌아와 3초 정지한다(`RETURN`). 관측 오류·복귀 실패는 `ERROR`로 안전 정지하고 퍽 단위 실패는 기록하고 이어간다 ([architecture.md](architecture.md), `mission_solver.cpp`의 `next_phase` 기준). 맡지 않은 인지·계획 쪽: 신호등 해석·퍽 인지 [#45](https://github.com/visualkhh/Lv2_bee_Assignment/pull/45)와 Isaac 미션 시뮬(무작위 출제·바코드) [#62](https://github.com/visualkhh/Lv2_bee_Assignment/pull/62)를 리뷰했고, 코너 회전 뒤 위치 오차는 cuVSLAM 설정(`BEE_CUVSLAM_LEVEL`)을 다룬 [#225](https://github.com/visualkhh/Lv2_bee_Assignment/pull/225)에서 직접 다뤘다.
 
 ## 권형중
-- 담당: 통합 (`plan`, `ros_system`, `bringup`, `faker`)
-- GitHub: `JuneKunst` — 아래 후보는 `gh pr list --author JuneKunst --state merged`와 `gh search prs --reviewed-by JuneKunst`로 자동으로 뽑은 것이라 **본인이 확인하고 고쳐 쓴다.**
-- 구현 — 후보 PR (병합 90건 중 **본인 커밋이 있는 15건**):
+- 담당: 통합 (`plan`, `ros_system`, `bringup`, `tools/cli`, `faker`)
+- GitHub: `JuneKunst` (`hjkwon9401@gmail.com`)
+- 기록 기준: Git 작성자와 원격에 push된 커밋을 근거로 정리했다. PR merge 행위와 merge commit은 기여 내용에서 제외했다. 아래 PR은 관련 구현 맥락을 확인하는 링크이며, 병합 건수나 diff 크기를 성과 지표로 쓰지 않는다.
 
-  | PR | 병합일 | 무엇을 (제목 기준) | 규모 |
-  | --- | --- | --- | --- |
-  | [#43](https://github.com/visualkhh/Lv2_bee_Assignment/pull/43) | 11-02 | SLAM을 cuVSLAM(위치) + nvblox(지도)로 교체 | +751/−499 |
-  | [#48](https://github.com/visualkhh/Lv2_bee_Assignment/pull/48) | 11-02 | coordinator 팔 skill — pose·load·unload(적재함 12칸)·잡기 판정·처짐 보정 | +1836/−104 |
-  | [#49](https://github.com/visualkhh/Lv2_bee_Assignment/pull/49) | 11-04 | 주사위 미션 흐름 — mission_manager · mission_solver | +3740/−566 |
-  | [#55](https://github.com/visualkhh/Lv2_bee_Assignment/pull/55) | 11-03 | 학습 정책 배포 — 보정 컨트롤러·도킹 시뮬 기준 동작·plan_next | +1668/−56 |
-  | [#59](https://github.com/visualkhh/Lv2_bee_Assignment/pull/59) | 11-04 | skill 노드 구조 + Isaac 학습 환경 + isaac-lab 통합 | +12428/−1940 |
-  | [#62](https://github.com/visualkhh/Lv2_bee_Assignment/pull/62) | 11-04 | Isaac 디지털 트윈 미션 시뮬 — 무작위 출제·바코드·출발 자리 | +786/−10 |
-  | [#141](https://github.com/visualkhh/Lv2_bee_Assignment/pull/141) | 11-11 | 경기장 벽을 처음부터 알기 · 벽에 막힌 다가설 면 빼기 | +122/−2 |
-  | [#145](https://github.com/visualkhh/Lv2_bee_Assignment/pull/145) | 11-11 | navigate 진척 감시 — 남은 거리가 25초 동안 안 줄면 nav_no_progress | +73/−1 |
-  | [#146](https://github.com/visualkhh/Lv2_bee_Assignment/pull/146) | 11-12 | 박스·장소 방문 순서 파라미터 — 도면 벽 A*로 정한 최단 순서 (−21 %) | +100/−5 |
-  | [#173](https://github.com/visualkhh/Lv2_bee_Assignment/pull/173) | 11-12 | field-test.py — 실기 단계별 시험 runner (rosbag + 이벤트 기록) | +816/−0 |
-  | [#195](https://github.com/visualkhh/Lv2_bee_Assignment/pull/195) | 11-13 | mission 계획을 ExecutePlan action으로 실행 | +635/−87 |
-  | [#202](https://github.com/visualkhh/Lv2_bee_Assignment/pull/202) | 11-13 | 현장 진단 시험 모드 — 단계 시간 기록 · 실패해도 계속(DIAG) | +817/−33 |
-  | [#217](https://github.com/visualkhh/Lv2_bee_Assignment/pull/217) | 11-13 | low-memory integration — static 2D map backend 등 | +1062/−84 |
-  | [#256](https://github.com/visualkhh/Lv2_bee_Assignment/pull/256) | 11-15 | 가르친 경로 (teach & repeat) — 수동 경로를 AUTO 경유점으로 | +272/−1 |
-  | [#273](https://github.com/visualkhh/Lv2_bee_Assignment/pull/273) | 11-15 | 답지 재생 · route_tables · 몸 모양 collision_monitor | +839/−99 |
+### 주요 작업
 
-  - **제외**: [#227](https://github.com/visualkhh/Lv2_bee_Assignment/pull/227) — 커밋 2개가 claude·cowsjh(본인 0). PR만 열고 병합한 건이라 구현 목록에서 제외. (PR 본문: "11-15 로봇 실기에서 sjh 작업 폴더(feature/isaac-setup)의 커밋 4a05da59로 주행한 코드, 파일 22개 내용이 같다(blob 비교). 원래 작성자·메시지를 그대로 두었다")
+1. **미션 계획·실행 흐름 통합**
+   - `mission_manager`·`mission_solver`에 신호·바코드 관측부터 전체 퍽 할당, SURVEY·BUILD·VERIFY·RETURN까지 상태 전이를 구현했다. coordinator가 계획을 실행하도록 `ExecutePlan` Action을 연결하고, 진단 모드·단계별 시간 기록·상자 이동 시험도 추가했다.
+   - 근거: [주사위 미션 흐름 #49](https://github.com/visualkhh/Lv2_bee_Assignment/pull/49) · [ExecutePlan 연결 #195](https://github.com/visualkhh/Lv2_bee_Assignment/pull/195) · [실기 진단 모드 #202](https://github.com/visualkhh/Lv2_bee_Assignment/pull/202) · [상자 이동 시험 #209](https://github.com/visualkhh/Lv2_bee_Assignment/pull/209) · [그 자리 재검증 #257](https://github.com/visualkhh/Lv2_bee_Assignment/pull/257)
 
-  - 변경 효과 (PR 본문 수치 · 시험 ID는 [results/test-results.csv](../results/test-results.csv)):
-    - [#145](https://github.com/visualkhh/Lv2_bee_Assignment/pull/145): navigate 진척 감시 — 벽 앞 반복을 26초 만에 갇힘 판단(기존 4~5분 이상 미종료), 정상 주행은 판단하지 않음 (모의, T-14)
-    - [#146](https://github.com/visualkhh/Lv2_bee_Assignment/pull/146): 방문 순서 최적화 — 이동 거리 33.6 m → 26.6 m (−21 %), 계산값 (T-25)
-    - [#202](https://github.com/visualkhh/Lv2_bee_Assignment/pull/202): 현장 진단 모드로 실기 미션이 SURVEY에서 막힌 지점(barcode_missing 7·approach_blocked 11)을 기록 (실물, T-07·T-08)
-    - 위 표의 나머지 행은 후보로 남긴 것이며 효과 수치를 확인하지 않았다.
-- 검증: 시험 기록은 [results/test-results.csv](../results/test-results.csv)의 T-07 · T-08 · T-14 · T-25. 실물·모의 구분과 근거(PR 본문, 원본 로그 없음)는 그 표에 있다. 본인이 직접 수행한 시험인지는 본인 확인이 필요하다.
-- 리뷰 — 후보 PR (타인 PR, #3은 병합되지 않고 닫힘): [#3](https://github.com/visualkhh/Lv2_bee_Assignment/pull/3) · [#45](https://github.com/visualkhh/Lv2_bee_Assignment/pull/45) · [#46](https://github.com/visualkhh/Lv2_bee_Assignment/pull/46) · [#75](https://github.com/visualkhh/Lv2_bee_Assignment/pull/75) · [#83](https://github.com/visualkhh/Lv2_bee_Assignment/pull/83) · [#95](https://github.com/visualkhh/Lv2_bee_Assignment/pull/95) · [#192](https://github.com/visualkhh/Lv2_bee_Assignment/pull/192) · [#193](https://github.com/visualkhh/Lv2_bee_Assignment/pull/193) · [#246](https://github.com/visualkhh/Lv2_bee_Assignment/pull/246)
-  - 리뷰 내용: [#3](https://github.com/visualkhh/Lv2_bee_Assignment/pull/3)(Gazebo 카메라 확인 스크립트): 실제 동작 코드가 아니라 테스트용이니 `test` 디렉토리로 따로 구분하자고 의견을 냈다 (이 PR은 병합되지 않고 닫혔다). [#193](https://github.com/visualkhh/Lv2_bee_Assignment/pull/193): "merge 처리 후 확인 필요"라고 남겼다. 나머지 #45·#46·#75·#83·#95·#192·#246은 LGTM 수준이다.
-- 설명: 신호 읽기부터 복귀까지: 출발 구역에서 바코드(Code 128)와 신호등 12회 점멸을 읽어 색 순서와 R·Y·G 횟수를 기억하고(`BARCODE`·`READ`), 바코드가 오름/내림차순을 정한다. 시작 박스 6곳을 돌며 퍽을 확인해 적재함에 싣고 12개를 L1~L3 그룹에 한 번에 할당한다(`SURVEY`). 퍽마다 장소 앞으로 가서 주사위 칸에 놓고(`BUILD`), 새 관측으로 칸별 판정과 중복·누락을 재검증한 뒤(`VERIFY`) 출발 구역으로 돌아와 3초 정지한다(`RETURN`). 관측 오류·복귀 실패는 `ERROR`로 안전 정지하고 퍽 단위 실패는 기록하고 이어간다 ([architecture.md](architecture.md), `mission_solver.cpp`의 `next_phase` 기준). 맡지 않은 인지 쪽: 신호등 해석·퍽 인지([#45](https://github.com/visualkhh/Lv2_bee_Assignment/pull/45)), 퍽 자세 판단([#95](https://github.com/visualkhh/Lv2_bee_Assignment/pull/95)), pick_far([#192](https://github.com/visualkhh/Lv2_bee_Assignment/pull/192)), YOLO TensorRT([#246](https://github.com/visualkhh/Lv2_bee_Assignment/pull/246))를 리뷰했다. 인지 결과가 mission_manager로 들어오는 경로(`/tracked_objects`, `/mission/signal`)는 [architecture.md](architecture.md)의 노드 도식에 적었다.
-- 참고: 병합 PR이 90건으로 많아 위 15건은 제목 기준으로 추린 것이다. 같은 GitHub 계정에 현장 진단·튜닝 PR이 많으니, 그중 **본인이 설명할 수 있는 것**만 고른다.
+2. **SLAM·지도·경기장 좌표 통합**
+   - 위치 추정과 지도 생성을 cuVSLAM·nvblox로 연결하고, 경기장 좌표와 현재 map 위치 간 보정, 벽·금지 구역 및 인지된 상자 중심 기준 접근을 정리했다. 11월 16일에는 박스 보정·벽 칸 유지 조건을 반영했다.
+   - 근거: [초기 Nav2 설정 #2](https://github.com/visualkhh/Lv2_bee_Assignment/pull/2) · [cuVSLAM·nvblox 전환 #43](https://github.com/visualkhh/Lv2_bee_Assignment/pull/43) · [벽을 고려한 접근 #141](https://github.com/visualkhh/Lv2_bee_Assignment/pull/141) · [map 위치 보정 #239](https://github.com/visualkhh/Lv2_bee_Assignment/pull/239) · [금지 구역·보정 분리 #248](https://github.com/visualkhh/Lv2_bee_Assignment/pull/248) · [벽 정합 검증 기본 설정 #277](https://github.com/visualkhh/Lv2_bee_Assignment/pull/277) · [박스 보정/벽 유지](https://github.com/visualkhh/Lv2_bee_Assignment/commit/d596253b) · [인지 상자 중심 접근](https://github.com/visualkhh/Lv2_bee_Assignment/commit/d6011de2)
+
+3. **Nav2 주행 안정성·경로 복구**
+   - 진척 없는 목표를 감지하고, 상자·장소 방문 순서를 계산하며, 로봇 몸체를 반영한 충돌 감시·후진 복구와 경유 경로 녹화·재생을 연결했다.
+   - 근거: [주행 진척 감시 #145](https://github.com/visualkhh/Lv2_bee_Assignment/pull/145) · [방문 순서 최적화 #146](https://github.com/visualkhh/Lv2_bee_Assignment/pull/146) · [Nav2 복구 개선 #234](https://github.com/visualkhh/Lv2_bee_Assignment/pull/234) · [가르친 경로 #256](https://github.com/visualkhh/Lv2_bee_Assignment/pull/256) · [경로 재생·몸체 충돌 감시 #273](https://github.com/visualkhh/Lv2_bee_Assignment/pull/273) · [현장 설정 #276](https://github.com/visualkhh/Lv2_bee_Assignment/pull/276) · [11월 16일 Nav2 현장 수정](https://github.com/visualkhh/Lv2_bee_Assignment/commit/ad76b113)
+
+4. **현장 시험·운영 화면·진단**
+   - rosbag과 단계별 이벤트를 남기는 `field-test.py`, TUI의 미션·인지·Nav2 상태 표시, 단계 실패를 계속 기록하는 DIAG 실행 및 상자로 이동하는 경로 녹화를 마련했다.
+   - 근거: [단계별 실기 시험 도구 #173](https://github.com/visualkhh/Lv2_bee_Assignment/pull/173) · [진단 모드 #202](https://github.com/visualkhh/Lv2_bee_Assignment/pull/202) · [TUI 미션 상태 #249](https://github.com/visualkhh/Lv2_bee_Assignment/pull/249) · [경로 상태 설명 #250](https://github.com/visualkhh/Lv2_bee_Assignment/pull/250) · [경로 녹화 #256](https://github.com/visualkhh/Lv2_bee_Assignment/pull/256) · [실기 시작 안내 #281](https://github.com/visualkhh/Lv2_bee_Assignment/pull/281)
+
+5. **Jetson 메모리·실행 부하 개선**
+   - 저메모리 실행 구성을 만들고 보조 노드·cuVSLAM 등 Python 런타임을 C++·컴포넌트로 전환했다. Nav2 주행 중 인지 주기, EKF 주기, cuVSLAM 기록량을 줄이고 GPU 기반 점 판정·YOLO 실행도 연결했다.
+   - 근거: [저메모리 통합 #217](https://github.com/visualkhh/Lv2_bee_Assignment/pull/217) · [노드별 부하 표시 #220](https://github.com/visualkhh/Lv2_bee_Assignment/pull/220) · [EKF 주기 조정 #242](https://github.com/visualkhh/Lv2_bee_Assignment/pull/242) · [주행 중 인지 조절 #244](https://github.com/visualkhh/Lv2_bee_Assignment/pull/244) · [cuVSLAM 메모리 조정 #247](https://github.com/visualkhh/Lv2_bee_Assignment/pull/247) · [주행 중 인지 2 Hz #278](https://github.com/visualkhh/Lv2_bee_Assignment/pull/278) · [C++ 보조 노드](https://github.com/visualkhh/Lv2_bee_Assignment/commit/3d946600) · [C++ cuVSLAM/GPU 입력](https://github.com/visualkhh/Lv2_bee_Assignment/commit/0ef31eb2) · [GPU 점 판정·YOLO CUDA](https://github.com/visualkhh/Lv2_bee_Assignment/commit/9fd88a1b)
+
+### 확인된 결과와 한계
+
+- 시험 기록 T-14에는 모의 주행에서 진척 없음 상태를 약 26초에 감지한 결과가 있다. T-25의 33.6 m → 26.6 m(-21%)는 벽을 고려해 계산한 경로 길이이며 실측 주행 거리가 아니다.
+- T-07·T-08의 실기 기록은 `barcode_missing` 7회와 `approach_blocked` 11회이며, 해당 미션이 SURVEY 이후로 진행되지 못했다. 이는 진단 도구가 남긴 팀 시험 기록이지, 이 문서만으로 개인의 시험 수행자를 확정하지 않는다.
+- 공식 1·2회차 결과와 전체 실기 미션 완주 기록은 저장소에 없다. 원본 로그·영상이 없는 PR 기반 시험 수치는 출처의 한계를 유지한다. 세부 근거: [시험 결과](../results/test-results.csv) · [프로젝트 현황](../README.md#5-시험-결과).
+
+### 구현 이력: 작성·push 날짜별
+
+아래는 GitHub에 작성자 `hjkwon9401@gmail.com`으로 기록된 구현 커밋을 날짜별로 묶은 작업 내용이다. 각 날짜에는 해당 날짜의 코드·설정·문서 변경이 원격 저장소에 push됐다. 같은 날의 연관 작업은 분야별로 묶었다. PR 링크는 구현 맥락과 변경을 확인할 수 있는 대표 자료다.
+
+| 날짜 | 분야 | 실제 구현·정리한 내용 | 대표 근거 |
+| --- | --- | --- | --- |
+| 2026-10-16 | Nav2 설정 | 프로젝트 초기 Nav2 서버·컨트롤러 파라미터 파일을 작성해 주행 설정의 기준을 마련했다. | [PR #2](https://github.com/visualkhh/Lv2_bee_Assignment/pull/2) |
+| 2026-10-27 | 위치 추정 | cuVSLAM odometry와 SLAM 설정을 시험할 수 있도록 관련 구성과 실행 기반을 손봤다. | [cuVSLAM·nvblox 통합 PR #43](https://github.com/visualkhh/Lv2_bee_Assignment/pull/43) |
+| 2026-10-28 | SLAM 실행·관측 | cuVSLAM 설치·현장 실행 절차와 원격 RViz 확인 환경을 정리했다. | [PR #43](https://github.com/visualkhh/Lv2_bee_Assignment/pull/43) |
+| 2026-10-29 | SLAM·지도 | RTAB-Map 구성을 cuVSLAM·nvblox 중심으로 전환하고 map TF 및 RViz 구성을 맞췄다. | [PR #43](https://github.com/visualkhh/Lv2_bee_Assignment/pull/43) |
+| 2026-10-30 | 미션 실행 | 미션 skill 묶음과 coordinator 실행 시나리오를 구성해 작업 흐름을 연결했다. | [주사위 미션 흐름 PR #49](https://github.com/visualkhh/Lv2_bee_Assignment/pull/49) |
+| 2026-11-02 | 미션·조작 통합 | 주사위 미션 상태 흐름과 stand-up·arm skill 실행을 통합했다. | [PR #49](https://github.com/visualkhh/Lv2_bee_Assignment/pull/49) |
+| 2026-11-03 | 적재·팔 동작 | load/unload 동작과 팔 보정 정책을 연결하고, 블랙박스 현장 로그로 실행 실패를 추적했다. | [PR #49](https://github.com/visualkhh/Lv2_bee_Assignment/pull/49) |
+| 2026-11-04 | 미션·skill·경로 | 미션 상태 흐름과 skill 실행을 연결하고 Nav2 A* 경로 설정을 적용했다. | [미션 흐름 PR #49](https://github.com/visualkhh/Lv2_bee_Assignment/pull/49) · [skill 학습 PR #53](https://github.com/visualkhh/Lv2_bee_Assignment/pull/53) · [Nav2 A* PR #58](https://github.com/visualkhh/Lv2_bee_Assignment/pull/58) |
+| 2026-11-06 | Isaac 실행·미션 상태 | Isaac 시뮬 실행 구조와 mission_manager의 퍽 tag 추적을 정리했다. | [Isaac 실행·정리 PR #75](https://github.com/visualkhh/Lv2_bee_Assignment/pull/75) |
+| 2026-11-09 | 정책 실행·현장 비교 | 학습 정책을 ONNX Runtime으로 실행하고 `.onnx`/`.policy` 선택 비교를 추가했다. | [정책 실행 PR #83](https://github.com/visualkhh/Lv2_bee_Assignment/pull/83) |
+| 2026-11-10 | Isaac 시험·실행 환경 | Isaac 팔 시험 환경과 먼 퍽 도달성 분석을 정리하고 Jetson 현장 실행 구성을 손봤다. | [팔 시험·도달성 PR #139](https://github.com/visualkhh/Lv2_bee_Assignment/pull/139) |
+| 2026-11-11 | 위치·주행 안전 | cuVSLAM map jump 보정, 벽을 고려한 접근 면, 진척 없음 감지를 구현했다. | [벽 고려 접근 PR #141](https://github.com/visualkhh/Lv2_bee_Assignment/pull/141) · [진척 감시 PR #145](https://github.com/visualkhh/Lv2_bee_Assignment/pull/145) · [map 보정 PR #147](https://github.com/visualkhh/Lv2_bee_Assignment/pull/147) |
+| 2026-11-12 | 관측·미션 진단 | 바코드와 신호등을 미션 관측 단계에 연결하고, rosbag을 남기는 field-test 실행 도구를 추가했다. | [field-test PR #173](https://github.com/visualkhh/Lv2_bee_Assignment/pull/173) · [ExecutePlan PR #195](https://github.com/visualkhh/Lv2_bee_Assignment/pull/195) |
+| 2026-11-13 | 진단·시험 도구 | 단계 실행 시간·실패 이유를 기록하는 DIAG 흐름, TUI 현장 상태, 상자 이동 시험을 구현했다. | [DIAG PR #202](https://github.com/visualkhh/Lv2_bee_Assignment/pull/202) · [상자 이동 PR #209](https://github.com/visualkhh/Lv2_bee_Assignment/pull/209) |
+| 2026-11-14 | 자원·지도 관측 | 노드별 CPU·메모리 현황과 static 2D/ESDF 입력을 Nav2 주행에 연결했다. | [노드별 부하 표시 PR #220](https://github.com/visualkhh/Lv2_bee_Assignment/pull/220) · [static 2D 입력 PR #218](https://github.com/visualkhh/Lv2_bee_Assignment/pull/218) |
+| 2026-11-15 | 경로·충돌 복구 | 사람이 기록한 경로의 저장·재생, 벽 보정, Nav2 복구와 로봇 몸체 충돌 확인을 보강했다. | [경로 녹화 PR #256](https://github.com/visualkhh/Lv2_bee_Assignment/pull/256) · [경로 재생·충돌 감시 PR #273](https://github.com/visualkhh/Lv2_bee_Assignment/pull/273) |
+| 2026-11-16 | 현장 통합·성능 | arena 좌표·상자 접근 보정, Nav2 no-path 대응, 보조 Python 기능의 C++ 전환, cuVSLAM/GPU 입력 및 GPU perception 실행, 시작 안내를 반영했다. | [박스 보정 커밋](https://github.com/visualkhh/Lv2_bee_Assignment/commit/d596253b) · [상자 중심 접근 커밋](https://github.com/visualkhh/Lv2_bee_Assignment/commit/d6011de2) · [Nav2 현장 조정 커밋](https://github.com/visualkhh/Lv2_bee_Assignment/commit/ad76b113) · [C++ 런타임 커밋](https://github.com/visualkhh/Lv2_bee_Assignment/commit/3d946600) · [cuVSLAM/GPU 입력 커밋](https://github.com/visualkhh/Lv2_bee_Assignment/commit/0ef31eb2) · [GPU perception 커밋](https://github.com/visualkhh/Lv2_bee_Assignment/commit/9fd88a1b) · [시작 안내 PR #281](https://github.com/visualkhh/Lv2_bee_Assignment/pull/281) |
+
+날짜는 커밋 작성일을 기준으로 했으며, 커밋이 확인되지 않는 날짜를 임의로 채우지 않았다. PR·커밋으로 확인되는 구현과 별도의 시험 수행자 기록은 구분한다. 실기 시험 결과는 위의 시험 기록과 한계 항목을 따른다.
+
+### 리뷰·시스템 설명
+
+- 리뷰 근거: [#3](https://github.com/visualkhh/Lv2_bee_Assignment/pull/3)에서 테스트 스크립트를 테스트 디렉터리에 분리하자는 의견을 남겼고, [#193](https://github.com/visualkhh/Lv2_bee_Assignment/pull/193)에서 merge 뒤 확인을 요청했다. 나머지 링크는 주로 승인 기록이며 구체적인 기술 피드백이 없으면 별도 성과로 표현하지 않는다.
+- 전체 흐름: `mission_manager`가 바코드·신호를 바탕으로 퍽을 할당하고, coordinator와 Nav2·skill 노드가 조사·수집·배치를 수행한다. 새 관측으로 결과를 확인하고 출발 구역에 복귀한다. 공식 실기에서는 이 전체 흐름의 완주가 확인되지 않았다 ([시스템 설계](architecture.md)).
 
 ## 전승혜
 - 담당: 인지 (`perception`)
