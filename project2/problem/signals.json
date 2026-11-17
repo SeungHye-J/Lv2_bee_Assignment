@@ -1,0 +1,6 @@
+{
+  "_note": "TODO: 문제의 정답 신호(12개 색, 순서대로)와 R/Y/G 횟수, 바코드 문자열 — mission.pdf 문제지에서 옮긴다. 이 파일을 채우면 이 _note를 지운다.",
+  "sequence": [],
+  "counts": {"R": null, "Y": null, "G": null},
+  "barcode": null
+}

@@ -1,0 +1,10 @@
+{
+  "_example": "가상 데이터 — 실제 기록 아님. 형식 예시 (results/examples/README.md)",
+  "barcode": "P2-01",
+  "ascending": true,
+  "sequence": ["G", "R", "Y", "G", "R", "G", "Y", "R", "G", "R", "Y", "G"],
+  "raw": "GRYGRGYRGRYG",
+  "cycles": 2,
+  "counts": {"R": 4, "Y": 3, "G": 5},
+  "order": "YRG"
+}

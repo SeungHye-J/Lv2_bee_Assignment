@@ -1,0 +1,26 @@
+{
+  "_example": "가상 데이터 — 실제 기록 아님. 형식 예시 (results/examples/README.md)",
+  "pucks": [
+    {"tag": 0,  "color": "red",   "shape": "cyl", "box": 1, "tray_slot": 0},
+    {"tag": 1,  "color": "green", "shape": "box", "box": 1, "tray_slot": 1},
+    {"tag": 2,  "color": "red",   "shape": "box", "box": 2, "tray_slot": 2},
+    {"tag": 3,  "color": "green", "shape": "cyl", "box": 2, "tray_slot": 3},
+    {"tag": 4,  "color": "red",   "shape": "cyl", "box": 3, "tray_slot": 4},
+    {"tag": 5,  "color": "red",   "shape": "box", "box": 3, "tray_slot": 5},
+    {"tag": 6,  "color": "green", "shape": "box", "box": 4, "tray_slot": 6},
+    {"tag": 7,  "color": "green", "shape": "cyl", "box": 4, "tray_slot": 7},
+    {"tag": 8,  "color": "red",   "shape": "box", "box": 5, "tray_slot": 8},
+    {"tag": 9,  "color": "green", "shape": "box", "box": 5, "tray_slot": 9},
+    {"tag": 10, "color": "red",   "shape": "cyl", "box": 6, "tray_slot": 10},
+    {"tag": 11, "color": "green", "shape": "box", "box": 6, "tray_slot": 11}
+  ],
+  "ok": true,
+  "why": "",
+  "partial": false,
+  "empty": [],
+  "locations": {
+    "L1": {"group": "Y", "pucks": [{"tag": 0, "cell": 0}, {"tag": 4, "cell": 4}, {"tag": 3, "cell": 8}], "empty_cells": []},
+    "L2": {"group": "R", "pucks": [{"tag": 2, "cell": 0}, {"tag": 5, "cell": 2}, {"tag": 8, "cell": 6}, {"tag": 10, "cell": 8}], "empty_cells": []},
+    "L3": {"group": "G", "pucks": [{"tag": 1, "cell": 0}, {"tag": 6, "cell": 2}, {"tag": 7, "cell": 4}, {"tag": 9, "cell": 6}, {"tag": 11, "cell": 8}], "empty_cells": []}
+  }
+}
