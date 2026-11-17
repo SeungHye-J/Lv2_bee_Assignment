@@ -121,5 +121,5 @@
 ## 실행 가능성 (통과 경로 · 초기화 · 동료 검토)
 - 통과 경로: 도면 벽 기준 A* 경로 길이를 [route_order.py](../../lv2_module6/tools/plan/route_order.py)로 계산했다 (시작 → 박스 6 → 장소 3 → 복귀 26.6 m, [PR #146](https://github.com/visualkhh/Lv2_bee_Assignment/pull/146)). 벽·장소 좌표는 `plan.yaml`의 `arena_walls`. 실제 경기장에서 모든 경로를 걸어 확인한 기록은 없다.
 - 초기화: [../README.md](../README.md) §3의 경기 초기화 순서와 같다 (출발 구역 배치 → `stop.sh` → 지도 선택 → `start.sh` → 미션 시작). 퍽을 원래 자리로 되돌리는 절차는 기록이 없다.
-- TODO: 작성 필요 — 다른 팀의 검토 기록: 없음 (모의 문제라 검토를 받지 않았다).
+- 다른 팀의 검토 기록: 없음 (모의 문제라 다른 팀의 검토를 받지 않았다. 발제문 STEP 1이 요구하는 항목이라 빈 칸으로 남긴다).
 - 문제 검증 기록: [validation.md](validation.md) — 직접 만든 [validate_mock_problem.py](validate_mock_problem.py)로 모의 문제 PASS, 일부러 틀린 답은 FAIL. 발제의 `validate_problem.py`는 쓰지 못했다.
