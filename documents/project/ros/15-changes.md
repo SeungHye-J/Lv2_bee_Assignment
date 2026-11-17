@@ -8,7 +8,7 @@ PR 링크: `https://github.com/visualkhh/Lv2_bee_Assignment/pull/<번호>`
 |---|---|---|---|
 | 10-29 | SLAM을 RTAB-Map에서 **cuVSLAM(위치) + nvblox(지도)** 로 교체 | Jetson Orin 실기에서 정지 drift 0.5 mm · 0.02°, 1 m 왕복 추적 잃음 0, 지도 생성 확인 (T-01). 지도 정본 `rtabmap.db` → `nvblox.nvblx` | [#43](https://github.com/visualkhh/Lv2_bee_Assignment/pull/43) · [#40](https://github.com/visualkhh/Lv2_bee_Assignment/pull/40) |
 | 11-04 | 퍽 인지 모델 v3 → v4, 기억을 통합 방식으로 | 로봇 카메라 시험 퍽 검출률 58% → 91.5% (T-03) | [#63](https://github.com/visualkhh/Lv2_bee_Assignment/pull/63) |
-| 11-04 | Nav2 전역 경로를 A\*로 (NavFn `use_astar`) | PR 제목 외 이유 기록 없음 (TODO: 작성 필요) | [#58](https://github.com/visualkhh/Lv2_bee_Assignment/pull/58) |
+| 11-04 | Nav2 전역 경로를 A\*로 (NavFn `use_astar`) | A*는 목표까지 거리 추정을 더해 탐색 칸이 적어 계획이 빠르고, 같은 costmap 위 최단 경로라 품질은 같은 수준 (PR 본문). 실기·시뮬 경로 비교는 체크 항목만 있고 기록 없음 | [#58](https://github.com/visualkhh/Lv2_bee_Assignment/pull/58) |
 | 11-05 | RL 주행 컨트롤러·휠 드리프트 보정 적용, `rl_nav_correction`·`rl-nav-turner` 노드 제거, scan 모드에서도 팔을 stow로 | 팔 자세가 무게중심에 영향 (PR 본문 "무게중심 이슈") | [#65](https://github.com/visualkhh/Lv2_bee_Assignment/pull/65) |
 | 11-07 | RlNavController를 ONNX 정책으로 로드·토글, DWB와 A/B 비교 가능하게 | `test-nav-policy`(ONNX 로드 → toggle off/on → DWB/정책 주행)를 `test-all` 게이트에 추가해 검증 | [#82](https://github.com/visualkhh/Lv2_bee_Assignment/pull/82) |
 | 11-09 | 퍽 자세(서 있음/누움)를 **윗면 높이**로 판단 | 실물 그리퍼캠 퍽 221개에서 88% → 99% (T-06) | [#95](https://github.com/visualkhh/Lv2_bee_Assignment/pull/95) |
@@ -42,5 +42,5 @@ PR 링크: `https://github.com/visualkhh/Lv2_bee_Assignment/pull/<번호>`
 
 - "이유" 열은 PR 본문의 "왜/문제/현장 문제" 문장을 줄인 것이고, 수치는 본문 그대로입니다.
 - 실기와 Isaac 시뮬 구분은 본문 표기를 따랐습니다(괄호에 11-10 Isaac 등).
-- 이유를 PR 본문에서 못 찾은 행(#58)은 TODO로 남겼습니다.
+- #58의 이유는 PR 본문에 있다. 다만 그 PR의 "실기/시뮬 `/plan` 경로 비교"는 체크 항목만 있고 결과 기록이 없다.
 - 관련 시험 결과: T-01·T-03·T-04·T-06·T-09~T-14·T-19~T-23·T-25·T-26.

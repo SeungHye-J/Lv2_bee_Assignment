@@ -7,7 +7,7 @@
 | 구분 | 확인 | 어떻게 | 통과 기준 |
 |---|---|---|---|
 | 전원 | 로봇·OpenCR·팔 전원 | 켠 뒤 `/dev/opencr`가 보이는지 | OpenCR 장치 확인 |
-| 배터리 | 충전 상태 | 방법 TODO: 작성 필요 (PR #44에 배터리 값 추가가 있으나 읽는 명령은 확인 못 함) | — |
+| 배터리 | 충전 상태 | `run-cli` 상단 상태바의 "전원" 줄과 텔레오퍼 창에 전압·잔량 추정(`op/state.py` `battery_percent`, 3S LiPo 전압 곡선)이 보임. OpenCR가 S 줄로 올리는 값(PR #44) | 상태바가 ▲ 경고가 아니어야 함(11.0 V 미만이면 경고), 미션 화면에 "배터리 낮음"(잔량 20% 미만)이 없어야 함 |
 | 도메인 | `ROS_DOMAIN_ID` 88 | `start.sh`가 기본 88로 설정 (`${ROS_DOMAIN_ID:-88}`), 다른 PC·TUI도 같은 값 | 같은 도메인에서 토픽이 보임 |
 | 카메라 | serial 고정 · 뷰 | `rs-enumerate-devices -s` → `POLE_FRONT_CAM_SERIAL` · `GRIPPER_CAM_SERIAL` 설정, `./tools/run-rviz`로 두 카메라 영상 | pole_front·gripper 둘 다 보임 (pick·load 시험은 gripper 필수) |
 | 지도 | 저장 지도 선택 | `run-cli map list` · `map status` (`map switch <이름>`). 실기 기본 `scene_sim` | `LOCALIZATION / scene_sim`, `map/scene_sim/nvblox.nvblx` 있음 (없으면 시작 거부) |
@@ -59,4 +59,4 @@
 
 - 실기에서 DONE까지 가 본 기록이 없습니다(T-07·T-08이 SURVEY 단계에서 막힌 기록, 이후 개선은 구간별 시험 T-09~T-12만).
 - 인지 모델 v5(T-04)는 이미지 시험이고, 실기 주행 중 검출은 별도 기록 없음.
-- 배터리 확인 방법·충전 기준은 TODO: 작성 필요.
+- 배터리 잔량은 전압 곡선으로 추정한 값이라 실측 용량이 아니다. 기준(11.0 V 경고 · 20% 낮음 · 12.45 V 이상 "충전?" 표시 · 5 V 미만 "12V 꺼짐")은 `tools/cli` 코드의 값이다.

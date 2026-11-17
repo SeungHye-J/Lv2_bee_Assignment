@@ -75,4 +75,4 @@ flowchart LR
 ## 아직 확인 안 된 것
 
 - 처음부터 끝까지(DONE) 한 번에 성공한 **실기** 기록은 test-results.csv에 없습니다. 위 정상 경로는 코드·문서 기준입니다.
-- BUILD·VERIFY·RETURN을 실기에서 이어서 돌린 시험 결과는 TODO: 작성 필요.
+- BUILD·VERIFY·RETURN을 실기에서 이어서 돌린 시험 기록은 없다. 모의(도커)에서 한 판 돌린 T-27은 퍽 0개(박스 접근 6곳 모두 실패)라 BUILD·VERIFY가 실행되지 않았고 RETURN만 확인됐다 ([sim-run](../../../project2/results/sim-run/README.md)).
