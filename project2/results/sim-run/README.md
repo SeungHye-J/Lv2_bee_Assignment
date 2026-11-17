@@ -22,4 +22,4 @@
 - 주입한 신호·바코드 때문에 READ·BARCODE 단계(각 약 1초)는 인식 성능과 무관하다.
 
 ## 파일
-`signal.json` · `allocation.json` · `return.json` · `phases.jsonl` · `steps.jsonl`(34단계) · `photos/` · `run_mission.log`(실행 로그) · `faker.log`(faker 전체 로그, 488 KB)
+`signal.json` · `allocation.json` · `return.json` · `phases.jsonl` · `steps.jsonl`(34단계) · `photos/` · `run_mission.log`(실행 로그) · `faker.log`(faker 전체 로그, 488 KB — 1행의 PC 호스트명만 `<호스트명 삭제>`로 가림, 나머지 원본)

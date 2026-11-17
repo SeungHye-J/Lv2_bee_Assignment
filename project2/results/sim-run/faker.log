@@ -1,4 +1,4 @@
-[INFO] [launch]: All log files can be found below /root/.ros/log/2026-11-17-02-26-26-457568-pank-Legion-Pro-5-16IAX10-5524
+[INFO] [launch]: All log files can be found below /root/.ros/log/2026-11-17-02-26-26-457568-<호스트명 삭제>-5524
 [INFO] [launch]: Default logging verbosity is set to INFO
 [faker] fake_opencr(하드웨어)가 이미 떠 있다 — 그대로 쓴다 (ROS 재시작에도 로봇 위치·팔 자세 유지)
 [INFO] [robot_state_publisher-1]: process started with pid [5671]
