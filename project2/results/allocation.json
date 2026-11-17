@@ -1,0 +1,10 @@
+{
+  "_source": "모의 결과로 대체 (공식 경기 기록 아님) — 2026-11-17 도커 testbed 모의 실행 sim-run/의 파일 그대로. 신호·바코드는 run_mission.py가 주입한 값. 퍽 0개라 할당 실패(puck_count)",
+  "source": "모의",
+  "pucks": [],
+  "ok": false,
+  "why": "puck_count",
+  "partial": false,
+  "empty": [],
+  "locations": {}
+}

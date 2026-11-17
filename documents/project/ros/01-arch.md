@@ -4,7 +4,7 @@
 
 위에서 아래로 흐르고, 왼쪽이 팔, 오른쪽이 베이스입니다. 학습 노드(주황)는 ③과 ⑤에만 있고, 안전(빨강)은 항상 학습 노드 뒤에 있습니다. 실선=토픽, 굵은 선=액션, 점선=서비스·파라미터·피드백·매핑 단계 전용. 화살표 라벨은 **[종류 이모지] 이름 (메시지 타입)** 형식입니다. 어디서 시작해 어떤 순서로 흐르는지는 문서 아래 **▶ 흐름 따라가기**에서 상황을 골라 화살표 하나씩 따라가 보세요.
 
-> 인터페이스 명세: [토픽](../API.md#api-topics)
+> 인터페이스 명세: [토픽](../../API.md#api-topics)
 
 ```mermaid
 flowchart TB
@@ -42,15 +42,14 @@ flowchart TB
         subgraph N2["📦 Nav2 (ros_system nav2_nodes · 서버를 직접 띄움)"]
             BT["📦 bt_navigator<br/>NavigateToPose 행동 트리"]
             PS["📦 planner_server<br/>+ global_costmap"]
-            CS["📦 controller_server<br/>+ local_costmap · DWB"]
+            CS["📦 controller_server<br/>+ local_costmap · RlNavController<br/>(inner 기본 DWB)"]
             BS["📦 behavior_server<br/>후진 · 회전 · 대기"]
             COST["📦 costmap_2d<br/>local: voxel · global: static + obstacle"]
             LMN["📦 lifecycle_manager_navigation<br/>planner·controller·behavior·bt (map 필요)"]
         end
         subgraph RT["SLAM — cuVSLAM(위치) + nvblox(지도) (use_slam · Jetson GPU)"]
             CVS["🛠️ cuvslam_slam<br/>cuVSLAM 시각 SLAM<br/>map→odom · 루프 클로저"]
-            PDG["🛠️ pole_depth_gate<br/>scan_cam_gate · 0.5 m 안 depth → 0"]
-            SCG["🛠️ gripper_depth_gate<br/>scan_cam_gate · 스캔 자세일 때만 통과"]
+            PDG["🛠️ pole_depth_gate<br/>depth_gate(C++) · 0.5 m 안 depth → 0"]
             NVB["📦 nvblox_node<br/>depth ×2 → TSDF → 2D 점유 격자<br/>매핑이면 끌 때 nvblox.nvblx 저장"]
             NVM["🛠️ nvblox_map<br/>격자 → /map (latched)<br/>위치추정이면 저장 지도 불러옴"]
             MS["📦 map_saver<br/>map_saver_server (bringup)"]
@@ -95,8 +94,8 @@ flowchart TB
     SIM -->|"✉️ /cmd/manual/cmd_vel<br/>(조작 창)"| MC
     SIM -->|"✉️ /cmd/operation_mode<br/>(조작 창)"| SM
     SIM -->|"✉️ /cmd/map_mode<br/>(SLAM 패널)"| SM
-    SM -->|"✉️ /state/operation_mode<br/>AUTO · MANUAL · TEACH"| CO
-    SM -->|"✉️ /state/operation_mode<br/>AUTO · MANUAL · TEACH"| MC
+    SM -->|"✉️ /state/operation_mode<br/>AUTO · MANUAL"| CO
+    SM -->|"✉️ /state/operation_mode<br/>AUTO · MANUAL"| MC
     MC -->|"✉️ /cmd_vel_manual<br/>(geometry_msgs/<br/>TwistStamped)"| TM
     SM -->|"✉️ /state/emergency"| TM
 
@@ -115,12 +114,8 @@ flowchart TB
     PC -->|"✉️ /pole_front_cam/color ·<br/>aligned_depth_to_color · camera_info<br/>(sensor_msgs/Image)"| CVS
     PC -->|"✉️ …/aligned_depth_to_color<br/>/image_raw"| PDG
     PC -->|"✉️ /pole_front_cam/color<br/>· camera_info"| NVB
-    GC -->|"✉️ /gripper_cam/color<br/>· camera_info"| NVB
-    GC -.->|"✉️ /gripper_cam depth<br/>(지도 만들 때 스캔 자세만 의미)"| SCG
-    JSB -->|"✉️ /joint_states<br/>스캔 자세인가"| SCG
     PDG -->|"✉️ /pole_front_cam/…/image_nvblox<br/>(0.5 m 안 → 0)"| NVB
-    SCG -->|"✉️ /gripper_cam/…/image_nvblox<br/>(아니면 0 depth)"| NVB
-    CVS -->|"✉️ /tf map→odom<br/>(카메라 위치)"| NVB
+    CVS -->|"✉️ /tf map→odom<br/>(카메라 위치 — map_tf_relay 경유)"| NVB
     NVB -->|"✉️ /nvblox_node/<br/>static_occupancy_grid<br/>(nav_msgs/OccupancyGrid)"| NVM
     NVM -.->|"📞 /nvblox_node/load_map<br/>(map:=saved일 때 시작하며)"| NVB
     NVM -->|"✉️ /map"| MS
@@ -151,7 +146,7 @@ flowchart TB
     SD -->|"✉️ /mission/signal<br/>(perception/MissionSignal)<br/>→ mission_manager (03-plan.md)"| MM
     PER -->|"✉️ /tracked_objects<br/>(perception/<br/>TrackedObjectArray)"| CO
     PER -->|"✉️ /tracked_objects<br/>대상 퍽 위치·크기<br/>(perception/<br/>TrackedObjectArray)"| GS
-    MM -->|"✉️ /task/sub_goals<br/>(plan/<br/>SubGoalArray)"| CO
+    MM ==>|"🎬 /task/execute_plan<br/>(plan/action/<br/>ExecutePlan)"| CO
     CO -->|"✉️ /task/status<br/>(plan/<br/>TaskStatus)"| MM
     CO -.->|"📞 /score_grasps<br/>(ml/srv/<br/>ScoreGrasps)"| GS
     CO -.->|"📞 /plan_kinematic_path ·<br/>/clear_octomap · /apply_planning_scene<br/>(moveit_msgs/srv/<br/>GetMotionPlan 등)"| MG
@@ -177,7 +172,7 @@ flowchart TB
     RLA ~~~ CMN
     BF -->|"✉️ …/points_filtered<br/>(sensor_msgs/<br/>PointCloud2)"| CMN
     JSB -->|"✉️ /joint_states<br/>전류 감시<br/>(sensor_msgs/JointState)"| ASM
-    JSB -->|"✉️ /joint_states<br/>현재 팔 각도 (스캔 자세 확인)"| CO
+    JSB -->|"✉️ /joint_states<br/>현재 팔 각도"| CO
     JSB -->|"✉️ /joint_states<br/>수동 팔 기준값"| MC
     JSB -->|"✉️ /joint_states<br/>OpenCR 살아 있나"| SM
     JSB -->|"✉️ /joint_states"| RSP
@@ -192,14 +187,13 @@ flowchart TB
     HW -->|"🔌 S 줄 10ms · E 줄 0.5초<br/>Pos·Vel·Current·IMU·온도 · 모터 에러<br/>(OpenCR가 SyncRead)"| HWI
     HWI -->|"✉️ /motor_status<br/>모터 에러·온도<br/>(control/MotorStatus)"| SM
     MC -.->|"📞 /beebotsystem/reboot_motors<br/>(std_srvs/srv/Trigger)"| HWI
-    MC -.->|"📞 /beebotsystem/set_arm_torque<br/>TEACH면 팔·그리퍼 토크 끔<br/>(std_srvs/srv/SetBool)"| HWI
     MC -.->|"📞 /collision_monitor/toggle<br/>MANUAL이면 끔(통과) · 나가면 켬<br/>(nav2_msgs/srv/Toggle)"| CMN
     classDef std fill:#c8e6c9,stroke:#2e7d32,color:#1b1b1b;
     classDef rl fill:#ffe0b2,stroke:#e65100,color:#1b1b1b;
     classDef hw fill:#fff9c4,stroke:#f9a825,color:#1b1b1b;
     classDef safe fill:#ffcdd2,stroke:#c62828,color:#1b1b1b;
     classDef ext fill:#ffffff,stroke:#8A97A0,stroke-dasharray:4 3,color:#475569;
-    class PER,BF,CO,PC,GC,MM,SD,MG,TM,MC,SM,RSP,SPW,CVS,PDG,SCG,NVM,LMN,LMB,MS,LMS,DA,CLI std;
+    class PER,BF,CO,PC,GC,MM,SD,MG,TM,MC,SM,RSP,SPW,CVS,PDG,NVM,LMN,LMB,MS,LMS,DA,CLI std;
     class ALL ext;
     class SIM,FC ext;
     class GS,RLA rl;
@@ -226,16 +220,16 @@ flowchart TB
 - **신호등 미션은 규칙으로.** 인지 쪽 signal_decoder(perception 패키지)가 `/tracked_objects`의 신호등 상태를 시간축으로 세어 12회 점멸 답(`sequence` · R·Y·G 횟수)을 `/mission/signal`로 낸다 (사이클마다 결과·오류는 `/mission/signal_status`). 그룹·L1~L3 배정·정렬과 옮기기는 **mission_manager**([03-plan.md](03-plan.md))가 한다 — 아래 "신호부터 수납 확인까지"는 옛 3단계 규칙 기준(참고용). 바코드(`/mission/qr`)는 미션의 정렬 방향이라 mission_manager만 받는다.
 - **수동 조작은 manual_control → twist_mux.** 수동 모드(/cmd/operation_mode → state_manager)면 coordinator가 진행 중 이동·팔 goal을 취소하고 멈추고(/state/operation_mode), 운영자의 바퀴 명령은 twist_mux에서 자동보다 우선한다. 수동이어도 velocity_smoother·collision_monitor를 지나며, /cmd/e_stop은 twist_mux 잠금으로 모든 바퀴 명령을 막는다.
 - **모든 🛠 노드는 /diagnostics로 자기 상태를 낸다.** diagnostic_updater(OK·WARN·ERROR + 값)를 bringup의 diagnostic_aggregator가 계층별로 묶어 /diagnostics_agg로 — 운영자 CLI·시뮬레이터 상태 패널이 본다 (사람용, 노드는 의존하지 않음).
-- **도식에 bringup이 띄우는 노드가 전부 있다.** ros_system 묶음(robot_state_publisher · controller_manager + spawner 1회 · move_group · twist_mux · RealSense ×2 · ekf_filter_node · SLAM 묶음 cuvslam_slam · pole/gripper_depth_gate · nvblox_node · nvblox_map · Nav2 서버 6개 + lifecycle 관리자 둘)과 bringup 직접(🛠 노드들 · map_saver + lifecycle_manager_map_saver · diagnostic_aggregator). lifecycle 관리자를 둘로 나눈 이유: 바퀴 명령 체인(base)은 odom만 있으면 뜨게 — 하나로 묶으면 지도가 없을 때 global_costmap 실패로 수동 조작까지 막혔음.
+- **도식에 bringup이 띄우는 노드가 전부 있다.** ros_system 묶음(robot_state_publisher · controller_manager + spawner 1회 · move_group · twist_mux · RealSense ×2 · ekf_filter_node · SLAM 묶음 cuvslam_slam · map_tf_relay · pole_depth_gate(+`use_pole_back_cam`이면 pole_back_depth_gate) · nvblox_node · nvblox_map · grid_obstacle_cloud · rewind · Nav2 서버 6개 + lifecycle 관리자 둘)과 bringup 직접(🛠 노드들 · map_saver + lifecycle_manager_map_saver · diagnostic_aggregator). lifecycle 관리자를 둘로 나눈 이유: 바퀴 명령 체인(base)은 odom만 있으면 뜨게 — 하나로 묶으면 지도가 없을 때 global_costmap 실패로 수동 조작까지 막혔음.
 - **물리 하드웨어는 노란 영역, 토픽은 내지 않는다.** 장치(육각형)는 신호가 오가는 곳 가까이에 두고 같은 노란 "물리 하드웨어" 영역으로 표시했다 — 센서 쪽(카메라)과 구동 쪽(OpenCR·모터·IMU). RealSense 카메라 2대는 🔌 USB 3로 realsense2_camera 드라이버 노드에 붙고, 토픽은 드라이버 노드가 발행한다. 모터·IMU는 OpenCR → hardware interface(controller_manager) 경로로 같은 원칙을 따른다.
 - **주행 컨트롤러도 학습 정책이다.** Nav2 `FollowPath`는 `ml::RlNavController` — 관측 375(경로 웨이포인트 5×2 + 가상 스캔 360 + v/w/gyro + 이전 행동 2)을 ONNX에 넣어 v·ω를 직접 낸다. LiDAR가 없어 nvblox 2D ESDF height slice(`/nvblox_node/combined_esdf_pointcloud`)를 base_footprint로 옮겨 360방향 최소거리(가상 스캔)를 만든다. `enable=false`이거나 정책·점구름이 없으면 inner DWB가 그대로 주행한다 (`~/FollowPath/toggle`).
 - **학습 노드는 입력을 보고 판단한다.** grasp_scorer는 `/tracked_objects`로 대상 퍽을 찾고 gripper_cam 점구름으로 후보를 매긴다.
 - **rl_arm_correction은 ROS 노드가 아니다.** controller_manager 안에서 JTC 바로 뒤에 체인으로 붙는 컨트롤러 플러그인이다 (컨트롤러 탭 참고).
 - **controller_manager 한 주기(100Hz)는 read → update → write.** move_group의 팔 궤적과 collision_monitor의 `/cmd_vel`은 언제든 도착해 다음 update에서 쓰인다. update에서 `/joint_states`(→ arm_safety_monitor)와 `/odom`·`/imu`(→ EKF)를 발행하고, JTC 목표에 rl_arm_correction의 Δ를 더해 write로 보낸다. arm_safety_monitor의 궤적 취소만 주기와 무관한 비동기 호출이다. 단계별로는 **흐름 따라가기 → "팔 한 주기"**에서 볼 수 있다.
 - **controller_manager는 하나.** 베이스·팔·그리퍼·IMU가 같은 OpenCR에 붙어 있으므로 hardware component 하나에 컨트롤러들을 함께 올린다.
-- **LiDAR가 없으므로 /scan도 없다.** 장애물은 pole_front_cam PointCloud2에서 body_filter(perception)가 팔·차체 점을 뺀 `/pole_front_cam/depth/color/points_filtered`를 Nav2 costmap·collision_monitor에 넣는다. nvblox는 점구름이 아니라 depth 영상을 받으므로 depth gate가 영상에서 카메라 0.5 m 안(자기 팔·폴대)을 0으로 바꿔 넘긴다. 원본을 그대로 넣으면 카메라에 찍힌 자기 팔이 장애물로 남았다 (실측).
-- **SLAM·위치추정은 cuVSLAM + nvblox (Jetson GPU).** cuvslam_slam이 pole_front_cam RGB-D로 위치(map→odom, 루프 클로저)를 내고, nvblox_node가 depth 두 대(pole_front_cam 늘 · gripper_cam은 스캔 자세일 때만 — depth gate)로 2D 점유 격자를 만들면 nvblox_map이 `/map`(latched)으로 다시 낸다. 지도 폴더 `<map_dir>/<이름>/nvblox.nvblx` — 매핑(`map:=slam`)이면 끌 때 저장, 위치추정(`map:=saved`)이면 시작할 때 불러온다. 실행 중 모드 전환이 없어 `/cmd/map_mode`·`/cmd/map_name`은 state_manager가 launch 전체를 인자만 바꿔 다시 띄운다. 테스트베드(GPU 없음)는 faker `fake_slam`(기본)으로 `map:=slam|saved`를 fake_cuvslam + fake_nvblox(센서 점구름 → `/map`·`nvblox.nvblx`)로 돌린다. slam_toolbox·amcl은 LaserScan이 필요해서 쓰지 않는다 (Nav2·SLAM 섹션의 3-1).
-- **TF 발행자는 딱 둘로 나뉜다.** map→odom은 cuvslam_slam, odom→base_footprint는 robot_localization EKF(바퀴 `/odom` + `/imu` + cuVSLAM 시각 오도메트리 `/cuvslam/odom`(속도만) 융합)만 낸다. EKF의 `/odometry/filtered`는 Nav2 controller의 현재 속도 입력이다. diff_drive_controller는 `enable_odom_tf: false`로 TF를 내지 않는다 (베이스·TF 섹션 참고).
+- **LiDAR가 없으므로 /scan도 없다.** 장애물은 pole_front_cam PointCloud2에서 body_filter(perception)가 팔·차체 점을 뺀 `/pole_front_cam/depth/color/points_filtered`를 Nav2 costmap·collision_monitor에 넣는다 (collision_monitor 두 번째 입력 = 도면 벽을 점구름으로 낸 grid_obstacle_cloud). nvblox는 점구름이 아니라 depth 영상을 받으므로 depth gate가 영상에서 카메라 0.5 m 안(자기 팔·폴대)을 0으로 바꿔 넘긴다. 원본을 그대로 넣으면 카메라에 찍힌 자기 팔이 장애물로 남았다 (실측).
+- **SLAM·위치추정은 cuVSLAM + nvblox (Jetson GPU).** cuvslam_slam이 pole_front_cam RGB-D로 위치(map→odom, 루프 클로저)를 내고, nvblox_node가 depth(pole_front_cam, 켜면 주행 전용 pole_back_cam — depth gate)로 2D 점유 격자를 만들면 nvblox_map이 `/map`(latched)으로 다시 낸다. 지도 폴더 `<map_dir>/<이름>/nvblox.nvblx` — 매핑(`map:=slam`)이면 끌 때 저장, 위치추정(`map:=saved`)이면 시작할 때 불러온다. 실행 중 모드 전환이 없어 `/cmd/map_mode`·`/cmd/map_name`은 state_manager가 launch 전체를 인자만 바꿔 다시 띄운다. 테스트베드(GPU 없음)는 faker `fake_slam`(기본)으로 `map:=slam|saved`를 fake_cuvslam + fake_nvblox(센서 점구름 → `/map`·`nvblox.nvblx`)로 돌린다. slam_toolbox·amcl은 LaserScan이 필요해서 쓰지 않는다 (Nav2·SLAM 섹션의 3-1).
+- **TF 발행자는 딱 둘로 나뉜다.** map→odom은 cuvslam_slam(`/cuvslam/map_to_odom`을 map_tf_relay가 TF로), odom→base_footprint는 robot_localization EKF(바퀴 `/odom` + `/imu` + cuVSLAM 시각 오도메트리 `/cuvslam/odom`(속도만) 융합)만 낸다. EKF의 `/odometry/filtered`는 Nav2 controller의 현재 속도 입력이다. diff_drive_controller는 `enable_odom_tf: false`로 TF를 내지 않는다 (베이스·TF 섹션 참고).
 - **gripper_cam도 RealSense.** 파지 직전 근접 점구름을 grasp_scorer에 주고, 접근 단계의 미세 정렬에 쓴다.
 ---
 
@@ -251,7 +245,7 @@ flowchart TB
    <sub>화살표: pole_front_cam → realsense2_camera · realsense2_camera → perception</sub>
 3. **무엇이 어디 있나** — ✉️ /tracked_objects — 퍽 id 3, 목표 구역 id 5, 장애물 id 7. mission_manager는 계획에, coordinator는 id 검증에 씁니다.
    <sub>화살표: perception → mission_manager · perception → coordinator</sub>
-4. **mission_manager가 순서만 정한다** — ✉️ /task/sub_goals [navigate(퍽 앞) → pick(퍽) → navigate(목표 구역) → place(목표 구역)]. 어떻게 움직일지는 정하지 않습니다.
+4. **mission_manager가 순서만 정한다** — 🎬 /task/execute_plan [navigate(퍽 앞) → pick(퍽) → navigate(목표 구역) → place(목표 구역)] (ExecutePlan goals = SubGoal 배열). 어떻게 움직일지는 정하지 않습니다.
    <sub>화살표: mission_manager → coordinator</sub>
 5. **이동 시작** — coordinator가 검증 후 퍽 앞 (3.45, 0.9)을 계산해 🎬 /navigate_to_pose 액션을 보냅니다. 팔은 stow.
    <sub>화살표: coordinator → bt_navigator</sub>
@@ -295,7 +289,7 @@ flowchart TB
 2. **번호를 아는 퍽으로 조합** — mission_manager가 번호(퍽 윗면 AprilTag, `details.tag`)를 아는 그 색 퍽 중 개수·합이 맞는 조합을 고른다 (모든 부분집합, 로봇에서 가까운 것 우선).
 3. **모르면 보러 간다** — 조합이 없으면 번호 모르는 그 색 퍽마다 `inspect` (손끝을 퍽 윗면 0.15m 위로 → gripper_cam이 16mm 태그를 읽음). 끝나면(SUCCEEDED) 2로 돌아가 다시 판단. 목적지 장소 태그를 아직 못 봤으면 기다림, 다 봐도 조합이 없으면 멈춤.
    <sub>화살표: mission_manager → coordinator · coordinator → move_group · perception → mission_manager</sub>
-4. **옮긴다** — ✉️ /task/sub_goals [navigate(퍽) → pick(퍽) → place(tray)] × N → navigate(장소) → [pick(tray) → place(장소)] × N. 적재함 최대 4칸.
+4. **옮긴다** — 🎬 /task/execute_plan [navigate(퍽) → pick(퍽) → place(tray)] × N → navigate(장소) → [pick(tray) → place(장소)] × N. 적재함 최대 4칸.
    <sub>화살표: mission_manager → coordinator · coordinator → bt_navigator · coordinator → move_group</sub>
 5. **수납 확인 — 옮긴 직후** — 옮기기가 SUCCEEDED면 mission_manager가 바로 확인 계획: navigate(장소) → 장소 근처(`verify_radius_m` 0.2m) 번호 모르는 퍽만 inspect. 끝나면 옮긴 번호가 장소 근처에 다 있는지 본다.
    <sub>화살표: coordinator → mission_manager · mission_manager → coordinator</sub>

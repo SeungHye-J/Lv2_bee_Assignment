@@ -1,0 +1,29 @@
+{
+  "_source": "모의 결과로 대체 (공식 경기 기록 아님) — 2026-11-17 도커 testbed 모의 실행 sim-run/의 파일 그대로. 신호·바코드는 run_mission.py가 주입한 값",
+  "source": "모의",
+  "observed_at": "2026-11-17",
+  "sequence": [
+    "red",
+    "green",
+    "yellow",
+    "red",
+    "green",
+    "red",
+    "yellow",
+    "green",
+    "red",
+    "green",
+    "yellow",
+    "red"
+  ],
+  "counts": {
+    "R": 5,
+    "Y": 3,
+    "G": 4
+  },
+  "barcode": "P2-01",
+  "order": "YGR",
+  "cycles": 2,
+  "raw": "R G Y R G R Y G R G Y R",
+  "end_detected": null
+}

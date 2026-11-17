@@ -1,0 +1,30 @@
+{
+  "_note": "모의 문제의 정답 할당 (사람이 규칙으로 구한 것) — 공식 정답 아님",
+  "L1": {
+    "group": "Y",
+    "pucks": [
+      "puck_cyl_red_4",
+      "puck_cyl_red_5",
+      "puck_cyl_green_11"
+    ]
+  },
+  "L2": {
+    "group": "G",
+    "pucks": [
+      "puck_box_green_6",
+      "puck_box_green_7",
+      "puck_cyl_green_9",
+      "puck_cyl_green_10"
+    ]
+  },
+  "L3": {
+    "group": "R",
+    "pucks": [
+      "puck_box_red_0",
+      "puck_box_red_1",
+      "puck_box_red_2",
+      "puck_box_red_8",
+      "puck_cyl_red_3"
+    ]
+  }
+}

@@ -115,9 +115,9 @@ for obj in tracked_objects.objects:
 
 ```text
 uint32 step
-string skill        # navigate | pick | place | inspect | pose | load | unload | stand | stand_pick  (정의: documents/project/ros/05-arm.md)
+string skill        # navigate | approach | pick | place | inspect | pose | load | unload | stand | stand_pick  (정의: documents/project/ros/05-arm.md)
 string target       # 물체 id (/tracked_objects의 id) · "x,y"(navigate) · 자세 이름(pose) · 칸 0~11 · next(load) · last(unload) · "tray"(pick·place — unload last·load next와 같음)
-string relation     # front | on | ...
+string relation     # front | on | ... · approach: 주행 정책 dock_box(기본) | park_home | drive_arc | drive_straight · inspect: box (좌표 = 상자 가운데)
 float32 offset_m
 ```
 
@@ -241,7 +241,6 @@ string error            # ERROR 이유 (정지한 경우만)
 
 - 내는 쪽: mission_manager → `/mission/state` (reliable + transient_local, 바뀔 때마다). 흐름: [03-plan.md](project/ros/03-plan.md).
 
-<a id="api-msg-missionsignal"></a>
 ### ml/msg/SkillContext ([파일](../lv2_module6/ros2_ws/src/ml/msg/SkillContext.msg))
 
 팔 skill 노드(skills 패키지)가 학습 보정 컨트롤러에 "지금 어느 skill의 어느 단계인지 · 그 skill의 정책 파일" 알림 (2026-11-03 배포 결정: 닿는 구간만 시뮬 기준 동작 + 보정. 주행 정책은 skill_approach가 직접 계산).
@@ -269,6 +268,7 @@ string error            # ERROR 이유 (정지한 경우만)
 - 손 안 퍽 바닥 = 손끝 + 손 회전 · (0, 0, 0.0606) — 정상 파지 위치 (손 카메라가 밑면을 못 봄). 시뮬 정책은 손 안 오차 ±2~3 mm까지 보며 학습 — 로봇에선 0으로 들어감.
 - 값이 ≤ 4Hz로 오므로(손 카메라 추론 주기) 받는 쪽은 새 값이 올 때까지 마지막 값을 쓴다. `valid=false`면 정책 입력 0 (시뮬 정책이 "못 봄"을 배운 적은 없음 — 그때는 보정 끄기 권장).
 
+<a id="api-msg-missionsignal"></a>
 ### perception/msg/MissionSignal ([파일](../lv2_module6/ros2_ws/src/perception/msg/MissionSignal.msg))
 
 ```text
@@ -280,11 +280,7 @@ int32 green             # G 횟수 → 초록 퍽 그룹 (모양 무관)
 bool ok                 # true = 12개 · 각 1~6회 · 모르는 색 없음 · confirm번 연속 같은 답
 string error            # ok=false 이유 — count(12개 아님) | unknown(모르는 색) | range(1~6 벗어남) | unconfirmed(아직 confirm번 못 봄) · ok면 빈 값
 int32 cycles            # 같은 답이 연달아 나온 사이클 수 (정상 사이클이 아니면 0)
-string raw              # 읽은 그대로 (예: "R G R R G R G G Y G Y G" · 모르는 색은 ?)
-string color            # ┐ 옛 3단계 규칙 칸 — 값 안 채움("" · 0). 읽는 노드 없음 — 인지 쪽에서 지울 예정
-int32 count             # │   (planner를 새 칸으로 옮기면 삭제)
-int32 sum               # │
-int32 dest_tag          # ┘
+string raw              # 읽은 그대로 (예: "R G R R G R G G Y G Y G" · 모르는 색은 ?) — 로그·확인용
 ```
 
 - 신호(발제 §3, [mission/README.md](mission/README.md)): 한 번 = 한 색 1초 켜짐 + 1초 꺼짐, 12번이 한 사이클, 끝나면 3초 꺼짐 뒤 반복. R·Y·G 각 1~6회.
@@ -371,6 +367,8 @@ string message
 | `/mission/qr` | std_msgs/String | perception → mission_manager | 바코드 원문(예 `P2-01` — 정렬 방향) — 처음 읽었을 때, 그 뒤로는 읽은 내용을 0.5초마다 다시 냄(`barcode_once`) · reliable + transient_local |
 | `/mission/signal` | perception/MissionSignal | signal_decoder (perception) → mission_manager | 신호등 12회 점멸 확정 답 {sequence, red, yellow, green, ok, raw} — 두 사이클 같게 읽혀 새 답이 확정될 때만 · reliable + transient_local. 해석(L1~L3 배정)은 mission_manager |
 | `/mission/signal_status` | perception/MissionSignal | signal_decoder (perception) → mission_manager | 사이클마다 결과 · `ok=false`면 `error` = count · unknown · range · unconfirmed · reliable (래치 없음) |
+| `/mission/capture_dice` | std_msgs/Int32 | 운영자 → perception | 주사위 완성 사진 요청 — 장소 상자 태그 번호 (0 = 가장 가까운 장소 상자) · reliable |
+| `/mission/dice_image` · `/mission/dice_image_raw` | sensor_msgs/Image | perception → 운영 화면 | 요청에 답해 상자 윗면을 반듯하게 편 사진 (`_raw` = 원본) · transient_local |
 | `/task/execute_plan` | plan/action/ExecutePlan | mission_manager·정식 계획자 → coordinator | Action goal/result/feedback. goal = `plan_id + SubGoal[]`; cancel 지원 · reliable |
 | `/task/sub_goals` | plan/SubGoalArray | legacy CLI·Isaac·fake → coordinator | 계획마다 · reliable + transient_local. target = 물체 id · `"x,y"`(navigate) · **`"tray"`(pick·place — 로봇 뒤 적재함 12칸: place tray = `load next`, pick tray = `unload last`)** · 칸 번호·`next`·`last`(load·unload) · 자세 이름(pose) · 퍽 id(inspect) |
 | `/task/current_plan` | plan/SubGoalArray | coordinator → 운영 화면·RViz·bag 분석 | coordinator가 실제 수락한 마지막 계획 · reliable + transient_local · Action goal을 `/task/sub_goals`로 재발행하지 않음 |
@@ -419,20 +417,23 @@ string message
 - diff_drive_controller 토픽은 기본 `/diff_drive_controller/cmd_vel`·`/odom` — launch에서 `/cmd_vel`·`/odom`으로 리매핑.
 - odom TF는 ekf만 (`diff_drive_controller enable_odom_tf: false`, ekf `publish_tf: true`).
 
-### 수동 조작·운영 모드 ([노드 사전](project/ros/10-catalog.md#manual_control))
+### 수동 조작·운영 모드 ([노드 사전](project/ros/10-catalog.md))
 
 | 이름 | 타입 | 보내는 쪽 → 받는 쪽 | 주기 · QoS |
 | --- | --- | --- | --- |
-| `/cmd/operation_mode` | std_msgs/String | 시뮬레이터 · 운영자 → state_manager | MANUAL · AUTO · TEACH(팔 토크 끄고 손으로 자세 — MAPPING이 아닐 때만) — 조작 모드 명령 (외부 명령은 `/cmd/<이름>`(보내고 끝 — cmd_vel 관례), 결과는 `/state/<이름>` — 둘 다 state_manager만 구독·발행) |
+| `/cmd/operation_mode` | std_msgs/String | 시뮬레이터 · 운영자 → state_manager | MANUAL · AUTO — 조작 모드 명령 (코드는 이 둘만 받음 — `run-cli mode auto|manual`) (외부 명령은 `/cmd/<이름>`(보내고 끝 — cmd_vel 관례), 결과는 `/state/<이름>` — 둘 다 state_manager만 구독·발행) |
 | `/cmd/manual/cmd_vel` | geometry_msgs/TwistStamped | teleop_twist_keyboard · 시뮬레이터 → manual_control | 수동일 때만 넘김, 0.5초 끊기면 0 |
 | `/cmd/manual/arm` | sensor_msgs/JointState | 시뮬레이터 · 운영자 → manual_control | joint1~5 rad · gripper_left_joint m (그 칸 `effort` = 쥐는 힘 한계 A, 없으면 gripper_controller `max_effort`) |
 | `/cmd/beep` | std_msgs/Int32MultiArray | 운영자(`run-cli beep`) → BeebotSystemHardware | OpenCR 부저 — `[]` 기본음(2000 Hz · 150 ms) · `[Hz, ms]` (펌웨어가 100~8000 · 10~2000으로 자름) → 펌웨어 `B` 줄. 모드와 무관 |
 | `/cmd/manual/reboot_motors` | std_msgs/Empty | 시뮬레이터 · 운영자 → manual_control | 수동 모드에서만. Hardware Error(과부하·과열 등) 난 DYNAMIXEL만 재부팅 → 📞 `/beebotsystem/reboot_motors` (std_srvs/Trigger) → 펌웨어 `R`. 결과는 manual_control 진단 |
-| `/state/operation_mode` | std_msgs/String (transient_local) | state_manager → manual_control · coordinator | AUTO · MANUAL · TEACH (TEACH면 manual_control이 팔 토크를 끄고 나갈 때 켬, AUTO가 아니면 coordinator는 작업 멈춤) |
+| `/state/operation_mode` | std_msgs/String (transient_local) | state_manager → manual_control · coordinator | AUTO · MANUAL (AUTO가 아니면 coordinator는 작업 멈춤 · manual_control은 수동 명령을 넘김) |
 | `/state/devices` | std_msgs/String (transient_local) | state_manager → 시뮬레이터 · 누구나 | **장치 이름만 쉼표 구분** — `pole_front_cam,gripper_cam,opencr,imu,wheels,arm,gripper` · 상태가 아니라 목록 (2초마다 확인, 바뀔 때만) |
 | `/state/devices/<이름>` | std_msgs/String (transient_local) | state_manager → 시뮬레이터 · 누구나 | 장치별 상세 — `종류\|active · disconnected · error\|세부 토픽·관절` (예: `camera\|disconnected\|/pole_front_cam/...`) · 장치마다 동적 토픽. `wheels`·`arm`·`gripper`는 그 관절 DYNAMIXEL에 Hardware Error가 있으면 `error` + 세부 끝에 `joint2:과부하` (원본은 `/motor_status`, 재부팅 `/cmd/manual/reboot_motors`) |
 | `/state/topics` | std_msgs/String (transient_local) | state_manager → 시뮬레이터 · 누구나 | 전체 ROS 그래프 — `토픽\|타입\|publisher 수` 줄들. `/state/devices`에 없는 새 센서도 여기서 찾음 |
 | `/state/map_list` | std_msgs/String (transient_local) | state_manager → 시뮬레이터 · 누구나 | 가진 지도 폴더 이름들 (줄바꿈 구분, `<map_dir>/<이름>/nvblox.nvblx` 있는 것) — 2초마다 확인 · 바뀔 때만 |
+| `/cmd/collision` | std_msgs/String | 운영자(`run-cli collision on\|off`) → state_manager | `on` · `off` · `auto` — collision_monitor 켜기/끄기. 기본 `auto` = MANUAL이면 끔 · AUTO면 켬. 직접 `off`는 AUTO로 가면 `auto`로 돌아감 · reliable |
+| `/state/collision` | std_msgs/String (transient_local) | state_manager → manual_control · 누구나 | `on:auto` · `off:auto` · `on:direct` · `off:direct` (값:출처) — manual_control이 이걸 보고 `/collision_monitor/toggle` 호출 |
+| `/state/emergency` | std_msgs/Bool (transient_local) | state_manager → twist_mux · coordinator · skill_pose | `/cmd/e_stop`을 그대로 반영 — true면 속도 잠금·계획 중단 |
 | `/cmd/restart` | std_msgs/String | 시뮬레이터 [ROS 재시작] · `ros-faker-restart` · 운영자(`ros2 topic pub --once`) → state_manager | **`all [이름:=값 …]`** = 이 launch 전체를 정상 종료 → 같은 명령줄로 다시 (인자를 주면 그 인자만 바꿈, `map:=`을 바꾸면 `map_name:=` 버림 · 테스트베드는 그 사이 `build-ws`) · **`node <이름>`** = 그 노드 프로세스만 같은 명령줄·환경(파라미터 파일·리매핑 그대로)으로 다시 (Nav2 수명주기 노드는 다시 활성화 필요). 실기 bringup · 테스트베드 같은 길. 같은 요청이 두 번 오지 않게 하는 건 보내는 쪽 — 테스트베드 input_manager는 읽은 파일을 지움. 도는 중엔 새 요청 거절 |
 | `/state/restartable` | std_msgs/String (transient_local) | state_manager → 시뮬레이터 진단 칸 · 누구나 | `node`로 재시작할 수 있는 노드 `"이름 pid"` 줄들 (이 launch 아래 ROS 노드 프로세스 — 컨트롤러·costmap 하위·내부 노드는 프로세스가 아니라 없음). 2초마다 확인 · 바뀔 때만 |
 | `/state/restart` | std_msgs/String (transient_local) | state_manager → 시뮬레이터 상태판 · 누구나 | 마지막 재시작 요청 결과 — `all: 재시작 중 …` · `node perception: 재시작 (pid …)` · `거절: …` · 새로 뜨면 `시작 (pid …)` |
@@ -512,9 +513,11 @@ coordinator가 계획 단계마다 skill 노드 하나에 맡김 — 한 노드�
 | --- | --- | --- | --- |
 | `/score_grasps` | ml/srv/ScoreGrasps | skill_pick → grasp_scorer | pick 직전 1회 |
 | `/coordinator/basket_clear` | std_srvs/srv/Trigger | 운영자 → coordinator | 적재함 장부 비우기 (사람이 적재함을 손으로 비웠을 때) — 파일도 비움 |
+| `/controller_server/FollowPath/set_fallback` | ml/srv/SetFallback | 운영자 → ml::RlNavController | 바이패스 inner controller를 실행 중에 바꿈 (`dwb` · `mppi` · `rpp` · `rotation_shim` · 클래스명) — 빈 문자열이면 지금 값만 알려 줌 |
+| `/rl_arm_correction/fade_sag` | std_srvs/srv/Trigger | 팔 skill 노드 → rl_arm_correction | pick·load 시작 때 처짐 적분을 앞 이동 동안 서서히 0으로 풂 (`fade_hold_s` 안에 닿는 구간이 안 오면 풀고 다시 적분) |
 | `/rl_arm_correction/reset_sag` | std_srvs/srv/Trigger | 팔 skill 노드 → rl_arm_correction | 팔 skill 시작 때 한 번 — 처짐 보정 적분 0 (서비스 없으면 경고만) |
-| `/collision_monitor/toggle` | nav2_msgs/srv/Toggle | manual_control → collision_monitor | `/state/operation_mode`가 MANUAL이면 끔(속도 명령 그대로 통과 — 근접 정지 없음) · 나가면 켬. 비상정지 잠금(twist_mux)·가속 제한(velocity_smoother)은 수동도 그대로. collision_monitor가 다시 뜨면 다시 보냄 |
-| `/beebotsystem/set_arm_torque` | std_srvs/srv/SetBool | manual_control → BeebotSystemHardware | 운영 모드 TEACH에 들어가면 팔(joint1~5)·그리퍼 토크 끔 · 나가면 JTC·그리퍼 목표를 지금 값으로 맞춘 뒤 켬 (펌웨어 `T`, 바퀴 그대로). 직접 부르면 켤 때 팔이 예전 목표로 튈 수 있음 — `/cmd/operation_mode TEACH`로 |
+| `/collision_monitor/toggle` | nav2_msgs/srv/Toggle | manual_control → collision_monitor | 원하는 상태는 state_manager의 `/state/collision` (`/cmd/collision`) — 기본 auto: MANUAL이면 끔(속도 명령 그대로 통과 — 근접 정지 없음) · AUTO면 켬. 비상정지 잠금(twist_mux)·가속 제한(velocity_smoother)은 수동도 그대로. collision_monitor가 다시 뜨면 다시 보냄 |
+| `/beebotsystem/set_arm_torque` | std_srvs/srv/SetBool | (현재 부르는 노드 없음) → BeebotSystemHardware | 팔(joint1~5)·그리퍼 토크 끔 · 켬 (펌웨어 `T`, 바퀴 그대로). 서버만 있음 — 직접 부르면 켤 때 팔이 예전 목표로 튈 수 있음 (TEACH 모드는 state_manager·manual_control에서 빠짐) |
 | `/beebotsystem/reboot_motors` | std_srvs/srv/Trigger | manual_control(`/cmd/manual/reboot_motors`) → BeebotSystemHardware | Hardware Error 난 DYNAMIXEL만 재부팅 (펌웨어 `R` 줄) — 운영자는 토픽 `/cmd/manual/reboot_motors`로 (수동 모드에서만) |
 | `/plan_kinematic_path` | moveit_msgs/srv/GetMotionPlan | coordinator → move_group | pick·place·inspect 단계마다 팔 궤적 계획 → `/execute_trajectory` |
 | `/apply_planning_scene` | moveit_msgs/srv/ApplyPlanningScene | coordinator → move_group | pick 전 퍽·장애물 등록 |
@@ -528,7 +531,7 @@ coordinator가 계획 단계마다 skill 노드 하나에 맡김 — 한 노드�
 | `/lifecycle_manager_navigation/manage_nodes` | nav2_msgs/srv/ManageLifecycleNodes | 운영자·launch → lifecycle_manager | 주행 계획 서버 (planner · controller · behavior · bt_navigator) 시작·정지·리셋 |
 | `/lifecycle_manager_base/manage_nodes` | nav2_msgs/srv/ManageLifecycleNodes | 운영자·launch → lifecycle_manager | 바퀴 명령 체인 (velocity_smoother · collision_monitor) 시작·정지·리셋 — 지도 없이도 뜸 |
 
-- 아직 코드에 없는 것 (설계만): grasp_scorer → `/compute_ik`(후보 도달 검사 — 지금은 고정 후보), coordinator → `/local_costmap/local_costmap/set_parameters`(퍽을 들면 footprint 확장 — coordinator.hpp TODO).
+- 아직 코드에 없는 것 (설계만): grasp_scorer → `/compute_ik`(후보 도달 검사 — 지금은 고정 후보).
 
 <a id="api-tf"></a>
 ## 5. TF
@@ -547,14 +550,14 @@ coordinator가 계획 단계마다 skill 노드 하나에 맡김 — 한 노드�
 <a id="api-qos"></a>
 ## 6. QoS 규칙
 
-[07 QoS 정리](project/ros/07-tf.md#qoS-정리).
+[07 QoS 정리](project/ros/07-tf.md#qos-정리).
 
 | 데이터 | Reliability | Durability | Depth | 이유 |
 | --- | --- | --- | --- | --- |
 | 카메라·점구름·IMU | best_effort | volatile | 1~5 | 최신 값만 의미 있음 |
 | /cmd_vel 체인 | reliable | volatile | 1 | 명령 유실 방지, 오래된 명령은 버림 |
 | /map, /tf_static | reliable | transient_local | 1 | 늦게 붙어도 받음 |
-| /task/sub_goals, /task/status | reliable | transient_local | 10 | 재시작해도 마지막 계획 받음 |
+| /task/sub_goals, /task/current_plan, /task/status | reliable | transient_local | 10 | 재시작해도 마지막 계획 받음 |
 | /mission/signal, /mission/qr, /mission/state, /motor_status | reliable | transient_local | 1 | 바뀔 때만 냄 — 늦게 붙어도 마지막 값 |
 | /mission/signal_status | reliable | volatile | 10 | 사이클마다 — 지난 결과는 안 받음 |
 | /state/... | reliable | transient_local | 1 | state_manager가 바뀔 때만 냄 |
