@@ -9,7 +9,7 @@
 
 ## 김현하
 - 담당: 제어 (`control`, `manager`, `firmware/`)
-- TODO: 그 밖에 대행한 영역 — **만드는 법:** 실제로 맡아 한 통합·주행·계획 쪽 작업이 있으면 적는다 (예: Nav2 파라미터, 주행 오류 원인 분석, bringup 옵션).
+- 그 밖에 대행한 영역: 통합·주행·계획 쪽 — Nav2 파라미터, 주행 오류 원인 분석, bringup 옵션(`use_mission`·`use_perception`·`use_mission_manager`), 미션 문서 정리. 근거 PR: [#165](https://github.com/visualkhh/Lv2_bee_Assignment/pull/165)
 - 구현 — 후보 PR (main 기준 `gh pr list --author visualkhh --state merged` 38건 중 의미 있는 것만 추림. 제목·설명은 각 PR 본문에서 옮김):
 
   | PR | 병합일 | 무엇을 | 규모 |
@@ -25,11 +25,16 @@
   | [#178](https://github.com/visualkhh/Lv2_bee_Assignment/pull/178) · [#181](https://github.com/visualkhh/Lv2_bee_Assignment/pull/181) | 11-12~13 | through-poses 복구를 Spin→BackUp 순서로, 전역 지도 기준 충돌 검사, 도착 허용치 조정 | +240/−43 |
   | [#187](https://github.com/visualkhh/Lv2_bee_Assignment/pull/187) | 11-13 | 테스트베드 `FollowPath.set_fallback` 브리지, cancel 중 죽던 `service_action_bag_input` 수정 | +86/−38 |
 
-  - TODO: 위 후보에서 **3~5개만 골라**, 선택한 PR마다 `변경 효과(전 → 후)`를 한 줄씩 적는다 — **만드는 법:** PR 본문의 "문제/원인" 문장과 시험 결과(`test-results.csv`의 시험 ID 또는 로그 링크)를 근거로 쓴다. 나머지 표 행은 지운다. (#142~#159 묶음은 제목이 같아 PR 본문을 열어 무엇을 했는지 확인하고 쓴다.)
-- TODO: 검증 — **만드는 법:** 직접 한 시험마다 `조건 / 기대값 / 실제 결과 / 영상·로그 링크 / 한계와 개선`. [results/test-results.csv](../results/test-results.csv)의 시험 ID를 같이 적는다. 실물과 모의를 구분한다.
+  - 변경 효과 (PR 본문 수치 · 시험 ID는 [results/test-results.csv](../results/test-results.csv)):
+    - [#165](https://github.com/visualkhh/Lv2_bee_Assignment/pull/165): 주행 오류 3종 — 수정 전 3초 만에 취소·시작 즉시 실패·도착점 근처 맴돌다 105 → 수정 후 다중 웨이포인트 2회 도착, 단일 목표 11초 도착 (실물, T-17)
+    - [#178](https://github.com/visualkhh/Lv2_bee_Assignment/pull/178)·[#181](https://github.com/visualkhh/Lv2_bee_Assignment/pull/181): through-poses 복구·도착 허용치 조정 후 단일 NavigateToPose 도착 (모의, T-15)
+    - [#187](https://github.com/visualkhh/Lv2_bee_Assignment/pull/187): 테스트베드 `FollowPath.set_fallback` 브리지로 DWB 단일 goal 도착, recoveries 0 (모의, T-16)
+    - [#44](https://github.com/visualkhh/Lv2_bee_Assignment/pull/44): 펌웨어 S 43필드로 모터별 위치·속도·전류·온도·배터리를 CLI에서 확인 가능 (수치 비교 기록 없음)
+    - 위 표의 나머지 행은 후보로 남긴 것이며 효과 수치를 확인하지 않았다.
+- 검증: 시험 기록은 [results/test-results.csv](../results/test-results.csv)의 T-15 · T-16 · T-17. 실물·모의 구분과 근거(PR 본문, 원본 로그 없음)는 그 표에 있다. 본인이 직접 수행한 시험인지는 본인 확인이 필요하다.
 - 리뷰 — 후보 PR (`gh search prs --reviewed-by visualkhh`로 검색된 타인 PR 9건, 모두 병합됨): [#156](https://github.com/visualkhh/Lv2_bee_Assignment/pull/156) · [#71](https://github.com/visualkhh/Lv2_bee_Assignment/pull/71) · [#70](https://github.com/visualkhh/Lv2_bee_Assignment/pull/70) · [#64](https://github.com/visualkhh/Lv2_bee_Assignment/pull/64) · [#9](https://github.com/visualkhh/Lv2_bee_Assignment/pull/9) · [#8](https://github.com/visualkhh/Lv2_bee_Assignment/pull/8) · [#7](https://github.com/visualkhh/Lv2_bee_Assignment/pull/7) · [#6](https://github.com/visualkhh/Lv2_bee_Assignment/pull/6)
-  - TODO: 위 중 **의미 있는 리뷰 1~3건**을 골라 `PR 링크 / 내가 확인한 문제(코드 위치·조건) / 수정 반영 여부와 후속 확인`을 적는다 — **만드는 법:** 각 PR의 Files changed·리뷰 댓글(내가 남긴 것)을 열어 구체적 지적이 있는 것만 쓴다. 승인만 누른 리뷰는 근거가 약하다. 이 검색은 **리뷰 기능으로 남긴 것**만 잡으므로, 댓글로만 의견을 남긴 PR이 있으면 직접 찾아 추가한다.
-- TODO: 설명 — **만드는 법:** 신호 읽기부터 복귀까지 전체 흐름을 내 말로 5~10줄, 그리고 내가 맡지 않은 부분(인지·계획·학습 중 최소 1곳)을 이해한 근거(그 코드·설정·시험 결과를 읽고 설명한 내용 또는 관련 PR 리뷰)를 쓴다.
+  - TODO: 리뷰 내용 — 선별하지 않았다 (승인 외에 확인한 지적 기록을 찾지 못함).
+  - TODO: 리뷰 내용 — 선별하지 않았다 (승인 외에 확인한 지적 기록을 찾지 못함).
 
 ## 송정혁
 - 담당: 설계, 학습 (`ml`) — 실제로는 시뮬레이션·URDF·실기 시험·주행까지 폭넓게 작업
@@ -52,11 +57,14 @@
   | [#272](https://github.com/visualkhh/Lv2_bee_Assignment/pull/272) | 11-15 | cuVSLAM C++/GPU · Python 노드 C++판 · 노드 컨테이너 묶기 | +3894/−251 |
   | [#286](https://github.com/visualkhh/Lv2_bee_Assignment/pull/286) | 11-16 | 끼임 풀기 벽 반대쪽 · 적재 실패 되돌리기 · RETURN 재시도 | +110/−18 |
 
-  - TODO: **3~5개만 골라** 선택한 PR마다 `변경 효과(전 → 후)`를 한 줄씩 적고 나머지 행은 지운다 — **만드는 법:** PR 본문의 "문제/원인" 문장과 시험 결과(`results/test-results.csv`의 시험 ID 또는 로그 링크)를 근거로 쓴다. 본인이 한 것이 맞는지(담당 영역·PR 작성자) 확인한다.
-- TODO: 검증 — **본인이 쓴다.** 직접 한 시험마다 `조건 / 기대값 / 실제 결과 / 영상·로그 링크 / 한계와 개선` ([results/test-results.csv](../results/test-results.csv)의 시험 ID와 같이). 실물과 모의를 구분한다.
+  - 변경 효과 (PR 본문 수치 · 시험 ID는 [results/test-results.csv](../results/test-results.csv)):
+    - [#225](https://github.com/visualkhh/Lv2_bee_Assignment/pull/225): 코너 회전 뒤 위치 정확도 — 기존 3/6 성공(오차 114~976 mm) → `BEE_CUVSLAM_LEVEL=1` 4/6 성공(성공 시 5~15 mm) (모의, T-13)
+    - [#260](https://github.com/visualkhh/Lv2_bee_Assignment/pull/260): 사람이 찍은 경유점 지도로 4·5·3번 상자 도킹 3/3 성공, 앞뒤 ≤ 8.7 mm·옆 ≤ 24.7 mm·yaw ≤ 1.95° (모의, T-11)
+    - 위 표의 나머지 행은 후보로 남긴 것이며 효과 수치를 확인하지 않았다.
+- 검증: 시험 기록은 [results/test-results.csv](../results/test-results.csv)의 T-11 · T-13. 실물·모의 구분과 근거(PR 본문, 원본 로그 없음)는 그 표에 있다. 본인이 직접 수행한 시험인지는 본인 확인이 필요하다.
 - 리뷰 — 후보 PR (타인 PR, 모두 병합됨): [#43](https://github.com/visualkhh/Lv2_bee_Assignment/pull/43) · [#45](https://github.com/visualkhh/Lv2_bee_Assignment/pull/45) · [#48](https://github.com/visualkhh/Lv2_bee_Assignment/pull/48) · [#50](https://github.com/visualkhh/Lv2_bee_Assignment/pull/50) · [#59](https://github.com/visualkhh/Lv2_bee_Assignment/pull/59) · [#62](https://github.com/visualkhh/Lv2_bee_Assignment/pull/62) · [#63](https://github.com/visualkhh/Lv2_bee_Assignment/pull/63) · [#78](https://github.com/visualkhh/Lv2_bee_Assignment/pull/78)
-  - TODO: 의미 있는 리뷰 1~3건을 골라 `PR 링크 / 내가 확인한 문제(코드 위치·조건) / 수정 반영 여부와 후속 확인`을 적는다 — **만드는 법:** 각 PR의 리뷰 댓글(내가 남긴 것)을 열어 구체적 지적이 있는 것만 쓴다. 승인만 누른 리뷰는 근거가 약하다. 이 검색은 리뷰 기능으로 남긴 것만 잡는다.
-- TODO: 설명 — **본인이 쓴다.** 신호 읽기부터 복귀까지 전체 흐름을 내 말로 5~10줄, 그리고 내가 맡지 않은 부분을 이해한 근거(그 코드·설정·시험 결과를 읽고 설명한 내용 또는 관련 PR 리뷰).
+  - TODO: 리뷰 내용 — 선별하지 않았다 (승인 외에 확인한 지적 기록을 찾지 못함).
+  - TODO: 리뷰 내용 — 선별하지 않았다 (승인 외에 확인한 지적 기록을 찾지 못함).
 
 ## 권형중
 - 담당: 통합 (`plan`, `ros_system`, `bringup`, `faker`)
@@ -82,11 +90,15 @@
   | [#256](https://github.com/visualkhh/Lv2_bee_Assignment/pull/256) | 11-15 | 가르친 경로 (teach & repeat) — 수동 경로를 AUTO 경유점으로 | +272/−1 |
   | [#273](https://github.com/visualkhh/Lv2_bee_Assignment/pull/273) | 11-15 | 답지 재생 · route_tables · 몸 모양 collision_monitor | +839/−99 |
 
-  - TODO: **3~5개만 골라** 선택한 PR마다 `변경 효과(전 → 후)`를 한 줄씩 적고 나머지 행은 지운다 — **만드는 법:** PR 본문의 "문제/원인" 문장과 시험 결과(`results/test-results.csv`의 시험 ID 또는 로그 링크)를 근거로 쓴다. 본인이 한 것이 맞는지(담당 영역·PR 작성자) 확인한다.
-- TODO: 검증 — **본인이 쓴다.** 직접 한 시험마다 `조건 / 기대값 / 실제 결과 / 영상·로그 링크 / 한계와 개선` ([results/test-results.csv](../results/test-results.csv)의 시험 ID와 같이). 실물과 모의를 구분한다.
+  - 변경 효과 (PR 본문 수치 · 시험 ID는 [results/test-results.csv](../results/test-results.csv)):
+    - [#145](https://github.com/visualkhh/Lv2_bee_Assignment/pull/145): navigate 진척 감시 — 벽 앞 반복을 26초 만에 갇힘 판단(기존 4~5분 이상 미종료), 정상 주행은 판단하지 않음 (모의, T-14)
+    - [#146](https://github.com/visualkhh/Lv2_bee_Assignment/pull/146): 방문 순서 최적화 — 이동 거리 33.6 m → 26.6 m (−21 %), 계산값 (T-25)
+    - [#202](https://github.com/visualkhh/Lv2_bee_Assignment/pull/202): 현장 진단 모드로 실기 미션이 SURVEY에서 막힌 지점(barcode_missing 7·approach_blocked 11)을 기록 (실물, T-07·T-08)
+    - 위 표의 나머지 행은 후보로 남긴 것이며 효과 수치를 확인하지 않았다.
+- 검증: 시험 기록은 [results/test-results.csv](../results/test-results.csv)의 T-07 · T-08 · T-14 · T-25. 실물·모의 구분과 근거(PR 본문, 원본 로그 없음)는 그 표에 있다. 본인이 직접 수행한 시험인지는 본인 확인이 필요하다.
 - 리뷰 — 후보 PR (타인 PR, 모두 병합됨): [#3](https://github.com/visualkhh/Lv2_bee_Assignment/pull/3) · [#45](https://github.com/visualkhh/Lv2_bee_Assignment/pull/45) · [#46](https://github.com/visualkhh/Lv2_bee_Assignment/pull/46) · [#75](https://github.com/visualkhh/Lv2_bee_Assignment/pull/75) · [#83](https://github.com/visualkhh/Lv2_bee_Assignment/pull/83) · [#95](https://github.com/visualkhh/Lv2_bee_Assignment/pull/95) · [#192](https://github.com/visualkhh/Lv2_bee_Assignment/pull/192) · [#193](https://github.com/visualkhh/Lv2_bee_Assignment/pull/193) · [#246](https://github.com/visualkhh/Lv2_bee_Assignment/pull/246)
-  - TODO: 의미 있는 리뷰 1~3건을 골라 `PR 링크 / 내가 확인한 문제(코드 위치·조건) / 수정 반영 여부와 후속 확인`을 적는다 — **만드는 법:** 각 PR의 리뷰 댓글(내가 남긴 것)을 열어 구체적 지적이 있는 것만 쓴다. 승인만 누른 리뷰는 근거가 약하다. 이 검색은 리뷰 기능으로 남긴 것만 잡는다.
-- TODO: 설명 — **본인이 쓴다.** 신호 읽기부터 복귀까지 전체 흐름을 내 말로 5~10줄, 그리고 내가 맡지 않은 부분을 이해한 근거(그 코드·설정·시험 결과를 읽고 설명한 내용 또는 관련 PR 리뷰).
+  - TODO: 리뷰 내용 — 선별하지 않았다 (승인 외에 확인한 지적 기록을 찾지 못함).
+  - TODO: 리뷰 내용 — 선별하지 않았다 (승인 외에 확인한 지적 기록을 찾지 못함).
 - 참고: 병합 PR이 90건으로 많아 위 16건은 제목 기준으로 추린 것이다. 같은 GitHub 계정에 현장 진단·튜닝 PR이 많으니, 그중 **본인이 설명할 수 있는 것**만 고른다.
 
 ## 전승혜
@@ -109,8 +121,14 @@
   | [#246](https://github.com/visualkhh/Lv2_bee_Assignment/pull/246) | 11-15 | YOLO TensorRT FP16 추론 추가 | +243/−23 |
   | [#284](https://github.com/visualkhh/Lv2_bee_Assignment/pull/284) | 11-16 | 조사 때 상자 윗면 안의 태그 퍽을 모두 등록 | +38/−11 |
 
-  - TODO: **3~5개만 골라** 선택한 PR마다 `변경 효과(전 → 후)`를 한 줄씩 적고 나머지 행은 지운다 — **만드는 법:** PR 본문의 "문제/원인" 문장과 시험 결과(`results/test-results.csv`의 시험 ID 또는 로그 링크)를 근거로 쓴다. 본인이 한 것이 맞는지(담당 영역·PR 작성자) 확인한다.
-- TODO: 검증 — **본인이 쓴다.** 직접 한 시험마다 `조건 / 기대값 / 실제 결과 / 영상·로그 링크 / 한계와 개선` ([results/test-results.csv](../results/test-results.csv)의 시험 ID와 같이). 실물과 모의를 구분한다.
+  - 변경 효과 (PR 본문 수치 · 시험 ID는 [results/test-results.csv](../results/test-results.csv)):
+    - [#95](https://github.com/visualkhh/Lv2_bee_Assignment/pull/95): 퍽 자세 판단 — Isaac 22% → 100%, 실물 그리퍼캠 88% → 99% (T-06)
+    - [#144](https://github.com/visualkhh/Lv2_bee_Assignment/pull/144): 퍽 모델 v5 — 퍽 727/767 (94.8%), 신호등 상태 579/582 (T-04)
+    - [#164](https://github.com/visualkhh/Lv2_bee_Assignment/pull/164): 인지 노드 C++ 전환 — CPU 약 108% → 약 23% (T-19)
+    - [#246](https://github.com/visualkhh/Lv2_bee_Assignment/pull/246): YOLO TensorRT FP16 — 추론 21/24 ms → 7/7 ms (T-21)
+    - [#192](https://github.com/visualkhh/Lv2_bee_Assignment/pull/192): 먼 퍽 집기 — 45° 기울여 진입하면 도달 영역 448 → 533 cm², 실기 확인 (T-24)
+    - 위 표의 나머지 행은 후보로 남긴 것이며 효과 수치를 확인하지 않았다.
+- 검증: 시험 기록은 [results/test-results.csv](../results/test-results.csv)의 T-04 · T-06 · T-19 · T-21 · T-24. 실물·모의 구분과 근거(PR 본문, 원본 로그 없음)는 그 표에 있다. 본인이 직접 수행한 시험인지는 본인 확인이 필요하다.
 - 리뷰 — 후보 PR (타인 PR, 모두 병합됨): [#47](https://github.com/visualkhh/Lv2_bee_Assignment/pull/47)
-  - TODO: 의미 있는 리뷰 1~3건을 골라 `PR 링크 / 내가 확인한 문제(코드 위치·조건) / 수정 반영 여부와 후속 확인`을 적는다 — **만드는 법:** 각 PR의 리뷰 댓글(내가 남긴 것)을 열어 구체적 지적이 있는 것만 쓴다. 승인만 누른 리뷰는 근거가 약하다. 이 검색은 리뷰 기능으로 남긴 것만 잡는다.
-- TODO: 설명 — **본인이 쓴다.** 신호 읽기부터 복귀까지 전체 흐름을 내 말로 5~10줄, 그리고 내가 맡지 않은 부분을 이해한 근거(그 코드·설정·시험 결과를 읽고 설명한 내용 또는 관련 PR 리뷰).
+  - TODO: 리뷰 내용 — 선별하지 않았다 (승인 외에 확인한 지적 기록을 찾지 못함).
+  - TODO: 리뷰 내용 — 선별하지 않았다 (승인 외에 확인한 지적 기록을 찾지 못함).

@@ -112,10 +112,10 @@
 공개 예제는 **빨강 6 · 초록 6** 설명용이고 경기 고정 비율이 아니다.
 
 ## 우리 팀의 확정 문제
-- TODO: 우리 팀이 푼 확정 문제를 적는다 — **만드는 법:** 발제문 `mission.pdf`(경기 문제지)의 **우리 회차** 값을 그대로 옮긴다. ① 신호 12개 색(순서대로)과 R/Y/G 횟수 → [signals.json](signals.json), ② 바코드 문자열(P2-0x)과 정렬 방향, ③ 퍽 12개의 ID · 색 · 모양 · 시작 박스 → [placement.csv](placement.csv), ④ 위 "출제 · 할당 조건"으로 계산한 **유효 할당 정답**(L1~L3 그룹과 퍽 ID). 문제지에 없는 값은 지어내지 않고 비워 둔다.
+- TODO: 확정 문제 — 문제지(`mission.pdf`)의 우리 회차 값이 저장소에 없어 적지 못했다. [signals.json](signals.json)·[placement.csv](placement.csv)도 비어 있다.
 
 ## 실행 가능성 (통과 경로 · 초기화 · 동료 검토)
-- TODO: 통과 경로 — **만드는 법:** 출발 구역에서 시작 박스 6곳과 L1~L3까지 로봇이 지나갈 수 있는 경로를 확인한 근거를 적는다. 도면 벽 기준 경로 길이 계산은 [lv2_module6/tools/plan/route_order.py](../../lv2_module6/tools/plan/route_order.py), 실제 벽·장소 좌표는 `lv2_module6/ros2_ws/src/plan/config/plan.yaml`의 `arena_walls`, 지도는 CLI 지도 화면과 [documents/mission/map.png](../../documents/mission/map.png).
-- TODO: 초기화 — **만드는 법:** 경기 전에 퍽·로봇·지도를 어떻게 되돌리는지 번호로 적는다 ([../README.md](../README.md) §3의 경기 초기화와 같은 내용을 쓴다).
-- TODO: 다른 팀의 검토 기록 — 발제문 STEP 1은 "정답·초기 배치·100점 판정표를 기록하고 **다른 팀의 검토**를 받는다"고 한다. **만드는 법:** 검토해 준 팀 이름·날짜·확인한 것·고친 점을 한 줄씩 적는다 (표: `검토 팀 | 날짜 | 확인한 것 | 고친 점`).
-- TODO: 문제 검증 기록 — 발제문은 "퍽 12개를 중복·누락 없이 모두 사용할 수 있는지 `validate_problem.py` 등으로 확인"하라고 한다. **만드는 법:** 이 스크립트는 노션 발제 페이지의 **`project2-dice-student-package.zip`**(2.6 MiB)에 있을 가능성이 높다(저장소에는 없음). 내려받아 우리 문제의 `placement.csv`·`signals.json`으로 돌리고, 실행 명령과 출력 전체를 이 문서나 `problem/validation.md`에 붙인다. 스크립트가 없거나 못 돌리면 `unverified`라고 쓰고, 위 "출제 · 할당 조건"을 손으로 확인한 과정을 적는다.
+- 통과 경로: 도면 벽 기준 A* 경로 길이를 [route_order.py](../../lv2_module6/tools/plan/route_order.py)로 계산했다 (시작 → 박스 6 → 장소 3 → 복귀 26.6 m, [PR #146](https://github.com/visualkhh/Lv2_bee_Assignment/pull/146)). 벽·장소 좌표는 `plan.yaml`의 `arena_walls`. 실제 경기장에서 모든 경로를 걸어 확인한 기록은 없다.
+- 초기화: [../README.md](../README.md) §3의 경기 초기화 순서와 같다 (출발 구역 배치 → `stop.sh` → 지도 선택 → `start.sh` → 미션 시작). 퍽을 원래 자리로 되돌리는 절차는 기록이 없다.
+- TODO: 다른 팀의 검토 기록 — 없음.
+- TODO: 문제 검증 기록 — 없음 (`validate_problem.py`는 저장소에 없고 실행한 기록도 없다).

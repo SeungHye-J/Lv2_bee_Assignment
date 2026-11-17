@@ -2,7 +2,7 @@
 
 `gh issue list --state all`로 뽑은 **66건** (열림 25 · 처리됨 41). 목록·제목·담당자·상태·날짜는 GitHub 기록 그대로이고, 사람이 읽고 채워야 하는 칸은 마지막 열이다.
 
-- TODO: 마지막 열 `원인 · 검토자`를 채운다 — **만드는 법:** 오류성 이슈(예: [#153](https://github.com/visualkhh/Lv2_bee_Assignment/issues/153) 매니퓰레이터 떨림, [#190](https://github.com/visualkhh/Lv2_bee_Assignment/issues/190) 벽 앞 접근 불가)부터 이슈 본문과 연결된 PR을 열어 `원인(한 줄) / 검토자(PR을 승인한 팀원)`를 적는다. 기능 작업 이슈는 비워 둬도 된다. 발제문은 "발견된 오류, 발생 조건, 원인, 수정 담당자, 검토자, 처리 현황"을 요구하므로, **오류가 아닌 작업 이슈와 오류 이슈를 구분**해 두면 좋다 (제목 접두어 `[control]`·`[plan]` 등은 영역이다). 다 채우면 이 `TODO`를 지운다.
+- 마지막 열 `원인 · 검토자`는 오류성 이슈 9건만 이슈 본문에서 옮겼고 나머지는 작업 이슈라 비웠다. 이슈에 연결된 PR이 없어 "검토자"는 대부분 기록이 없다. 원인은 이슈 본문 문장 그대로이고 확인되지 않은 추정은 넣지 않았다.
 - 이슈 담당자(assignee)를 "수정 담당자"로 보았다. 실제 수정한 사람이 다르면 고친다.
 
 ## 다시 뽑는 법
@@ -17,10 +17,10 @@ gh issue list --repo visualkhh/Lv2_bee_Assignment --state all --limit 300 \
 | --- | --- | --- | --- | --- | --- | --- |
 | [#251](https://github.com/visualkhh/Lv2_bee_Assignment/issues/251) | [시연] 시나리오에 맞게 진행 여부 체크 연습  및 시연 담당 | 11-15 | 전승혜, 권형중 | 열림 |  | |
 | [#191](https://github.com/visualkhh/Lv2_bee_Assignment/issues/191) | [검토] 맵 제작시 검토, 못지나갈자리 미리 막아두기 | 11-13 | 권형중 | 열림 |  | |
-| [#190](https://github.com/visualkhh/Lv2_bee_Assignment/issues/190) | [검토] 네비게이션 주행모드시 벽에 어깨빵당할까봐 접근조치못하는경우 | 11-13 | 권형중 | 열림 |  | |
+| [#190](https://github.com/visualkhh/Lv2_bee_Assignment/issues/190) | [검토] 네비게이션 주행모드시 벽에 어깨빵당할까봐 접근조치못하는경우 | 11-13 | 권형중 | 열림 | | 충돌감지가 어깨 쪽 벽을 막는 걸로 보고 멈춤 (이슈 본문: 충돌감지를 끄면 통과). 검토자: 기록 없음, 열림 |
 | [#189](https://github.com/visualkhh/Lv2_bee_Assignment/issues/189) | [검토] jetson memory 많이잡아먹으면 조치해볼만할것들 | 11-13 | 권형중 | 열림 |  | |
 | [#162](https://github.com/visualkhh/Lv2_bee_Assignment/issues/162) | coordinator는 아직 기존처럼 /navigate_to_pose 사용중  -> 다중웨이포인트로	/navigate_through_poses 변경 | 11-12 | 김현하, 권형중 | 처리됨 | 11-12 | |
-| [#153](https://github.com/visualkhh/Lv2_bee_Assignment/issues/153) | [control] 매니퓰레이터 떨림 원인 파악 및 수정 | 11-10 | - | 열림 |  | |
+| [#153](https://github.com/visualkhh/Lv2_bee_Assignment/issues/153) | [control] 매니퓰레이터 떨림 원인 파악 및 수정 | 11-10 | - | 열림 | | 원인 기록 없음 (이슈 본문은 "떨림 확인 및 수정"뿐). 연결 PR 없음, 열림 |
 | [#150](https://github.com/visualkhh/Lv2_bee_Assignment/issues/150) | [tools/cli] TUI 실기 미션 시험용 정리 — deprecated 6건 · 실시간 정보 추가 16건 | 11-10 | - | 열림 |  | |
 | [#138](https://github.com/visualkhh/Lv2_bee_Assignment/issues/138) | [perception] 박스의 면 인지 확인 | 11-10 | 전승혜 | 처리됨 | 11-10 | |
 | [#137](https://github.com/visualkhh/Lv2_bee_Assignment/issues/137) | [skills] 원거리 퍽 pick을 위한 스킬노드 작성 | 11-10 | 전승혜 | 처리됨 | 11-13 | |
@@ -29,11 +29,11 @@ gh issue list --repo visualkhh/Lv2_bee_Assignment --state all --limit 300 \
 | [#134](https://github.com/visualkhh/Lv2_bee_Assignment/issues/134) | [plan][coordinator] 모드 취소 이유의 `explore_*` 잔재 정리 (mission_manager 중단 사유 매칭과 함께) | 11-10 | - | 처리됨 | 11-10 | |
 | [#133](https://github.com/visualkhh/Lv2_bee_Assignment/issues/133) | [plan][coordinator] 테스트 보강: 실행 규칙 2·3·4와 장부 | 11-10 | - | 처리됨 | 11-10 | |
 | [#132](https://github.com/visualkhh/Lv2_bee_Assignment/issues/132) | [plan][coordinator] 옛 tray 호환(`pick tray`·`place tray`) 제거와 mission_manager의 tray_* 이유 정리 | 11-10 | - | 처리됨 | 11-10 | |
-| [#131](https://github.com/visualkhh/Lv2_bee_Assignment/issues/131) | [plan][coordinator] skill이 결과를 안 줄 때를 막는 단계 타임아웃이 없음 — 확인·추가 | 11-10 | 권형중 | 열림 |  | |
-| [#130](https://github.com/visualkhh/Lv2_bee_Assignment/issues/130) | [plan][coordinator] skill 서버 미기동 시 reason이 nav/pick/arm 3종뿐 — 어느 skill인지 구분 | 11-10 | 권형중 | 열림 |  | |
-| [#129](https://github.com/visualkhh/Lv2_bee_Assignment/issues/129) | [docs][mission_manager] DEBUG.md의 "신호를 아직 해석하지 않는다" 설명이 코드와 다름 | 11-10 | - | 처리됨 | 11-10 | |
-| [#128](https://github.com/visualkhh/Lv2_bee_Assignment/issues/128) | [ros_system][cuvslam·nvblox] 매핑 품질: 먼 거리 depth 잡음·제자리 회전 25~30%·Grid/RangeMax 시험 | 11-10 | 김현하 | 처리됨 | 11-10 | |
-| [#127](https://github.com/visualkhh/Lv2_bee_Assignment/issues/127) | [ros_system][nav2] 실기 확인: stateful goal checker, 허용 오차, 파라미터 이름 오타 | 11-10 | 김현하 | 처리됨 | 11-10 | |
+| [#131](https://github.com/visualkhh/Lv2_bee_Assignment/issues/131) | [plan][coordinator] skill이 결과를 안 줄 때를 막는 단계 타임아웃이 없음 — 확인·추가 | 11-10 | 권형중 | 열림 | | 원인: coordinator에 단계 타임아웃이 없어 skill이 멈추면 계속 대기 (이슈 본문). 연결 PR 없음, 열림 |
+| [#130](https://github.com/visualkhh/Lv2_bee_Assignment/issues/130) | [plan][coordinator] skill 서버 미기동 시 reason이 nav/pick/arm 3종뿐 — 어느 skill인지 구분 | 11-10 | 권형중 | 열림 | | 원인: skill 서버 미기동 reason이 nav/pick/arm 3종뿐 (이슈 본문). 연결 PR 없음, 열림 |
+| [#129](https://github.com/visualkhh/Lv2_bee_Assignment/issues/129) | [docs][mission_manager] DEBUG.md의 "신호를 아직 해석하지 않는다" 설명이 코드와 다름 | 11-10 | - | 처리됨 | 11-10 | 원인: DEBUG.md 설명이 코드와 다름 (이슈 본문). 연결 PR 없음, 검토자 기록 없음 |
+| [#128](https://github.com/visualkhh/Lv2_bee_Assignment/issues/128) | [ros_system][cuvslam·nvblox] 매핑 품질: 먼 거리 depth 잡음·제자리 회전 25~30%·Grid/RangeMax 시험 | 11-10 | 김현하 | 처리됨 | 11-10 | 원인: 먼 거리 depth 잡음이 격자에 쌓임, 제자리 회전이 명령의 25~30%만 나옴 (이슈 본문). 연결 PR 없음, 검토자 기록 없음 |
+| [#127](https://github.com/visualkhh/Lv2_bee_Assignment/issues/127) | [ros_system][nav2] 실기 확인: stateful goal checker, 허용 오차, 파라미터 이름 오타 | 11-10 | 김현하 | 처리됨 | 11-10 | 원인: stateful false면 허용 오차 0.10에서 제자리 회전 중 도착 판정이 흔들릴 수 있음 (이슈 본문). 이후 stateful true 적용 (PR #165). 검토자 기록 없음 |
 | [#126](https://github.com/visualkhh/Lv2_bee_Assignment/issues/126) | [ros_system][move_group] pick_ik·octomap 센서(pole_front_cam 점구름) 연결 | 11-10 | 전승혜 | 처리됨 | 11-10 | |
 | [#125](https://github.com/visualkhh/Lv2_bee_Assignment/issues/125) | [ros_system][moveit] beebot.srdf 충돌 제외(Never) 쌍을 실기 치수로 다시 생성 | 11-10 | - | 처리됨 | 11-10 | |
 | [#124](https://github.com/visualkhh/Lv2_bee_Assignment/issues/124) | [ros_system][moveit] 관절 가속도 한계 실측 (joint_limits.yaml) | 11-10 | - | 처리됨 | 11-10 | |
@@ -72,11 +72,11 @@ gh issue list --repo visualkhh/Lv2_bee_Assignment --state all --limit 300 \
 | [#27](https://github.com/visualkhh/Lv2_bee_Assignment/issues/27) | [perception] 미션 전달 내용 인지 | 10-26 | 전승혜 | 처리됨 | 11-10 | |
 | [#26](https://github.com/visualkhh/Lv2_bee_Assignment/issues/26) | [perception] 지도 맵핑 실기기 테스트 | 10-26 | 전승혜 | 열림 |  | |
 | [#25](https://github.com/visualkhh/Lv2_bee_Assignment/issues/25) | [perception] yolo 학습 및 테스트 (실제데이터+합성데이터) | 10-26 | 전승혜 | 처리됨 | 11-10 | |
-| [#24](https://github.com/visualkhh/Lv2_bee_Assignment/issues/24) | [perception] gripper 점구름은 필터가 없음 | 10-26 | 전승혜 | 처리됨 | 11-10 | |
+| [#24](https://github.com/visualkhh/Lv2_bee_Assignment/issues/24) | [perception] gripper 점구름은 필터가 없음 | 10-26 | 전승혜 | 처리됨 | 11-10 | 원인: 그리퍼 점구름에 손가락·몸통 점이 섞임 (이슈 본문). 연결 PR 없음, 검토자 기록 없음 |
 | [#23](https://github.com/visualkhh/Lv2_bee_Assignment/issues/23) | [perception] 지도 보정 바뀌면 물체 위치/공분산 | 10-26 | 전승혜 | 처리됨 | 11-10 | |
 | [#22](https://github.com/visualkhh/Lv2_bee_Assignment/issues/22) | [perception] 트레이에 뭐가 들었는지 알 방법이 없음 | 10-26 | 전승혜 | 처리됨 | 11-10 | |
 | [#21](https://github.com/visualkhh/Lv2_bee_Assignment/issues/21) | [perception] tracked_object topic 메시지구조에 맞는 데이터 필요 | 10-26 | 전승혜 | 처리됨 | 11-10 | |
-| [#20](https://github.com/visualkhh/Lv2_bee_Assignment/issues/20) | [perception] body_filter가 안 돼서 자기 팔이 장애물로 잡힘 | 10-26 | 전승혜 | 처리됨 | 11-10 | |
+| [#20](https://github.com/visualkhh/Lv2_bee_Assignment/issues/20) | [perception] body_filter가 안 돼서 자기 팔이 장애물로 잡힘 | 10-26 | 전승혜 | 처리됨 | 11-10 | 원인: body_filter가 동작하지 않아 자기 팔이 장애물로 잡힘 (이슈 제목). 연결 PR 없음, 검토자 기록 없음 |
 | [#14](https://github.com/visualkhh/Lv2_bee_Assignment/issues/14) | 제어: firmware 및 주기 체크 및 보정 | 10-25 | 김현하 | 처리됨 | 10-26 | |
 | [#13](https://github.com/visualkhh/Lv2_bee_Assignment/issues/13) | 학습-(보정:매니플레이터,휠), 그립팡계획, 속도limit 학습 | 10-25 | 송정혁 | 열림 |  | |
 | [#12](https://github.com/visualkhh/Lv2_bee_Assignment/issues/12) | 플랜-미션에 맞는 플랜처리 방안 | 10-25 | 권형중 | 열림 |  | |

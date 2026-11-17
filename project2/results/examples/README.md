@@ -4,11 +4,11 @@
 
 - **제출하는 실제 파일에 복사해 쓰지 않는다.** 실제 [signal.json](../signal.json) · [allocation.json](../allocation.json) · [test-results.csv](../test-results.csv)는 실제 기록에서 만든다.
 - 구조는 `mission_manager.cpp`가 쓰는 필드를 따랐다 (`signal.json`: barcode · ascending · sequence · raw · cycles · counts · order / `allocation.json`: pucks · ok · why · partial · empty · locations). `cell`은 3×3 격자 번호(0~8, 가운데 4)이고 눈마다 쓰는 칸(3 = 0·4·8, 4 = 0·2·6·8, 5 = 0·2·4·6·8)은 `documents/project/ros/03-plan.md`의 `dice_cells`와 같게 맞췄다. 그 밖의 값은 모두 가상이다.
-- TODO: 예시를 다 보고 나면 이 폴더를 지울지 정한다. 남겨 두면 안 되는 이유는 없지만, 제출 전 아래 확인 명령에 걸리지 않게 둘 것.
+- 이 폴더는 형식을 보여 주는 용도라 제출 전 지워도 되고, 남기면 아래 확인 명령에 걸리지 않게 둔다.
 
 ## 제출 전 확인 (가상 데이터가 실제 파일에 섞이지 않았는지)
 ```bash
-grep -rn "_example\|EX-0" project2 --exclude-dir=examples --exclude=TODO.md   # 아무것도 안 나와야 한다
+grep -rn "_example\|EX-0" project2 --exclude-dir=examples --exclude=REMAINING.md   # 아무것도 안 나와야 한다
 ```
 
 | 예시 파일 | 대응하는 실제 파일 |

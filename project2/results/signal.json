@@ -1,8 +1,12 @@
 {
-  "_note": "TODO: 로봇이 실제로 관측한 신호 — 만드는 법: 공식 경기 때 mission_manager가 로봇의 ~/.ros/mission/<시작 시각>/signal.json에 남긴 파일을 그대로 복사한다(로봇에서 scp). source에는 실물/모의를 적는다. 점수가 반영된 회차 것을 여기에 두고, 두 회차 원본은 round1/log/, round2/log/에 둔다. 채우면 이 _note를 지운다.",
+  "_note": "TODO: 관측 기록 없음: 공식 경기 로그(~/.ros/mission/<시작 시각>/)가 남아 있지 않아 값을 채우지 않았다. 로그가 생기면 그 파일을 그대로 복사해 이 파일을 교체한다.",
   "source": null,
   "observed_at": null,
   "sequence": [],
-  "counts": {"R": null, "Y": null, "G": null},
+  "counts": {
+    "R": null,
+    "Y": null,
+    "G": null
+  },
   "end_detected": null
 }
