@@ -33,6 +33,7 @@
 
 ## 4. 시스템 구성
 [docs/architecture.md](docs/architecture.md) (상태도·완료 조건·오류 처리) · [lv2_module6/README.md — 전체 아키텍처](../lv2_module6/README.md#전체-아키텍처) · [documents/project/ros](../documents/project/ros/README.md)
+- 인지: [perception/README.md](../lv2_module6/ros2_ws/src/perception/README.md) (구조·토픽·설정) · [FUNCTION_GUIDE.md](../lv2_module6/ros2_ws/src/perception/FUNCTION_GUIDE.md) (함수별) · [VALIDATION_GUIDE.md](../lv2_module6/ros2_ws/src/perception/VALIDATION_GUIDE.md) (시험·증빙)
 
 ## 5. 시험 결과
 [results/test-results.csv](results/test-results.csv) · [results/scorecard.md](results/scorecard.md) · 팔 skill 반복 시험·RL 평가: [results/arm-rl-tests/](results/arm-rl-tests/README.md).
@@ -63,7 +64,7 @@
 
 | 단계 | 예상 실패 | 원인 가설 | 감지 | 설계상 대응 | 상태 |
 | --- | --- | --- | --- | --- | --- |
-| 신호 읽기 | 소등을 점멸로 세거나 같은 색 연속을 한 번으로 셈 | 조명 변화, 켜짐/소등 경계 임계값, 카메라 노출 | 두 사이클 결과가 다르면 `unconfirmed` | 확정될 때까지 대기, 같은 오류가 `signal_error_cycles`번 이어지면 `ERROR`로 안전 정지 (추정 금지) | 미시험 |
+| 신호 읽기 | 소등을 점멸로 세거나 같은 색 연속을 한 번으로 셈 | 조명 변화, 켜짐/소등 경계 임계값, 카메라 노출 | 사이클마다 12개·1~6회·모르는 색을 검사해 `count`·`range`·`unknown` (`confirm: 1`이라 한 사이클 결과로 확정 — 사이클 간 비교는 안 함) | 확정될 때까지 대기, 같은 오류가 `signal_error_cycles`번 이어지면 `ERROR`로 안전 정지 (추정 금지) | 미시험 |
 | 신호 읽기 | 12회를 다 못 세고 시간 초과 | 신호등이 화면 밖, 거리·각도 | `signal_timeout_s`(150초) | `ERROR`(`signal_timeout`) | 미시험 |
 | 바코드 | 문자열 오독 또는 못 읽음 | 손 카메라 거리·초점, 반사 | `barcode_timeout_s`(20초) 안에 이번에 본 바코드 없음 | `ERROR`로 정지 | 미시험 |
 | 조사(SURVEY) | 퍽 태그를 못 읽어 12개 중 일부가 등록 안 됨 | 상자 윗면 가림, 거리, 조명 | 할당 단계에서 퍽 수 부족 | 상자별 다시 보기(look 자세), 못 실은 퍽은 시작 박스에서 직접 집기 | 미시험 |

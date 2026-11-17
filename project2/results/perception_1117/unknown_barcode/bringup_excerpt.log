@@ -1,0 +1,5 @@
+[perception_node-16] [INFO] [1794906503.252524694] [perception]: 바코드 (gripper_cam): "2#09 — 이제 바코드는 안 읽음 (barcode_once)
+[component_container_mt-20] [WARN] [1794906503.360223793] [mission_manager]: 미등록 바코드 '"2#09' — 버리고 계속 찾음
+[component_container_mt-20] [WARN] [1794906615.853261444] [mission_manager]: 결과: BARCODE: unknown_barcode:"2#09
+[component_container_mt-20] [ERROR] [1794906615.853864081] [mission_manager]: 미션 오류: unknown_barcode:"2#09 — 안전 정지
+[component_container_mt-20] [INFO] [1794906615.853929266] [mission_manager]: [ERROR] unknown_barcode:"2#09

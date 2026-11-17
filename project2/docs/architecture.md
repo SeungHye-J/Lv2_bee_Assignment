@@ -7,6 +7,7 @@
 - ROS 2 노드·토픽·메시지, 전체 구조: [lv2_module6/README.md — 전체 아키텍처](../../lv2_module6/README.md#전체-아키텍처) · [documents/project/ros](../../documents/project/ros/README.md)
 - 미션 한 번의 흐름: [lv2_module6/README.md — 미션 한 번의 흐름](../../lv2_module6/README.md#미션-한-번의-흐름) · [documents/project/ros/03-plan.md](../../documents/project/ros/03-plan.md)
 - 수동 조작·비상정지: [lv2_module6/README.md — 수동 조작 · 비상정지](../../lv2_module6/README.md#수동-조작--비상정지)
+- 인지(`/tracked_objects` · `/mission/signal` · `/mission/qr`를 내는 쪽): [perception/README.md](../../lv2_module6/ros2_ws/src/perception/README.md) (구조·토픽·설정) · [FUNCTION_GUIDE.md](../../lv2_module6/ros2_ws/src/perception/FUNCTION_GUIDE.md) (함수별) · [VALIDATION_GUIDE.md](../../lv2_module6/ros2_ws/src/perception/VALIDATION_GUIDE.md) (시험·증빙)
 
 ## 노드 · 토픽 (미션 경로)
 ```mermaid
@@ -82,7 +83,7 @@ stateDiagram-v2
 | --- | --- | --- | --- |
 | GO_OBSERVE | 팔 stow 그대로, 관측 자리로 옮겨야 하면 도착 (옮길 필요 없으면 바로 성공) | `ERROR` (`observe_nav_failed`) | `step_timeout_s` navigate 120 s |
 | BARCODE | 이 단계 시작 **뒤에** 본 바코드(`/tracked_objects`의 barcode 또는 `/mission/qr`) | `ERROR` (`barcode_missing`) | `barcode_timeout_s` 20 s |
-| READ | `signal_status`가 ok(두 사이클이 같은 답)이면 확정 · 아니면 대기 | 오류(count·unknown·range)가 `signal_error_cycles`회 이어지면 `ERROR` · 시간 초과 `ERROR`(`signal_timeout`) | `signal_error_cycles` 2 · `signal_timeout_s` 150 s |
+| READ | `signal_status`가 ok(12개 · 색마다 1~6회 · 모르는 색 없음 — `signal_decoder` `confirm: 1`이라 한 사이클을 다 보면 확정)이면 확정 · 아니면 대기 | 오류(count·unknown·range)가 `signal_error_cycles`회 이어지면 `ERROR` · 시간 초과 `ERROR`(`signal_timeout`) | `signal_error_cycles` 2 · `signal_timeout_s` 150 s |
 | SURVEY | 시작 박스 6곳 조사 후 12개를 중복·누락 없이 R·Y·G에 할당 | 할당 불가면 쌓을 게 없으니 `RETURN` | `step_timeout_s` inspect 60 · pick 90 · load 90 · `retries` 2 |
 | BUILD | 퍽마다 장소 앞 → 칸 위치 보정 → 놓기 → 내려다보고 10 mm 안인지 확인 | 그 퍽만 실패로 기록하고 다음으로 (끝나면 `VERIFY`) | `step_timeout_s` place 90 · unload 90 · `retries` 2 |
 | VERIFY | 장소마다 **이번에 새로 본 퍽만**으로 칸별 판정 + 12개 중복·누락 | 결과에 남기고 `RETURN` | — |
