@@ -67,6 +67,7 @@ struct Track {
   std::optional<int> tag;
   std::optional<double> yaw;
   double yaw_period{0.0};
+  std::optional<double> yaw_cand;  // 지금 방향과 크게 다른 새 관측 — 다음 관측이 확인하면 방향으로 (perception_node fuse)
   std::optional<double> distance;  // 발행 순간 로봇까지 바닥 위 거리 [m]
   bool cut{false};                     // 상자: 마지막 관측이 화면에 잘림 → 가운데·크기·모서리를 믿지 말 것
   std::optional<cv::Vec2d> face_pt, face_dir;  // 상자: 로봇 쪽 면 (Det와 같음, 추적 좌표 — 발행 때 map으로)
@@ -85,6 +86,8 @@ cv::Vec3d puck_center(const cv::Vec3d & p, const cv::Vec3d & cam, double offset,
 double box_iou(const Box & a, const Box & b);
 std::vector<Det> merge_overlap_dets(const std::vector<Det> & dets, double iou_min);
 std::map<int, int> merge_tracks(std::map<int, Track> & tracks, double dist_m);
+// 경기장에 하나뿐인 종류(cls)의 트랙을 가장 오래된 번호 하나로 — 위치·색은 가장 최근에 본 트랙 것 (지운 번호 → 남긴 번호)
+std::map<int, int> merge_single(std::map<int, Track> & tracks, const std::string & cls);
 
 // ---------- 자기 몸
 struct Body {
@@ -157,6 +160,8 @@ private:
 };
 std::vector<Tag> detect_tags(TagDetector * det, const cv::Mat & bgr, double gamma = 0.0, bool half = false,
                              std::optional<double> min_px = std::nullopt, std::optional<double> half_min_px = std::nullopt);
+// (번호, aruco 순서 꼭짓점) 목록 → Tag · 같은 번호·중심 8 px 안은 처음 것만 — OpenCV 여러 번 검사와 GPU(tag_cuda)가 같이 씀
+std::vector<Tag> make_tags(const std::vector<std::pair<int, std::array<cv::Point2d, 4>>> & found);
 // AprilTag를 화면 일부(퍽·상자 YOLO 네모)에서만 찾기 — CPU 절약 (젯슨 11/12: 영상 전체 3번 검사에 60~78 ms)
 //   merge_rois: 네모를 margin(변 비율) + pad_px만큼 넓히고 겹치는 것을 합침 · detect_tags_in: 네모마다 detect_tags, 화면 좌표로
 std::vector<Box> merge_rois(std::vector<Box> rois, double margin, int pad_px, int w, int h);
@@ -194,7 +199,9 @@ std::vector<BoxTop> find_box_tops(const cv::Mat1f & depth_m, const cv::Matx33d &
                                   double min_side, double max_side, double cell, int step = 4, double max_range = 3.0,
                                   const std::optional<std::pair<cv::Vec2d, double>> & avoid = std::nullopt,
                                   const std::optional<std::vector<std::array<double, 4>>> & rois = std::nullopt,
-                                  const std::vector<cv::Vec3d> & mask_px = {});
+                                  const std::vector<cv::Vec3d> & mask_px = {},
+                                  const std::optional<Body> & avoid_body = std::nullopt,
+                                  const std::vector<double> & body_box = {});
 bool tag_on_box(const cv::Vec2d & tag_xy, const BoxTop & box, double margin);
 // 로봇 앞면 → 상자의 로봇 쪽 면 거리 [m] — 윗면 깊이 점 중 로봇 앞 띠(|옆| < half_band) 안에서 가장 가까운 쪽(하위 q 분위)
 //   잘려서 가운데·크기를 못 믿어도, 로봇 쪽 모서리가 보이는 동안은 잼. robot_xy·robot_yaw = base_footprint (추적 좌표)

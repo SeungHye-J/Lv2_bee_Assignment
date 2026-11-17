@@ -40,6 +40,10 @@ assert len(lines) == 10 and all(len(l) == 30 for l in lines), (len(lines), [len(
 txt = ''.join(lines)
 assert '1' in txt and '+' in txt and '@' in txt and '#' in txt
 
+# 미션 관제 지도: 감지된 map 물체 글리프를 비용맵/영상 처리 없이 경로 위에 겹친다.
+view.perceived = [(-0.2, -0.2, 'P', (240, 80, 80))]
+assert 'P' in ''.join(view.render(30, 10))
+
 # 로봇 따라가기 — 한 화면에 다 보이면 지도 고정, 확대해서 안 보이면 로봇이 중심
 view.following = True
 view.render(30, 10)

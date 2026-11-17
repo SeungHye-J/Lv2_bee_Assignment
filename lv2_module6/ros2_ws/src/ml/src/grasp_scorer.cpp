@@ -84,8 +84,8 @@ geometry_msgs::msg::Quaternion top_down(double psi) {
   return q;
 }
 
-GraspScorer::GraspScorer()
-: rclcpp::Node("grasp_scorer") {
+GraspScorer::GraspScorer(const rclcpp::NodeOptions & options)
+: rclcpp::Node("grasp_scorer", options) {
   declare_parameter<bool>("enabled", true);
   objects_sub_ = create_subscription<TrackedObjectArray>(
     "/tracked_objects", rclcpp::QoS(5).reliable(),

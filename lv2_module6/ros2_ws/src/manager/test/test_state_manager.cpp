@@ -160,3 +160,27 @@ TEST_F(RosTest, MotorErrorInDeviceState) {
   ASSERT_TRUE(spin_until(exec, [&]() { js_pub->publish(js); motor_pub->publish(status(0)); },
     [&]() { return arm == "joint|active|joint1,joint2,joint3,joint4,joint5"; }, 8.0)) << arm;
 }
+
+TEST_F(RosTest, CollisionRules) {
+  // auto = MANUAL이면 끔 · AUTO면 켬 (MAPPING이어도) · 직접 켬은 모드가 바뀌어도 유지 · 직접 끔은 AUTO로 가면 auto로
+  auto node = std::make_shared<StateManager>(rclcpp::NodeOptions().parameter_overrides({{"map_mode", "MAPPING"}}));
+  auto probe = std::make_shared<rclcpp::Node>("probe_collision");
+  std::string col;
+  auto col_sub = probe->create_subscription<std_msgs::msg::String>("/state/collision",
+    rclcpp::QoS(1).reliable().transient_local(), [&](std_msgs::msg::String::SharedPtr m) { col = m->data; });
+  auto op_pub = probe->create_publisher<std_msgs::msg::String>("/cmd/operation_mode", rclcpp::QoS(1).reliable());
+  auto col_pub = probe->create_publisher<std_msgs::msg::String>("/cmd/collision", rclcpp::QoS(1).reliable());
+  rclcpp::executors::SingleThreadedExecutor exec;
+  exec.add_node(node);
+  exec.add_node(probe);
+  auto send = [](auto & pub, const char * v) { return [&pub, v] { std_msgs::msg::String m; m.data = v; pub->publish(m); }; };
+  auto is = [&col](const char * v) { return [&col, v] { return col == v; }; };
+  ASSERT_TRUE(spin_until(exec, [] {}, is("on:auto"))) << col;                          // MAPPING + AUTO
+  ASSERT_TRUE(spin_until(exec, send(op_pub, "MANUAL"), is("off:auto"))) << col;
+  ASSERT_TRUE(spin_until(exec, send(col_pub, "on"), is("on:direct"))) << col;
+  spin_until(exec, send(op_pub, "AUTO"), [] { return false; }, 0.3);
+  spin_until(exec, send(op_pub, "MANUAL"), [] { return false; }, 0.3);
+  EXPECT_EQ(col, "on:direct");                                                          // 직접 켬 유지
+  ASSERT_TRUE(spin_until(exec, send(col_pub, "off"), is("off:direct"))) << col;
+  ASSERT_TRUE(spin_until(exec, send(op_pub, "AUTO"), is("on:auto"))) << col;          // 직접 끔은 AUTO에서 끝
+}

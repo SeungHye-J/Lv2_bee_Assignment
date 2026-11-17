@@ -5,11 +5,16 @@
 #   ./start.sh mock_hardware:=true          # OpenCR 없이 (명령을 상태로 되돌림 — launch 인자는 그대로 전달)
 #   ./start.sh port:=/dev/ttyACM1           # OpenCR 포트 지정 (기본 /dev/opencr — udev 규칙 99-opencr.rules)
 #   POLE_FRONT_CAM_SERIAL=... GRIPPER_CAM_SERIAL=... ./start.sh  # RealSense serial 고정 (권장)
+#   POLE_BACK_CAM_SERIAL=... ./start.sh     # 폴 뒤 캠(주행 전용 — nvblox camera_1)도 — serial 장치가 감지될 때만 켬 (bringup use_pole_back_cam:=auto)
 #   RCUTILS_DEFAULT_LOGGER_DEFAULT_LEVEL=WARN ./start.sh  # 로그 소음 줄이기 (기본 INFO — 전 노드 적용)
 #   ./start.sh learning_enabled:=false      # 학습 노드 끄고 (비교 기준)
-#   ./start.sh map:=slam                    # 지도 매핑 (새 폴더 map/<날짜_시각>/) — 기본 map:=saved = 저장 지도로 위치추정
+#   ./start.sh map:=saved map_name:=kk      # 저장 지도로 위치추정 (미션·Nav2는 이걸로) · map_name 비우면 가장 최근 지도
+#   ./start.sh map:=slam                    # 지도 매핑 (새 폴더 map/<날짜_시각>/)
+#   (map 인자 없으면 bringup 기본 map:=none — 지도·SLAM·Nav2 없이 뜸. 주행·미션 안 됨)
 #   ./start.sh --build [launch 인자]        # 저장소에서 실행할 때 colcon build 후 실행
-#   LAUNCH_FILE=stand_test.launch.py ./start.sh  # 팔 테스트용 가벼운 실행
+#   LAUNCH_FILE=stand_test.launch.py ./start.sh  # 팔 테스트용 가벼운 실행 (= isaac/loops/manipulator-launcher.sh)
+#   ./start.sh                              # 실기 기본 = map:=saved map_name:=scene_sim perception:=true use_pole_back_cam:=false (11-15)
+#   ./start.sh map:=slam                    # 새 매핑 (map_name·perception 기본은 안 붙음)
 #
 # 두 가지 위치에서 동작한다.
 #   - 저장소 lv2_module6/ros2_ws/ : install/이 없거나 --build면 src/를 빌드
@@ -71,11 +76,12 @@ source "$HERE/install/setup.bash"
 # 같은 libonnxruntime.so.1 이름이라 LD_LIBRARY_PATH 순서가 곧 우선순위. 없으면 vendor(CPU)로 계속.
 [ -f /opt/onnxruntime/lib/libonnxruntime_providers_cuda.so ] &&
   export LD_LIBRARY_PATH="/opt/onnxruntime/lib:${LD_LIBRARY_PATH:-}"
-# 기본: Jetson Orin Nano 로컬 전용 — SHM만 사용해 DDS가 네트워크로 나가지도 들어오지도 않는다.
-# PC에서 토픽/RViz를 봐야 할 때만 FASTDDS_DEFAULT_PROFILES_FILE=$HERE/fastdds.xml 로 덮어쓴다.
+# 기본: fastdds.xml(SHM + UDP) — 기기 안은 SHM, PC에서도 토픽/RViz를 볼 수 있다.
+#   부트캠프 Wi-Fi는 멀티캐스트가 막혀 있어 PC 쪽은 ROS_STATIC_PEERS=<상대 IP>가 필요 (SETTING.md 5).
+# 기기 안 격리(네트워크로 안 나감)가 필요하면 FASTDDS_DEFAULT_PROFILES_FILE=$HERE/fastdds_local_only.xml 로 덮어쓴다.
 export ROS_DOMAIN_ID="${ROS_DOMAIN_ID:-88}"
 export ROS_AUTOMATIC_DISCOVERY_RANGE="${ROS_AUTOMATIC_DISCOVERY_RANGE:-SUBNET}"
-export FASTDDS_DEFAULT_PROFILES_FILE="${FASTDDS_DEFAULT_PROFILES_FILE:-$HERE/fastdds_local_only.xml}"
+export FASTDDS_DEFAULT_PROFILES_FILE="${FASTDDS_DEFAULT_PROFILES_FILE:-$HERE/fastdds.xml}"
 [ -f "$FASTDDS_DEFAULT_PROFILES_FILE" ] || echo "WARN: Fast DDS 프로파일 없음: $FASTDDS_DEFAULT_PROFILES_FILE — 기본 전송으로 실행 (UDP 폭주 가능)"
 # 로컬 전용 프로파일이면 외부 discovery 변수를 지운다 (실수로 네트워크로 새는 것 방지)
 case "$(basename "$FASTDDS_DEFAULT_PROFILES_FILE")" in
@@ -176,7 +182,9 @@ if [ "$use_cameras" = true ]; then
     devices=$(rs-enumerate-devices -s 2>/dev/null || true)
     count=$(grep -c "Intel RealSense" <<<"$devices" || true)
     rs_count=$count
-    if [ "$count" -ge 2 ]; then
+    if [ -n "${POLE_BACK_CAM_SERIAL:-}" ] && [ "$count" -ge 3 ]; then
+      echo "ok: RealSense ${count}대 (pole_front_cam · gripper_cam · pole_back_cam)"
+    elif [ "$count" -ge 2 ]; then
       echo "ok: RealSense ${count}대 (pole_front_cam · gripper_cam)"
     else
       echo "WARN: RealSense ${count}대 — 2대(pole_front_cam · gripper_cam) 필요 (USB 3 포트·udev 규칙 확인)"
@@ -188,7 +196,7 @@ fi
 
 # RealSense serial_no를 정한다.
 #   우선순위: 명령줄 인자 > 환경변수
-#   환경변수: POLE_FRONT_CAM_SERIAL · GRIPPER_CAM_SERIAL
+#   환경변수: POLE_FRONT_CAM_SERIAL · GRIPPER_CAM_SERIAL · POLE_BACK_CAM_SERIAL (뒤 캠은 아래 한 대만 규칙에 안 들어감 — bringup auto가 감지로 끔)
 # RealSense ROS 드라이버는 /dev 경로가 아니라 serial_no를 받는다.
 front_present=0
 gripper_present=0
@@ -196,7 +204,8 @@ front_env_serial=''
 gripper_env_serial=''
 for spec in \
   "pole_front_cam_serial:POLE_FRONT_CAM_SERIAL" \
-  "gripper_cam_serial:GRIPPER_CAM_SERIAL"; do
+  "gripper_cam_serial:GRIPPER_CAM_SERIAL" \
+  "pole_back_cam_serial:POLE_BACK_CAM_SERIAL"; do
   key=${spec%%:*}
   env_name=${spec#*:}
 
@@ -276,9 +285,55 @@ if ! ros2 pkg prefix moveit_ros_move_group >/dev/null 2>&1; then
   echo "WARN: moveit_ros_move_group 없음 → use_moveit:=false (팔 pick/place는 사용 불가)"
 fi
 
-# 지도 폴더 기본 = 이 워크스페이스의 map/ (테스트베드 /ws/map 과 같은 자리) — map:=slam(새 폴더 매핑) · saved(저장 지도, 기본)
+# 지도 인자 없이 켜면 bringup 기본 map:=none — Nav2·SLAM이 안 떠서 미션 첫 이동이 nav_unavailable로 멈춤 (실기 11-12) → 크게 알림
+case " $* " in *" map:="*) ;; *) echo "WARN: map 인자 없음 → 지도 없이(map:=none) 시작 — Nav2·SLAM 안 뜸 (미션·주행 불가). 저장 지도: ./start.sh map:=saved [map_name:=이름]" ;; esac
+# 지도 폴더 기본 = 이 워크스페이스의 map/ (테스트베드 /ws/map 과 같은 자리) — map:=slam(새 폴더 매핑) · saved(저장 지도)
+# 실기 기본 (11-15) — 전체 bringup만: 인자를 안 주면 저장 지도 scene_sim · 인지 켬 · 폴 뒤 캠 끔. 직접 주면 그 값
+#   map:=slam(새 매핑)이면 map_name · perception은 안 붙임 (scene_sim을 덮어쓰지 않게 · 매핑 중 인지는 bringup auto=끔)
+if [ "${LAUNCH_FILE:-bringup.launch.py}" = "bringup.launch.py" ]; then
+  case " $* " in *" map:="*) ;; *) set -- "$@" "map:=saved" ;; esac
+  map_mode=saved
+  for a in "$@"; do case "$a" in map:=*) map_mode="${a#map:=}" ;; esac; done
+  if [ "$map_mode" = saved ]; then
+    case " $* " in *" map_name:="*) ;; *) set -- "$@" "map_name:=scene_sim" ;; esac
+    case " $* " in *" perception:="*) ;; *) set -- "$@" "perception:=true" ;; esac
+  fi
+  case " $* " in *" use_pole_back_cam:="*) ;; *) set -- "$@" "use_pole_back_cam:=false" ;; esac
+fi
 case " $* " in *" map_dir:="*) ;; *) set -- "$@" "map_dir:=$HERE/map" ;; esac
-# 실행할 launch (기본 전체 bringup) — LAUNCH_FILE=stand_test.launch.py면 가벼운 팔 테스트용
+# Foxglove 접속 안내 — 같은 와이파이의 아이패드(mDNS 이름)를 찾아 보여 주고, 아이패드에서 열 링크(qrencode가 있으면 QR)를 찍음
+#   아이패드 앱을 로봇이 대신 열 수는 없음 → 아이패드 카메라로 QR을 찍거나 링크를 열면 Foxglove가 로봇에 바로 붙음
+foxglove_hint() {
+  case " $* " in *" use_foxglove:=true "*|*" use_foxglove:=auto "*) ;; *) return ;; esac  # 기본 끔 — 켤 때만 안내
+  ros2 pkg prefix foxglove_bridge >/dev/null 2>&1 || { echo "Foxglove: foxglove_bridge 없음 (sudo apt install ros-lyrical-foxglove-bridge)"; return; }
+  local port=8765 tls=false a ip ipads url host scheme=ws d=$HOME/.ros/foxglove
+  for a in "$@"; do case "$a" in foxglove_port:=*) port="${a#*:=}" ;; foxglove_tls:=*) tls="${a#*:=}" ;; esac; done
+  ip=$(ip -4 -o addr show scope global 2>/dev/null | awk '$2 !~ /^(docker|l4tbr|usb)/ {sub(/\/.*/, "", $4); print $4; exit}' || true)
+  host=$ip
+  if [ "$tls" = true ]; then  # wss:// — 자체 서명 인증서(처음 한 번 만듦) · 아이패드에 한 번 설치·신뢰해야 함 · 주소는 IP가 바뀌어도 되게 <이름>.local
+    scheme=wss; host="$(hostname).local"
+    if [ ! -f "$d/cert.pem" ]; then
+      mkdir -p "$d"
+      openssl req -x509 -newkey rsa:2048 -nodes -days 825 -keyout "$d/key.pem" -out "$d/cert.pem" -subj "/CN=$host" \
+        -addext "subjectAltName=DNS:$host,IP:$ip" -addext "basicConstraints=critical,CA:TRUE" \
+        -addext "extendedKeyUsage=serverAuth" 2>/dev/null && cp "$d/cert.pem" "$d/bee-foxglove.crt"
+    fi
+  fi
+  ipads=$(timeout 3 avahi-browse -rtp _companion-link._tcp 2>/dev/null | awk -F';' '$1=="=" && $3=="IPv4" && ($4 ~ /iPad/ || $7 ~ /iPad/) {print $7" ("$8")"}' | sort -u || true)  # set -e·pipefail: avahi 없음·timeout도 계속
+  url="https://app.foxglove.dev/view?ds=foxglove-websocket&ds.url=${scheme}%3A%2F%2F${host}%3A${port}"
+  echo "=== Foxglove: ${scheme}://${host}:${port}$([ "$tls" = true ] || echo " (또는 ws://$(hostname).local:${port})")"
+  [ -n "$ipads" ] && echo "    같은 망의 아이패드: $(echo "$ipads" | awk 'NR>1{printf " · "}{printf "%s", $0}')" || echo "    같은 망에 아이패드 안 보임 (와이파이 확인)"
+  echo "    아이패드에서 열기: $url"
+  [ "$tls" = true ] && echo "    인증서(처음 한 번): $d/bee-foxglove.crt → Mac으로 받아 AirDrop → 아이패드 설치 → 설정 › 일반 › 정보 › 인증서 신뢰 설정에서 켬"
+  if command -v qrencode >/dev/null; then qrencode -t ANSIUTF8 -m 1 "$url"; else echo "    (QR로 찍으려면: sudo apt install qrencode)"; fi
+}
+case "${LAUNCH_FILE:-bringup.launch.py}" in bringup.launch.py) foxglove_hint "$@" ;; esac
+
+# 실행할 launch (기본 전체 bringup) — isaac/loops/manipulator-launcher.sh가 LAUNCH_FILE=stand_test.launch.py로 가벼운 팔 테스트용을 고름
 LAUNCH_FILE="${LAUNCH_FILE:-bringup.launch.py}"
+if [ "$LAUNCH_FILE" = "bringup.launch.py" ] && [ -z "${ALLOW_SECOND_BRINGUP:-}" ] && pgrep -f "[r]os2 launch bringup" >/dev/null; then
+  echo "ERROR: bringup already running; stop it before starting another (set ALLOW_SECOND_BRINGUP=1 only for an intentional second instance)" >&2
+  exit 1
+fi
 echo "=== ros2 launch bringup $LAUNCH_FILE $*"
 exec ros2 launch bringup "$LAUNCH_FILE" "$@"

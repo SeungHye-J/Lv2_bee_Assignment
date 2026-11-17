@@ -24,9 +24,9 @@
 //     출력: ✉️ /state/map_name (std_msgs/String, transient_local) — 지금 쓰는 지도 폴더 이름 (파라미터 map_name = launch가 정한 지도 폴더,
 //           빈 값 = 폴더 없음) → 시뮬레이터 [지도 저장]이 같은 폴더에 map.pgm·yaml
 //   충돌 감시 (collision_monitor 켬/끔 — 실제 toggle은 manual_control이 서비스로 수행)
-//     입력: ✉️ /cmd/collision (std_msgs/String "on" | "off" | "auto") — 직접 켬/끔은 모드가 바뀔 때까지 유지
+//     입력: ✉️ /cmd/collision (std_msgs/String "on" | "off" | "auto") — 직접 켬은 계속 유지 · 직접 끔은 AUTO로 바뀔 때까지
 //     출력: ✉️ /state/collision (std_msgs/String, transient_local) — "on:auto" | "off:auto" | "on:direct" | "off:direct"
-//           auto = MANUAL·MAPPING이면 끔, 그 밖엔 켬. direct = 조작자가 직접 정한 값 (모드 바뀌면 auto로 복귀)
+//           auto = MANUAL이면 끔, AUTO면 켬 (MAPPING이어도). direct = 조작자가 직접 정한 값 (끔은 AUTO로 바뀌면 auto로 복귀)
 //           → manual_control이 구독해 collision_monitor toggle 서비스를 호출한다
 //   재시작 (실기 bringup · 테스트베드 같은 길 — 예전엔 테스트베드 test-faker 0 셸만 받아서 실기엔 받는 쪽이 없었음)//     입력: ✉️ /cmd/restart (std_msgs/String)
 //           "node <이름>"         그 노드 프로세스만 — 명령줄·환경·작업 폴더를 /proc에서 그대로 읽어 끄고 같은 것으로 다시 (파라미터 유지)

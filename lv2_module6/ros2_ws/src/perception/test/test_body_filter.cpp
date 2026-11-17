@@ -47,9 +47,11 @@ TEST(BodyFilterParse, BoxAndCylinder) {
   EXPECT_DOUBLE_EQ(boxes[1].origin.getOrigin().z(), 0.5);
 }
 
-TEST_F(RosTest, DropsPointsInsideBody) {
-  auto node = std::make_shared<BodyFilter>(rclcpp::NodeOptions().parameter_overrides(
-    {{"input_topic", "/test/points"}, {"output_topic", "/test/points_filtered"}, {"padding", 0.03}}));
+// 점 4개(상자 안 · 가장자리 0.12 · 원기둥 안 · 몸 밖)를 넣고 남은 점들의 x
+std::vector<float> run_filter(std::vector<rclcpp::Parameter> extra) {
+  std::vector<rclcpp::Parameter> ps = {{"input_topic", "/test/points"}, {"output_topic", "/test/points_filtered"}};
+  ps.insert(ps.end(), extra.begin(), extra.end());
+  auto node = std::make_shared<BodyFilter>(rclcpp::NodeOptions().parameter_overrides(ps));
   auto probe = std::make_shared<rclcpp::Node>("probe");
   auto urdf_pub = probe->create_publisher<std_msgs::msg::String>("/robot_description", rclcpp::QoS(1).reliable().transient_local());
   std_msgs::msg::String u;
@@ -82,8 +84,19 @@ TEST_F(RosTest, DropsPointsInsideBody) {
   exec.add_node(node);
   exec.add_node(probe);
 
-  ASSERT_TRUE(spin_until(exec, [&]() { cloud_pub->publish(cloud); }, [&]() { return out != nullptr; }));
-  ASSERT_EQ(out->width, 1u);
-  sensor_msgs::PointCloud2ConstIterator<float> o(*out, "x");
-  EXPECT_FLOAT_EQ(o[0], 2.0f);
+  std::vector<float> xs;
+  if (!spin_until(exec, [&]() { cloud_pub->publish(cloud); }, [&]() { return out != nullptr; })) return {-1.0f};
+  for (sensor_msgs::PointCloud2ConstIterator<float> o(*out, "x"); o != o.end(); ++o) xs.push_back(o[0]);
+  return xs;
+}
+
+TEST_F(RosTest, DropsPointsInsideBody) {
+  EXPECT_EQ(run_filter({{"padding", 0.03}}), std::vector<float>({2.0f}));
+}
+
+// 차체 링크(base_links)는 base_padding만 — 가장자리 0.12 점(padding 0.10이면 지워짐)이 남아야 함
+TEST_F(RosTest, BaseLinksUseSmallPadding) {
+  EXPECT_EQ(run_filter({{"padding", 0.10}}), std::vector<float>({2.0f}));
+  EXPECT_EQ(run_filter({{"padding", 0.10}, {"base_padding", 0.0}, {"base_links", std::vector<std::string>{"arm"}}}),
+            std::vector<float>({1.12f, 2.0f}));
 }

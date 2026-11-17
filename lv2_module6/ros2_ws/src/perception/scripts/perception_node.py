@@ -1635,8 +1635,8 @@ class PerceptionNode(Node):
                 pass  # 장소 상자: 태그로 구한 방향(360°)을 윗면 사각형 방향(90°)으로 덮지 않음
             elif d.get("yaw") is not None:  # 방향은 구한 관측의 최신값 (평균 내지 않음 — 집기 직전 그리퍼캠이 가장 정확)
                 tr["yaw"], tr["yaw_period"] = d["yaw"], d["yaw_period"]
-            elif d.get("posture") and d["posture"] != tr.get("yaw_posture"):
-                tr["yaw"] = None  # 자세가 바뀜(세움 ↔ 누움) → 옛 방향은 뜻이 없음
+            elif d.get("posture") and tr.get("yaw_posture") and d["posture"] != tr["yaw_posture"]:
+                tr["yaw"] = None  # 자세가 바뀜(세움 ↔ 누움) → 옛 방향은 뜻이 없음 · 처음 안 자세("" → standing)는 바뀐 게 아님
             if d.get("posture"):
                 tr["yaw_posture"] = d["posture"]
         for i, d in enumerate(dets):

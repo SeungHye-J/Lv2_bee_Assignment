@@ -9,7 +9,7 @@ body_filter(자기 몸 점구름 필터) · signal_decoder(신호등 암호 → 
 
 from launch import LaunchDescription
 from launch.actions import DeclareLaunchArgument
-from launch.substitutions import LaunchConfiguration, PathJoinSubstitution
+from launch.substitutions import LaunchConfiguration, PathJoinSubstitution, PythonExpression
 from launch_ros.actions import Node
 from launch_ros.parameter_descriptions import ParameterValue
 from launch_ros.substitutions import FindPackageShare
@@ -25,6 +25,8 @@ def generate_launch_description():
                               description='추론 장치: cuda (젯슨 GPU — ONNX Runtime CUDA, 안 되면 저절로 CPU) | cpu'),
         DeclareLaunchArgument('rate_hz', default_value='10.0',
                               description='/tracked_objects 발행 주기 [Hz]'),
+        DeclareLaunchArgument('hand_relative_py', default_value='false',
+                              description='true면 hand_relative 예전 파이썬판 (scripts/hand_relative.py) · 기본 C++ (11-16)'),
         Node(package='perception', executable='perception_node', output='screen',
              parameters=[config, {
                  'model_path': ParameterValue(LaunchConfiguration('model_path'), value_type=str),
@@ -33,5 +35,6 @@ def generate_launch_description():
              }]),
         Node(package='perception', executable='body_filter', output='screen', parameters=[config]),
         Node(package='perception', executable='signal_decoder', output='screen', parameters=[config]),
-        Node(package='perception', executable='hand_relative', output='screen', parameters=[config]),
+        Node(package='perception', output='screen', parameters=[config], executable=PythonExpression(
+            ["'hand_relative_py' if '", LaunchConfiguration('hand_relative_py'), "'.lower() == 'true' else 'hand_relative'"])),
     ])

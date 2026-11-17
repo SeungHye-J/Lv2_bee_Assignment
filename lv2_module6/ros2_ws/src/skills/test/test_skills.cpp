@@ -72,6 +72,10 @@ TEST(ArmIo, GripState) {  // 위치형 쥐기 판정
   EXPECT_EQ(grip_state(0.002, 0.009, 0.3, 1.0, 0.007, 0.003, 4.0), 0);   // 다 닫힘 = 빈손 (전류와 무관)
   EXPECT_EQ(grip_state(0.007, 0.009, 0.1, 1.0, 0.007, 0.003, 4.0), 2);   // 아직 움직임
   EXPECT_EQ(grip_state(0.007, 0.002, 0.3, 1.0, 0.007, 0.003, 4.0), 2);   // 전류 부족
+  EXPECT_EQ(grip_state(0.0062, 0.0, 0.6, 1.0, 0.007, 0.003, 4.0), 1);
+  EXPECT_EQ(grip_state(0.0054, 0.0108, 0.3, 1.0, 0.007, 0.0056, 4.0), 1);  // 패드가 눌려 empty_m보다 닫혔지만 전류 = 쥠 (11-15 끌어오기)
+  EXPECT_EQ(grip_state(0.0050, 0.0200, 0.3, 1.0, 0.007, 0.0056, 4.0), 0);  // 목표까지 닫힘 = 빈손 (전류와 무관)
+  EXPECT_EQ(grip_state(0.0054, 0.0010, 0.3, 1.0, 0.007, 0.0056, 4.0), 0);  // 그 사이 + 전류 없음 = 빈손   // 전류 없어도 안 닫히고 0.5 s 멈춤 = 쥠 (목표 = 퍽 폭)
   EXPECT_EQ(grip_state(0.007, 0.002, 0.3, 4.1, 0.007, 0.003, 4.0), -1);  // 시간 초과
 }
 
@@ -102,6 +106,16 @@ TEST(ProgressWatch, StuckAtWallStallsAfterWindow) {  // 벽 앞: 회복 동작�
   for (; t < 60.0 && !hit; t += 0.5) hit = w.update(t, 1.2 + 0.05 * ((static_cast<int>(t * 2) % 2) ? 1 : -1));
   EXPECT_TRUE(hit);
   EXPECT_NEAR(t, 25.5, 1.0);  // 4~5분 대신 약 25 s
+}
+TEST(StillWatch, StoppedRobotHitsSpinDoesNot) {  // 11-16 실기: collision_monitor 정지 · 제자리 180° 회전 (0.45 rad/s)
+  skills::StillWatch w(3.0, 0.02, 3.0 * M_PI / 180.0);
+  double t = 0;
+  for (; t < 7.0; t += 0.1) EXPECT_FALSE(w.update(t, 0.0, 0.0, 0.45 * t)) << t;  // 회전 7 s — 위치는 그대로
+  bool hit = false;
+  const double t_stop = t;
+  for (; t < 12.0 && !hit; t += 0.1) hit = w.update(t, 0.003, 0.0, 0.45 * t_stop);  // 멈춤 (잡음 3 mm)
+  EXPECT_TRUE(hit);
+  EXPECT_NEAR(t - t_stop, 3.1, 0.2);
 }
 TEST(ProgressWatch, DetourReplanIsNotStall) {  // 남쪽 통로 막혀 북쪽 우회로(1.0 → 4.0 m)로 재계획 뒤 정상 주행 (T3)
   skills::ProgressWatch w(25.0, 0.10);

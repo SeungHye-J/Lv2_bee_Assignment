@@ -1,0 +1,24 @@
+#usda 1.0
+(
+    doc = """scene_pick.usda + beebot. The robot stays here; isaac_startup.py moves one start box and its pucks
+    in front of it per case (/tmp/beebot_pick_case.json, session layer), so scene_pick.usda is never edited."""
+    defaultPrim = "World"
+    metersPerUnit = 1
+    upAxis = "Z"
+    subLayers = [
+        @./scene_pick.usda@
+    ]
+)
+
+over "World"
+{
+    def "beebot" (
+        prepend payload = @./beebot/beebot.usda@
+    )
+    {
+        quatf xformOp:orient = (0.70710677, 0, 0, 0.70710677)
+        float3 xformOp:scale = (1, 1, 1)
+        double3 xformOp:translate = (0, -1.2, 0.000001370847371173767)
+        uniform token[] xformOpOrder = ["xformOp:translate", "xformOp:orient", "xformOp:scale"]
+    }
+}

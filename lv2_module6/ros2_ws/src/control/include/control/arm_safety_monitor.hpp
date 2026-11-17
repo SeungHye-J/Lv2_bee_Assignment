@@ -24,7 +24,7 @@ using sensor_msgs::msg::JointState;
 
 class ArmSafetyMonitor : public rclcpp::Node {
 public:
-  ArmSafetyMonitor();
+  explicit ArmSafetyMonitor(const rclcpp::NodeOptions & options = rclcpp::NodeOptions());
 
 private:
   void on_joint_states(const JointState & js);

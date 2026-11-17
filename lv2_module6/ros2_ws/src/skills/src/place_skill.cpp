@@ -38,9 +38,11 @@ public:
       if (g.target != "cell" && g.target != "over") { done(false, "place_bad_target"); return; }
       when_ready([this]() { return arm_.moveit_ready() && arm_.gripper_ready(); }, "arm_unavailable", done, [this, g, done]() {
         arm_.clear_flags();
-        // 처짐 적분 0으로 되돌리기는 정책 입력이 시뮬처럼 0에서 시작하게 하려는 것 — 정책이 꺼져 있으면 안 함
-        //   (되돌리면 팔이 처졌다 다시 올라와 멈출 때까지 ~0.45 s 기다림 · 11/08 실기 unload → place 사이 멈춤)
-        if (policy_.use) arm_.reset_sag();
+        // 처짐 적분: 예전엔 여기서 reset_sag(한 번에 0) → 팔이 처졌다 다시 올라와 멈출 때까지 ~0.45 s 기다림 (11/08 실기 unload → place).
+        //   정책 입력 0 시작은 닿는 구간 시작(새 run_id)이 맡으니 여기선 앞 MoveIt 이동 동안 0으로 풂 (fade_sag).
+        //   "over"는 닿는 구간이 없음 → fade가 안 끝나 처짐 보정이 꺼진 채로 남음 → cell만 (over는 적분이 그대로 보정)
+        if (policy_.use) arm_.settle_next();  // 앞 skill의 Δ (fade로 이동 중에 빠짐 — 남은 것만 기다림)
+        if (g.target == "cell") arm_.fade_sag();
         auto release = g.pose;  // 벌릴 손끝 자리
         if (release.header.frame_id.empty()) release.header.frame_id = "map";
         release.header.stamp = now();

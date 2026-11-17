@@ -58,7 +58,7 @@ class CollisionState(State):
         body = [f'현재: {cur}', f'적용: {apply}', '']
         if not want_on:
             body.insert(2, '끄면 벽·물체 앞에서 자동으로 서지 않습니다. 직접 몰 때만 쓰세요.')
-        body.append('직접 바꾸면 모드가 바뀔 때까지 유지됩니다 (MANUAL·MAPPING은 자동으로 끔)')
+        body.append('직접 켜면 계속, 직접 끄면 AUTO로 바뀔 때까지 유지됩니다 (MANUAL은 자동으로 끔)')
         if not self.ui.confirm('충돌 감시를 켤까요?' if want_on else '충돌 감시를 끌까요?', default=want_on, body=body):
             return STAY
         try:

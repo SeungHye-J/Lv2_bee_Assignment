@@ -27,6 +27,57 @@ source /opt/ros/lyrical/setup.bash
 ./stop.sh
 ```
 
+### 실제 로봇 시험: 시작부터 첫 이동까지
+
+`start_real.sh`는 실기 bringup만 시작합니다. **bringup 직후 로봇은 미션 이동을 시작하지 않습니다.**
+상태를 확인한 다음 `./tools/run-cli mission start`를 실행해야 움직입니다. 같은 launch 인자를 직접 주면 기본값보다 우선합니다.
+
+| 항목 | 기본값 | 의미 |
+| --- | --- | --- |
+| 하드웨어·SLAM | `mock_hardware:=false`, `fake_slam:=false`, `use_ros_system:=true` | OpenCR와 실제 CUVSLAM/nvblox 사용 |
+| 카메라 | `use_cameras:=true`, `use_pole_back_cam:=false` | 실기 카메라 스택 사용, 뒤 카메라는 끔 |
+| 지도·주행 | `map:=saved`, `map_name:=scene_sim`, `map_backend:=nvblox`, `use_nav2:=true` | 저장 지도 위치추정과 Nav2 |
+| 인지·조작 | `perception:=true`, `operation:=AUTO`, `taught_routes:=true` | YOLO·태그 인지와 자율 미션 준비. 가르친 경로가 있으면 먼저 재생 |
+| 팔 계획 | `use_moveit:=true` (MoveIt 설치 시) | MoveIt이 없으면 `start.sh`가 false로 낮춤. 팔 pick/load 시험이면 시작 로그에서 MoveIt이 켜졌는지 확인 |
+| 카메라 선택 | `gripper_cam`은 `auto` | `GRIPPER_CAM_SERIAL` 환경변수 또는 `gripper_cam_serial:=...` 필요. 없으면 gripper_cam/hand-relative가 꺼져 조작 시험을 진행할 수 없음 |
+| CUVSLAM | `cuvslam_impl:=auto`, `cuvslam_frame_skip:=1` | C++ 실행파일이 있으면 C++ 사용, 입력 프레임 전체 추적 |
+| 주행 중 인지 | `navigation_throttle:=true`, `navigation_infer_hz:=2.0`, `navigation_full_near_m:=1.0` | 멀리 주행할 때 인지 2 Hz, 목표 1 m 이내는 정상 주기 |
+| 네트워크 | `ROS_DOMAIN_ID=88`, `fastdds.xml` | `start.sh` 기본값. 외부 PC에서 볼 때만 같은 domain/네트워크 확인 |
+
+카메라 두 대를 쓸 때는 실제 serial을 지정합니다. `GRIPPER_CAM_SERIAL`이 없으면 gripper camera가 자동으로 꺼질 수 있어 팔·적재함 인지 시험이 제한됩니다.
+
+```bash
+rs-enumerate-devices -s
+export POLE_FRONT_CAM_SERIAL=<front_serial>
+export GRIPPER_CAM_SERIAL=<gripper_serial>
+```
+
+시험 순서:
+
+| 단계 | 명령·확인 | 다음 단계로 넘어갈 조건 |
+| --- | --- | --- |
+| 단계 | 명령 | 확인할 결과 / 다음 단계 조건 |
+| --- | --- | --- |
+| 1. 시작 위치·장치 | 출발 위치/방향을 운영 기준에 맞춤. `GRIPPER_CAM_SERIAL`·`POLE_FRONT_CAM_SERIAL`을 확인하고 `./tools/run-cli estop status` | E-stop 해제, 카메라 serial이 실제 카메라와 일치. `scene_sim/nvblox.nvblx` 파일은 start_real이 확인 |
+| 2. Bringup | `cd ~/Lv2_bee_Assignment/lv2_module6/ros2_ws && ./start_real.sh` | ROS, Isaac overlay, bringup이 뜸. 이미 bringup이 떠 있으면 중복 실행은 거부됨. 코드 변경 후 빌드는 로봇 정지 중 `./start_real.sh --build` |
+| 3. 장치·모드 | 저장소 루트에서 `./tools/run-cli status` · `./tools/run-cli map status` | `AUTO`, `LOCALIZATION / scene_sim`, pole_front_cam·gripper_cam·OpenCR 정상 |
+| 4. CUVSLAM·TF | `ps -ef | grep '[c]uvslam_slam_cpp'` · `ros2 topic hz /cuvslam/odom` · `ros2 run tf2_ros tf2_echo map base_footprint` | C++ 실행파일이 선택됐고 odometry/TF가 계속 갱신되며 정지 시 튀지 않음 |
+| 5. Nav2·안전 | `./tools/run-cli node status planner_server` · `./tools/run-cli node status controller_server` · `./tools/run-cli estop status` · `./tools/run-cli collision status` | Nav2 서버 active, E-stop 해제, collision monitor가 AUTO 보호 상태 |
+| 6. 미션 준비 | `./tools/run-cli mission status` | 이전 미션이 끝났고 적재함 장부가 비어 있음. 장부에 퍽이 남아 있으면 mission manager가 시작을 거부하므로 실제 적재함 확인 후 정리 |
+| 7. 첫 이동 | 저장소 루트에서 `./tools/run-cli mission start` | **이 명령부터 로봇이 주행·팔 동작을 시작함.** bringup 단계에서는 자동 미션을 시작하지 않음 |
+| 8. 진행·중지 | `./tools/run-cli mission status` · 필요 시 `./tools/run-cli mission abort`; 즉시 위험은 `./tools/run-cli estop on` | 단계·경로·적재 상태를 확인. 정상 미션 완료 뒤에 종료 |
+| 9. 정상 종료 | bringup 터미널에서 `Ctrl+C` 한 번 | launch가 ROS 노드를 정리함 |
+
+`./tools/run-cli`는 저장소 루트의 운영자 CLI입니다. 상태 확인 전에 미션을 시작하지 마세요. `start_box_retreat`는 S2·S6에 추가 0.25 m를 더하므로, approach 뒤 후진 거리가 예상보다 길면 해당 항목을 확인하세요. `approach_exit_m`은 미션 manager가 거리값을 전달하지 않는 직접 exit 호출의 기본값입니다.
+
+주요 override 예:
+
+```bash
+./start_real.sh map_name:=<다른_저장_지도>
+./start_real.sh navigation_infer_hz:=0.0       # 주행 중 추론 끄기
+./start_real.sh map:=slam map_name:=new_test    # 새 nvblox 지도 생성
+```
+
 ## 2. 장치 설정
 
 ### OpenCR
@@ -204,6 +255,23 @@ ros2 topic info -v /pole_front_cam/color/image_raw
 ros2 topic info -v /pole_front_cam/depth/color/points
 ```
 
+### Foxglove로 볼 때 (Mac·아이패드)
+
+기본은 끔 — `./start.sh ... use_foxglove:=true`로 켭니다 (포트 8765).
+설치는 한 번만 합니다.
+
+```bash
+sudo apt install ros-lyrical-foxglove-bridge
+```
+
+Foxglove 앱에서 **Open connection → Foxglove WebSocket** → `ws://bee.local:8765`
+(이름이 안 풀리면 로봇 IP). DDS 설정과 상관없이 WebSocket 하나로 붙습니다.
+
+- 포트 바꾸기: `foxglove_port:=8766` · 아이패드 Safari가 ws://를 막으면 `foxglove_tls:=true`
+- 부하: 패널이 구독한 토픽만 보냅니다. 영상(`image_raw`)은 무거우니 필요할 때만 열고,
+  가능하면 `/perception/*/debug_image`처럼 이미 그린 영상 하나만 봅니다.
+- 3D 패널의 로봇 모델은 `/robot_description`, 지도는 `/map`, 인지는 `/tracked_objects`·`/mission/state`.
+
 ### 다른 PC의 RViz로 볼 때
 
 RViz Image Display에서 다음을 맞춥니다.
@@ -311,6 +379,7 @@ ros2 topic echo /state/topics --once \
 | `port:=/dev/ttyACM0` | OpenCR 포트 |
 | `use_cameras:=false` | RealSense 전체 끔 |
 | `use_pole_front_cam:=false` | front 카메라만 끔 |
+| `use_foxglove:=true` | Foxglove 브리지 켬 (기본 false · ws://<로봇>:8765) |
 | `use_gripper_cam:=false` | gripper 카메라만 끔 |
 | `pole_front_cam_serial:=...` | front serial_no |
 | `gripper_cam_serial:=...` | gripper serial_no |
@@ -450,6 +519,7 @@ serial을 환경변수로 지정하고, 한 대만 쓸 때는 반대쪽 `use_*_c
 | 스크립트 | 용도 |
 | --- | --- |
 | `start.sh` | 빌드 확인 후 bringup 실행 |
+| `start_real.sh` | 실기 기본값 + 저장 지도 사전 확인 후 bringup 실행 |
 | `stop.sh` | ROS 프로세스 전체 종료 |
 | `rebuild.sh` | `build/`·`install/`·`log/` 삭제 후 클린 빌드 |
 | `download-artifact.sh` | CI 배포 패키지 다운로드 |

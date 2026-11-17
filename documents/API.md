@@ -171,6 +171,37 @@ SubGoal[] goals
 
 - 내는 쪽: mission_manager(주사위 미션, plan_id 1000000 + n) → `/task/sub_goals` (reliable + transient_local). 받는 쪽: coordinator.
 
+<a id="api-action-executeplan"></a>
+### plan/action/ExecutePlan ([파일](../lv2_module6/ros2_ws/src/plan/action/ExecutePlan.action))
+
+```text
+# goal
+uint32 plan_id
+SubGoal[] goals
+---
+# result
+bool success
+uint32 final_step
+string reason
+---
+# feedback
+uint32 plan_id
+uint32 current_step
+string skill
+string stage
+```
+
+- 정식 계획 실행 경계: coordinator Action server `/task/execute_plan`.
+- `goal`은 기존 `SubGoal[]` 계획을 그대로 담으므로 PR1에서는 단일 pose/기존 skill 계약을 바꾸지 않습니다. `result`는 계획 전체의 성공·마지막 단계·실패/취소 이유를 한 번 전달하고, `feedback`은 현재 단계와 실행 국면을 전달합니다.
+- `MissionManager`는 이 Action의 client입니다. `TaskStatus`는 계속 발행되는 단계별 telemetry이지만 정식 미션 완료를 기다리는 계약은 Action result입니다.
+- 기존 외부 도구·Isaac·fake는 `/task/sub_goals`에 계속 보낼 수 있습니다. Coordinator는 Action 실행 중 legacy 계획이 들어오면 최신 계획을 대기시킨 뒤 child skill 취소가 끝난 다음 기존 Action을 `ABORTED/preempted`로 끝내고 legacy 계획을 시작합니다. 대기 중인 Action이 새 요청으로 대체되면 이전 대기 Action도 `preempted`로 끝납니다.
+
+<a id="api-msg-currentplan"></a>
+### plan/msg/SubGoalArray — accepted plan telemetry
+
+- Coordinator가 실제로 수락한 계획은 `/task/current_plan`에도 `SubGoalArray`로 발행합니다(`reliable + transient_local`). 운영 화면·지도·bag 분석은 이 토픽을 우선 사용합니다.
+- `/task/sub_goals`는 입력 호환을 위한 legacy ingress이므로 coordinator가 Action goal을 다시 이 토픽에 republish하지 않습니다.
+
 <a id="api-msg-taskstatus"></a>
 ### plan/msg/TaskStatus ([파일](../lv2_module6/ros2_ws/src/plan/msg/TaskStatus.msg))
 
@@ -185,7 +216,7 @@ string reason       # grasp_failed_all | nav_failed | arm_contact ...
 ```
 
 - 내는 쪽: coordinator → `/task/status` (reliable + transient_local). 받는 쪽: mission_manager(자기 계획 결과로 다음 단계).
-- reason (coordinator.cpp): 이동 `nav_failed` · `approach_failed` / 집기 `no_grasp` · `grasp_failed_all` · `arm_contact` / 놓기 `place_failed` · `place_no_target` / 자세 `pose_failed` / 적재함 `slot_invalid` · `slot_full` · `slot_empty` · `load_failed` · `unload_failed` · `basket_table_missing` / 잡기 판정 `grasp_empty` / 세우기 `stand_failed` · `stand_no_grip` · `stand_grip_timeout` · `stand_not_lying` · `stand_no_yaw` · `stand_ik_unreachable` · `stand_table_missing` · `stand_pick_no_stand` · `stand_pick_failed` · `hand_full` / 보기 `inspect_no_target` · `inspect_failed` · `inspect_partial`(상자 보기에서 퍽·태그가 모자람) / 멈춤 `manual_override`·`manual_mode` · `estop`·`estop_blocked` · `cancelled` — `manual`·`estop`·`cancelled`로 시작하면 재계획하지 않음.
+- reason (coordinator.cpp): 이동 `nav_failed` · `approach_failed` / 집기 `no_grasp` · `grasp_failed_all` · `arm_contact` / 놓기 `place_failed` · `place_no_target` / 자세 `pose_failed` / 적재함 `slot_invalid` · `slot_full` · `slot_empty` · `load_failed` · `unload_failed` · `basket_table_missing` / 잡기 판정 `grasp_empty` / 세우기 `stand_failed` · `stand_no_grip` · `stand_grip_timeout` · `stand_not_lying` · `stand_no_yaw` · `stand_ik_unreachable` · `stand_table_missing` · `stand_pick_no_stand` · `stand_pick_failed` · `hand_full` / 보기 `inspect_no_target` · `inspect_failed` · `inspect_partial`(상자 보기에서 퍽·태그가 모자람) / 멈춤 `manual_override`·`manual_mode` · `estop`·`estop_blocked` · `cancelled` · `preempted` — `manual`·`estop`·`cancelled`·`preempted`로 시작하면 재계획하지 않음.
 - 주의: [노드 사전](project/ros/10-catalog.md)의 reason 예시(`nav_blocked`)와 파일(`nav_failed`)이 다릅니다 — 파일이 정본.
 
 <a id="api-msg-missionstate"></a>
@@ -340,10 +371,12 @@ string message
 | `/mission/qr` | std_msgs/String | perception → mission_manager | 바코드 원문(예 `P2-01` — 정렬 방향) — 처음 읽었을 때, 그 뒤로는 읽은 내용을 0.5초마다 다시 냄(`barcode_once`) · reliable + transient_local |
 | `/mission/signal` | perception/MissionSignal | signal_decoder (perception) → mission_manager | 신호등 12회 점멸 확정 답 {sequence, red, yellow, green, ok, raw} — 두 사이클 같게 읽혀 새 답이 확정될 때만 · reliable + transient_local. 해석(L1~L3 배정)은 mission_manager |
 | `/mission/signal_status` | perception/MissionSignal | signal_decoder (perception) → mission_manager | 사이클마다 결과 · `ok=false`면 `error` = count · unknown · range · unconfirmed · reliable (래치 없음) |
-| `/task/sub_goals` | plan/SubGoalArray | mission_manager → coordinator | 계획마다 · reliable + transient_local. target = 물체 id · `"x,y"`(navigate) · **`"tray"`(pick·place — 로봇 뒤 적재함 12칸: place tray = `load next`, pick tray = `unload last`)** · 칸 번호·`next`·`last`(load·unload) · 자세 이름(pose) · 퍽 id(inspect) |
+| `/task/execute_plan` | plan/action/ExecutePlan | mission_manager·정식 계획자 → coordinator | Action goal/result/feedback. goal = `plan_id + SubGoal[]`; cancel 지원 · reliable |
+| `/task/sub_goals` | plan/SubGoalArray | legacy CLI·Isaac·fake → coordinator | 계획마다 · reliable + transient_local. target = 물체 id · `"x,y"`(navigate) · **`"tray"`(pick·place — 로봇 뒤 적재함 12칸: place tray = `load next`, pick tray = `unload last`)** · 칸 번호·`next`·`last`(load·unload) · 자세 이름(pose) · 퍽 id(inspect) |
+| `/task/current_plan` | plan/SubGoalArray | coordinator → 운영 화면·RViz·bag 분석 | coordinator가 실제 수락한 마지막 계획 · reliable + transient_local · Action goal을 `/task/sub_goals`로 재발행하지 않음 |
 | `/mission/state` | plan/MissionState | mission_manager → (운영 화면 · RViz) | 단계 · 지금 하는 일 · 바코드 · R·Y·G 횟수 · L1~L3 그룹 · 적재함 칸 → tag · 놓은 수 · 결과 · 오류 — 바뀔 때마다 · reliable + transient_local ([03-plan.md](project/ros/03-plan.md)) |
 | `/mission/markers` | visualization_msgs/MarkerArray | mission_manager → RViz | 출발 구역 · 박스 · 장소 3×3 칸(배정 뒤 그룹 색) — 1Hz · reliable + transient_local |
-| `/task/status` | plan/TaskStatus | coordinator → mission_manager | 단계 완료·실패 시 · reliable + transient_local |
+| `/task/status` | plan/TaskStatus | coordinator → telemetry·legacy 모니터 | 단계 실행/완료·실패 시 · reliable + transient_local. 정식 Action client는 전체 완료를 `ExecutePlan` result로 판단 |
 | `/speed_limit` | nav2_msgs/SpeedLimit | (현재 발행자 없음) → controller_server | 값이 오면 컨트롤러에 전달 · reliable |
 | `/arm_safety_event` | control/ArmSafetyEvent | arm_safety_monitor → coordinator | 접촉 시 |
 | `/motor_status` | control/MotorStatus | BeebotSystemHardware → state_manager | 모터별 Hardware Error (0 정상 · −1 응답 없음 · 비트 1 입력전압 4 과열 8 엔코더 16 전기충격 32 과부하) + 사람이 읽는 이름 + 온도 °C — 바뀔 때만 · reliable + transient_local (펌웨어 `E` 줄 · `S` 끝 온도) |
@@ -449,16 +482,16 @@ string message
 coordinator가 계획 단계마다 skill 노드 하나에 맡김 — 한 노드에 한 번에 goal 하나. 결과 `success` · `reason`(실패 이유 → `/task/status` reason 그대로) · 피드백 `stage`.
 학습 정책은 skill 노드가 갖고 관리: `lv2_module6/models/skills/<skill>/` (`<skill>.policy` 로봇용 · `<skill>.onnx` 원본 · `meta.yaml` 쓸지·시뮬 성공률·출처).
 
-| 액션 | 노드 (컨테이너) | 쓰는 goal 칸 | 하는 일 · 정책 |
-| --- | --- | --- | --- |
-| `/skills/navigate` | skill_navigate (base_skills) | `pose` | Nav2 `/navigate_to_pose` |
-| `/skills/approach` | skill_approach (base_skills) | `pose` (x, y, yaw) · `target` = 정책 `dock_box`(기본) \| `park_home` \| `drive_arc` \| `drive_straight` | 시뮬 기준 제어 + 정책 보정을 직접 계산 → `/cmd_vel_nav` (20 Hz) · 도착 판정은 정책 meta (tol_m · tol_deg · hold_s) |
-| `/skills/pose` | skill_pose (arm_skills) | `target` = stow \| carry_left \| carry_right \| scan | MoveIt 관절 목표 · 시작 자세 · 지도 만들 때 스캔 자세도 이 노드 |
-| `/skills/inspect` | skill_inspect | `pose` (볼 점) · `values[0]` 손 방향 yaw · `target "box"`: `pose` = 상자 가운데, `values[0]` = 기대 퍽 수(기본 2) | 점 위 `inspect_height_m`에서 기다림 (태그 읽기) · box: look 자세 → 모자라면 다시 담기 |
-| `/skills/pick` | skill_pick | `target` 물체 id · `tag` · `shape` | score_grasps → 후보 손 방향 ψ로 푼 관절값으로 퍽 위 5 cm (MoveIt 관절 목표) → 닿는 구간 `pick_standing_puck` |
-| `/skills/place` | skill_place | `target` cell \| over · `pose` (놓을 면) · `values[0]` 다가가는 높이 | 닿는 구간 `place_cell` (cell) · 물체 위 MoveIt (over) |
-| `/skills/load` · `/skills/unload` | skill_load · skill_unload | `slot` · `shape` · `tag` | 적재함 칸 (장부는 coordinator) · `load_slot` · `unload_slot` |
-| `/skills/stand` · `/skills/stand_pick` | skill_stand | `pose` (누운 퍽) · `shape` · `tag` | 세우기 · 그 자리 다시 쥐기 · `regrasp_after_stand` (meta use: false — 로봇 입력 모양 없음) |
+| 액션 | 노드 (컨테이너) | 쓰는 goal 칸 | 하는 일 · 정책 | 모델 (`models/skills/`) |
+| --- | --- | --- | --- | --- |
+| `/skills/navigate` | skill_navigate (base_skills) | `pose` | Nav2 `/navigate_to_pose` | — |
+| `/skills/approach` | skill_approach (base_skills) | `pose` (x, y, yaw) · `target` = 정책 `dock_box`(기본) \| `park_home` \| `drive_arc` \| `drive_straight` | 시뮬 기준 제어 + 정책 보정을 직접 계산 → `/cmd_vel_nav` (20 Hz) · 도착 판정은 정책 meta (tol_m · tol_deg · hold_s) | `dock_box` · `park_home` · `drive_arc` · `drive_straight` (켜짐) |
+| `/skills/pose` | skill_pose (arm_skills) | `target` = stow \| carry_left \| carry_right \| scan | MoveIt 관절 목표 · 시작 자세 · 지도 만들 때 스캔 자세도 이 노드 | — |
+| `/skills/inspect` | skill_inspect | `pose` (볼 점) · `values[0]` 손 방향 yaw · `target "box"`: `pose` = 상자 가운데, `values[0]` = 기대 퍽 수(기본 2) | 점 위 `inspect_height_m`에서 기다림 (태그 읽기) · box: look 자세 → 모자라면 다시 담기 | — |
+| `/skills/pick` | skill_pick | `target` 물체 id · `tag` · `shape` | score_grasps → 후보 손 방향 ψ로 푼 관절값으로 퍽 위 5 cm (MoveIt 관절 목표) → 닿는 구간 `pick_standing_puck` | `pick_standing_puck` (켜짐) |
+| `/skills/place` | skill_place | `target` cell \| over · `pose` (놓을 면) · `values[0]` 다가가는 높이 | 닿는 구간 `place_cell` (cell) · 물체 위 MoveIt (over) | `place_cell` (꺼짐 — 상수 오프셋) |
+| `/skills/load` · `/skills/unload` | skill_load · skill_unload | `slot` · `shape` · `tag` | 적재함 칸 (장부는 coordinator) · `load_slot` · `unload_slot` | `load_slot` (켜짐) · `unload_slot` (꺼짐) |
+| `/skills/stand` · `/skills/stand_pick` | skill_stand | `pose` (누운 퍽) · `shape` · `tag` | 세우기 · 그 자리 다시 쥐기 · `regrasp_after_stand` (meta use: false — 로봇 입력 모양 없음) | `stand_grasp` (꺼짐 — 누운 퍽 집기 위치 보정) · `regrasp_after_stand` (꺼짐) |
 
 ### 그 밖
 

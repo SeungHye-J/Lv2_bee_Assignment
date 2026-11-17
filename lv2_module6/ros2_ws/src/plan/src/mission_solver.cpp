@@ -2,6 +2,7 @@
 #include "plan/mission_solver.hpp"
 
 #include <algorithm>
+#include <cctype>
 #include <limits>
 #include <cmath>
 #include <set>
@@ -70,6 +71,41 @@ bool allocate(const std::vector<Puck> & pucks, const Counts & c, std::map<int, c
 }
 
 // 가운데 칸(4)이 있으면 먼저 — 이웃이 놓인 뒤엔 가운데 성공률이 떨어짐 (81~83%)
+bool allocate_partial(const std::vector<Puck> & pucks, const Counts & c, std::map<int, char> & out, std::map<char, int> & filled) {
+  std::vector<Puck> ok;
+  std::set<int> tags;
+  for (const auto & p : pucks)
+    if ((p.color == "red" || p.color == "green") && (p.shape == "cyl" || p.shape == "box") && tags.insert(p.tag).second) ok.push_back(p);
+  const auto n = [&](const std::string & color, const std::string & shape) {
+    return static_cast<int>(std::count_if(ok.begin(), ok.end(), [&](const Puck & p) {
+      return p.color == color && (shape.empty() || p.shape == shape);
+    }));
+  };
+  // Y 모양 · Y에 넣을 빨강·초록 수를 다 따져 봄 (많아야 2 × 7 × 7)
+  int best_full = -1, best_sum = -1, best_yr = 0, best_yg = 0;
+  std::string best_shape;
+  for (const std::string shape : {"cyl", "box"})
+    for (int yr = 0; yr <= std::min(c.y, n("red", shape)); ++yr)
+      for (int yg = 0; yg <= std::min(c.y - yr, n("green", shape)); ++yg) {
+        const int r = std::min(c.r, n("red", "") - yr), g = std::min(c.g, n("green", "") - yg), y = yr + yg;
+        const int full = (r == c.r) + (y == c.y) + (g == c.g), sum = r + y + g;
+        if (full > best_full || (full == best_full && sum > best_sum)) {
+          best_full = full; best_sum = sum; best_shape = shape; best_yr = yr; best_yg = yg;
+        }
+      }
+  out.clear();
+  filled = {{'R', 0}, {'Y', 0}, {'G', 0}};
+  if (best_sum <= 0) return false;
+  int yr = best_yr, yg = best_yg;
+  for (const auto & p : ok) {  // Y 먼저 (그 모양에서), 나머지는 색대로 그룹이 찰 때까지
+    int & left = p.color == "red" ? yr : yg;
+    const char grp = p.color == "red" ? 'R' : 'G';
+    if (p.shape == best_shape && left > 0) { out[p.tag] = 'Y'; --left; ++filled['Y']; }
+    else if (filled[grp] < group_count(c, grp)) { out[p.tag] = grp; ++filled[grp]; }
+  }
+  return true;
+}
+
 std::vector<int> dice_cells(int n) {
   static const std::vector<int> table[7] = {{}, {4}, {0, 8}, {4, 0, 8}, {0, 2, 6, 8}, {4, 0, 2, 6, 8}, {0, 3, 6, 2, 5, 8}};
   return (n >= 1 && n <= 6) ? table[n] : std::vector<int>{};
@@ -100,6 +136,175 @@ Pose2 arena_to_map(const Pose2 & p, const Pose2 & start) {
   return {c * dx - s * dy, s * dx + c * dy, std::remainder(p.yaw - start.yaw, 2 * M_PI)};
 }
 
+Pose2 map_to_arena(const Pose2 & m, const Pose2 & start) {
+  const double c = std::cos(start.yaw), s = std::sin(start.yaw);
+  return {start.x + c * m.x - s * m.y, start.y + s * m.x + c * m.y, std::remainder(m.yaw + start.yaw, 2 * M_PI)};
+}
+
+Pose2 apply_corr(const ArenaCorr & c, const Pose2 & m) {
+  const double co = std::cos(c.dth), si = std::sin(c.dth);
+  return {co * m.x - si * m.y + c.dx, si * m.x + co * m.y + c.dy, std::remainder(m.yaw + c.dth, 2 * M_PI)};
+}
+
+Pose2 unapply_corr(const ArenaCorr & c, const Pose2 & m) {
+  const double x = m.x - c.dx, y = m.y - c.dy, co = std::cos(c.dth), si = std::sin(c.dth);
+  return {co * x + si * y, -si * x + co * y, std::remainder(m.yaw - c.dth, 2 * M_PI)};
+}
+
+ArenaCorr corr_step(const ArenaCorr & c, double max_m, double max_rad) {
+  const double d = std::hypot(c.dx, c.dy), r = std::abs(c.dth);
+  const double k = std::min({1.0, d > 1e-9 ? max_m / d : 1.0, r > 1e-9 ? max_rad / r : 1.0});
+  return {k * c.dx, k * c.dy, k * c.dth, c.n};
+}
+
+ArenaCorr corr_after_step(const ArenaCorr & c, const ArenaCorr & s) {
+  const double x = c.dx - s.dx, y = c.dy - s.dy, co = std::cos(s.dth), si = std::sin(s.dth);
+  return {co * x + si * y, -si * x + co * y, std::remainder(c.dth - s.dth, 2 * M_PI), c.n};
+}
+
+ArenaCorr compose_corr(const ArenaCorr & a, const ArenaCorr & b) {
+  const double co = std::cos(a.dth), si = std::sin(a.dth);
+  return {co * b.dx - si * b.dy + a.dx, si * b.dx + co * b.dy + a.dy, std::remainder(a.dth + b.dth, 2 * M_PI), a.n};
+}
+
+ArenaCorr fit_arena_corr(std::vector<CorrPair> pairs, double min_sep, double max_shift, double max_rot, double outlier_m) {
+  ArenaCorr c;
+  while (!pairs.empty()) {
+    const double n = static_cast<double>(pairs.size());
+    double mx = 0, my = 0, qx = 0, qy = 0, sep = 0;
+    for (const auto & p : pairs) { mx += p.mx / n; my += p.my / n; qx += p.qx / n; qy += p.qy / n; }
+    for (const auto & a : pairs) for (const auto & b : pairs) sep = std::max(sep, std::hypot(a.mx - b.mx, a.my - b.my));
+    double th = 0;
+    if (sep >= min_sep) {  // 2D 최소제곱 회전 (Umeyama, 배율 없음)
+      double sa = 0, sb = 0;
+      for (const auto & p : pairs) {
+        const double ax = p.mx - mx, ay = p.my - my, bx = p.qx - qx, by = p.qy - qy;
+        sa += ax * bx + ay * by;
+        sb += ax * by - ay * bx;
+      }
+      th = std::clamp(std::atan2(sb, sa), -max_rot, max_rot);
+    }
+    c.dth = th;
+    c.dx = qx - (std::cos(th) * mx - std::sin(th) * my);
+    c.dy = qy - (std::sin(th) * mx + std::cos(th) * my);
+    c.n = static_cast<int>(pairs.size());
+    if (pairs.size() <= 2) break;  // 2개면 어느 쪽이 틀렸는지 모름
+    size_t worst = 0;
+    double worst_r = -1;
+    for (size_t i = 0; i < pairs.size(); ++i) {
+      const auto e = apply_corr(c, {pairs[i].mx, pairs[i].my, 0});
+      const double r = std::hypot(e.x - pairs[i].qx, e.y - pairs[i].qy);
+      if (r > worst_r) { worst_r = r; worst = i; }
+    }
+    if (worst_r <= outlier_m) break;
+    pairs.erase(pairs.begin() + static_cast<long>(worst));
+  }
+  const double s = std::hypot(c.dx, c.dy);
+  if (s > max_shift) { c.dx *= max_shift / s; c.dy *= max_shift / s; }
+  return c;
+}
+
+WallFit fit_walls(const std::vector<std::array<double, 4>> & segs, const std::vector<std::pair<double, double>> & pts,
+                  const ArenaCorr & init, double gate, int min_cells, double min_eig, double max_shift, double max_rot) {
+  WallFit f;
+  f.c = init;
+  if (segs.empty() || pts.empty()) { f.why = "no_walls_or_cells"; return f; }
+  // 가장 가까운 벽 위 점 (sx, sy) · 그 벽의 법선 (nx, ny) → 거리
+  auto closest = [&segs](double x, double y, double & sx, double & sy, double & nx, double & ny) {
+    double best = 1e18;
+    for (const auto & w : segs) {
+      const double ex = w[2] - w[0], ey = w[3] - w[1], l2 = ex * ex + ey * ey;
+      const double t = l2 > 0 ? std::clamp(((x - w[0]) * ex + (y - w[1]) * ey) / l2, 0.0, 1.0) : 0.0;
+      const double px = w[0] + t * ex, py = w[1] + t * ey, d = std::hypot(x - px, y - py);
+      if (d >= best) continue;
+      best = d;
+      sx = px;
+      sy = py;
+      const double l = std::sqrt(l2);
+      nx = l > 0 ? -ey / l : 1.0;
+      ny = l > 0 ? ex / l : 0.0;
+    }
+    return best;
+  };
+  const auto det3 = [](const double M[3][3]) {
+    return M[0][0] * (M[1][1] * M[2][2] - M[1][2] * M[2][1]) - M[0][1] * (M[1][0] * M[2][2] - M[1][2] * M[2][0]) +
+           M[0][2] * (M[1][0] * M[2][1] - M[1][1] * M[2][0]);
+  };
+  const double huber = 0.05;  // [m] 이보다 먼 칸은 무게를 줄임 (도면과 실제 벽이 몇 cm씩 다름)
+  for (int it = 0; it < 30; ++it) {
+    struct In { double qx, qy, r, nx, ny; };
+    std::vector<In> in;
+    double cx = 0, cy = 0;
+    for (const auto & [px, py] : pts) {
+      const auto q = unapply_corr(f.c, {px, py, 0});  // 칸을 도면 쪽으로
+      double sx = 0, sy = 0, nx = 0, ny = 0;
+      if (closest(q.x, q.y, sx, sy, nx, ny) >= gate) continue;
+      in.push_back({q.x, q.y, (q.x - sx) * nx + (q.y - sy) * ny, nx, ny});  // 점-선 거리 (법선 방향, 부호)
+      cx += q.x;
+      cy += q.y;
+    }
+    f.inliers = static_cast<int>(in.size());
+    if (f.inliers < min_cells) { f.why = "few_cells"; return f; }
+    cx /= f.inliers;
+    cy /= f.inliers;
+    double A[3][3] = {}, b[3] = {}, sq = 0;
+    for (const auto & e : in) {
+      const double w = std::abs(e.r) <= huber ? 1.0 : huber / std::abs(e.r);
+      const double J[3] = {e.nx, e.ny, -e.nx * (e.qy - cy) + e.ny * (e.qx - cx)};  // q' = q + δt + δθ·⊥(q − c)
+      for (int i = 0; i < 3; ++i) {
+        for (int j = 0; j < 3; ++j) A[i][j] += w * J[i] * J[j];
+        b[i] -= w * J[i] * e.r;
+      }
+      sq += e.r * e.r;
+    }
+    f.rms = std::sqrt(sq / f.inliers);
+    // 정규 행렬 최소 고유값 (대칭 3×3 삼각 공식) / 칸 — 0에 가까우면 그 방향(예: 벽 하나 = 벽을 따라가는 방향)을 모름
+    const double q = (A[0][0] + A[1][1] + A[2][2]) / 3;
+    const double p1 = A[0][1] * A[0][1] + A[0][2] * A[0][2] + A[1][2] * A[1][2];
+    const double pp = std::sqrt((std::pow(A[0][0] - q, 2) + std::pow(A[1][1] - q, 2) + std::pow(A[2][2] - q, 2) + 2 * p1) / 6);
+    double ev = q;
+    if (pp > 1e-12) {
+      double B[3][3];
+      for (int i = 0; i < 3; ++i) for (int j = 0; j < 3; ++j) B[i][j] = (A[i][j] - (i == j ? q : 0)) / pp;
+      ev = q + 2 * pp * std::cos(std::acos(std::clamp(det3(B) / 2, -1.0, 1.0)) / 3 + 2 * M_PI / 3);
+    }
+    f.min_eig = ev / f.inliers;
+    if (f.min_eig < min_eig) { f.why = "degenerate"; return f; }
+    double x[3];  // A x = b (Cramer)
+    const double D = det3(A);
+    for (int k = 0; k < 3; ++k) {
+      double M[3][3];
+      for (int i = 0; i < 3; ++i) for (int j = 0; j < 3; ++j) M[i][j] = j == k ? b[i] : A[i][j];
+      x[k] = det3(M) / D;
+    }
+    // 역보정 U: q = R(θu)·p + tu (θu = −dth, tu = −R(θu)·t) 에 Δ(c 둘레 δθ 회전 + δt)를 더하고 다시 뒤집음
+    const double th_u = -f.c.dth, cu = std::cos(th_u), su = std::sin(th_u);
+    const double tux = -(cu * f.c.dx - su * f.c.dy), tuy = -(su * f.c.dx + cu * f.c.dy);
+    const double cd = std::cos(x[2]), sd = std::sin(x[2]);
+    const double nux = cd * (tux - cx) - sd * (tuy - cy) + cx + x[0], nuy = sd * (tux - cx) + cd * (tuy - cy) + cy + x[1];
+    const double nth = th_u + x[2], cn = std::cos(nth), sn = std::sin(nth);
+    f.c.dth = std::remainder(-nth, 2 * M_PI);
+    f.c.dx = -(cn * nux + sn * nuy);   // t = −R(−θu')·tu'
+    f.c.dy = -(-sn * nux + cn * nuy);
+    if (std::hypot(x[0], x[1]) < 1e-4 && std::abs(x[2]) < 1e-5) break;
+  }
+  f.c.n = f.inliers;
+  if (std::hypot(f.c.dx, f.c.dy) > max_shift || std::abs(f.c.dth) > max_rot) { f.why = "over_limit"; return f; }
+  f.ok = true;
+  return f;
+}
+
+int match_landmark(double qx, double qy, const std::vector<std::pair<double, double>> & cands, double gate) {
+  int best = -1;
+  double d1 = std::numeric_limits<double>::infinity(), d2 = d1;
+  for (size_t i = 0; i < cands.size(); ++i) {
+    const double d = std::hypot(cands[i].first - qx, cands[i].second - qy);
+    if (d < d1) { d2 = d1; d1 = d; best = static_cast<int>(i); }
+    else if (d < d2) d2 = d;
+  }
+  return d1 < gate && d2 > d1 + 0.25 ? best : -1;
+}
+
 std::vector<Pose2> approach_poses(double cx, double cy, double half, double px, double py, double standoff) {
   const double lx = std::clamp(px, cx - half, cx + half), ly = std::clamp(py, cy - half, cy + half);
   // 변마다 (점에서 그 변까지 거리, 자세) — 서쪽 변이면 x = cx − half − standoff에 서서 +x(동)를 봄
@@ -113,6 +318,12 @@ std::vector<Pose2> approach_poses(double cx, double cy, double half, double px, 
   std::vector<Pose2> out;
   for (const auto & s : sides) out.push_back(s.second);
   return out;
+}
+
+std::pair<double, double> perceived_center(double bx, double by, double qx, double qy, int hits, int min_hits, double gate,
+                                           bool & used) {
+  used = hits >= min_hits && std::hypot(qx - bx, qy - by) < gate;
+  return used ? std::pair{qx, qy} : std::pair{bx, by};
 }
 
 std::vector<size_t> visit_order(const std::vector<int64_t> & order, size_t n) {
@@ -140,12 +351,25 @@ double wall_distance(double x, double y, const std::vector<double> & walls) {
   return best;
 }
 
+double exit_back(double back, double need, double dx, double dy, double dyaw, double rear_m, double rear_clear,
+                 const std::vector<double> & walls) {
+  const double c = std::cos(dyaw), s = std::sin(dyaw);
+  double best = back;
+  while (best < need) {  // 1 cm씩 늘리며 몸 뒤 끝이 벽에 닿기 전까지
+    const double b = std::min(best + 0.01, need), r = b + rear_m;
+    if (wall_distance(dx - r * c, dy - r * s, walls) < rear_clear) break;
+    best = b;
+  }
+  return best;
+}
+
 const char * phase_name(Phase p) {
   static const char * names[] = {"IDLE", "GO_OBSERVE", "BARCODE", "READ", "SURVEY", "BUILD", "VERIFY", "RETURN", "DONE", "ERROR"};
   return names[static_cast<int>(p)];
 }
 
-Phase next_phase(Phase p, bool ok) {
+Phase next_phase(Phase p, bool ok, bool diag) {
+  if (diag && (p == Phase::GO_OBSERVE || p == Phase::BARCODE || p == Phase::READ)) ok = true;
   switch (p) {
     case Phase::IDLE: return ok ? Phase::GO_OBSERVE : Phase::IDLE;
     case Phase::GO_OBSERVE: return ok ? Phase::BARCODE : Phase::ERROR;
@@ -157,6 +381,76 @@ Phase next_phase(Phase p, bool ok) {
     case Phase::RETURN: return ok ? Phase::DONE : Phase::ERROR;
     default: return p;
   }
+}
+
+bool diag_fatal(bool ok, const std::string & why, int & stuck_streak, int stuck_limit) {
+  if (ok) { stuck_streak = 0; return false; }
+  for (const char * f : {"estop", "manual", "explore", "cancelled", "preempted", "aborted", "arm_contact", "collision",
+                         "overcurrent", "coordinator_unavailable", "motor_error", "arm_sag"})
+    if (why.find(f) != std::string::npos) return true;
+  if (why.find("nav_no_progress") != std::string::npos || why.find("nav_failed") != std::string::npos)
+    return ++stuck_streak >= stuck_limit;
+  return false;
+}
+
+bool parse_counts(const std::string & text, Counts & c, std::string & why) {
+  int v[3] = {-1, -1, -1};
+  size_t i = 0;
+  while (i < text.size()) {
+    const char k = static_cast<char>(std::toupper(static_cast<unsigned char>(text[i++])));
+    const int g = k == 'R' ? 0 : k == 'Y' ? 1 : k == 'G' ? 2 : -1;
+    size_t j = i;
+    while (j < text.size() && std::isdigit(static_cast<unsigned char>(text[j]))) ++j;
+    if (g < 0 || v[g] >= 0 || j == i || j - i > 2) { why = "bad_counts"; return false; }
+    v[g] = std::stoi(text.substr(i, j - i));
+    i = j;
+  }
+  if (v[0] < 0 || v[1] < 0 || v[2] < 0) { why = "bad_counts"; return false; }
+  c = {v[0], v[1], v[2]};
+  return valid_counts(c, why);
+}
+
+bool parse_start(const std::string & cmd, StartCmd & out, std::string & why) {
+  out = StartCmd{};
+  std::vector<std::string> t;
+  for (size_t a = 0;;) {
+    const size_t b = cmd.find(':', a);
+    t.push_back(cmd.substr(a, b == std::string::npos ? std::string::npos : b - a));
+    if (b == std::string::npos) break;
+    a = b + 1;
+  }
+  if (t[0] != "start") { why = "not_start"; return false; }
+  if (t.size() == 1) return true;
+  const std::string & name = t[1];
+  if (t.size() == 2)
+    for (const Phase p : {Phase::BARCODE, Phase::READ, Phase::SURVEY, Phase::RETURN})
+      if (name == phase_name(p)) { out.only = p; return true; }
+  if (name == "GOTO") {  // start:GOTO:S1,L2,… (숫자만 쓰면 시작 박스)
+    if (t.size() != 3 || t[2].empty()) { why = "need_targets"; return false; }
+    for (size_t a = 0;;) {
+      const size_t b = t[2].find(',', a);
+      std::string id = t[2].substr(a, b == std::string::npos ? std::string::npos : b - a);
+      for (auto & ch : id) ch = static_cast<char>(std::toupper(static_cast<unsigned char>(ch)));
+      if (!id.empty() && std::isdigit(static_cast<unsigned char>(id[0]))) id = "S" + id;
+      const bool ok = id.size() == 2 && ((id[0] == 'S' && id[1] >= '1' && id[1] <= '6') || (id[0] == 'L' && id[1] >= '1' && id[1] <= '3'));
+      if (!ok) { why = "bad_target:" + id; return false; }
+      out.go_to.push_back(id);
+      if (b == std::string::npos) break;
+      a = b + 1;
+    }
+    return true;
+  }
+  if (name != "DIAG" && name != "FROM_SURVEY" && name != "DIAG_FROM_SURVEY") { why = "unknown_command"; return false; }
+  out.diag = name.rfind("DIAG", 0) == 0;
+  out.from_survey = name != "DIAG";
+  if (t.size() == 2 && !out.from_survey) return true;
+  if (t.size() != 4) { why = "need_barcode_signal"; return false; }
+  bool asc = false;
+  if (!parse_barcode(t[2], asc)) { why = "unknown_barcode"; return false; }
+  if (!parse_counts(t[3], out.counts, why)) return false;
+  out.barcode = t[2];
+  out.given = true;
+  return true;
 }
 
 std::pair<double, double> tag_correction(double ex, double ey, double ox, double oy, double max_m) {

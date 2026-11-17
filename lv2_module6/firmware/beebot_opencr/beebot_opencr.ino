@@ -141,7 +141,7 @@ void enable_motor(size_t i, bool recover)
             recover_since[i] = millis() | 1;
         }
     }
-    if (is_position_motor(i) && i != GRIPPER_INDEX && ARM_POSITION_D_GAIN[i - 2] > 0)  // RAM이라 전원 복귀 때마다
+    if (is_position_motor(i) && i != GRIPPER_INDEX)  // RAM이라 전원 복귀 때마다 · 0도 씀 (예전 펌웨어가 넣은 값이 서보 RAM에 남지 않게)
         dxl.write(id, ADDR_POSITION_D_GAIN, reinterpret_cast<const uint8_t *>(&ARM_POSITION_D_GAIN[i - 2]), 2);
     dxl.torqueOn(id);
     torque_state[i] = true;

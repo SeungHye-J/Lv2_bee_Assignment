@@ -23,7 +23,8 @@ constexpr double GRIP_DEPTH = 0.020, FINGER_TIP = 0.0206;
 constexpr double GRASP_Z = PUCK_H - GRIP_DEPTH + FINGER_TIP;  // 쥘 때 손끝(end_effector_link)이 퍽 바닥 위 0.0606
 constexpr double GRIP_STOP = 0.0062;                          // 30mm 퍽에서 손가락이 멈추는 gripper_left_joint
 // 서 있는 퍽을 쥘 손끝 높이 — 인지 z는 보이는 면 쪽이라 믿지 않고 받침만 가림 (상자 위 실측 0.10~0.15 · 바닥이면 0.09 아래)
-inline double standing_grasp_z(double perceived_z) { return (perceived_z > 0.09 ? 0.07 : 0.0) + GRASP_Z; }
+constexpr double PICK_EXTRA_DEPTH = 0.005;  // pick만 더 깊게 (stand는 GRASP_Z 그대로) — 11-13 실기 10 mm(30 mm 파지) → 11-14 5 mm(25 mm 파지, 손끝→퍽 바닥 55.6 mm · basket.yaml q_low와 맞춤)
+inline double standing_grasp_z(double perceived_z) { return (perceived_z > 0.09 ? 0.07 : 0.0) + GRASP_Z - PICK_EXTRA_DEPTH; }
 inline double gap_joint(double gap_m) { return GRIP_STOP + (gap_m - 0.030) / 2; }  // 손가락 사이 → gripper_left_joint
 
 struct Params {               // right_env RightEnvCfg 값 (tilt)
@@ -33,11 +34,14 @@ struct Params {               // right_env RightEnvCfg 값 (tilt)
   double pinch_from_end_m = 0.0, press_m = 0.0;
   double tilt_over_m = 0.010;  // 호를 도는 동안 더 올림 (가볍게 쥔 퍽이 손을 늦게 따라옴)
   double arc_end_deg = 120.0;  // 호 끝 — 선 자세(90°)를 지나침
+  double arc_k = 1.0;          // 호의 퍽 축 방향 배율 — 1 = 원 · 0 = 쥔 점 그대로 위로 (실기 11/08: 호를 다 돌기 전에 퍽이 매달림)
   double arc_step_deg = 7.5;   // 경유점 간격 (관절 직선 보간이 원에서 0.5mm 안)
   double set_dz_m = -0.010;    // 90° 자리에서 이만큼 눌러 놓음
+  bool arc_return = true;      // 호 끝에서 멈춘 뒤 같은 호로 90°까지 되돌려 눌러 놓음 · false면 호 끝에서 바로 벌림 (실기 11/08)
   double regrasp_lift_m = 0.05;
   double drag_m = 0.0;         // > 0이면 호 대신 잡은 채 로봇 쪽으로 곧게 끌고 눌러 놓음 (실기 11/03~04 — 호는 너무 높이 듦)
   double drag_lift_m = 0.0;    // 끌면서 끝까지 올리는 양 (0 = 수평 — 수평은 퍽이 안 들림)
+  bool flip_roll = false;      // true면 손목 roll을 180° 돌려 파지 (닫는 축은 같고 gripper_cam이 반대쪽 — 퍽 몸통 쪽)
 };
 
 // 팔 기구 (urdf/beebot_mesh/beebot.urdf) — FK: 손끝(end_effector_link) 위치 + 손가락 닫는 축(gripper_link y) 방향
@@ -58,6 +62,8 @@ double away_yaw(double yaw);
 
 // ik: 경유점마다 ik_down (앞 경유점을 near로 이어 감). 실패하면 why = "stand_ik_unreachable"
 bool plan_ik(const V3 & centre, double yaw, bool is_box, const Params & p, std::vector<Q5> & qs, std::string & why);
+// 경유점 전체에서 관절 한계까지 가장 가까운 여유 [rad] (작을수록 해가 좁고 보정할 여지가 없음)
+double limit_slack(const std::vector<Q5> & qs);
 
 // table: 팀원 표 (right_env 표와 같은 배열 — 모양마다 [ycs][yaw_bins][W][5] q, [ycs][yaw_bins][W][5][3] P, 평탄화)
 struct Table {

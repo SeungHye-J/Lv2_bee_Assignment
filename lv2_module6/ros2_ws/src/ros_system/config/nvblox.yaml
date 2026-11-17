@@ -7,7 +7,7 @@ nvblox_node:
     #   ponytail: cuVSLAM 루프 클로저로 map→odom이 튀면 이미 쌓은 복셀은 안 옮겨짐 — 튐이 크면 global_frame odom + 격자만 map으로 옮기는 방식 검토
     global_frame: map
     use_tf_transforms: true
-    num_cameras: 1                 # camera_0 = pole_front_cam — gripper_cam은 스캔 자세가 없어져(11-09) 지도에 안 넣음
+    num_cameras: 1                 # camera_0 = pole_front_cam (use_pole_back_cam이면 launch가 2 — camera_1 = pole_back_cam) — gripper_cam은 스캔 자세가 없어져(11-09) 지도에 안 넣음
     voxel_size: 0.05               # [m] Nav2 costmap 해상도와 같게 (퍽 60 mm는 지도 대상 아님 — 인지가 따로)
     mapping_type: "dynamic"
     esdf_mode: "2d"
@@ -19,7 +19,7 @@ nvblox_node:
     # 카메라 15 fps (640x360x15) — 그보다 자주 돌릴 이유 없음. 지도 갱신은 Nav2 global_costmap(1 Hz)에 맞춰 낮게
     integrate_depth_rate_hz: 15.0
     integrate_color_rate_hz: 0.0
-    update_mesh_rate_hz: 2.0
+    update_mesh_rate_hz: 0.0       # 0 = 메시 안 만듦 — 메시는 RViz 3D 보기용 (Nav2 /map·costmap은 2D ESDF·점유만 씀) · GPU 메모리·시간 아낌 (11-14 실기: 메모리 바닥 → 재부팅). 보려면 2.0
     update_esdf_rate_hz: 5.0
     publish_layer_rate_hz: 2.0
     # 경기장(약 4.4 × 6.3 m)을 통째로 기억 — 멀어져도 지우지 않음

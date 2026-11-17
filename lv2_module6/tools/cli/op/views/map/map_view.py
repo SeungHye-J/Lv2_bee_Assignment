@@ -112,6 +112,7 @@ class MapView(View):
         self.show_map = False        # map 원점 M — 처음엔 숨김, m 키로 켬 (로봇 ●과 방향 화살표는 늘 보임)
         self.show_odom = False       # odom 원점 O — 처음엔 숨김, o 키로 켬
         self.goals: list[dict] = []
+        self.perceived: list[tuple[float, float, str, tuple]] = []  # 저빈도 /tracked_objects map overlay — 영상은 구독하지 않음
         self.yaw = 0.0
         self.show_yaw = False       # True면 십자선에서 방향(yaw)선을 뻗어 그림 — 찍는 모드(goal · 위치 지정)
         self.size = (60, 20)        # 마지막으로 그린 (cols, rows) — 키 처리(전체 보기)가 쓴다
@@ -276,6 +277,8 @@ class MapView(View):
             mark(self.start, 'S', START_RGB, 60)
         for i, g in enumerate(self.goals, 1):
             mark((g['x'], g['y']), str(i % 10), GOAL_RGB, 70)
+        for x, y, ch, rgb in self.perceived:
+            mark((x, y), ch, rgb, 55)
         if self.show_map:
             mark((0.0, 0.0), 'M', MAP_RGB, 40)
         if self.show_odom:

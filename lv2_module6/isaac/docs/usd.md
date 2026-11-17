@@ -13,11 +13,16 @@ scene_sim.usda                     전체 미션 장면 진입점
 ├── /World/Environment/GroundPlane → ../source/texture/class_room_floor/*.png
 ├── /World/maze                    → maze/maze.usda
 ├── /World/sign                    → sign/sign.usda
+├── /World/barcode                 → barcode/barcode.usda (미션 시작 바코드 종이)
 ├── /World/start_boxes/start_1~6   → shelf/shelf.usda
 ├── /World/pucks/puck_<모양>_<색>_<태그> (12개) → puck/box · puck/cyl
 └── /World/shelf_L1~L3             → shelf/shelf_L1~L3.usda
 
+scene_approach.usda                주행 approach 시험 장면 (approach_loop.py) — scene_sim과 같은 에셋 구성
+└── scene_approach_matte.usda      scene_approach를 sublayer로 두고 벽 판 재질만 무광 (cuVSLAM 유광 · 무광 비교)
+
 beebot/beebot.usda                 로봇 진입점, 임포터 생성물 (**재임포트하면 beebot/ 통째로 새로 써짐**)
+│                                  뒤 카메라 pole_back_cam (11-15 추가)
 │                                  Physics variant: physx / physics / mujoco / none
 └── payloads/
     ├── base.usda                  링크 계층 (kinematic tree)
@@ -41,13 +46,16 @@ Isaac Sim에서 `usda/scene_sim.usda`를 연다. 로봇만 볼 때는 `usda/beeb
 
 ## 에셋
 
-`scene_sim.usda`가 미로, 표지판, 시작 상자 6개, 선반 상자 3개, 퍽 12개, 카펫 바닥을 물리 설정까지 포함해 불러온다. 경로는 모두 상대 경로다. 집기 시연 장면은 파일이 아니라 코드(`rl/bee_isaac/scenes/manipulator_scene.py`)로 만들고 같은 에셋을 쓴다.
+`scene_sim.usda`가 미로, 표지판, 바코드, 시작 상자 6개, 선반 상자 3개, 퍽 12개, 카펫 바닥을 물리 설정까지 포함해 불러온다. 경로는 모두 상대 경로다.
 
 ```
 usda/
-├─ scene_sim.usda          전체 미션 장면
-├─ scene_lab.usda          옛 시연 장면 (지금은 scripts/tools/stand_plan.py만 읽음)
+├─ scene_sim.usda          전체 미션 장면 (isaac_sim.sh 기본)
+├─ scene_approach.usda     approach 시험 장면 · scene_approach_matte.usda (벽 무광)
+├─ scene_lab.usda          옛 시연 장면 (지금은 rl/scripts/stand_plan.py만 읽음)
 ├─ beebot/    로봇 (위 구조)
+├─ beebot_v02/ 옛 로봇 v02 USD (지금 장면은 안 씀)
+├─ barcode/   barcode.usda, P2-01~04.png, make_barcode.py (Code128 텍스처 · usda 생성)
 ├─ maze/      maze.usda, geo.usd
 ├─ sign/      sign.usda, geo.usd, blink.py
 ├─ puck/box/  puck_box_green_0.usda, puck_box_red_1.usda, geo.usd
@@ -106,6 +114,8 @@ usda/
 | 물리 재질 | `PhysicsMaterials/PLA` |
 
 렌더링 메시(`maze/geo/wall`, `PLA`, `profile`, `steel`)에는 콜리전이 없고, 충돌은 `collision` 아래 prim만 담당합니다.
+
+벽은 묶음 8개(`wall_a0` · `a1` · `b0` · `b1` · `b2` · `c0` · `d0` · `e0`)로 나뉘고, 묶음마다 `xformOp:translate`로 실측 경기장(`plan.yaml` `arena_walls`, 11-15)에 맞춰 옮겼습니다(x · y 최대 약 18 cm(`wall_b1`), 회전 없음). 이 이동은 `maze.usda`에 있어 미로를 쓰는 모든 장면(scene_sim · scene_approach · scene_lab)에 같이 들어갑니다. 묶음째 옮긴 것이라 벽 안쪽 모양은 그대로이고, 실측과 남는 어긋남은 `mission/plan_to_map.py` 설명을 봅니다. 벽을 옮기면 `mission/make_map.py`로 장면 지도를 다시 만듭니다.
 
 ## 바닥 (`/World/Environment/GroundPlane`)
 

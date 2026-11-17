@@ -1,7 +1,7 @@
 """skill 노드 — 계획 단계마다 액션 서버 하나 (/skills/<skill>). coordinator가 단계를 맡김.
 
   팔 skill (컨테이너 arm_skills — 한 프로세스, skill마다 노드 하나):
-    skill_pose · skill_inspect · skill_pick · skill_place · skill_load · skill_unload · skill_stand (stand · stand_pick)
+    skill_pose · skill_inspect · skill_pick · skill_pick_far · skill_place · skill_load · skill_unload · skill_stand (stand · stand_pick)
   주행 skill (컨테이너 base_skills): skill_navigate · skill_approach
 
   파라미터: config/skills.yaml (노드별) + params/arm.yaml (팔 공통) + params/basket.yaml (자세·적재함 표)
@@ -36,6 +36,9 @@ def launch_setup(context):
     arm['grasp_check'] = ParameterValue(LaunchConfiguration('grasp_check'), value_type=bool)
     arm['grasp_min_effort'] = ParameterValue(LaunchConfiguration('grasp_min_effort'), value_type=float)
     basket, stand = table('basket.yaml'), table('stand_table.yaml')
+    # 전류 없는 그리퍼(Isaac grasp_min_effort 0) — stand 쥠 판정도 위치·멈춤만으로 (skills.yaml stand_grip_current_a보다 뒤에 넘겨야 먹음)
+    if float(LaunchConfiguration('grasp_min_effort').perform(context)) == 0.0:
+        stand['stand_grip_current_a'] = 0.0
 
     def skill(cls, name, *extra):
         return ComposableNode(package='skills', plugin=f'skills::{cls}', name=name, parameters=[config, *extra])
@@ -46,7 +49,10 @@ def launch_setup(context):
             composable_node_descriptions=[
                 skill('PoseSkill', 'skill_pose', arm, basket),
                 skill('InspectSkill', 'skill_inspect', arm),
-                skill('PickSkill', 'skill_pick', arm, basket),  # basket: pose_carry_* (적재함 쪽에서 퍽으로 갈 때 경유)
+                # sag_fade: pick만 켬 (arm.yaml false를 덮음) — 끄면 닿는 구간 시작에서 처짐 적분이 한 번에 0 → j3 −33 mrad 툭 (11-14 실기 6/12회).
+                #   load는 끈 채로 (fade로 칸 위에 처진 채 도착 → 놓을 때 +x, arm.yaml 설명)
+                skill('PickSkill', 'skill_pick', arm, basket, {'sag_fade': True}),  # basket: pose_carry_* (적재함 쪽에서 퍽으로 갈 때 경유)
+                skill('PickFarSkill', 'skill_pick_far', arm, basket),  # 박스 먼 쪽 퍽 (pick이 pick_unreachable일 때) · basket: pick과 같음
                 skill('PlaceSkill', 'skill_place', arm, basket),  # basket: pose_carry_* (적재함 쪽에서 놓을 자리로 갈 때 경유)
                 skill('LoadSkill', 'skill_load', arm, basket),
                 skill('UnloadSkill', 'skill_unload', arm, basket),
@@ -55,8 +61,12 @@ def launch_setup(context):
         ComposableNodeContainer(
             name='base_skills', namespace='', package='rclcpp_components', executable='component_container', output='screen',
             composable_node_descriptions=[
-                skill('NavigateSkill', 'skill_navigate'),
-                skill('ApproachSkill', 'skill_approach'),
+                # arm: target "look"이면 도착 nav_look_m 전부터 pose_look으로 (approach와 같은 느린 팔)
+                # taught_routes: 움직임 정답표(~/.ros/routes/*.motion.csv) 재생 — 구간 표가 있으면 Nav2 경로 대신 (11-15)
+                skill('NavigateSkill', 'skill_navigate', arm, {'arm_velocity_scale': 0.15,
+                      'taught_routes': ParameterValue(LaunchConfiguration('taught_routes'), value_type=bool)}),
+                # arm: pose_look (상자 도킹 중 look 자세) · 주행 중이라 팔은 천천히 (arm.yaml 1.0을 덮음)
+                skill('ApproachSkill', 'skill_approach', arm, {'arm_velocity_scale': 0.15}),
             ]),
     ]
 
@@ -65,6 +75,8 @@ def generate_launch_description():
     return LaunchDescription([
         DeclareLaunchArgument('grasp_check', default_value='true',
                               description='잡기 판정 (닫은 뒤 그리퍼 위치 + 전류). mock 그리퍼는 퍽 없이 끝까지 닫혀 false'),
+        DeclareLaunchArgument('taught_routes', default_value='false',
+                              description='움직임 정답표 재생 — 구간(leg) 표가 있으면 Nav2 경로 계획 대신 표대로 Spin·DriveOnHeading (tools/cli route로 녹화)'),
         DeclareLaunchArgument('grasp_min_effort', default_value='0.25',
                               description='잡기 판정 전류 하한 [A] — Isaac은 그리퍼 전류를 안 내서 0 (위치만, opencr_bridge)'),
         OpaqueFunction(function=launch_setup),

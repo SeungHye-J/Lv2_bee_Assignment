@@ -118,7 +118,7 @@ class CollisionOffItem(MenuItem):
     def run(self):
         if not self.ui.confirm('collision_monitor를 끌까요?', default=False,
                                body=['끄면 벽·물체 앞에서 자동으로 서지 않습니다. 직접 몰 때만 쓰세요.',
-                                     'MANUAL·MAPPING이면 이미 자동으로 꺼져 있습니다.']):
+                                     'MANUAL이면 이미 자동으로 꺼져 있습니다.']):
             return STAY
         self.bus.cmd_collision(argparse.Namespace(state='off'))
         return STAY

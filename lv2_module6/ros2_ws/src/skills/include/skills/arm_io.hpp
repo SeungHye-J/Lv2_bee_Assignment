@@ -7,7 +7,6 @@
 //     skill 이름 + 그 skill 노드의 정책 파일(SkillModel) → rl_arm_correction이 그 정책으로 Δ를 계산 (100 Hz 루프 안). 끝나면 skill "" (보정 끔)
 #include <functional>
 #include <limits>
-#include <map>
 #include <memory>
 #include <string>
 #include <vector>
@@ -21,12 +20,11 @@
 #include "perception/msg/hand_target.hpp"
 #include "rclcpp/rclcpp.hpp"
 #include "rclcpp_action/rclcpp_action.hpp"
-#include "sensor_msgs/msg/joint_state.hpp"
 #include "skills/model.hpp"
+#include "skills/arm_state_cache.hpp"
 #include "skills/stand_plan.hpp"
 #include "std_srvs/srv/trigger.hpp"
 #include "tf2_ros/buffer.h"
-#include "tf2_ros/transform_listener.h"
 
 namespace skills {
 
@@ -60,7 +58,8 @@ public:
   double velocity_scale() const;  // arm_velocity_scale 파라미터 (MoveIt 속도·가속도 비율)
   // 진행 중 MoveIt·그리퍼 goal 취소 · 늦은 결과 버림 · 보정 끔 (skill 취소 · 새 goal 전)
   void stop();
-  void clear_flags() { contact_ = false; grasp_empty_ = false; grip_fail_.clear(); }
+  void clear_flags() { contact_ = false; grasp_empty_ = false; jam_ = false; grip_fail_.clear(); }
+  bool jam() const { return jam_; }                  // 이번 실행 중 닿는 구간 막힘 (jam_current_a) — 위로 뺀 뒤 실패
   bool contact() const { return contact_; }          // 이번 실행 중 /arm_safety_event (과전류 접촉)
   bool grasp_empty() const { return grasp_empty_; }  // 마지막 잡기 판정이 빈손
   const std::string & grip_fail() const { return grip_fail_; }  // grip_settle_step 실패 이유
@@ -69,7 +68,8 @@ public:
   //   계획이 실패하면 같은 목표로 arm_plan_tries번까지 (IK·OMPL이 무작위라 닿는 곳도 가끔 못 찾음)
   void move_arm(const geometry_msgs::msg::PoseStamped & target, Cb done,
                 double yaw = std::numeric_limits<double>::quiet_NaN(), int tries_left = -1);
-  void move_joints(const std::vector<double> & q5, Cb done);  // joint1~5 관절 목표
+  // joint1~5 관절 목표. 실행이 거부·실패하면(보통 'start point deviates' — 아직 움직이는 팔) 멈출 때까지 기다려 한 번 다시 (retry)
+  void move_joints(const std::vector<double> & q5, Cb done, bool retry = true);
   // 그리퍼 (m, 손가락 하나) · effort_a [A] = 쥐는 힘 (goal effort → Goal Current, 음수 = controllers.yaml max_effort)
   void set_gripper(double width_m, Cb done, double effort_a = -1.0);
 
@@ -81,6 +81,9 @@ public:
   Step traj_step(std::function<std::vector<Q5>(const Q5 &)> make);  // 지금 관절값 + 샘플(TRAJ_DT 간격) → /execute_trajectory
   Step grip_timed_step(double joint_m, double effort_a, double secs);  // 보내고 secs 뒤 다음 (가볍게 쥐면 '도착'을 안 할 수 있음)
   Step wait_step(double secs);
+  // min_s 기다린 뒤 정책 Δ(/rl_arm_correction/debug)가 멈출 때까지 (상한 max_s) — 손 카메라가 늦게 다시 잡혀 Δ가 몰려 나오는
+  //   중에 쥐면 팔이 움직이며 퍽을 침 (11/13 실기 pick: 닫기 0.2 s 전 joint1 Δ −3 → +24 mrad). debug가 안 오면 min_s만
+  Step delta_settle_step(double min_s, double max_s);
   // grip_state가 정해질 때까지 기다림 — 빈손 stand_no_grip · 시간 초과 stand_grip_timeout으로 실패 (grasp_check 끄면 통과)
   Step grip_stop_step(double timeout_s);  // 손가락이 멈출 때까지 기다림 (시간이 넘어도 다음으로 — 판정은 held_step)
   Step grip_settle_step(double min_current, double empty_m, double timeout_s);
@@ -90,13 +93,19 @@ public:
                     double open_m = GRIPPER_OPEN_M, bool lift_on_empty = false);
 
   // ---------- 보정 · 입력
+  // 닿는 구간을 contact_step 없이 직접 짜는 skill(pick_far)용 — run_id를 하나 올림 (rl_arm_correction이 처짐 적분·Δ·행동 기록을 0부터)
+  void new_run() { ++run_; }
   void skill_ctx(const SkillModel * policy, uint8_t phase, bool holding, bool live, const Q5 & above, const Q5 & down);
   void ctx_off();
   // hand_relative에 무엇을 잴지 (puck: 퍽 태그 · cell: 칸 가운데 map · slot: 적재함 칸 · none)
   void hand_target(const std::string & kind, int puck_tag, int slot, double x = 0.0, double y = 0.0, double z = 0.0);
+  // 누운 퍽 세우기 (stand_grasp 정책): box_tag −2, point = 계획한 쥘 끝 · box_point = 계획한 퍽 가운데 (map) → hand_relative rel = 쥘 끝 − 손
+  void hand_target_end(int puck_tag, double px, double py, double pz, double cx, double cy, double cz);
   // /rl_arm_correction/reset_sag — 팔 skill 시작 때 한 번 (없으면 WARN 한 번).
   //   보정이 0이 되면 팔이 처졌다 다시 올라옴 → 다음 move_arm·move_joints·traj_step은 팔이 멈출 때까지 기다린 뒤 계획 (settle)
   void reset_sag();
+  // /rl_arm_correction/fade_sag — pick·load 시작 때 (멈춰 기다리지 않음: 팔이 움직일 때만 풂)
+  void fade_sag();
   // 다음 move_arm·move_joints·traj_step은 팔이 멈출 때까지 기다린 뒤 (settle) — 앞 skill이 끝나며 보정 Δ가 0으로 빠져
   //   팔이 ~0.1 s 움직이는 동안 궤적을 보내면 start point deviates. 처짐 적분은 안 건드림 (닿는 구간 시작에서 rl_arm_correction이 0으로)
   void settle_next() { settle_ = true; }
@@ -106,7 +115,7 @@ public:
   // 손 방향 ψ까지 정한 해 — 손가락 닫는 축 = ψ − 90° (ee 좌표계). MoveIt pick_ik는 위치만 맞춰 손 방향을 보장 못 함
   bool ik_ee_yaw(const geometry_msgs::msg::PoseStamped & ee, double psi, const Q5 & near, Q5 & out);
   bool joint(const std::string & name, double & pos) const;
-  tf2_ros::Buffer & tf() { return *tf_buffer_; }
+  tf2_ros::Buffer & tf() const { return state_cache_->tf(); }
 
 private:
   using ExecuteTrajectory = moveit_msgs::action::ExecuteTrajectory;
@@ -115,23 +124,22 @@ private:
   rclcpp::Node & node_;
   int arm_plan_tries_ = 3;
   double grip_current_a_ = 0.1, grasp_min_pos_m_ = 0.003, grasp_min_effort_ = 0.25;
-  bool grasp_check_ = true, contact_ = false, grasp_empty_ = false, sag_warned_ = false;
+  bool grasp_check_ = true, contact_ = false, grasp_empty_ = false, sag_warned_ = false, jam_ = false;
+  rclcpp::TimerBase::SharedPtr jam_timer_;  // 내려가는 중 막힘 감시
+  double jam_mean(double window_s) const;
   std::string contact_mode_ = "sim", grip_fail_;
   uint64_t gen_ = 0;
   uint32_t run_ = 0;
-  std::map<std::string, double> pos_, effort_;
+  std::shared_ptr<ArmStateCache> state_cache_;
   rclcpp::Client<GetMotionPlan>::SharedPtr plan_;
   rclcpp_action::Client<ExecuteTrajectory>::SharedPtr exec_;
   rclcpp_action::Client<Gripper>::SharedPtr gripper_;
-  rclcpp::Client<std_srvs::srv::Trigger>::SharedPtr reset_sag_;
+  rclcpp::Client<std_srvs::srv::Trigger>::SharedPtr reset_sag_, fade_sag_;
   rclcpp::Publisher<ml::msg::SkillContext>::SharedPtr ctx_pub_;
   rclcpp::Publisher<perception::msg::HandTarget>::SharedPtr hand_pub_;
-  rclcpp::Subscription<sensor_msgs::msg::JointState>::SharedPtr joints_sub_;
   rclcpp::Subscription<control::msg::ArmSafetyEvent>::SharedPtr safety_sub_;
   rclcpp::TimerBase::SharedPtr timer_, settle_timer_;
   bool settle_ = false;  // reset_sag 뒤 아직 안 기다림
-  std::unique_ptr<tf2_ros::Buffer> tf_buffer_;
-  std::shared_ptr<tf2_ros::TransformListener> tf_listener_;
   void execute(const moveit_msgs::msg::RobotTrajectory & traj, Cb done);
   void settle(std::function<void()> go);
 };

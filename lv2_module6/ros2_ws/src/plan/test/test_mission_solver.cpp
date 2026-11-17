@@ -125,6 +125,40 @@ TEST(MissionFlow, NextPhase) {  // — 관측 실패만 정지, 그 뒤는 끝�
   EXPECT_STREQ(phase_name(Phase::VERIFY), "VERIFY");
 }
 
+TEST(MissionFlow, DiagNextPhase) {  // 현장 진단 — 관측 실패도 다음 단계로 (SURVEY까지 자료 모음), 복귀 실패만 ERROR
+  EXPECT_EQ(next_phase(Phase::GO_OBSERVE, false, true), Phase::BARCODE);
+  EXPECT_EQ(next_phase(Phase::BARCODE, false, true), Phase::READ);
+  EXPECT_EQ(next_phase(Phase::READ, false, true), Phase::SURVEY);
+  EXPECT_EQ(next_phase(Phase::SURVEY, false, true), Phase::RETURN);
+  EXPECT_EQ(next_phase(Phase::BUILD, false, true), Phase::VERIFY);
+  EXPECT_EQ(next_phase(Phase::RETURN, false, true), Phase::ERROR);
+  EXPECT_EQ(next_phase(Phase::RETURN, true, true), Phase::DONE);
+}
+
+TEST(MissionFlow, DiagFatal) {  // 치명(정지) vs 계속
+  int stuck = 0;
+  for (const char * why : {"estop", "estop_blocked", "manual_override", "manual_teach_override", "explore_override",
+                           "cancelled", "preempted", "aborted", "arm_contact", "retreat:arm_contact", "collision_monitor_stop",
+                           "overcurrent", "coordinator_unavailable",
+                           "motor_error: 모터 에러: joint2 과부하", "arm_sag:joint2", "barcode:arm_sag:joint2"})
+    EXPECT_TRUE(diag_fatal(false, why, stuck, 3)) << why;
+  for (const char * why : {"barcode_missing", "unknown_barcode:X", "signal_timeout", "signal_count", "approach_blocked",
+                           "approach_failed", "grasp_empty", "grasp_failed_all", "place_failed", "pick_timeout", "puck_lost",
+                           "no_order", "stand_still_lying", ""})
+    EXPECT_FALSE(diag_fatal(false, why, stuck, 3)) << why;
+  EXPECT_EQ(stuck, 0);
+  // 주행 갇힘 — 이어서 3번째에 치명 · 사이에 성공이 있으면 다시 0부터
+  stuck = 0;
+  EXPECT_FALSE(diag_fatal(false, "nav_no_progress", stuck, 3));
+  EXPECT_FALSE(diag_fatal(false, "nav_failed", stuck, 3));
+  EXPECT_FALSE(diag_fatal(true, "", stuck, 3));
+  EXPECT_EQ(stuck, 0);
+  EXPECT_FALSE(diag_fatal(false, "nav_no_progress", stuck, 3));
+  EXPECT_FALSE(diag_fatal(false, "approach_blocked", stuck, 3));  // 갇힘 아닌 실패는 셈을 안 바꿈
+  EXPECT_FALSE(diag_fatal(false, "nav_failed", stuck, 3));
+  EXPECT_TRUE(diag_fatal(false, "nav_no_progress", stuck, 3));
+}
+
 TEST(MissionFlow, TagCorrection) {  // 
   auto [dx, dy] = tag_correction(1.0, 2.0, 1.012, 1.995, 0.05);
   EXPECT_NEAR(dx, 0.012, 1e-9);
@@ -199,4 +233,311 @@ TEST(MissionSolver, WallDistanceDropsBlockedSide) {  // 시작 박스 1 서쪽 �
   for (size_t i = 1; i < 4; ++i) EXPECT_GT(plan::wall_distance(poses[i].x, poses[i].y, walls), 0.22);
   EXPECT_NEAR(plan::wall_distance(1.101, 0.200, walls), 0.450, 1e-9);      // 선분 끝점까지
   EXPECT_TRUE(std::isinf(plan::wall_distance(0, 0, {})));
+}
+
+TEST(MissionFlow, ParseCounts) {  // "R4Y2G6" — 순서·대소문자 상관없음, 1~6 · 합 12
+  Counts c;
+  std::string why;
+  ASSERT_TRUE(parse_counts("R4Y2G6", c, why));
+  EXPECT_EQ(c.r, 4); EXPECT_EQ(c.y, 2); EXPECT_EQ(c.g, 6);
+  ASSERT_TRUE(parse_counts("g6r4y2", c, why));
+  EXPECT_EQ(c.r, 4); EXPECT_EQ(c.y, 2); EXPECT_EQ(c.g, 6);
+  EXPECT_FALSE(parse_counts("R4Y2G7", c, why)); EXPECT_EQ(why, "count_out_of_range");
+  EXPECT_FALSE(parse_counts("R4Y3G4", c, why)); EXPECT_EQ(why, "sum_not_12");
+  EXPECT_FALSE(parse_counts("R0Y6G6", c, why)); EXPECT_EQ(why, "count_out_of_range");
+  for (const char * bad : {"", "R4Y2", "R4Y2G6R1", "R4 Y2 G6", "R4Y2G", "X4Y2G6", "R4Y2G006"}) {
+    EXPECT_FALSE(parse_counts(bad, c, why)) << bad;
+    EXPECT_EQ(why, "bad_counts") << bad;
+  }
+}
+
+TEST(MissionFlow, ParseStart) {
+  StartCmd s;
+  std::string why;
+  ASSERT_TRUE(parse_start("start", s, why));
+  EXPECT_EQ(s.only, Phase::IDLE); EXPECT_FALSE(s.diag); EXPECT_FALSE(s.from_survey); EXPECT_FALSE(s.given);
+  ASSERT_TRUE(parse_start("start:SURVEY", s, why));
+  EXPECT_EQ(s.only, Phase::SURVEY); EXPECT_FALSE(s.diag);
+  ASSERT_TRUE(parse_start("start:DIAG", s, why));
+  EXPECT_TRUE(s.diag); EXPECT_FALSE(s.from_survey); EXPECT_FALSE(s.given); EXPECT_EQ(s.only, Phase::IDLE);
+  ASSERT_TRUE(parse_start("start:DIAG:P2-01:R2Y4G6", s, why));
+  EXPECT_TRUE(s.diag); EXPECT_FALSE(s.from_survey); EXPECT_TRUE(s.given);
+  EXPECT_EQ(s.barcode, "P2-01"); EXPECT_EQ(s.counts.y, 4);
+  ASSERT_TRUE(parse_start("start:FROM_SURVEY:P2-04:R4Y2G6", s, why));
+  EXPECT_FALSE(s.diag); EXPECT_TRUE(s.from_survey); EXPECT_TRUE(s.given); EXPECT_EQ(s.barcode, "P2-04");
+  ASSERT_TRUE(parse_start("start:DIAG_FROM_SURVEY:P2-04:R4Y2G6", s, why));
+  EXPECT_TRUE(s.diag); EXPECT_TRUE(s.from_survey); EXPECT_EQ(s.counts.r, 4); EXPECT_EQ(s.counts.g, 6);
+  const std::vector<std::pair<const char *, const char *>> bad = {
+    {"abort", "not_start"}, {"starts", "not_start"}, {"start:BUILD", "unknown_command"}, {"start:VERIFY", "unknown_command"},
+    {"start:", "unknown_command"}, {"start:SURVEY:P2-04:R4Y2G6", "unknown_command"},
+    {"start:FROM_SURVEY", "need_barcode_signal"}, {"start:DIAG_FROM_SURVEY:P2-04", "need_barcode_signal"},
+    {"start:DIAG:P2-04", "need_barcode_signal"}, {"start:FROM_SURVEY:P2-05:R4Y2G6", "unknown_barcode"},
+    {"start:FROM_SURVEY:p2-04:R4Y2G6", "unknown_barcode"}, {"start:FROM_SURVEY:P2-04:R4Y2G5", "sum_not_12"},
+    {"start:FROM_SURVEY:P2-04:R4Y2G6:x", "need_barcode_signal"}, {"start:DIAG:P2-04:RYG", "bad_counts"}};
+  for (const auto & [cmd, w] : bad) {
+    EXPECT_FALSE(parse_start(cmd, s, why)) << cmd;
+    EXPECT_EQ(why, w) << cmd;
+  }
+}
+
+TEST(MissionSolver, PartialAllocationField1114) {
+  // 실기 11-14: 태그 퍽 7개 (빨강 직육 2 · 빨강 원기둥 2 · 초록 직육 2 · 초록 원기둥 1) · 신호 R4 Y2 G6 · P2-04 (내림 → L1 G · L2 R · L3 Y)
+  const Counts c{4, 2, 6};
+  bool asc = true;
+  ASSERT_TRUE(parse_barcode("P2-04", asc));
+  EXPECT_EQ(assign_locations(c, asc), "GRY");
+  const auto pucks = make(2, 2, 1, 2);  // red cyl 2 · red box 2 · green cyl 1 · green box 2
+  std::map<int, char> a;
+  std::string why;
+  EXPECT_FALSE(allocate(pucks, c, a, why));
+  EXPECT_EQ(why, "puck_count");
+  std::map<char, int> filled;
+  ASSERT_TRUE(allocate_partial(pucks, c, a, filled));
+  EXPECT_EQ(filled['R'], 4);  // L2 R4 다 채움
+  EXPECT_EQ(filled['Y'], 2);  // L3 Y2 ← 초록 직육면체 2
+  EXPECT_EQ(filled['G'], 1);  // L1 G6 중 1 (초록 원기둥)
+  EXPECT_EQ(a.size(), 7u);
+  for (const auto & p : pucks) {
+    const char g = a.at(p.tag);
+    if (p.color == "red") EXPECT_EQ(g, 'R');
+    else if (p.shape == "box") EXPECT_EQ(g, 'Y');
+    else EXPECT_EQ(g, 'G');
+  }
+  // 12개로 풀리는 경우는 allocate와 같은 수만큼 채움 · 퍽이 없으면 false
+  ASSERT_TRUE(allocate_partial(make(3, 1, 2, 6), Counts{4, 2, 6}, a, filled));
+  EXPECT_EQ(filled['R'] + filled['Y'] + filled['G'], 12);
+  EXPECT_FALSE(allocate_partial({}, c, a, filled));
+}
+
+// ---------- 도면 보정 (arena → map) — 출발 자세가 (0.1, −0.05, 5°) 어긋났다고 보고 인지 상자 위치를 만들어 맞춤
+namespace {
+const Pose2 kStart{0.734, 0.950, M_PI};
+const ArenaCorr kTrue{0.10, -0.05, 5.0 * M_PI / 180, 0};
+CorrPair seen(double ax, double ay, double ex = 0, double ey = 0) {  // 도면 상자 (ax, ay) — 인지 = 참 보정 + 잡음 (ex, ey)
+  const auto m = arena_to_map({ax, ay, 0}, kStart);
+  const auto q = apply_corr(kTrue, m);
+  return {m.x, m.y, q.x + ex, q.y + ey};
+}
+}  // namespace
+
+// 보정 → 로봇 위치 (arena_corr_to_localization): 조각은 5 cm · 1°까지 · 조각을 넘긴 뒤 남은 보정과 합치면 원래 보정 그대로
+TEST(ArenaCorr, StepToLocalizationKeepsTotal) {
+  const ArenaCorr c{0.26, -0.17, -4.0 * M_PI / 180, 3};          // 11-15 실기 S3 회차 보정
+  const auto st = corr_step(c, 0.05, 1.0 * M_PI / 180);
+  EXPECT_LE(std::hypot(st.dx, st.dy), 0.05 + 1e-9);
+  EXPECT_LE(std::abs(st.dth), 1.0 * M_PI / 180 + 1e-9);
+  EXPECT_NEAR(st.dx / st.dy, c.dx / c.dy, 1e-9);                 // 방향 그대로
+  EXPECT_EQ(st.n, 3);
+  ArenaCorr r = c;
+  for (const Pose2 x : {Pose2{1.0, -2.0, 0.3}, Pose2{-3.5, 0.4, -2.0}}) {
+    const auto rem = corr_after_step(c, st);
+    const auto a = apply_corr(c, x), b = apply_corr(st, apply_corr(rem, x));
+    EXPECT_NEAR(a.x, b.x, 1e-9); EXPECT_NEAR(a.y, b.y, 1e-9); EXPECT_NEAR(std::remainder(a.yaw - b.yaw, 2 * M_PI), 0.0, 1e-9);
+  }
+  int steps = 0;                                                  // 조각을 계속 넘기면 남은 보정이 0으로
+  while ((std::hypot(r.dx, r.dy) > 0.02 || std::abs(r.dth) > 0.0087) && steps < 50) { r = corr_after_step(r, corr_step(r, 0.05, 1.0 * M_PI / 180)); ++steps; }
+  EXPECT_LT(steps, 12);
+  EXPECT_LT(std::hypot(r.dx, r.dy), 0.03);
+}
+
+// 넘긴 조각을 이어 두면(compose_corr) 격자가 그대로일 때 같은 차이를 다시 봐도 남은 보정이 0으로 줄어 더 안 넘김 (위치 흘러감 방지)
+TEST(ArenaCorr, ComposeSentStepsStopsAtFit) {
+  const ArenaCorr f{0.13, -0.10, -0.026, 1000};  // 11-16 실기 벽 정합 차이
+  ArenaCorr sent;
+  int steps = 0;
+  for (; steps < 50; ++steps) {
+    const auto rem = corr_after_step(f, sent);  // 격자는 그대로 → 매번 같은 f를 봄
+    if (std::hypot(rem.dx, rem.dy) < 0.02 && std::abs(rem.dth) < 0.0087) break;
+    sent = compose_corr(sent, corr_step(rem, 0.05, M_PI / 180));
+  }
+  EXPECT_LT(steps, 12);
+  EXPECT_NEAR(sent.dx, f.dx, 0.03);  // 넘긴 합 ≈ f (넘치지 않음)
+  EXPECT_NEAR(sent.dy, f.dy, 0.03);
+  const ArenaCorr s1{0.05, 0.0, 0.017, 1}, s2{0.02, -0.04, 0.01, 1};
+  const auto a = corr_after_step(corr_after_step(f, s1), s2), b = corr_after_step(f, compose_corr(s1, s2));
+  EXPECT_NEAR(a.dx, b.dx, 1e-9); EXPECT_NEAR(a.dy, b.dy, 1e-9); EXPECT_NEAR(a.dth, b.dth, 1e-9);
+}
+
+TEST(ArenaCorr, ApplyUnapplyRoundTripAndToMap) {
+  const auto m = arena_to_map({3.670, 3.152, 0.3}, kStart);
+  const auto c = apply_corr(kTrue, m);  // mission_manager to_map = apply_corr(acorr_, arena_to_map(...))
+  EXPECT_GT(std::hypot(c.x - m.x, c.y - m.y), 0.1);
+  const auto back = unapply_corr(kTrue, c);
+  EXPECT_NEAR(back.x, m.x, 1e-9);
+  EXPECT_NEAR(back.y, m.y, 1e-9);
+  EXPECT_NEAR(back.yaw, m.yaw, 1e-9);
+  const auto z = apply_corr(ArenaCorr{}, m);  // 보정 0 = 예전 to_map 그대로
+  EXPECT_DOUBLE_EQ(z.x, m.x);
+  EXPECT_DOUBLE_EQ(z.y, m.y);
+}
+
+TEST(ArenaCorr, OnePairTranslationOnly) {
+  const auto p = seen(1.468, 0.950);
+  const auto c = fit_arena_corr({p}, 1.0, 0.8, 0.35, 0.15);
+  EXPECT_EQ(c.n, 1);
+  EXPECT_DOUBLE_EQ(c.dth, 0.0);
+  EXPECT_NEAR(c.dx, p.qx - p.mx, 1e-9);
+  EXPECT_NEAR(c.dy, p.qy - p.my, 1e-9);
+  EXPECT_EQ(fit_arena_corr({}, 1.0, 0.8, 0.35, 0.15).n, 0);
+}
+
+TEST(ArenaCorr, TwoSeparatedPairsRecoverRotation) {
+  const auto c = fit_arena_corr({seen(1.468, 0.950), seen(3.670, 3.152)}, 1.0, 0.8, 0.35, 0.15);
+  EXPECT_EQ(c.n, 2);
+  EXPECT_NEAR(c.dth, kTrue.dth, 1e-9);
+  EXPECT_NEAR(c.dx, kTrue.dx, 1e-9);
+  EXPECT_NEAR(c.dy, kTrue.dy, 1e-9);
+  // 가까운 두 상자(0.5 m < min_sep)면 회전은 안 맞춤
+  EXPECT_DOUBLE_EQ(fit_arena_corr({seen(1.468, 0.950), seen(1.468, 1.450)}, 1.0, 0.8, 0.35, 0.15).dth, 0.0);
+}
+
+TEST(ArenaCorr, DropsOutlierAndClamps) {
+  // 4개 중 하나는 0.4 m 틀린 짝 — 빼고 나머지 3개로
+  const auto c = fit_arena_corr({seen(1.468, 0.950, 0.01), seen(3.670, 3.152, -0.01), seen(0.734, 5.354), seen(3.670, 3.886, 0.4, 0)},
+                                1.0, 0.8, 0.35, 0.15);
+  EXPECT_EQ(c.n, 3);
+  EXPECT_NEAR(c.dth, kTrue.dth, 0.01);
+  EXPECT_NEAR(c.dx, kTrue.dx, 0.02);
+  // 한계: 2 m 이동 → 0.8 m · 40° 회전 → 20°
+  const auto far = fit_arena_corr({{0, 0, 2.0, 0}}, 1.0, 0.8, 0.35, 0.15);
+  EXPECT_NEAR(far.dx, 0.8, 1e-9);
+  const double r = 40.0 * M_PI / 180;
+  const auto rot = fit_arena_corr({{1, 0, std::cos(r), std::sin(r)}, {-1, 0, -std::cos(r), -std::sin(r)}}, 1.0, 0.8, 0.35, 0.15);
+  EXPECT_NEAR(rot.dth, 0.35, 1e-9);
+}
+
+TEST(ArenaCorr, MatchLandmarkGateAndUnique) {
+  const std::vector<std::pair<double, double>> boxes{{0.0, 0.0}, {0.734, 0.0}, {3.0, 3.0}};
+  EXPECT_EQ(match_landmark(0.10, 0.05, boxes, 0.6), 0);
+  EXPECT_EQ(match_landmark(3.3, 3.2, boxes, 0.6), 2);
+  EXPECT_EQ(match_landmark(0.37, 0.0, boxes, 0.6), -1);  // 두 상자 가운데 — 헷갈림
+  EXPECT_EQ(match_landmark(1.6, 1.6, boxes, 0.6), -1);   // 어느 상자에서도 gate 밖
+  EXPECT_EQ(match_landmark(0.0, 0.0, {}, 0.6), -1);
+}
+
+TEST(ArenaCorr, MapToArenaInverse) {  // mission_manager to_arena = map_to_arena(unapply_corr(acorr_, m), start)
+  const Pose2 a{3.670, 3.152, 0.3};
+  const auto back = map_to_arena(arena_to_map(a, kStart), kStart);
+  EXPECT_NEAR(back.x, a.x, 1e-9);
+  EXPECT_NEAR(back.y, a.y, 1e-9);
+  EXPECT_NEAR(back.yaw, a.yaw, 1e-9);
+}
+
+TEST(ArenaCorr, PerceivedCenter) {  // 다가설 자리 박스 가운데 (approach_perceived, 11-16)
+  bool used = false;
+  auto c = perceived_center(1.0, 2.0, 1.08, 1.95, 3, 3, 0.6, used);  // 3번 · 9 cm — 인지
+  EXPECT_TRUE(used);
+  EXPECT_DOUBLE_EQ(c.first, 1.08);
+  EXPECT_DOUBLE_EQ(c.second, 1.95);
+  c = perceived_center(1.0, 2.0, 1.08, 1.95, 2, 3, 0.6, used);  // 덜 봄 — 도면
+  EXPECT_FALSE(used);
+  EXPECT_DOUBLE_EQ(c.first, 1.0);
+  EXPECT_DOUBLE_EQ(c.second, 2.0);
+  c = perceived_center(1.0, 2.0, 1.7, 2.0, 10, 3, 0.6, used);  // gate 밖 (70 cm) — 다른 것을 본 것으로 · 도면
+  EXPECT_FALSE(used);
+  EXPECT_DOUBLE_EQ(c.first, 1.0);
+}
+
+TEST(ArenaCorr, PerceivedCenterNavGoalOnPerceivedBox) {
+  // 인지(map) → to_arena(보정 뺌) → 다가설 자리 → to_map(보정 얹음): 보정이 있어도 다가설 자리는 인지 상자 둘레 · 변 법선 거리 그대로
+  const double bx = 3.670, by = 3.152, half = 0.1, standoff = 0.25;
+  const auto qm = apply_corr(kTrue, arena_to_map({bx + 0.07, by - 0.04, 0}, kStart));  // 본 상자 (map) — 도면보다 (7, −4) cm
+  const auto qa = map_to_arena(unapply_corr(kTrue, qm), kStart);
+  bool used = false;
+  const auto c = perceived_center(bx, by, qa.x, qa.y, 5, 3, 0.6, used);
+  ASSERT_TRUE(used);
+  EXPECT_NEAR(c.first - bx, 0.07, 1e-9);
+  EXPECT_NEAR(c.second - by, -0.04, 1e-9);
+  const auto drawn = approach_poses(bx, by, half, bx, by, standoff);
+  const auto seen = approach_poses(c.first, c.second, half, bx + (c.first - bx), by + (c.second - by), standoff);  // 점도 같이 옮김
+  ASSERT_EQ(drawn.size(), seen.size());
+  for (size_t i = 0; i < seen.size(); ++i) {
+    EXPECT_NEAR(seen[i].x - drawn[i].x, 0.07, 1e-9);  // 같은 변 순서 · 같은 만큼만 옮겨짐
+    EXPECT_NEAR(seen[i].y - drawn[i].y, -0.04, 1e-9);
+    EXPECT_DOUBLE_EQ(seen[i].yaw, drawn[i].yaw);
+    const auto m = apply_corr(kTrue, arena_to_map(seen[i], kStart));  // Nav2 목표 (to_map)
+    EXPECT_NEAR(std::hypot(m.x - qm.x, m.y - qm.y), half + standoff, 1e-9);  // 인지 상자 가운데에서 변 + standoff
+  }
+}
+
+namespace {
+// 벽 선분 위를 step 간격으로 — 보정 c를 씌운 map 점 (지도 칸처럼)
+std::vector<std::pair<double, double>> wall_cells(const std::vector<std::array<double, 4>> & segs, const ArenaCorr & c, double step) {
+  std::vector<std::pair<double, double>> out;
+  for (const auto & w : segs) {
+    const int n = static_cast<int>(std::hypot(w[2] - w[0], w[3] - w[1]) / step);
+    for (int k = 0; k <= n; ++k) {
+      const double t = n ? static_cast<double>(k) / n : 0.0;
+      const auto m = apply_corr(c, {w[0] + t * (w[2] - w[0]), w[1] + t * (w[3] - w[1]), 0});
+      out.push_back({m.x, m.y});
+    }
+  }
+  return out;
+}
+const std::vector<std::array<double, 4>> kRoom{{0, 0, 4, 0}, {4, 0, 4, 6}, {4, 6, 0, 6}, {0, 6, 0, 0}, {2, 2, 2, 4}};
+}  // namespace
+
+TEST(WallFit, RecoversShiftAndRotation) {
+  const ArenaCorr truth{0.12, -0.08, 0.06, 0};  // 3.4°
+  const auto f = fit_walls(kRoom, wall_cells(kRoom, truth, 0.05), {}, 0.35, 50, 0.01, 0.8, 0.35);
+  ASSERT_TRUE(f.ok) << f.why;
+  EXPECT_NEAR(f.c.dx, truth.dx, 0.005);
+  EXPECT_NEAR(f.c.dy, truth.dy, 0.005);
+  EXPECT_NEAR(f.c.dth, truth.dth, 0.002);
+  EXPECT_LT(f.rms, 0.005);
+  // 시작값이 가까우면 그대로 수렴 (mission_manager는 지난 결과에서 시작)
+  const auto g = fit_walls(kRoom, wall_cells(kRoom, truth, 0.05), {0.1, -0.1, 0.05, 0}, 0.35, 50, 0.01, 0.8, 0.35);
+  ASSERT_TRUE(g.ok);
+  EXPECT_NEAR(g.c.dth, truth.dth, 0.002);
+}
+
+TEST(WallFit, OutliersAndPlanErrors) {
+  // 벽 하나가 도면보다 4 cm 밀려 있음 · 경기장 안 물체(사람·상자 아님) 점 덩어리 — 회전은 그래도 1° 안
+  const ArenaCorr truth{-0.05, 0.10, -0.04, 0};
+  auto segs = kRoom;
+  segs[1] = {4.04, 0, 4.04, 6};
+  auto cells = wall_cells(segs, truth, 0.05);
+  for (int i = 0; i < 40; ++i) cells.push_back({1.0 + 0.01 * i, 3.0});  // gate 밖 덩어리
+  const auto f = fit_walls(kRoom, cells, {}, 0.35, 50, 0.01, 0.8, 0.35);
+  ASSERT_TRUE(f.ok) << f.why;
+  EXPECT_NEAR(f.c.dth, truth.dth, 0.017);
+  EXPECT_NEAR(f.c.dy, truth.dy, 0.03);
+}
+
+TEST(WallFit, OneWallIsDegenerate) {
+  // 벽 한 줄만 보이면 벽을 따라가는 방향을 모름 → ok 아님 (보정을 안 바꿈)
+  const std::vector<std::array<double, 4>> one{{0, 0, 4, 0}};
+  const auto f = fit_walls(kRoom, wall_cells(one, {0.05, 0.02, 0.0, 0}, 0.05), {}, 0.35, 50, 0.01, 0.8, 0.35);
+  EXPECT_FALSE(f.ok);
+  EXPECT_EQ(f.why, "degenerate");
+  EXPECT_EQ(fit_walls(kRoom, {}, {}, 0.35, 50, 0.01, 0.8, 0.35).why, "no_walls_or_cells");
+  EXPECT_EQ(fit_walls(kRoom, wall_cells(one, {}, 0.5), {}, 0.35, 50, 0.01, 0.8, 0.35).why, "few_cells");
+}
+
+TEST(MissionFlow, ParseGoto) {  // start:GOTO:<목록> — 실기 이동 시험
+  StartCmd sc;
+  std::string why;
+  ASSERT_TRUE(parse_start("start:GOTO:S1,2,l3", sc, why)) << why;
+  ASSERT_EQ(sc.go_to.size(), 3u);
+  EXPECT_EQ(sc.go_to[0], "S1");
+  EXPECT_EQ(sc.go_to[1], "S2");
+  EXPECT_EQ(sc.go_to[2], "L3");
+  EXPECT_FALSE(parse_start("start:GOTO:S7", sc, why));
+  EXPECT_EQ(why, "bad_target:S7");
+  EXPECT_FALSE(parse_start("start:GOTO", sc, why));
+  EXPECT_FALSE(parse_start("start:GOTO:L4", sc, why));
+}
+
+// exit 후진 거리 (11-16): 회전 공간이 모자라면 늘리고, 뒤 벽 앞에서 멈춤
+TEST(MissionSolver, ExitBackFloorAndRearWall) {
+  const std::vector<double> none;
+  // 붙은 자리 (0, 0) · 상자는 +x 쪽 · 뒤(−x)에 벽 없음 → need까지
+  EXPECT_NEAR(plan::exit_back(0.20, 0.251, 0.0, 0.0, 0.0, 0.265, 0.05, none), 0.251, 1e-9);
+  // 이미 충분하면 그대로
+  EXPECT_NEAR(plan::exit_back(0.36, 0.251, 0.0, 0.0, 0.0, 0.265, 0.05, none), 0.36, 1e-9);
+  // 뒤 벽 x = −0.55 (세로) → 몸 뒤 끝이 −0.50까지 = 후진 0.235까지만
+  const std::vector<double> wall{-0.55, -1.0, -0.55, 1.0};
+  const double b = plan::exit_back(0.20, 0.251, 0.0, 0.0, 0.0, 0.265, 0.05, wall);
+  EXPECT_LE(b, 0.235 + 1e-9);
+  EXPECT_GT(b, 0.225);
 }

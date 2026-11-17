@@ -47,7 +47,7 @@ geometry_msgs::msg::Quaternion top_down(double psi);  // 손가락이 바닥을 
 
 class GraspScorer : public rclcpp::Node {
 public:
-  GraspScorer();
+  explicit GraspScorer(const rclcpp::NodeOptions & options = rclcpp::NodeOptions());
 
 private:
   void score(const ScoreGrasps::Request & req, ScoreGrasps::Response & res);

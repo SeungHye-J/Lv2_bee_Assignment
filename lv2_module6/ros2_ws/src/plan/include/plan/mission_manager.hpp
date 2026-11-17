@@ -2,16 +2,24 @@
 
 // mission_manager (🛠 직접 작성) — 주사위 기억 미션 (documents/mission/README.md) 순서를 진행한다
 //   흐름·skill: documents/project/ros/05-arm.md · 인지 인터페이스: documents/API.md
-//   입력: ✉️ /cmd/mission (std_msgs/String "start" | "abort")
+//   입력: ✉️ /cmd/mission (std_msgs/String "start" | "abort" — 시작 명령 전체는 mission_solver.hpp parse_start)
 //         ✉️ /mission/signal (확정 답) · /mission/signal_status (사이클마다 — ok · error) · /mission/qr (바코드 원문) — perception
 //         ✉️ /tracked_objects (퍽 tag·color·shape(box|cyl) · 장소 상자 location_box(tag · 윗면 가운데) · barcode · last_seen)
-//         ✉️ /task/status (coordinator 결과)
+//         🎬 /task/execute_plan (ExecutePlan action — coordinator 계획 실행 결과)
 //         ✉️ photo_topic (사진 찍을 때만 잠깐 구독) · TF map → base_footprint
-//   출력: ✉️ /task/sub_goals (SubGoalArray, plan_id = PLAN_ID_BASE + n) → coordinator
+//   출력: 🎬 /task/execute_plan (SubGoal[] + plan_id = PLAN_ID_BASE + n) → coordinator
 //         ✉️ /mission/state (plan/MissionState, latched) · /mission/markers (RViz)
+//         ✉️ /nvblox_node/static_occupancy_grid (nvblox 원본 격자 — 벽 정합, arena_corr_wall_fit)
+//         ✉️ /arena/correction (std_msgs/String JSON {"dx", "dy", "dth", "n", "src" (none | boxes | walls), "boxes",
+//           "marks": {"S3": [x, y, 본 횟수]}},
+//           latched) — 도면 보정 · 상자별 인지 위치 (미션이 없어도
+//           arena_corr_idle이면 계속 — isaac/loops/approach_loop.py --real이 같은 보정으로 목표를 잡음)
 //         ✉️ 기록 log_dir/<시작 시각>/ signal · allocation · build · verify · return · error .json + photos/ · /diagnostics
+//            + steps.jsonl (계획 단계마다 한 줄: 시각·걸린 시간·skill·결과·이유·다시 시도 번호·퍽/박스/장소)
+//            + phases.jsonl (단계마다 한 줄 + 끝에 MISSION 한 줄) — 모아 보기: tools/plan/step_stats.py
 //   단계 (순서와 실패 시 갈 곳은 mission_solver next_phase):
-//     GO_OBSERVE 바코드 보는 자세로 (팔은 stow 그대로 — scan 자세는 없앰, 11-09) → BARCODE 이번에 본 바코드 → 관측 자세(−X)로
+//     GO_OBSERVE 바코드 보는 자세로 (팔은 stow 그대로 — scan 자세는 없앰, 11-09) → BARCODE 관측: 손 카메라(gaze) 바코드 +
+//              pole_front_cam 신호를 같은 자리에서 동시에 (11-12 — 신호 오류는 팔·바퀴가 멈췄을 때만 셈 · abort면 팔 접음) → 관측 자세(−X)로
 //     → READ 12회 점멸 — signal_status가 ok(두 사이클 같은 답)면 확정 · unconfirmed면 기다림 ·
 //              count·unknown·range가 signal_error_cycles번 이어지면 ERROR (발제: 추정 금지 → 안전 정지) · signal_timeout_s 넘어도 ERROR
 //     → SURVEY 시작 박스 6곳 전부: 퍽 두 자리 inspect(tag·색·모양) → pick → load next (적재함 12칸)
@@ -19,13 +27,14 @@
 //              → 12개 한 번에 할당 (mission_solver allocate)
 //     → BUILD 퍽마다: 장소 앞 → 장소 태그로 칸 위치 보정 → [적재함 칸에서 꺼냄 | 못 실은 퍽은 시작 박스에서 직접 집어 옴]
 //              (적재함이면 unload <칸>) → place 칸 "x,y,z" → 내려다보고 10 mm 밖·쓰러짐이면 다시 집어 놓기
-//     → VERIFY 장소마다 새로 본 퍽만으로 칸별 판정 + 12개 중복·누락 → RETURN 출발 구역 가운데 → 외곽이 구역 안인지
+//     → VERIFY 장소마다 새로 본 퍽만으로 칸별 판정 (마지막에 놓은 장소는 그 자리에서 · 나머지는 build_location_order 거꾸로 다시 감 · verify_in_place면 장소마다 놓은 자리에서) + 12개 중복·누락 → RETURN 출발 구역 가운데 → 외곽이 구역 안인지
 //              확인·보정 → home_hold_s 정지 → DONE
 //   실패: skill마다 retries번 다시 · 그래도 안 되면 그 퍽·장소만 실패로 results에 남기고 다음으로 (복귀까지).
 //     관측(신호·바코드) 오류와 복귀 이동 실패만 ERROR로 멈추고 coordinator 정지
 //   좌표: 설정은 경기장(arena, m) — start_pose_arena 하나로 map으로 바꾼다 (mission_solver arena_to_map).
 //   판단(정렬·배정·할당·칸·판정)은 전부 mission_solver 순수 함수. 이 노드는 순서·기록·skill 요청만.
 #include <functional>
+#include <deque>
 #include <map>
 #include <set>
 #include <string>
@@ -36,13 +45,19 @@
 #include "perception/msg/tracked_object_array.hpp"
 #include "plan/mission_solver.hpp"
 #include "plan/plan_next.hpp"
+#include "plan/action/execute_plan.hpp"
 #include "nav_msgs/msg/occupancy_grid.hpp"
 #include "plan/msg/basket_state.hpp"
 #include "plan/msg/mission_state.hpp"
 #include "plan/msg/sub_goal_array.hpp"
 #include "plan/msg/task_status.hpp"
 #include "rclcpp/rclcpp.hpp"
+#include "rclcpp_action/rclcpp_action.hpp"
 #include "sensor_msgs/msg/image.hpp"
+#include "sensor_msgs/msg/joint_state.hpp"
+#include "diagnostic_msgs/msg/diagnostic_array.hpp"
+#include "std_msgs/msg/float64_multi_array.hpp"
+#include "std_msgs/msg/int32_multi_array.hpp"
 #include "std_msgs/msg/string.hpp"
 #include "tf2_ros/buffer.h"
 #include "tf2_ros/transform_listener.h"
@@ -53,9 +68,13 @@ namespace plan {
 using plan::msg::MissionState;
 using plan::msg::SubGoal;
 using plan::msg::SubGoalArray;
-using plan::msg::TaskStatus;
+using ExecutePlan = plan::action::ExecutePlan;
 
-struct Box { double x, y, half; };  // arena [m] — 정사각 박스 (윗면 = box_top_z)
+struct Box {  // arena [m] — 정사각 박스 (윗면 = box_top_z)
+  double x, y, half;
+  std::vector<std::string> sides = {};  // 다가갈 변 "+x" "-x" "+y" "-y" (arena, 박스 가운데에서 그 변 쪽), "+x@0.41" = 가운데에서 0.41 m에 섬 — 비면 네 변 다
+  double retreat = 0.0;  // [m] 도킹 뒤 다가설 자리보다 이만큼 더 똑바로 물러남 (start_box_retreat, 11-15)
+};
 
 // 집을 퍽 트랙 고르기 — 인지는 안 보이는 물체를 2초 뒤 지우므로(long_memory: false) 퍽은 tag로 기억하고 집기 직전에 다시 찾는다.
 //   ① tag를 읽은 퍽 중 가장 최근에 본 것 ② (spot이 있으면) 그 map 점에서 radius 안 가장 가까운 퍽 — tag를 못 읽었거나 같은 tag인 것만
@@ -65,7 +84,7 @@ const perception::msg::TrackedObject * puck_for(const perception::msg::TrackedOb
 
 class MissionManager : public rclcpp::Node {
 public:
-  MissionManager();
+  explicit MissionManager(const rclcpp::NodeOptions & options = rclcpp::NodeOptions());
 
 private:
   using Done = std::function<void(bool ok, const std::string & reason)>;
@@ -77,32 +96,37 @@ private:
   void finish(bool ok, const std::string & why = "");
   void note(const std::string & text);           // 지금 하는 일 → /mission/state
   void result(const std::string & text);         // 퍽·장소 결과 (실패해도 계속) → /mission/state · build.json
+  void beep_phase(Phase phase);                  // 단계마다 pitch가 올라감 · 완료/오류는 긴 끝 신호
   void stop(const std::string & why);            // ERROR — coordinator 정지
 
-  // skill 요청 — 계획 하나를 보내고 /task/status로 끝을 기다림. run_retry는 실패하면 retries번까지 다시
+  // skill 요청 — 계획 하나를 ExecutePlan action으로 보내고 result를 기다림. run_retry는 실패하면 retries번까지 다시
   void run(std::vector<SubGoal> goals, Done done);
   void run_retry(std::vector<SubGoal> goals, Done done, int tries = 0);
   // 박스 위 점(arena)을 다룰 자리로 navigate + approach — 점에서 가까운 변부터, 실패하면 다음 변 (최대 approach_tries)
-  void go_near(const Box & box, double px, double py, Done done, size_t k = 0, std::vector<Pose2> poses = {});
+  void go_near(const Box & box, double px, double py, Done done, size_t k = 0, std::vector<Pose2> poses = {}, bool retried = false);
+  //   박스 가운데는 near_center(인지 평균 또는 도면) — px·py(도면 기준 점)도 같은 만큼 옮김. 변 · @거리 · standoff는 그대로
 
   void go_observe();
   void barcode_phase();
-  void barcode_read();                                // 바코드 기다림 (팔을 barcode 자세로 둔 뒤)
   void barcode_done(bool ok, const std::string & why);  // 팔 stow로 → 다음 단계
   void read_phase();
   void survey(size_t box);
+  std::vector<std::string> goto_;  // start:GOTO 목록 (S1~S6 · L1~L3)
+  void goto_seq(size_t k);         // 목록 k번째 상자에 SURVEY처럼 다가감 → 다음 · 끝나면 RETURN
   void load(size_t box, std::vector<int> found, size_t k);  // 찾은 퍽(tag)을 적재함에 — 트랙 id는 집기 직전에 다시 찾음
+  void put_back(int tag, size_t box, std::vector<double> dxs, size_t i, std::function<void(bool)> done);  // 적재 실패 퍽을 상자 위로
   void solve_allocation();
   void build(size_t i);
   void bring(size_t i);                          // 그 퍽을 장소 앞에서 손에 쥘 때까지 (적재함 · 시작 박스)
   void place_check(size_t i, int tries);         // 놓기 → 내려다보고 확인 → 벗어났으면 다시
-  void verify(size_t loc);
+  void verify(size_t k);   // k = 재확인 순서 (build_location_order 거꾸로) — 그 자리에서 이미 한 장소는 건너뜀
+  void verify_at(size_t li, std::function<void()> then);  // 지금 선 자리에서 장소 li 재검증 (가서 서는 건 부르는 쪽)
   void go_home(bool corrected = false);
 
   // 장소 상자로 장소 li 칸 보정 — 지금 /tracked_objects에 그 태그의 location_box가 있으면 corr_[li]를 갱신
   void correct(size_t li);
   std::pair<double, double> cell_target(size_t li, int cell) const;  // 보정을 더한 칸 중심 (arena)
-  const TrackedObject * puck_near(double mx, double my) const;  // map 점에서 match_radius 안 가장 가까운 퍽 (tag 상관없이)
+  const TrackedObject * puck_near(double mx, double my, double r = 0.0) const;  // map 점에서 r(0이면 match_radius) 안 가장 가까운 퍽 (tag 상관없이)
   // 누운 퍽을 세워서 손에 쥠: stand → stand_check_s 뒤 인지로 섰나 → stand_pick. 아직 누웠으면 그 퍽으로 stand 다시 (retries번)
   void stand_up(uint32_t id, double mx, double my, int tries, Done done);
   // 그 퍽(tag)을 손에 — 집기 직전에 locate로 트랙을 다시 찾고, 누웠으면 stand_up · 아니면 pick. pick이 실패하면 다시 찾아서 (retries번)
@@ -111,13 +135,31 @@ private:
   //   memory: 목록에 없을 때 먼저 마지막으로 본 트랙(last_seen_)을 줌 — 첫 시도만 (그 pick이 실패하면 다시 봄)
   void locate(int tag, bool memory, std::function<void(const TrackedObject *)> cb);
 
-  Pose2 to_map(double x, double y, double yaw = 0.0) const;
+  Pose2 to_map(double x, double y, double yaw = 0.0) const;  // 도면 보정(acorr_)까지 더함
   Pose2 to_arena(double mx, double my, double myaw = 0.0) const;
   std::string point(double ax, double ay, double z) const;  // arena 점 → "x,y,z" (map)
   bool robot_arena(Pose2 & p) const;
   void publish_state();
   void publish_markers();
   void write_log(const std::string & name, const std::string & json) const;
+  void append_log(const std::string & name, const std::string & line) const;  // 한 줄 덧붙임 (쓸 때마다 닫아서 바로 디스크에)
+  // 시간 기록 — steps.jsonl: 계획(run)의 단계마다 (feedback current_step으로 단계 경계를 잼) · phases.jsonl: 단계·미션 끝마다
+  struct StepLog {
+    uint32_t plan = 0;               // 0 = 기록 중인 계획 없음
+    std::vector<SubGoal> goals;
+    size_t cur = 0;                  // 지금 단계 (0부터)
+    double t0 = 0;                   // 지금 단계 시작 (wall, s)
+    int retry = 0;
+    std::string phase, ctx;
+  };
+  StepLog step_log_;
+  int attempt_ = 0;                  // 다음 run()의 다시 시도 번호 (run_retry · grab · place_check · stand_up이 정함)
+  std::string ctx_;                  // 지금 다루는 퍽·박스·장소 (JSON 필드 조각, 예 "\"tag\": 7, \"loc\": \"L1\"")
+  double phase_t0_ = 0, mission_t0_ = 0;
+  void step_line(size_t k, double t0, double t1, bool ok, const std::string & why, bool timed = true);
+  void close_steps(bool ok, const std::string & why, size_t last);  // 기록 중인 계획을 last 단계까지 닫음
+  void phase_line(bool ok, const std::string & why, Phase next);
+  void mission_line(bool ok, const std::string & why);
   void snap(const std::string & name);           // photo_topic 한 장 → photos/<번호>_<name>.jpg
 
   // 설정 (arena, m)
@@ -127,14 +169,65 @@ private:
   std::vector<size_t> survey_order_, build_loc_order_;  // 시작 박스 · 장소 방문 순서 (0부터, plan.yaml survey_order · build_location_order)
   size_t survey_k_ = 0;                                  // 지금 몇 번째 박스를 도는지 (survey_order_ 인덱스)
   std::vector<double> walls_;    // 경기장 벽 선분 [x0, y0, x1, y1, …] (arena, m) — 다가설 자리 거르기 · /arena/walls
+  std::vector<double> keepout_;  // 안 들어갈 구역 사각형 [x0, y0, x1, y1, …] (arena, m) — /arena/walls에 칸 100 · 다가설 자리 거르기
+  bool in_keepout(double x, double y) const;
+  double nav_turn_m_ = 0.55;     // [m] Nav2 목표를 박스 가운데에서 이만큼까지 물림 (제자리 회전 공간)
+  double return_direct_m_ = 1.0;  // [m] 복귀 navigate 실패 뒤 직선(park_home)으로 마저 갈 최대 거리
+  double exit_turn_clear_ = 0.35;  // [m] exit 뒤 상자 면 ~ base_footprint 최소 (180° 제자리 회전, 11-16)
+  double exit_rear_m_ = 0.265;     // [m] base_footprint ~ 몸 뒤 끝 (collision_monitor Approach 뒤 변)
+  double exit_rear_clear_ = 0.05;  // [m] exit을 늘릴 때 몸 뒤 끝이 벽에서 이만큼은 남김
+  // 다가설 자리 · Nav2 목표의 박스 가운데 = 인지 상자 평균(marks_, min_hits · gate 안)이면 그것, 아니면 도면 (approach_perceived, 11-16)
+  bool near_perceived_ = true;
+  std::pair<double, double> near_c_{0.0, 0.0};  // 이번 go_near가 쓰는 박스 가운데 (arena) — 다가설 자리를 정할 때 한 번 정함
+  std::pair<double, double> near_center(const Box & box);
+  std::string box_label(const Box & box) const;  // S1..S6 · L1..L3 (로그용 — 목록에 없으면 "")
   double wall_clearance_ = 0.22; // [m] 다가설 자리가 벽에서 이보다 가까우면 그 변은 안 감 (로봇 반경 0.16 + 여유)
   std::vector<std::pair<double, double>> locations_;
   std::vector<int> loc_tags_;
   std::vector<double> puck_dx_;
   double box_top_z_, puck_h_, grid_step_, standoff_, approach_gap_, verify_radius_, match_radius_;
+  double survey_margin_ = 0.05;          // [m] 조사: 인지 상자 가운데일 때 윗면 반폭에 더하는 여유 (11-16)
+  double survey_margin_nominal_ = 0.20;  // [m] 조사: 도면 가운데일 때 (위치 추정 오차 10~25 cm 감안)
+  int survey_pucks_per_box_ = 2;         // 조사: 상자마다 등록할 퍽 최대 개수 (가운데에 가까운 순서)
   double place_tol_, place_search_, corr_max_;
   Pose2 barcode_pose_;
-  std::string barcode_arm_pose_;  // 바코드 읽을 때 팔 자세 ("" = 안 움직임)
+  std::string barcode_arm_pose_;
+  double barcode_pole_s_ = 3.0;   // 팔을 뻗기 전에 pole_front_cam으로 보는 시간
+  Phase only_ = Phase::IDLE;      // 단계 하나만 실행 ("start:<단계>") — IDLE = 전체
+  bool continue_on_fail_ = false; // plan.yaml — 모든 회차를 현장 진단 실행으로
+  bool diag_run_ = false;            // 이번 회차 현장 진단 실행 (실패해도 계속 · 치명 이유만 정지 — mission_solver diag_fatal)
+  int stuck_ = 0, stuck_limit_ = 3;
+  bool given_ = false;            // 시작 명령으로 바코드·신호를 받음 ("start:…FROM_SURVEY:…" · "start:DIAG:…")
+  std::string given_barcode_;
+  Counts given_counts_;
+  void use_given(bool fallback);  // from_survey: 처음부터 그 값 · diag(fallback): 관측이 실패한 것만 그 값으로 (results에 남김)  // 이어진 주행 갇힘 (nav_no_progress · nav_failed) 수 · 치명으로 볼 수
+  bool signal_window_ = false;    // 이번 실행에서 신호 관측 창을 열었는지 (BARCODE부터 · READ만이면 READ에서)
+  bool gaze_sent_ = false;        // 이번 BARCODE에서 팔을 뻗었는지 (끝날 때 접을지)
+  double barcode_gaze_wait_s_ = 3.0, barcode_advance_step_m_ = 0.06, barcode_advance_max_m_ = 0.30, barcode_min_gap_m_ = 0.13;
+  double grip_front_m_ = -1.0;    // 손 카메라 정면(화면 가운데) depth 하위 10 % [m] (-1 = 모름) — 바코드 다가갈 때 멈춤 기준
+  rclcpp::Time grip_front_at_{0, 0, RCL_ROS_TIME};  // grip_front_m_을 마지막으로 잰 시각
+  rclcpp::Subscription<sensor_msgs::msg::Image>::SharedPtr grip_depth_sub_;
+  // 팔 과부하 대비 (11-14 실기: 신호를 기다리며 gaze로 2분 넘게 뻗고 있다가 joint2 과부하 → 팔이 처져 손 카메라가 바닥만 봄)
+  bool barcode_gaze_after_signal_ = true;   // 신호를 팔 접은 채 먼저 확정한 뒤 gaze로 뻗음
+  rclcpp::Time gaze_free_{0, 0, RCL_ROS_TIME};  // 신호 대기가 끝나 gaze를 보내도 되는 때
+  bool gaze_wait_noted_ = false;
+  double arm_sag_rad_ = 0.25;               // gaze 유지 중 관절이 도착 값에서 이만큼 넘게 벗어나면 정지 (0 = 끔)
+  std::map<std::string, double> joints_now_, gaze_joints_;
+  rclcpp::Subscription<sensor_msgs::msg::JointState>::SharedPtr joint_sub_;
+  bool motor_error_stop_ = true;            // OpenCR 모터 에러(과부하 등) 진단이 뜨면 미션 바로 정지
+  std::string motor_error_;
+  rclcpp::Subscription<diagnostic_msgs::msg::DiagnosticArray>::SharedPtr diag_sub_;
+  rclcpp::Time gaze_at_{0, 0, RCL_ROS_TIME};  // gaze 도착(또는 다가간 뒤) 시각
+  double advanced_m_ = 0.0;       // 바코드 쪽으로 다가간 거리
+  bool moving_ = false;           // 다가가는 중
+  bool returning_ = false;        // 바코드 뒤 팔 접고 제자리로 돌아오는 중
+  bool light_warned_ = false;     // 이번 관측에서 신호등 안 보임 경고를 했음
+  bool hold_noted_ = false;       // 신호 확정까지 다가가기 보류 안내를 했음
+  double light_check_s_ = 8.0;    // 관측 시작 뒤 이만큼 신호등이 안 보이면 경고 [s]
+  double signal_read_min_s_ = 60.0;  // READ에 들어온 뒤 최소 이만큼은 신호를 봄 (관측 시간을 바코드에 다 써도) [s]
+  rclcpp::Time read_phase_at_{0, 0, RCL_ROS_TIME};
+  bool observe_still() const;     // 관측 중 팔·바퀴가 멈춰 있음 (신호 오류 사이클을 셀 때)
+  Pose2 barcode_origin_;          // 다가갔다가 돌아올 자리 (arena)  // 바코드 읽을 때 팔 자세 ("" = 안 움직임)
   bool observe_move_ = false;  // barcode_pose_arena가 있으면 그 자리로 갔다가 관측 자리로 돌아옴
   double signal_timeout_s_, barcode_timeout_s_, home_hold_s_;
   int signal_error_cycles_ = 2;
@@ -143,15 +236,21 @@ private:
 
   // 진행 상태
   Phase phase_ = Phase::IDLE;
+  bool phase_beeps_ = true;
+  bool beep_timer_active_ = false;
+  std::deque<std::pair<int, int>> beep_queue_;
   std::string note_, error_;
   bool active_ = false;
+  using ExecuteGoalHandle = rclcpp_action::ClientGoalHandle<ExecutePlan>;
   uint32_t plan_seq_ = 0, waiting_plan_ = 0;
+  ExecuteGoalHandle::SharedPtr waiting_goal_;
   Done waiting_done_;
   perception::msg::MissionSignal signal_;
   bool signal_ready_ = false;           // 이번 READ에서 확정 답을 받음
   int signal_streak_ = 0;               // 이어진 오류 사이클 수 (mission_solver signal_action)
   std::string signal_error_;            // ERROR로 갈 신호 오류 (count | unknown | range)
   std::string barcode_, barcode_msg_;
+  std::string bad_barcode_;              // 이번 BARCODE에서 본 미등록 바코드 (버리고 계속 찾음 · 끝까지 이것뿐이면 unknown_barcode)
   rclcpp::Time barcode_rx_{0, 0, RCL_ROS_TIME}, phase_started_{0, 0, RCL_ROS_TIME};
   rclcpp::Time read_started_{0, 0, RCL_ROS_TIME};
   Counts counts_;
@@ -165,8 +264,68 @@ private:
   struct Job { int tag; size_t loc; int cell; };
   std::vector<Job> jobs_;
   std::vector<std::pair<double, double>> corr_;  // 장소마다 태그 보정 (arena, )
+  // 도면 보정 — 인지한 시작 박스·장소 상자(윗면 가운데)를 도면 상자와 짝지어 arena → map 변환을 고침 (출발 자세 · 도면 오차)
+  //   켜면 to_map · to_arena 전부에 들어감 (다가설 자리 · 장소 · 복귀 · /arena/walls). 회차 시작마다 0부터
+  struct Mark { double qx = 0, qy = 0; int hits = 0; };  // 도면 상자 하나에 짝지은 인지 위치 (map, 지수 평균)
+  bool acorr_on_ = true;
+  bool acorr_idle_ = true;            // 미션이 없을 때도 보정 (approach_loop 실기 시험) — 미션 시작하면 0부터
+  double acorr_gate_ = 0.6, acorr_max_shift_ = 0.8, acorr_max_rot_ = 0.35, acorr_min_sep_ = 1.0;
+  double acorr_alpha_ = 0.3, acorr_range_ = 2.5, acorr_outlier_ = 0.15;
+  int acorr_min_hits_ = 3;
+  ArenaCorr acorr_, acorr_walls_;     // 지금 보정 · /arena/walls를 마지막으로 보낸 보정
+  // 11-14 실기: 보정이 2~3 cm씩 흔들려 3 cm 문턱을 계속 넘김 → /arena/walls 40 s에 10번 다시 → Nav2 costmap 정적 층이 매번 다시 잡혀 벽에 부딪힘
+  double acorr_step_m_ = 0.03, acorr_step_rad_ = 0.017;     // 보정을 바꾸는 최소 변화 (그 안은 버림 — 목표·기록 흔들림 막음)
+  bool acorr_boxes_ = true;   // 상자로 도면 보정 (false = 벽 정합만)
+  double acorr_walls_m_ = 0.15, acorr_walls_rad_ = 0.087;   // /arena/walls를 다시 보내는 최소 변화 (0이면 안 보냄)
+  std::vector<Mark> marks_;           // 시작 박스 0..5 · 장소 상자 6..8
+  std::map<uint32_t, std::pair<int32_t, uint32_t>> acorr_seen_;  // 트랙 id → 마지막으로 센 last_seen (같은 관측을 다시 세지 않게)
+  rclcpp::Publisher<std_msgs::msg::String>::SharedPtr corr_pub_;  // /arena/correction
+  std::string acorr_used_;            // 마지막으로 알린 근거 상자 이름들
+  std::string acorr_src_ = "none";    // 지금 보정의 근거: none | boxes | walls
+  // 벽 정합 (arena_corr_wall_fit) — nvblox 격자 ↔ 도면 벽. 맞으면 보정은 벽으로, 상자는 marks만 (fit_walls 설명)
+  bool wall_fit_ = true, wall_ok_ = false;
+  double wall_gate_ = 0.3, wall_min_eig_ = 0.03;
+  int wall_min_cells_ = 60;
+  WallFit wall_;                      // 마지막으로 맞은 벽 정합
+  std::string wall_why_;              // 마지막 실패 이유 (바뀔 때만 로그)
+  nav_msgs::msg::OccupancyGrid::ConstSharedPtr grid_;
+  // 벽 정합 점 (odom) — 격자에 새로 생긴 겉면 칸만, 받은 때의 map→odom으로 odom에 둠. 맞출 때 지금 map→odom으로 map에 옮김:
+  //   로봇 위치를 옮겨도(map→odom 바뀜) 점이 같이 옮겨져 같은 보정을 또 내지 않음 (nvblox 격자는 map에 그대로 남아 되먹임 — 11-15)
+  struct WallPt { double x, y, t; };
+  std::vector<WallPt> wall_pts_;
+  std::set<long long> wall_prev_;     // 지난 격자의 겉면 칸 (map 칸 번호) — 새로 생긴 칸만 고름
+  double wall_keep_s_ = 120.0;        // [s] 이보다 오래된 점은 버림
+  double wall_rot_rad_ = 0.26;        // [rad] 지난 정합 뒤 로봇이 이보다 많이 돌았으면 이번 정합 건너뜀 (11-16)
+  double wall_yaw_ = 0.0;             // 지난 정합 때 로봇 방향 (odom)
+  bool wall_yaw_ok_ = false;
+  rclcpp::Subscription<nav_msgs::msg::OccupancyGrid>::SharedPtr grid_sub_;
+  rclcpp::TimerBase::SharedPtr wall_timer_;
+  void wall_tick();
+  // 보정 → 로봇 위치 (arena_corr_to_localization, 11-15): 근거가 충분한 보정(벽 정합 · 상자 loc_min_n개+)을 조각(loc_step)씩
+  //   /localization/map_correction [dx, dy, dth]으로 cuvslam_slam에 넘기고 그만큼 acorr_ · marks_ · wall_.c에서 뺌 —
+  //   지도를 옮기는 대신 로봇 위치를 고쳐 벽 · 문 · costmap · nvblox · 목표가 한 좌표로 맞음 (표준: 위치 추정을 고침)
+  bool loc_on_ = false;
+  int loc_min_n_ = 3;
+  double loc_step_m_ = 0.05, loc_step_rad_ = 0.0175, loc_min_m_ = 0.02, loc_min_rad_ = 0.0087, loc_settle_s_ = 1.5;
+  // 벽 정합 보정 중 로봇 위치로 이미 넘긴 몫 (조각을 이은 것) — nvblox 격자는 map에 쌓여 위치를 옮겨도 예전에 본 벽이 그대로라
+  //   벽 정합이 같은 차이를 다시 봄 → 빼지 않으면 같은 보정을 계속 넘겨 위치가 흘러감 (11-15 밤 시뮬 7 m). 벽 정합 차이가 작아지면 0
+  ArenaCorr loc_sent_;
+  double loc_last_ = -1e9;            // 마지막으로 넘긴 시각 (wall_s) — settle 동안 상자 관측은 안 셈 (좌표가 옮겨지는 중)
+  rclcpp::Publisher<std_msgs::msg::Float64MultiArray>::SharedPtr loc_pub_;
+  rclcpp::TimerBase::SharedPtr loc_timer_;
+  void loc_tick();
+  void commit_corr(const ArenaCorr & c, const char * src, const std::string & why);
+  static bool corr_moved(const ArenaCorr & a, const ArenaCorr & b, double m, double r);
+  std::vector<std::pair<double, double>> acorr_sent_;  // 마지막으로 알린 상자별 인지 위치 (marks)
+  void publish_corr(const std::string & used);
+  void update_corr(const perception::msg::TrackedObjectArray & m);
   std::vector<std::string> results_;
   std::string build_json_, verify_json_;
+  bool verify_in_place_ = true;   // 장소의 마지막 퍽을 놓은 그 자리에서 바로 재검증 (11-15) · false = 다 놓은 뒤 L3·L2·L1 다시 감
+  std::set<size_t> verified_;     // 이번 회차에 재검증한 장소
+  int last_place_loc_ = -1;       // 마지막으로 놓기를 시작한 장소 (= 로봇이 그 앞에 섬)
+  std::string stop_;              // 로봇이 지금 선 곳 (start · S1~S6 · L1~L3, 모르면 '') — navigate에 'leg:<여기>_<갈 곳>'을 붙임 (움직임 정답표, 11-15)
+  std::string leg_to(const std::string & to) const { return stop_.empty() || to.empty() ? "" : " leg:" + stop_ + "_" + to; }
   std::vector<std::vector<int>> seen_tags_;      // 재검증 — 장소마다 본 tag (12개 중복·누락)
   // planner: rule (jobs_ 순서대로) | plan_next (학습된 플래너가 다음 퍽·복귀 시점을 고름 — 퍽 하나 처리는 bring 그대로)
   std::string planner_;
@@ -181,23 +340,26 @@ private:
   void job_done(size_t i, bool ok);  // 퍽 하나 끝 → rule: 다음 job · plan_next: 상태 갱신 후 다시 고르기
   std::set<int> lying_;                          // 조사 때 누워 있던 퍽 tag — 집을 때 세워서 (stand → stand_pick)
   double stand_check_s_ = 1.0;                   // stand 뒤 인지가 선 퍽을 볼 때까지 기다림
+  double stand_find_m_ = 0.10;                   // stand 뒤 선 퍽을 찾는 반경 → pick (못 찾으면 stand_pick)
   int placed_ = 0, photo_n_ = 0;
   std::string back_;   // 박스에 붙어 있을 때 물러날 standoff 자세 "x,y,yaw" (map) — 다음 go_near가 먼저 씀
   std::string run_dir_;
   perception::msg::TrackedObjectArray::ConstSharedPtr objects_;
 
-  std::unique_ptr<tf2_ros::Buffer> tf_buffer_;
+  std::shared_ptr<tf2_ros::Buffer> tf_buffer_;  // shared_tf — 같은 프로세스 plan 노드와 같이 씀
   std::shared_ptr<tf2_ros::TransformListener> tf_listener_;
-  rclcpp::Publisher<SubGoalArray>::SharedPtr goals_pub_;
+  rclcpp_action::Client<ExecutePlan>::SharedPtr execute_client_;
   rclcpp::Publisher<MissionState>::SharedPtr state_pub_;
+  rclcpp::Publisher<std_msgs::msg::Int32MultiArray>::SharedPtr beep_pub_;
+  rclcpp::TimerBase::SharedPtr beep_timer_;
   rclcpp::Publisher<visualization_msgs::msg::MarkerArray>::SharedPtr markers_pub_;
+  rclcpp::Publisher<nav_msgs::msg::OccupancyGrid>::SharedPtr walls_only_pub_;  // /arena/walls_only — 벽만 (상자·금지 구역 없음) → collision_monitor 옆·뒤 입력
   rclcpp::Publisher<nav_msgs::msg::OccupancyGrid>::SharedPtr walls_pub_;  // /arena/walls (map, latched) → nvblox_map이 /map에 겹침
   void publish_walls();
   rclcpp::Subscription<std_msgs::msg::String>::SharedPtr cmd_sub_, barcode_sub_;
   rclcpp::Subscription<perception::msg::MissionSignal>::SharedPtr signal_sub_, signal_status_sub_;
   std::map<int, perception::msg::TrackedObject> last_seen_;  // 태그 → 마지막으로 본 트랙 (locate memory)
   rclcpp::Subscription<perception::msg::TrackedObjectArray>::SharedPtr objects_sub_;
-  rclcpp::Subscription<TaskStatus>::SharedPtr status_sub_;
   rclcpp::Subscription<plan::msg::BasketState>::SharedPtr basket_sub_;
   rclcpp::Subscription<sensor_msgs::msg::Image>::SharedPtr photo_sub_;
   rclcpp::TimerBase::SharedPtr timer_, markers_timer_;

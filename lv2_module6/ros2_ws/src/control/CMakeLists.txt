@@ -1,5 +1,9 @@
 cmake_minimum_required(VERSION 3.16)
 project(control)
+# 빌드 종류를 안 주면(colcon build 그대로) 최적화 없이(-O0) 빌드됨 — 실기 젯슨에서 perception 상자 검출이 8배 느렸음 (11-13)
+if(NOT CMAKE_BUILD_TYPE AND NOT CMAKE_CONFIGURATION_TYPES)
+  set(CMAKE_BUILD_TYPE Release CACHE STRING "" FORCE)
+endif()
 
 if(CMAKE_COMPILER_IS_GNUCXX OR CMAKE_CXX_COMPILER_ID MATCHES "Clang")
   add_compile_options(-Wall -Wextra -Wpedantic)
@@ -42,6 +46,13 @@ foreach(node arm_safety_monitor manual_control)
   target_link_libraries(${node} ${PROJECT_NAME}_nodes)
 endforeach()
 install(TARGETS arm_safety_monitor manual_control DESTINATION lib/${PROJECT_NAME})
+# 컴포넌트 (11-16 메모리) — 같은 클래스를 컨테이너 한 프로세스에 올림 (bringup core_composition). 실행 파일은 그대로
+find_package(rclcpp_components REQUIRED)
+set_target_properties(${PROJECT_NAME}_nodes PROPERTIES POSITION_INDEPENDENT_CODE ON)
+add_library(${PROJECT_NAME}_components SHARED src/components.cpp)
+target_link_libraries(${PROJECT_NAME}_components ${PROJECT_NAME}_nodes rclcpp_components::component)
+rclcpp_components_register_nodes(${PROJECT_NAME}_components "control::ArmSafetyMonitor" "control::ManualControl")
+install(TARGETS ${PROJECT_NAME}_components LIBRARY DESTINATION lib)
 
 # --- BeebotSystemHardware: controller_manager가 URDF <ros2_control>로 불러 쓰는 hardware component 플러그인
 add_library(beebot_system_hardware SHARED src/beebot_system_hardware.cpp)

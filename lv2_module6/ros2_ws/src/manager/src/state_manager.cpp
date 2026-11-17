@@ -183,7 +183,8 @@ void StateManager::set_operation_mode(const std::string & mode) {
   operation_ = mode;
   RCLCPP_WARN(get_logger(), "조작 모드 → %s", operation_.c_str());
   publish(operation_pub_, operation_);
-  collision_cmd_ = "auto";   // 모드가 바뀌면 직접 지정은 끝 — 자동 규칙으로
+  // 직접 켬은 모드가 바뀌어도 유지. 직접 끔은 AUTO로 가면 끝 (자율 주행을 감시 없이 시작하지 않게) — 자동 규칙으로
+  if (collision_cmd_ == "off" && operation_ == "AUTO") collision_cmd_ = "auto";
   apply_collision();
 }
 
@@ -200,8 +201,9 @@ void StateManager::request_collision(const std::string & cmd) {
 }
 
 void StateManager::apply_collision(bool force) {
-  // auto = 수동 조작·지도 만드는 중이면 끔, 그 밖엔 켬. direct = 조작자가 정한 값 (모드 바뀌면 auto로 복귀)
-  const bool auto_off = operation_ == "MANUAL" || map_mode_ == "MAPPING";
+  // auto = 수동 조작이면 끔, AUTO면 켬 (지도 만드는 중이라도 — MAPPING+AUTO에서 감시 없이 벽을 밀었음, 실기 2026-11)
+  // direct = 조작자가 정한 값 (켬은 계속 · 끔은 AUTO로 바뀌면 auto로 복귀)
+  const bool auto_off = operation_ == "MANUAL";
   const std::string state = collision_cmd_ == "auto" ? (auto_off ? "off" : "on") : collision_cmd_;
   const std::string source = collision_cmd_ == "auto" ? "auto" : "direct";
   const std::string value = state + ":" + source;

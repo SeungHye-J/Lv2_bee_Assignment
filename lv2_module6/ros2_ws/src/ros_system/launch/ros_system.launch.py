@@ -11,7 +11,7 @@
                   RealSense ×2(pole_front_cam·gripper_cam), robot_localization EKF, SLAM(위치추정 모드)
   - SLAM (Jetson GPU — documents/jetson-orin-nano/CUVSLAM.md): 위쪽 노드는 map→odom TF · /map(latched) · 지도 원점 = 출발 자리만 받음
       cuVSLAM(scripts/cuvslam_slam.py) → map→odom · /cuvslam/odom(EKF)
-      + nvblox(depth → 3D TSDF → 2D 점유 격자) → scripts/nvblox_map.py가 /map(latched)으로 · 지도 파일 nvblox.nvblx
+      + nvblox(depth → 3D TSDF → 2D 점유 격자) → nvblox_map(src/nvblox_map.cpp · 파이썬판 scripts/nvblox_map.py)이 /map(latched)으로 · 지도 파일 nvblox.nvblx
   - Nav2 (use_nav2:=true, config/nav2_params.yaml): 서버를 직접 띄운다 — nav2_bringup navigation_launch는
           velocity_smoother 입력을 /cmd_vel_nav로 고정해 twist_mux를 건너뛰므로 안 씀.
           속도 체인: controller·behavior → /cmd_vel_nav → twist_mux
@@ -24,16 +24,19 @@ TODO(권형중) 아직 자리만 있는 것 — 설정 패키지가 필요:
 
 import importlib.util
 import os
+import math
+import yaml
 
 import yaml
 from ament_index_python.packages import get_package_share_directory
 from launch import LaunchDescription
-from launch.actions import DeclareLaunchArgument, GroupAction, IncludeLaunchDescription, OpaqueFunction, RegisterEventHandler
+from launch.actions import DeclareLaunchArgument, GroupAction, IncludeLaunchDescription, OpaqueFunction, RegisterEventHandler, SetLaunchConfiguration, TimerAction
 from launch.conditions import IfCondition
 from launch.event_handlers import OnProcessExit
 from launch.launch_description_sources import PythonLaunchDescriptionSource
 from launch.substitutions import Command, LaunchConfiguration, PathJoinSubstitution, PythonExpression
-from launch_ros.actions import Node, SetRemap
+from launch_ros.actions import LoadComposableNodes, Node, SetRemap
+from launch_ros.descriptions import ComposableNode
 from launch_ros.parameter_descriptions import ParameterValue
 from launch_ros.substitutions import FindPackageShare
 
@@ -47,6 +50,11 @@ CONTROLLERS = ['joint_state_broadcaster', 'imu_sensor_broadcaster', 'diff_drive_
 # 파라미터 이름이 pointcloud.enable이 아니라 pointcloud__neon_.enable이다.
 # pointcloud.enable만 주면 조용히 무시되어 publisher가 0개가 된다.
 POINTCLOUD_PARAM = 'pointcloud__neon_' if os.uname().machine in ('aarch64', 'arm64') else 'pointcloud'
+
+# 끌 때(Ctrl+C·/cmd/restart) 빨리 포기할 노드 — launch 기본은 SIGINT → 5초 → SIGTERM → 5초 → SIGKILL(최대 10초).
+# Nav2 서버(costmap 정리 중)·lifecycle_manager·move_group이 SIGINT에 멈춰 늘 10초를 다 채웠다(CI 로그). 지킬 상태가 없으니 3+3초.
+# 하드웨어(ros2_control_node — OpenCR 정지)·RealSense(USB 놓기)·nvblox(매핑이면 끌 때 지도 저장)는 기본 5+5초 그대로.
+QUICK_STOP = {'sigterm_timeout': '3', 'sigkill_timeout': '3'}
 
 
 def flag(name, default, description):
@@ -139,11 +147,12 @@ def move_group_node():
         robot_description_semantic = f.read()
     return Node(
         package='moveit_ros_move_group', executable='move_group', name='move_group', output='screen',
-        condition=IfCondition(LaunchConfiguration('use_moveit')),
+        condition=IfCondition(LaunchConfiguration('use_moveit')), **QUICK_STOP,
             parameters=[
                 {'robot_description': ParameterValue(Command(urdf_xacro(
                     ' mock_hardware:=false port:=/dev/opencr')), value_type=str),
                  'robot_description_semantic': robot_description_semantic,
+                 'publish_robot_description_semantic': True,  # RViz Trajectory·MotionPlanning display가 토픽으로 SRDF를 받음
                  'robot_description_kinematics': load_yaml('config', 'moveit', 'kinematics.yaml'),
                  'robot_description_planning': load_yaml('config', 'moveit', 'joint_limits.yaml'),
                  'planning_pipelines': ['ompl'],
@@ -175,23 +184,40 @@ def generate_launch_description():
         flag('use_cameras', 'true', 'RealSense 2대 (pole_front_cam·gripper_cam) 전체 스위치'),
         flag('use_pole_front_cam', 'true', 'pole_front_cam 개별 스위치 (use_cameras와 AND)'),
         flag('use_gripper_cam', 'true', 'gripper_cam 개별 스위치 (use_cameras와 AND)'),
+        flag('use_pole_back_cam', 'false', 'pole_back_cam (폴 뒤, 주행 전용 — nvblox camera_1) 개별 스위치 (use_cameras와 AND)'),
+        flag('pole_back_cam_external', 'false', 'pole_back_cam 영상을 드라이버 대신 다른 곳(Isaac + camera_adapter)이 냄 — use_cameras:=false여도 depth gate · nvblox camera_1을 켬'),
         flag('pole_front_cam_serial', "''", 'pole_front_cam serial_no (빈 값이면 첫 장치)'),
         flag('gripper_cam_serial', "''", 'gripper_cam serial_no'),
+        flag('pole_back_cam_serial', "''", 'pole_back_cam serial_no'),
         flag('pole_front_cam_profile', '640x360x15', 'pole_front_cam RGB/depth 프로파일 (WxHxFPS)'),
         flag('gripper_cam_profile', '640x360x15', 'gripper_cam RGB/depth 프로파일 (WxHxFPS)'),
+        flag('pole_back_cam_profile', '640x360x15', 'pole_back_cam RGB/depth 프로파일 (WxHxFPS)'),
         flag('camera_decimation_enable', 'true', 'RealSense depth decimation 필터 (점군 밀도 감소)'),
         flag('camera_decimation_magnitude', '2', 'decimation 배율 (2=1/4 점, 3=1/9 점)'),
         flag('pole_front_cam_pointcloud', 'true', 'pole_front_cam PointCloud2 발행 (body_filter/Nav2용)'),
         flag('gripper_cam_pointcloud', 'false', 'gripper_cam PointCloud2 발행 (grasp_scorer용, 필요할 때만 true)'),
+        flag('pole_back_cam_pointcloud', 'false', 'pole_back_cam PointCloud2 발행 (nvblox는 depth 영상을 받아 필요 없음)'),
         flag('use_ekf', 'true', 'robot_localization EKF'),
         flag('ekf_imu', 'true', 'EKF yaw 회전속도 = IMU 자이로 · false면 바퀴 (자이로 영점이 틀어지면 서 있어도 yaw가 돎 — 11/08 실기 0.2~2.3°/s)'),
         flag('use_slam', 'true', 'SLAM(cuVSLAM + nvblox) — false면 map→odom·/map 없음 (테스트베드 faker map:=course는 map_server가 대신)'),
         flag('localization', 'true', 'true=위치추정 모드(운영, 저장 지도로), false=매핑 모드(지도를 새로 만듦)'),
+        flag('map_backend', 'nvblox', 'nvblox | static_2d (saved 2D map + cuVSLAM, no nvblox)'),
+        flag('static_map_yaml', '', 'static_2d map YAML in the cuVSLAM map frame'),
+        flag('nvblox_params_file', share('config', 'nvblox.yaml'), 'nvblox parameter file'),
         flag('nvblox_map', '~/.ros/nvblox.nvblx', 'nvblox 지도 파일 — 매핑이면 끌 때 여기에 저장, 위치추정이면 시작할 때 여기서 불러옴'),
         flag('use_cmd_chain', 'true', '바퀴 명령 체인 (velocity_smoother · collision_monitor · lifecycle_manager_base) — use_nav2와 별개: 지도 없이(map:=none)도 수동 조작이 되려면 늘 필요'),
         flag('use_nav2', 'true', '진짜 Nav2 서버 (planner · controller · behavior · bt_navigator) — 바퀴 명령 체인(velocity_smoother · collision_monitor)은 use_cmd_chain'),
+        flag('nav2_composition', 'true', 'Nav2 서버·관리자를 한 프로세스(nav2_container, 컴포넌트)로 — 메모리 절약 · false면 서버마다 프로세스 (예전)'),
+        flag('py_helpers_one_process', 'true', 'python 보조 노드(pole_depth_gate · nvblox_map · rewind)를 한 프로세스(py_helpers)로 — 메모리 절약 · false면 따로 (예전)'),
+        flag('cuvslam_impl', 'auto', 'cuvslam_slam 구현: cpp(src/cuvslam_slam.cpp · GPU 입력) · py(scripts/cuvslam_slam.py) · auto = C++판이 빌드돼 있으면 cpp (11-16)'),
+        flag('cuvslam_frame_skip', '1', 'cuVSLAM N장에 1장만 추적 (1=전부 15 Hz · 2=7.5 Hz) — CPU 줄이기 현장 비교용 (11-15)'),
+        flag('helpers_cpp', 'true', 'nvblox_map · rewind를 C++(cpp_helpers, src/nvblox_map.cpp · rewind.cpp)로 — 파이썬은 CPU 몰리면 ~1 s 멈춤 (11-16) · false면 예전 파이썬(py_helpers · nvblox_map · rewind)'),
+        flag('depth_gate_cpp', 'true', 'pole_depth_gate를 C++(perception depth_gate)로 — 파이썬판은 15 Hz depth를 매번 복사 (bag 재생 11-14: 파이썬 6 % → C++ 2 %) · false면 예전 파이썬(scan_cam_gate)'),
         flag('nav2_params_file', share('config', 'nav2_params.yaml'), 'Nav2 파라미터 파일'),
+        flag('nav2_container_params', 'true', 'true(11-15부터 기본) = nav2_container 전체에 Nav2 파라미터 파일 (costmap이 yaml 값으로 — nav2_nodes 설명) · false = 예전 (costmap 기본값)'),
         flag('use_moveit', 'false', 'true면 진짜 move_group (config/moveit) — spawner 완료 후 기동 (동시 기동 레이스 회피)'),
+        OpaqueFunction(function=check_slam),
+        OpaqueFunction(function=check_slam),
 
         Node(
             package='robot_state_publisher', executable='robot_state_publisher', output='screen',
@@ -219,12 +245,15 @@ def generate_launch_description():
                'pole_front_cam_pointcloud', 'use_pole_front_cam'),
         camera('gripper_cam', 'gripper_cam_serial', 'gripper_cam_profile',
                'gripper_cam_pointcloud', 'use_gripper_cam'),
+        camera('pole_back_cam', 'pole_back_cam_serial', 'pole_back_cam_profile',
+               'pole_back_cam_pointcloud', 'use_pole_back_cam'),
 
         *[Node(
             package='robot_localization', executable='ekf_node', name='ekf_filter_node', output='screen',
             condition=IfCondition(PythonExpression(["'", LaunchConfiguration('use_ekf'), "' == 'true' and '",
                                                     LaunchConfiguration('ekf_imu'), f"' == '{imu}'"])),
-            parameters=[share('config', 'ekf.yaml')] + ([] if imu == 'true' else [  # 바퀴 vx·vy + yaw 회전속도, IMU 안 씀
+            # ekf_imu false: 바퀴(odom0) vx·vy + yaw 회전속도, IMU 안 씀 · cuVSLAM(odom1)은 ekf.yaml 그대로 (11-16: odom0 = 바퀴로 되돌림)
+            parameters=[share('config', 'ekf.yaml')] + ([] if imu == 'true' else [
                 {'imu0_config': [False] * 15, 'odom0_config': [False] * 6 + [True, True, False, False, False, True] + [False] * 3}]))
           for imu in ('true', 'false')],
 
@@ -235,70 +264,174 @@ def generate_launch_description():
     ])
 
 
+# 관리자를 노드보다 이만큼 늦게 띄움 [s] (11-13): 막 뜬 노드에 바로 change_state를 보내면 요청은 처리되는데 응답이 관리자에게
+#   못 돌아오는 경우가 있음 (응답 통로가 아직 안 이어짐 — 로그 60개 중 5개, 매번 시작 직후 첫 전환). Nav2 관리자는 응답을 무한정
+#   기다려 그대로 멈춤 (reset.sh로만 풀림). 늦게 띄우면 연결이 끝난 뒤라 경합이 줄어듦 — 다시 나면 감시·재시도 스크립트를 더함
+LIFECYCLE_DELAY_S = 4.0
+
+
+def when(*names):
+    """launch 인자가 모두 true일 때 켜는 조건 — '!이름'은 false일 때"""
+    expr = []
+    for n in names:
+        expr += [' and ' if expr else '', "'", LaunchConfiguration(n.lstrip('!')), "'.lower() " + ('!=' if n[0] == '!' else '==') + " 'true'"]
+    return IfCondition(PythonExpression(expr))
+
+
 def nav2_nodes():
     """진짜 Nav2 서버 — 노드 이름 = nav2_params.yaml 최상위 키. 관리자 둘로 나눠 올림:
       lifecycle_manager_base       velocity_smoother · collision_monitor — 바퀴 명령 체인 (odom만 있으면 뜸 → 수동 조작은 지도 없이도)
       lifecycle_manager_navigation planner · controller · behavior · bt_navigator — map 필요 (SLAM이 아직 map→odom을 못 내도
                                    이쪽만 실패하고 바퀴 체인은 산다. 하나로 묶으면 global_costmap 실패에 수동 조작까지 막혔음)
-    리매핑만 우리 속도 체인에 맞춘다 (위 모듈 설명)."""
-    on = IfCondition(LaunchConfiguration('use_nav2'))
-    # 바퀴 명령 체인은 Nav2(use_nav2)와 따로 — bringup이 지도 없음(map:=none)이면 use_nav2를 끄는데, 그때도 수동 조작은 돼야 한다
-    chain = IfCondition(LaunchConfiguration('use_cmd_chain'))
+    리매핑만 우리 속도 체인에 맞춘다 (위 모듈 설명).
+    nav2_composition:=true(기본) — Nav2 표준(nav2_bringup use_composition)처럼 서버·관리자를 컴포넌트로 한 프로세스(nav2_container)에.
+      프로세스마다 드는 rclcpp·DDS 바탕 메모리(관리자 하나 ~100 MB PSS)를 한 번만 냄 — 젯슨 8 GB가 바닥나 재부팅됨 (11-14).
+      노드 이름·파라미터·리매핑·관리자 둘 나눔은 그대로. false = 예전처럼 서버마다 프로세스."""
     params = [LaunchConfiguration('nav2_params_file')]
-
-    def server(package, executable, name=None, remaps=(), extra=(), cond=None):
-        return Node(package=package, executable=executable, name=name or executable, output='screen',
-                    condition=cond or on, parameters=params + list(extra), remappings=list(remaps))
-    return [
-        server('nav2_planner', 'planner_server'),
-        server('nav2_controller', 'controller_server', remaps=[('cmd_vel', '/cmd_vel_nav')]),
-        server('nav2_behaviors', 'behavior_server', remaps=[('cmd_vel', '/cmd_vel_nav')]),
+    bt_xml = {'default_nav_to_pose_bt_xml': share('config', 'navigate_to_pose.xml'),
+              'default_nav_through_poses_bt_xml': share('config', 'navigate_through_poses.xml')}
+    # (패키지, 실행 파일, 컴포넌트 플러그인, 리매핑, 추가 파라미터, 켜는 인자)
+    #   use_cmd_chain = 바퀴 명령 체인 — bringup이 지도 없음(map:=none)이면 use_nav2를 끄는데, 그때도 수동 조작은 돼야 한다
+    servers = [
+        ('nav2_planner', 'planner_server', 'nav2_planner::PlannerServer', [], [], 'use_nav2'),
+        ('nav2_controller', 'controller_server', 'nav2_controller::ControllerServer', [('cmd_vel', '/cmd_vel_nav')], [], 'use_nav2'),
+        ('nav2_behaviors', 'behavior_server', 'behavior_server::BehaviorServer', [('cmd_vel', '/cmd_vel_nav')], [], 'use_nav2'),
         # 행동 트리 = config/navigate_to_pose.xml · navigate_through_poses.xml
         #   (기본 BT에서 후진 0.10m · through-poses는 가까운 웨이포인트 제거 반경 0.15m) — 파일 경로라 yaml이 아니라 여기서
-        server('nav2_bt_navigator', 'bt_navigator',
-               extra=[{'default_nav_to_pose_bt_xml': share('config', 'navigate_to_pose.xml'),
-                       'default_nav_through_poses_bt_xml': share('config', 'navigate_through_poses.xml')}]),
-        server('nav2_velocity_smoother', 'velocity_smoother',
-               remaps=[('cmd_vel', '/cmd_vel_mux'), ('cmd_vel_smoothed', '/cmd_vel_smoothed')], cond=chain),
-        server('nav2_collision_monitor', 'collision_monitor', cond=chain),  # 입출력 토픽은 yaml (cmd_vel_in/out_topic)
-        server('nav2_lifecycle_manager', 'lifecycle_manager', name='lifecycle_manager_base', cond=chain),
-        server('nav2_lifecycle_manager', 'lifecycle_manager', name='lifecycle_manager_navigation'),
+        ('nav2_bt_navigator', 'bt_navigator', 'nav2_bt_navigator::BtNavigator', [], [bt_xml], 'use_nav2'),
+        ('nav2_velocity_smoother', 'velocity_smoother', 'nav2_velocity_smoother::VelocitySmoother',
+         [('cmd_vel', '/cmd_vel_mux'), ('cmd_vel_smoothed', '/cmd_vel_smoothed')], [], 'use_cmd_chain'),
+        ('nav2_collision_monitor', 'collision_monitor', 'nav2_collision_monitor::CollisionMonitor', [], [], 'use_cmd_chain'),  # 입출력 토픽은 yaml
+    ]
+    managers = [('lifecycle_manager_base', 'use_cmd_chain'), ('lifecycle_manager_navigation', 'use_nav2')]
+    standalone = 'controller_server'  # MPPI/RL controller composition crashed on Jetson
+
+    def server(package, executable, name, remaps, extra, on):
+        return Node(package=package, executable=executable, name=name, output='screen', condition=when(on, '!nav2_composition'),
+                    parameters=params + extra, remappings=remaps, **QUICK_STOP)
+
+    def component(package, plugin, name, remaps, extra, on):
+        return LoadComposableNodes(target_container='/nav2_container', condition=when(on, 'nav2_composition'), composable_node_descriptions=[
+            ComposableNode(package=package, plugin=plugin, name=name, parameters=params + extra, remappings=remaps)])
+    lm = ('nav2_lifecycle_manager', 'lifecycle_manager', 'nav2_lifecycle_manager::LifecycleManager')
+    return [
+        *[server(pkg, exe, exe, r, x, on) for pkg, exe, _, r, x, on in servers if exe != standalone],
+        *[Node(package=pkg, executable=exe, name=exe, output='screen', condition=when(on),
+               parameters=params + x, remappings=r, **QUICK_STOP)
+          for pkg, exe, _, r, x, on in servers if exe == standalone],
+        # nav2_container_params:=true면 컨테이너 프로세스 전체에 --params-file — 서버가 안에서 만드는 자식 노드(local_costmap/local_costmap ·
+        #   global_costmap/global_costmap)는 컴포넌트 파라미터(서버 이름 구역만)를 못 받아, false(기본)면 costmap이 Nav2 기본값으로 뜸
+        #   (voxel_layer 대신 빈 obstacle_layer · rolling_window false · footprint [] — local costmap 안 보임). nav2_bringup은 true와 같음.
+        #   11-15 오전: true로 켜니 전역 경로가 바뀌어(진짜 몸 · 팽창 · 전역 카메라 층) 실기 주행이 이상해져 false였음.
+        #   11-15 오후: 원인(전역 카메라 층 · nvblox /map 두꺼운 벽 · 직사각형+padding)을 고친 뒤(#234) 기본 true —
+        #   전역·local costmap 정적 층 = /arena/walls(실측 벽+상자), 전역 robot_radius 0.16 · 팽창 0.25. false면 이 값들이 안 먹음
+        *[Node(package='rclcpp_components', executable='component_container_isolated', name='nav2_container', output='screen',
+               condition=IfCondition(PythonExpression(["'", LaunchConfiguration('nav2_composition'), "'.lower() == 'true' and ('",
+                                                       LaunchConfiguration('use_nav2'), "'.lower() == 'true' or '",
+                                                       LaunchConfiguration('use_cmd_chain'), "'.lower() == 'true') and '",
+                                                       LaunchConfiguration('nav2_container_params'), f"'.lower() {op} 'true'"])),
+               parameters=p, **QUICK_STOP) for op, p in (('==', params), ('!=', []))],
+        *[component(pkg, plugin, exe, r, x, on) for pkg, exe, plugin, r, x, on in servers if exe != standalone],
+        TimerAction(period=LIFECYCLE_DELAY_S, actions=[
+            *[server(lm[0], lm[1], name, [], [], on) for name, on in managers],
+            *[component(lm[0], lm[2], name, [], [], on) for name, on in managers],
+        ]),
     ]
 
+def validate_static_map(filename):
+    filename = os.path.abspath(os.path.expanduser(filename)) if filename else ''
+    if not filename or not os.path.isfile(filename):
+        raise RuntimeError(f'static_2d needs an existing static_map_yaml: {filename!r}')
+    try:
+        with open(filename, encoding='utf-8') as f:
+            data = yaml.safe_load(f)
+        if not isinstance(data, dict) or not isinstance(data.get('image'), str) or not data['image']:
+            raise ValueError('image must be a nonempty path')
+        if not math.isfinite(float(data['resolution'])) or float(data['resolution']) <= 0:
+            raise ValueError('resolution must be positive')
+        if len(data['origin']) != 3 or not all(math.isfinite(float(x)) for x in data['origin']):
+            raise ValueError('origin must contain three finite coordinates')
+        image = os.path.expanduser(data['image'])
+        if not os.path.isabs(image): image = os.path.join(os.path.dirname(filename), image)
+        if not os.path.isfile(image): raise ValueError(f'map image does not exist: {image}')
+    except (OSError, ValueError, TypeError, KeyError, yaml.YAMLError) as e:
+        raise RuntimeError(f'invalid static map {filename}: {e}') from e
+    return filename
+
+
 def check_slam(context):
-    """cuVSLAM·nvblox 설치 확인 — 없는 걸 띄우다 노드가 하나씩 죽는 대신 시작할 때 한 번에 알림"""
+    """Validate the selected SLAM backend before camera/controller nodes launch."""
+    backend = LaunchConfiguration('map_backend').perform(context)
+    if backend not in ('nvblox', 'static_2d'):
+        raise RuntimeError(f'map_backend:={backend} — nvblox | static_2d')
     if LaunchConfiguration('use_slam').perform(context).lower() != 'true':
         return []
+    if backend == 'static_2d':
+        if LaunchConfiguration('localization').perform(context).lower() != 'true':
+            raise RuntimeError('static_2d is localization-only; use nvblox to create a map')
+        filename = validate_static_map(LaunchConfiguration('static_map_yaml').perform(context))
     missing = [] if importlib.util.find_spec('cuvslam') else ['cuvslam (PyCuVSLAM — documents/jetson-orin-nano/CUVSLAM.md)']
     try:
-        get_package_share_directory('nvblox_ros')
+        get_package_share_directory('nvblox_ros' if backend == 'nvblox' else 'nav2_map_server')
     except Exception:  # noqa: BLE001 — PackageNotFoundError
-        missing.append('nvblox_ros (isaac_ros_nvblox — documents/jetson-orin-nano/CUVSLAM.md "nvblox")')
+        missing.append('nvblox_ros' if backend == 'nvblox' else 'nav2_map_server')
     if missing:
         raise RuntimeError('SLAM(cuVSLAM + nvblox)에 필요한 것이 없음: ' + ', '.join(missing) +
                            ' — GPU 없는 곳(테스트베드)은 faker fake_slam:=true(기본) 또는 use_slam:=false로')
-    return []
+    return [SetLaunchConfiguration('static_map_yaml', filename)] if backend == 'static_2d' else []
 
 
 def slam_nodes():
     """SLAM = cuVSLAM(위치) + nvblox(지도) — use_slam일 때. 위쪽이 받는 것: map→odom TF(cuVSLAM) · /map latched(nvblox_map) · 원점 = 출발 자리
       cuvslam_slam   pole_front_cam RGB-D → map→odom (루프 클로저) + /cuvslam/odom (EKF odom1)
+      map_tf_relay   /cuvslam/map_to_odom → TF map→odom 30 Hz (C++)
       depth gate     scan_cam_gate 재사용 — nvblox에 줄 depth에서 카메라 0.5 m 안(자기 팔·손가락·폴대)을 0(측정 없음)으로.
-                     pole_front_cam만 — gripper_cam(팔 끝)은 스캔 자세가 없어져(11-09) 지도에 안 넣음.
+                     pole_front_cam (+ use_pole_back_cam이면 pole_back_cam — pole_back_depth_gate) — gripper_cam(팔 끝)은
+                     스캔 자세가 없어져(11-09) 지도에 안 넣음.
                      Nav2 costmap은 몸 뺀 점구름(body_filter)을 쓰지만 nvblox는 depth 영상을 받으므로 영상에서 뺌
-      nvblox_node    depth(pole_front_cam) + TF(map→카메라) → TSDF → 2D 점유 격자 (config/nvblox.yaml). 매핑이면 끌 때 nvblox_map 파일에 저장
+      nvblox_node    depth(pole_front_cam = camera_0 · pole_back_cam = camera_1, num_cameras 2) + TF(map→카메라) → TSDF → 2D 점유 격자
+                     (config/nvblox.yaml). 매핑이면 끌 때 nvblox_map 파일에 저장
       nvblox_map     ~/static_occupancy_grid → /map (latched, 1 Hz) · 위치추정이면 시작할 때 저장 지도를 load_map"""
     on = IfCondition(LaunchConfiguration('use_slam'))
+    nvblox_on = IfCondition(PythonExpression(["'", LaunchConfiguration('use_slam'), "'.lower() == 'true' and '",
+                                                 LaunchConfiguration('map_backend'), "' == 'nvblox'"]))
+    static_on = IfCondition(PythonExpression(["'", LaunchConfiguration('use_slam'), "'.lower() == 'true' and '",
+                                                 LaunchConfiguration('map_backend'), "' == 'static_2d'"]))
     loc = ["'", LaunchConfiguration('localization'), "'.lower() == 'true'"]
     nvblox_file = ["__import__('os').path.expanduser('", LaunchConfiguration('nvblox_map'), "')"]
     save_path = PythonExpression(["'' if ", *loc, " else ", *nvblox_file])  # 매핑일 때만 저장 (위치추정이면 불러온 지도를 안 덮어씀)
     load_path = PythonExpression([*nvblox_file, " if ", *loc, " else ''"])
 
-    def gate(name, cam):
-        return Node(package='ros_system', executable='scan_cam_gate', name=name, output='screen', condition=on,
-                    parameters=[{'gate_by_pose': False, 'depth_min_range': 0.5, 'cloud_in': '',
-                                 'depth_in': f'/{cam}/aligned_depth_to_color/image_raw',
-                                 'depth_out': f'/{cam}/aligned_depth_to_color/image_nvblox'}])
+    def gate_params(cam):
+        return {'gate_by_pose': False, 'depth_min_range': 0.5, 'cloud_in': '',
+                'depth_in': f'/{cam}/aligned_depth_to_color/image_raw',
+                'depth_out': f'/{cam}/aligned_depth_to_color/image_nvblox'}
+    nvblox_map_params = {'load_path': ParameterValue(load_path, value_type=str)}
+    # py_helpers_one_process:=true(기본) — 아래 python 노드 셋(depth gate · nvblox_map · rewind)을 한 프로세스(py_helpers)로.
+    #   python 노드마다 ~120 MB PSS(인터프리터·rclpy·DDS)를 한 번만 냄 (젯슨 8 GB 바닥 → 재부팅, 11-14). false = 예전처럼 따로
+    separate = IfCondition(PythonExpression(["'", LaunchConfiguration('use_slam'), "'.lower() == 'true' and '",
+        LaunchConfiguration('map_backend'), "' == 'nvblox' and '", LaunchConfiguration('py_helpers_one_process'), "'.lower() != 'true'"]))
+    slam_nvblox = ["'", LaunchConfiguration('use_slam'), "'.lower() == 'true' and '", LaunchConfiguration('map_backend'), "' == 'nvblox'"]
+    gate_cpp = ["'", LaunchConfiguration('depth_gate_cpp'), "'.lower() == 'true'"]
+    one_proc = ["'", LaunchConfiguration('py_helpers_one_process'), "'.lower() == 'true'"]
+    # helpers_cpp:=true(기본, 11-16) — nvblox_map · rewind = C++ cpp_helpers (한 프로세스든 따로든 · 노드 이름 같음).
+    #   그때 파이썬 depth gate(depth_gate_cpp:=false)는 py_helpers 없이 따로
+    hcpp = ["'", LaunchConfiguration('helpers_cpp'), "'.lower() == 'true'"]
+
+    def helper_exe(py_exe):
+        return PythonExpression(["'cpp_helpers' if ", *hcpp, f" else '{py_exe}'"])
+    back = ["('", LaunchConfiguration('use_cameras'), "'.lower() == 'true' or '", LaunchConfiguration('pole_back_cam_external'),
+            "'.lower() == 'true') and '", LaunchConfiguration('use_pole_back_cam'), "'.lower() == 'true'"]
+
+    # cuvslam_impl auto: C++판(cuvslam_slam_cpp)이 설치돼 있으면 그것 — cuVSLAM 헤더·라이브러리 없는 곳(도커·CI)은 빌드에서 빠짐
+    try:
+        from ament_index_python.packages import get_package_prefix
+        cpp_built = os.path.exists(os.path.join(get_package_prefix('ros_system'), 'lib', 'ros_system', 'cuvslam_slam_cpp'))
+    except Exception:  # noqa: BLE001
+        cpp_built = False
+    impl = LaunchConfiguration('cuvslam_impl')
+    cuvslam_exe = PythonExpression(["'cuvslam_slam_cpp' if ('", impl, "' == 'cpp' or ('", impl, "' == 'auto' and ",
+                                    str(cpp_built), ")) else 'cuvslam_slam'"])
 
     def camera_remaps(i, cam):
         return [(f'camera_{i}/depth/image', f'/{cam}/aligned_depth_to_color/image_nvblox'),
@@ -306,14 +439,57 @@ def slam_nodes():
                 (f'camera_{i}/color/image', f'/{cam}/color/image_raw'),
                 (f'camera_{i}/color/camera_info', f'/{cam}/color/camera_info')]
     return [
-        OpaqueFunction(function=check_slam),
-        Node(package='ros_system', executable='cuvslam_slam', name='cuvslam_slam', output='screen', condition=on,
-             parameters=[{'publish_map_tf': True}]),
-        gate('pole_depth_gate', 'pole_front_cam'),
-        Node(package='nvblox_ros', executable='nvblox_node', name='nvblox_node', output='screen', condition=on,
-             parameters=[share('config', 'nvblox.yaml'),
-                         {'after_shutdown_map_save_path': ParameterValue(save_path, value_type=str)}],
-             remappings=camera_remaps(0, 'pole_front_cam')),
-        Node(package='ros_system', executable='nvblox_map', name='nvblox_map', output='screen', condition=on,
-             parameters=[{'load_path': ParameterValue(load_path, value_type=str)}]),
+        # 노드 이름은 둘 다 cuvslam_slam (파라미터·진단·토픽 같음) — 실행 파일만 고름
+        Node(package='ros_system', executable=cuvslam_exe, name='cuvslam_slam', output='screen', condition=on,
+             parameters=[{'publish_map_tf': True,
+                          'frame_skip': ParameterValue(LaunchConfiguration('cuvslam_frame_skip'), value_type=int)}]),
+        # map→odom TF 이어 내기 (C++, 11-16) — cuvslam_slam이 낸 /cuvslam/map_to_odom을 30 Hz로 TF로 (파이썬이 멈춰도 안 끊김)
+        Node(package='ros_system', executable='map_tf_relay', name='map_tf_relay', output='screen', condition=on),
+        # 도면 벽(/arena/walls_only) → 로봇 주변 점구름 (src/grid_obstacle_cloud.cpp) — collision_monitor 두 번째 입력 (옆·뒤)
+        Node(package='ros_system', executable='grid_obstacle_cloud', name='grid_obstacle_cloud', output='screen', condition=on),
+        Node(package='ros_system', executable='scan_cam_gate', name='pole_depth_gate', output='screen',
+             condition=IfCondition(PythonExpression([*slam_nvblox, ' and (not ', *one_proc, ' or ', *hcpp, ') and not ', *gate_cpp])),
+             parameters=[gate_params('pole_front_cam')]),
+        # C++판 (기본) — py_helpers 한 프로세스 여부와 상관없이 따로 (파이썬 py_helpers에는 nvblox_map · rewind만)
+        Node(package='perception', executable='depth_gate', name='pole_depth_gate', output='screen',
+             condition=IfCondition(PythonExpression([*slam_nvblox, ' and ', *gate_cpp])), parameters=[gate_params('pole_front_cam')]),
+        # pole_back_cam (주행 전용, 11-15): 앞과 같은 depth gate 하나 더 (C++ · 파이썬판은 py_helpers에 안 넣고 따로) → nvblox camera_1
+        Node(package='perception', executable='depth_gate', name='pole_back_depth_gate', output='screen',
+             condition=IfCondition(PythonExpression([*slam_nvblox, ' and ', *back, ' and ', *gate_cpp])),
+             parameters=[gate_params('pole_back_cam')]),
+        Node(package='ros_system', executable='scan_cam_gate', name='pole_back_depth_gate', output='screen',
+             condition=IfCondition(PythonExpression([*slam_nvblox, ' and ', *back, ' and not ', *gate_cpp])),
+             parameters=[gate_params('pole_back_cam')]),
+        Node(package='nvblox_ros', executable='nvblox_node', name='nvblox_node', output='screen', condition=nvblox_on,
+             parameters=[LaunchConfiguration('nvblox_params_file'),
+                         {'after_shutdown_map_save_path': ParameterValue(save_path, value_type=str),
+                          'num_cameras': ParameterValue(PythonExpression(['2 if ', *back, ' else 1']), value_type=int)}],
+             remappings=camera_remaps(0, 'pole_front_cam') + camera_remaps(1, 'pole_back_cam')),
+        # 인자(노드 이름)는 cpp_helpers가 띄울 노드 — 파이썬판은 인자를 안 읽음
+        Node(package='ros_system', executable=helper_exe('nvblox_map'), name='nvblox_map', output='screen', condition=separate,
+             arguments=['nvblox_map'], parameters=[nvblox_map_params]),
+        # 주행 리와인드 — 실패(ABORTED) 뒤 실제 주행 궤적을 0.4 m 후진. 실기·테스트베드 공통 (SLAM 없어도 뜸)
+        Node(package='ros_system', executable=helper_exe('rewind'), name='rewind', output='screen', arguments=['rewind'],
+             condition=IfCondition(PythonExpression(["not ('", LaunchConfiguration('use_slam'), "'.lower() == 'true' and '",
+                                                     LaunchConfiguration('map_backend'), "' == 'nvblox' and '",
+                                                     LaunchConfiguration('py_helpers_one_process'), "'.lower() == 'true')"]))),
+        # 셋을 한 프로세스로 — 이름 없이 띄움 (name을 주면 __node 리매핑이 세 노드 모두에 걸림). 노드 이름은 인자로
+        *[Node(package='ros_system', executable='py_helpers', output='screen',
+               condition=IfCondition(PythonExpression([*slam_nvblox, ' and ', *one_proc, ' and not ', *hcpp,
+                                                       (' and ' if cpp else ' and not '), *gate_cpp])),
+               arguments=(['nvblox_map', 'rewind'] if cpp else ['pole_depth_gate', 'nvblox_map', 'rewind']),
+               parameters=[gate_params('pole_front_cam'), nvblox_map_params]) for cpp in (True, False)],
+        # C++판 한 프로세스 (helpers_cpp 기본) — 이름 없이 (py_helpers와 같은 까닭)
+        Node(package='ros_system', executable='cpp_helpers', output='screen',
+             condition=IfCondition(PythonExpression([*slam_nvblox, ' and ', *one_proc, ' and ', *hcpp])),
+             arguments=['nvblox_map', 'rewind'], parameters=[nvblox_map_params]),
+        Node(package='nav2_map_server', executable='map_server', name='map_server', output='screen', condition=static_on,
+             **QUICK_STOP, parameters=[{'yaml_filename': LaunchConfiguration('static_map_yaml'), 'frame_id': 'map', 'topic_name': 'map'}]),
+        # static_2d엔 nvblox가 없어 RL 주행 controller 입력(/nvblox_node/combined_esdf_pointcloud)이 끊김 → 바이패스.
+        #   /map + body_filter 점구름으로 같은 형식의 ESDF slice를 낸다 (perception/include/perception/static_esdf_slice.hpp)
+        Node(package='perception', executable='static_esdf_slice', name='static_esdf_slice', output='screen',
+             condition=static_on, **QUICK_STOP),
+        TimerAction(period=LIFECYCLE_DELAY_S, actions=[Node(package='nav2_lifecycle_manager', executable='lifecycle_manager',
+            name='lifecycle_manager_map', output='screen', condition=static_on, **QUICK_STOP,
+            parameters=[{'autostart': True, 'node_names': ['map_server']}])]),
     ]

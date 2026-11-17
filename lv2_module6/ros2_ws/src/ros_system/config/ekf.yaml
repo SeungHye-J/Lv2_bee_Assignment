@@ -1,8 +1,9 @@
-# robot_localization EKF — 바퀴 /odom + /imu 융합 → /odometry/filtered, odom→base_footprint TF
+# robot_localization EKF — cuVSLAM /cuvslam/odom + 바퀴 /odom + /imu 융합 → /odometry/filtered, odom→base_footprint TF
+# 랜드마크(루프 클로저) 보정은 여기서 안 함 — cuvslam_slam의 map→odom (REP-105: odom은 연속, map이 튐)
 # 설계: documents/project/ros/06-base.md (odom TF는 EKF 하나만, diff_drive_controller는 enable_odom_tf: false)
 ekf_filter_node:
   ros__parameters:
-    frequency: 50.0
+    frequency: 30.0   # 11-15: 50 → 30 — 실기에서 '갱신 주기 못 맞춤' 74번(CPU 부하). 바퀴 odom 50 Hz·IMU 입력엔 30 Hz로 충분
     two_d_mode: true
     publish_tf: true
     # 주기 진단 카운터 켬 — 끄면(robot_localization 3.10 기본) /odometry/filtered가 50 Hz로 나와도 진단은 "No events recorded"
@@ -13,20 +14,34 @@ ekf_filter_node:
     base_link_frame: base_footprint
     world_frame: odom
     # 속도 위주로 넣어 미끄러짐 영향을 줄인다 [x y z, roll pitch yaw, vx vy vz, vroll vpitch vyaw, ax ay az]
+    #
+    # 11-16 비중 설계: 속도는 cuVSLAM이 주, 바퀴는 cuVSLAM이 멈출 때 받침, yaw 회전속도는 cuVSLAM + IMU.
+    #   비중은 각 메시지의 분산으로 정함 — 들어오는 횟수도 곱해짐 (바퀴·IMU 100 Hz, cuVSLAM 15 Hz → 같은 분산이면 바퀴가 7배 셈)
+    #     vx  : cuVSLAM 0.0025 (cuvslam_slam linear_variance 기본) · 바퀴 0.1 (controllers.yaml twist_covariance_diagonal[0])
+    #     vy  : 바퀴 1e-4 — 바퀴 축이 base_footprint 원점이라 옆 속도는 늘 0 (diff drive). 바퀴 /odom의 vy(=0)를 넣어 '옆으로 안 감'을 알림
+    #           (robot_localization 문서 권장 방식). cuVSLAM vy는 안 넣음 — 실기에서 rms 0.025 m/s가 전부 잡음
+    #     vyaw: cuVSLAM 0.0025 (angular_variance 기본) · IMU 0.03 (controllers.yaml static_covariance_angular_velocity) · 바퀴 안 넣음
+    #   실측 비중 (bag approach_1116_015043 재생 — cuVSLAM 속도에 0.8을 곱해 넣고 EKF가 줄어든 몫): vx 85% · vyaw 64% cuVSLAM
+    #   (cuvslam_slam linear_variance 4e-4 · angular_variance 1e-3으로 내리면 96% · 81% — 대신 15 Hz 계단이 그대로 나와 떨림 1.13배)
+    # 바퀴 yaw는 안 씀: 11-16 bag 둘에서 바퀴 yaw −81° · −126° vs IMU −113° · −146° vs cuVSLAM −116° · −146°
+    #   (곡선 주행·걸림에서 바퀴가 끌려 틀어짐 — 5 s 구간마다 IMU와 최대 19°). IMU·cuVSLAM은 서로 1~3% 안
+    # 11-16 develop(9605435a)에서 바퀴를 뺐을 때 EKF 경로가 바퀴보다 20% 길었던 건 거리가 아니라 떨림 (cuVSLAM vx·vy 15 Hz 잡음을
+    #   그대로 따라감 — 1 s 간격으로 재면 6.56 vs 바퀴 6.54 m). 바퀴 vy=0을 넣은 뒤 떨림 1.20 → 1.09배
     odom0: /odom
-    # 바퀴는 vx·vy만 — yaw 회전속도는 IMU(자이로)만. 실측 (회전 시험 2026-10-19): diff_drive twist 회전속도는 40~90ms 늦고
-    # 80초 적분이 실제와 5~10° 어긋남 (pose는 맞음) — 분산을 크게 줘도 섞여 EKF yaw가 끝에 1.6~2.6° 틀어짐. IMU 적분은 0.2~0.8°
     odom0_config: [false, false, false, false, false, false,
                    true,  true,  false, false, false, false,
+                   false, false, false]
+    # cuVSLAM 시각 오도메트리 (cuvslam_slam — 랜드마크 추적. 안 나오면 바퀴·IMU만 — 1 s 끊김 흉내 재생에서 위치 차 2~11 cm)
+    odom1: /cuvslam/odom
+    odom1_config: [false, false, false, false, false, false,
+                   true,  false, false, false, false, true,
                    false, false, false]
     imu0: /imu
     imu0_config: [false, false, false, false, false, false,
                   false, false, false, false, false, true,
                   false, false, false]
-    # cuVSLAM 시각 오도메트리 (cuvslam_slam — 안 나오면 바퀴·IMU만). 바퀴처럼 vx·vy만, yaw는 IMU 그대로
-    # 바퀴가 미끄러질 때(제자리 회전·턱) 카메라가 실제 이동을 잡아 줌. 분산은 cuvslam_slam의 linear_variance
-    odom1: /cuvslam/odom
-    odom1_config: [false, false, false, false, false, false,
-                   true,  true,  false, false, false, false,
-                   false, false, false]
-    # TODO(권형중): 실기 공분산·imu0_remove_gravitational_acceleration 등 튜닝
+    # cuVSLAM은 카메라 시각 기준 0.09 s (최대 0.5 s) 늦게 옴 — 끄면 늦은 값을 '지금'으로 넣어 회전 시작·끝에서 yaw가 어긋나고
+    #   CPU가 바쁠 때마다 결과가 달라짐 (11-16 재생: 같은 bag에서 yaw 3~9° 차이). 켜면 그 시각으로 되감아 다시 거름 (CPU 거의 같음)
+    smooth_lagged_data: true
+    history_length: 0.6
+    # TODO(권형중): imu0_remove_gravitational_acceleration 등 튜닝 · cuVSLAM 튐 거르기(odom1_twist_rejection_threshold)는 실기 확인 뒤

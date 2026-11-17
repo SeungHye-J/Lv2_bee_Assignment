@@ -183,6 +183,18 @@ finally:
     shutil.rmtree(MAP_DIR / '_test_renamed', ignore_errors=True)
 print('PASS test_fake_world (map store)')
 
+# 보이는 물체 — 앞 카메라 시야·벽 가림대로 (출발 자리 앞 = 빨강·파랑 퍽 · 뒤로 돌면 안 보임) · 필드는 진짜 TrackedObject처럼
+w.set_robot_pose(0.0, 0.0, 0.0)
+run(1.2)
+front = {o.id: o for o in app.state.tracked}
+assert 101 in front and front[101].class_name == 'puck' and front[101].color == 'red', [(o.id, o.class_name) for o in app.state.tracked]
+assert front[101].pose.pose.position.x == 0.6 and front[101].cameras == ['pole_front_cam'] and len(front[101].px) == 2
+assert any(kv.key == 'tag' for kv in front[101].details)
+w.set_robot_pose(0.0, 0.0, 180.0)
+run(1.2)
+assert 101 not in {o.id for o in app.state.tracked}, '뒤에 있는 퍽은 안 보여야 함'
+print('PASS test_fake_world (objects)')
+
 # 가짜 state_manager 생존 신호 — 계속 오지 않으면 CLI가 '연결 ✗'로 보고 스스로 재시작함
 run(1.3)
 assert time.monotonic() - app.state.state_last_update < 2.0, '/state/* 생존 신호가 끊김'

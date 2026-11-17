@@ -1,0 +1,44 @@
+# beebot zero offsets (arm joints, basket slot TF) — read by urdf.xacro (xacro.load_yaml); joint_offset also by isaac/standalone/runtime/opencr_bridge.py.
+# Edit here, then: colcon build --packages-select ros_system (symlink install: a stack restart is enough after the first build).
+# Full history before 11-14: joint_offsets_backup_2026-11-14.yaml
+
+# [rad] servo zero offset: servo value = joint value + offset (measured). gripper_left_joint in [m].
+# Sign: + offset = the real arm turns further in the joint's + direction by that angle, TF stays the same.
+#   Directions below are in the base frame (x forward, y left, z up) at the 0 pose (all joints 0, hand straight forward,
+#   fingertip 0.368 m ahead · 0.350 m up). Per +0.01 rad (URDF FK):
+#     joint1 (axis z)  + = fingertip LEFT 3.2 mm   (counter-clockwise seen from above; with the arm facing back, + = robot's RIGHT)
+#     joint2 (axis y)  + = fingertip FORWARD 1.3 · DOWN 3.2 mm (shoulder leans forward)
+#     joint3 (axis y)  + = fingertip DOWN 3.0 mm   (elbow bends down)
+#     joint4 (axis y)  + = fingertip DOWN 1.7 mm   (wrist pitches down)
+#     joint5 (axis x)  + = hand rolls left side UP (clockwise seen from behind the robot), fingertip does not move
+#     gripper_left_joint + = fingers more open
+joint_offset:
+  # 11/11 arm swap: 0-pose fingertip (0.341 m from the axis) 4 mm right → +0.010, +1 mm after joint1 integral → +0.013 (11/08 −0.050 = old arm)
+  # 11/14: from 0.013, fingertip 5 mm right (0.341 m) → −0.0147 rad
+  joint1: -0.025  # 11-14 22:20: back to -0.025 (planes cannot see joint1; value from the 0-pose fingertip left/right tape) · + = left (0 pose)
+  # 11/11: 4-pose fingertip + 0-pose axis height, joint2 −0.58° (upper arm leans back in the 0 pose)
+  joint2: 0.010  # 11-14 23:20 → 0.010 (load centring; camera tilt moved to gripper_cam_joint) · 11-14 23:10 → 0 (22:39 briefly back to 0.010 → box 83.7 mm, tilt 2.2°; was 0.010: look-pose desk/box planes + lens 304 mm fit best at 0) · + = forward/down (0 pose)
+  # 11/11: 0-pose joint4 axis 3 mm above joint3 axis (at 0.016) → +1.4° more
+  joint3: 0.040  # 11-14 23:20 → 0.040 (load centring; camera tilt moved to gripper_cam_joint) · 11-14 23:10 → 0 (22:39 briefly back to 0.040; was 0.040: look-pose desk/box planes + lens 304 mm fit best at 0) · + = down (0 pose)
+  # 11/11: 0 pose (hand level) fingertip tape 344 mm vs TF 351.6 → real joint bends +2.08° more · hand vertical 80 mm matches · gripper_cam desk-plane 7-pose fit agrees
+  joint4: -0.02  # 11-14 23:20 → -0.026 (load centring; camera tilt moved to gripper_cam_joint) · 11-14 23:10 → -0.013 (look-pose box 70.8–72.5 mm, tilt <0.9°; -0.026 gave 83.7 mm) · 11-14 22:20: back to -0.013 (box/floor planes with j5 0.036: height +5.2 → +1.4 mm, pitch +0.57 → −0.17°; 11/11 0-pose fingertip tape) · + = down (0 pose)
+  
+  # 11/11: gripper_cam desk-plane 7-pose fit (j5 ±30° included) +1.53°
+  joint5: 0.036  # 11-14 22:10: 9-pose box/floor plane fit with joints 1-4 at 0 — box roll +2° → joint5 −2.07° (rms 4.1 → 2.5 mm) · was 0.01, 0 · + = roll left side up (0 pose)
+  gripper_left_joint: 0.0  # + = open (0 pose)
+
+# [m] basket slot TF offset, added to the URDF nominal basket_slot_N origin (base_link: x forward, y left, z up). [dx, dy, dz]
+#   TF only: the load/unload joint tables (ros2_ws/src/skills/params/basket.yaml) come from isaac/rl/scripts/slot_table.py
+slot_offset:
+  - [0.0, 0.0, 0.0]  # 0
+  - [0.0, 0.0, 0.0]  # 1
+  - [0.0, 0.0, 0.0]  # 2
+  - [0.0, 0.0, 0.0]  # 3
+  - [0.0, 0.0, 0.0]  # 4
+  - [0.0, 0.0, 0.0]  # 5
+  - [0.0, 0.0, 0.0]  # 6
+  - [0.0, 0.0, 0.0]  # 7
+  - [0.0, 0.0, 0.0]  # 8
+  - [0.0, 0.0, 0.0]  # 9
+  - [0.0, 0.0, 0.0]  # 10
+  - [0.0, 0.0, 0.0]  # 11

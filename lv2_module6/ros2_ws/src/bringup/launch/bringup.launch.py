@@ -3,6 +3,8 @@
   ros2 launch bringup bringup.launch.py
   ros2 launch bringup bringup.launch.py use_ros_system:=false            # 📦 대신 faker 등 다른 입력 (faker.launch.py가 씀)
   ros2 launch bringup bringup.launch.py learning_enabled:=false           # 학습 노드 Δ=0 · 프리셋 A 고정 (비교 기준)
+  ros2 launch bringup bringup.launch.py use_foxglove:=true                # Foxglove 브리지 켬 (기본 false · ws://<로봇>:8765)
+  ros2 launch bringup bringup.launch.py core_composition:=false           # 작은 C++ 노드를 예전처럼 노드마다 프로세스 (기본 true = 컨테이너 control_nodes · mission_nodes)
 지도 (실기·테스트베드 공통 — 지도 한 벌 = 폴더 하나 <map_dir>/<map_name>/ nvblox.nvblx · map.pgm · map.yaml):
   ros2 launch bringup bringup.launch.py map:=slam                 # 매핑: 새 폴더 <날짜_시각>/ (map_name:=으로 이름 지정, 있는 이름이면 거부)
   ros2 launch bringup bringup.launch.py map:=saved                # 위치추정: 가장 최근 폴더 (기본)
@@ -28,12 +30,14 @@ import subprocess
 import sys
 import time
 
+from ament_index_python.packages import PackageNotFoundError, get_package_share_directory
 from launch import LaunchDescription
-from launch.actions import DeclareLaunchArgument, GroupAction, IncludeLaunchDescription, OpaqueFunction, SetLaunchConfiguration
+from launch.actions import DeclareLaunchArgument, GroupAction, IncludeLaunchDescription, OpaqueFunction, SetLaunchConfiguration, TimerAction
 from launch.conditions import IfCondition
 from launch.launch_description_sources import PythonLaunchDescriptionSource
 from launch.substitutions import LaunchConfiguration, PathJoinSubstitution, PythonExpression
-from launch_ros.actions import Node
+from launch_ros.actions import ComposableNodeContainer, LoadComposableNodes, Node
+from launch_ros.descriptions import ComposableNode
 from launch_ros.parameter_descriptions import ParameterValue
 from launch_ros.substitutions import FindPackageShare
 
@@ -48,8 +52,53 @@ def node(package, executable, overrides=None, condition=None):
                 condition=condition)
 
 
+def hand_relative_exe():
+    """hand_relative 실행 파일 — C++(기본, 11-16 · 파이썬은 CPU 몰리면 ~1 s 멈춤) · launch 인자 hand_relative_py:=true면 예전 파이썬"""
+    return PythonExpression(["'hand_relative_py' if '", LaunchConfiguration('hand_relative_py'), "'.lower() == 'true' else 'hand_relative'"])
+
+
+HAND_RELATIVE_PY_ARG = ('hand_relative_py', 'false', 'true면 hand_relative 예전 파이썬판 (scripts/hand_relative.py) · 기본 C++')
+
+
+# core_composition:=true(기본, 11-16 메모리) — 작은 C++ 노드를 컨테이너 둘에 (프로세스마다 DDS 참여자·스레드 ~15개·FastDDS SHM ~15 MB가 듦)
+#   control_nodes: arm_safety_monitor · manual_control · body_filter · signal_decoder (미션과 상관없이 늘 뜨는 것)
+#   mission_nodes: coordinator · mission_manager · grasp_scorer (use_mission) — plan 둘은 TF 리스너도 하나 (plan/shared_tf.hpp)
+#   노드 이름·파라미터·토픽은 따로 띄울 때와 같음. state_manager(재시작 담당 · Isaac node_params가 다시 띄움)·perception_node(무거움)는 따로
+#   /cmd/restart node <이름>은 컨테이너 안 노드는 안 됨 (all은 됨) — 그게 필요하면 core_composition:=false
+COMPONENTS = {'arm_safety_monitor': 'control::ArmSafetyMonitor', 'manual_control': 'control::ManualControl',
+              'body_filter': 'perception::BodyFilter', 'signal_decoder': 'perception::SignalDecoderNode',
+              'coordinator': 'plan::Coordinator', 'mission_manager': 'plan::MissionManager', 'grasp_scorer': 'ml::GraspScorer'}
+
+
+def component(package, executable, overrides=None, condition=None):
+    # node()와 같은 파라미터 · 같은 이름 (실행 파일 기본 노드 이름 = 실행 파일 이름)
+    config = PathJoinSubstitution([FindPackageShare(package), 'config', f'{package}.yaml'])
+    return ComposableNode(package=package, plugin=COMPONENTS[executable], name=executable,
+                          parameters=[config, overrides or {}], condition=condition)
+
+
+def when(*names, composed, extra=None):
+    """launch 인자 names가 모두 true · core_composition이 composed와 같을 때 (extra = PythonExpression 조각 하나 더)"""
+    parts = []
+    for n in names:
+        parts += ["'", LaunchConfiguration(n), "'.lower() == 'true' and "]
+    parts += ["'", LaunchConfiguration('core_composition'), "'.lower() " + ('==' if composed else '!=') + " 'true'"]
+    if extra:
+        parts += [' and ', *extra]
+    return IfCondition(PythonExpression(parts))
+
+
+def container(name, nodes, condition):
+    # _mt: 노드마다 기본 콜백 그룹(서로 막지 않음)이라 body_filter 점구름이 arm_safety_monitor 100 Hz를 늦추지 않음 · 스레드 3개면 충분
+    return ComposableNodeContainer(name=name, namespace='', package='rclcpp_components', executable='component_container_mt',
+                                   output='screen', parameters=[{'thread_num': 3}], condition=condition,
+                                   composable_node_descriptions=nodes)
+
+
 # ros_system에 그대로 넘기는 하드웨어·서버 인자 (기본값 = 실기). 테스트베드 faker가 대역에 맞게 덮어씀
 ROS_SYSTEM_ARGS = {
+    'map_backend': ('nvblox', 'nvblox | static_2d (saved 2D map + cuVSLAM, no nvblox)'),
+    'nvblox_params_file': ('', 'optional nvblox parameter YAML; empty uses ros_system default'),
     'urdf': ('default', '로봇 모델 = lv2_module6/urdf/<이 이름>/urdf.xacro (폴더 하나 = 모델 하나, 메시는 그 폴더 meshes/)'),
     'mock_hardware': ('false', 'true면 OpenCR 없이 BeebotSystemHardware가 명령을 상태로 되돌림'),
     'mock_effort': ('0.0', 'mock일 때 팔 관절 effort [A]'),
@@ -59,17 +108,28 @@ ROS_SYSTEM_ARGS = {
     'use_cameras': ('true', 'RealSense 2대 (테스트베드는 faker의 fake_camera가 대신 → false)'),
     'use_pole_front_cam': ('true', 'pole_front_cam만 끄기/켜기 (한 대만 연결할 때)'),
     'use_gripper_cam': ('auto', 'gripper_cam: auto = gripper_cam_serial 장치가 USB에 감지될 때만 켬(뽑아 두면 노드·의존 노드 안 띄움) · true/false = 강제'),
+    'use_pole_back_cam': ('auto', 'pole_back_cam (폴 뒤, 주행 전용 — nvblox camera_1): auto = pole_back_cam_serial 장치가 USB에 감지될 때만 켬 (serial 비면 끔) · true/false = 강제'),
+    'pole_back_cam_external': ('false', 'pole_back_cam 영상을 드라이버 대신 Isaac(camera_adapter)이 냄 — use_cameras:=false여도 nvblox camera_1'),
     'pole_front_cam_serial': ('', 'pole_front_cam RealSense serial_no — 빈 값이면 첫 장치 (2대면 반드시 지정)'),
+    'pole_back_cam_serial': ('', 'pole_back_cam RealSense serial_no (start.sh: POLE_BACK_CAM_SERIAL)'),
     'gripper_cam_serial': ('', 'gripper_cam RealSense serial_no — 빈 값이면 첫 장치 (2대면 반드시 지정)'),
     'pole_front_cam_profile': ('640x360x15', 'pole_front_cam RGB/depth 프로파일 (WxHxFPS)'),
     'gripper_cam_profile': ('640x360x15', 'gripper_cam RGB/depth 프로파일 (WxHxFPS)'),
+    'pole_back_cam_profile': ('640x360x15', 'pole_back_cam RGB/depth 프로파일 (WxHxFPS)'),
     'camera_decimation_enable': ('true', 'RealSense depth decimation 필터 (점군 밀도 감소)'),
     'camera_decimation_magnitude': ('2', 'decimation 배율 (2=1/4 점, 3=1/9 점)'),
     'pole_front_cam_pointcloud': ('true', 'pole_front_cam PointCloud2 발행 (body_filter/Nav2)'),
     'gripper_cam_pointcloud': ('false', 'gripper_cam PointCloud2 발행 (grasp_scorer용, 필요할 때만 true)'),
+    'pole_back_cam_pointcloud': ('false', 'pole_back_cam PointCloud2 발행 (nvblox는 depth 영상을 받아 필요 없음)'),
     'use_ekf': ('true', 'robot_localization EKF'),
     'ekf_imu': ('true', 'EKF yaw 회전속도 = IMU 자이로 · false면 바퀴'),
     'use_nav2': ('true', '진짜 Nav2 서버'),
+    'nav2_container_params': ('true', 'true(11-15부터 기본) = costmap이 nav2_params.yaml 값으로 (전역·local 모두 /arena/walls 실측 벽 · 튜닝값) · false = 예전 (전역 costmap이 Nav2 기본값 robot_radius 0.1) — ros_system nav2_nodes 설명'),
+    'nav2_composition': ('true', 'Nav2 서버·관리자(+ map_saver)를 한 프로세스(nav2_container)로 — 메모리 절약 · false면 서버마다 프로세스 (예전)'),
+    'py_helpers_one_process': ('true', 'python 보조 노드(pole_depth_gate · nvblox_map · rewind)를 한 프로세스로 — 메모리 절약 · false면 따로 (예전)'),
+    'cuvslam_impl': ('auto', 'cuvslam_slam 구현 cpp · py · auto(C++판이 빌드돼 있으면 cpp) — ros_system.launch.py'),
+    'cuvslam_frame_skip': ('1', 'cuVSLAM N장에 1장만 추적 (1=전부 · 2=7.5 Hz) — CPU 줄이기 현장 비교용'),
+    'depth_gate_cpp': ('true', 'pole_depth_gate를 C++(perception depth_gate)로 — CPU 절약 (bag 재생 11-14: 파이썬 6 % → C++ 2 %) · false면 예전 파이썬'),
     'use_moveit': ('true', '진짜 move_group — coordinator의 pick/place가 씀 (ros_system 기본은 false라 실기에서 팔 작업이 안 됐음)'),
 }
 
@@ -98,9 +158,18 @@ def setup_map(context):
     mode = LaunchConfiguration('map').perform(context)
     fake_slam = LaunchConfiguration('fake_slam').perform(context).lower() == 'true'
     use_ros_system = LaunchConfiguration('use_ros_system').perform(context).lower() == 'true'
+    backend = LaunchConfiguration('map_backend').perform(context)
+    if backend not in ('nvblox', 'static_2d'):
+        raise RuntimeError(f'map_backend:={backend} — nvblox | static_2d')
+    if backend == 'static_2d' and mode != 'none' and (mode != 'saved' or fake_slam):
+        raise RuntimeError('static_2d requires map:=saved and fake_slam:=false')
     map_file = MAP_FILE
+    if backend == 'static_2d':
+        map_file = 'map.yaml'
     d = os.path.expanduser(LaunchConfiguration('map_dir').perform(context) or '~/.ros/beebot_maps')
     name = LaunchConfiguration('map_name').perform(context)
+    if backend == 'static_2d' and mode == 'saved' and use_ros_system and not name:
+        raise RuntimeError('static_2d requires an explicit map_name')
     if mode not in ('none', 'slam', 'saved'):
         raise RuntimeError(f'map:={mode} — none | slam | saved')
     no_map = False
@@ -127,6 +196,8 @@ def setup_map(context):
                     no_map = True
     if mode == 'none':
         name = ''
+    if backend == 'static_2d' and mode == 'saved' and no_map:
+        raise RuntimeError('static_2d: requested saved 2D map was not found')
     effective = 'none' if mode == 'none' or no_map else mode
     use_slam = 'false' if effective == 'none' else 'true'
     # use_slam = 지도 의미(모드·map_saver가 켜져야 하나) · use_real_slam = ros_system의 cuVSLAM·nvblox를 띄울지
@@ -142,6 +213,16 @@ def setup_map(context):
         ug = 'true' if (found is None or serial in found) else 'false'   # 못 알아내면 예전처럼 켬
         if ug == 'false':
             print(f'WARN: gripper_cam serial {serial} 감지 안 됨 — gripper_cam · hand_relative를 안 띄움', file=sys.stderr)
+    # 폴 뒤 캠 (주행 전용): serial이 없거나 감지 안 되면 끔 — 그립퍼 캠과 같은 이유 (respawn이 장치를 계속 훑음)
+    ub = LaunchConfiguration('use_pole_back_cam').perform(context).lower()
+    if ub not in ('auto', 'true', 'false'):
+        raise RuntimeError(f'use_pole_back_cam:={ub} — auto | true | false')
+    if ub == 'auto':
+        serial = LaunchConfiguration('pole_back_cam_serial').perform(context)
+        found = detected_serials() if serial else None
+        ub = 'true' if serial and (found is None or serial in found) else 'false'
+        if serial and ub == 'false':
+            print(f'WARN: pole_back_cam serial {serial} 감지 안 됨 — pole_back_cam을 안 띄움 (nvblox는 앞 카메라만)', file=sys.stderr)
     # 인지(YOLO 등)는 지도 만들 때(MAPPING) 쓰이지 않는다 — 실기에서는 CPU 코어 하나의 절반을 먹어 주행이 끊겼다 (2026-11-09).
     #   perception:=auto(기본) = 매핑이면 끔 · true/false = 강제. faker 테스트베드(fake_slam)는 그대로 켠다.
     pm = LaunchConfiguration('perception').perform(context).lower()
@@ -155,7 +236,7 @@ def setup_map(context):
     use_perception = 'false' if (pm == 'false' or (pm == 'auto' and effective == 'slam' and not fake_slam)) else 'true'
     # 지도/위치추정이 없으면 Nav2도 띄우지 않는다 — 지도 없는 costmap·BT가 헛도는 걸 막는다.
     use_nav2 = 'false' if effective == 'none' else 'true'
-    nvblox_map = os.path.join(d, name, map_file) if effective != 'none' else ''
+    nvblox_map = os.path.join(d, name, map_file) if effective != 'none' and backend == 'nvblox' else ''
     return [SetLaunchConfiguration('map_dir', d), SetLaunchConfiguration('map_name', name),
             SetLaunchConfiguration('map_mode', map_mode),
             SetLaunchConfiguration('use_slam', use_slam),
@@ -163,12 +244,67 @@ def setup_map(context):
             SetLaunchConfiguration('use_nav2', use_nav2),
             SetLaunchConfiguration('localization', 'false' if effective == 'slam' else 'true'),
             SetLaunchConfiguration('nvblox_map', nvblox_map),
+            SetLaunchConfiguration('static_map_yaml', os.path.join(d, name, 'map.yaml') if effective != 'none' and backend == 'static_2d' else ''),
+            SetLaunchConfiguration('nvblox_params_file', LaunchConfiguration('nvblox_params_file').perform(context)
+                or os.path.join(get_package_share_directory('ros_system'), 'config', 'nvblox.yaml')),
             SetLaunchConfiguration('use_perception', use_perception),
             SetLaunchConfiguration('use_gripper_cam', ug),
+            SetLaunchConfiguration('use_pole_back_cam', ub),
             SetLaunchConfiguration('use_hand_relative', 'true' if use_perception == 'true' and ug == 'true' else 'false')]
+
+
+def map_saver():
+    """SLAM(slam·saved)일 때: 지도 저장 서버 (사람이 보는 미리보기 — 위치추정은 nvblox.nvblx) — /map_saver/save_map → <map_dir>/<map_name>/map.pgm·yaml (시뮬레이터 [지도 저장])
+    nav2_composition:=true(기본)면 ros_system의 nav2_container에 컴포넌트로 (프로세스 둘 덜 띄움), false면 예전처럼 따로.
+    따로 띄울 땐 끌 때 빨리 포기 (SIGINT → 3초 → SIGTERM → 3초 → SIGKILL) — ros_system QUICK_STOP과 같은 이유
+    관리자는 4 s 늦게 — 막 뜬 map_saver에 바로 보낸 change_state 응답이 사라져 멈춘 적 있음 (ros_system LIFECYCLE_DELAY_S)"""
+    def cond(composed):
+        return IfCondition(PythonExpression(["'", LaunchConfiguration('use_ros_system'), "'.lower() == 'true' and '",
+                                             LaunchConfiguration('use_slam'), "' == 'true' and '",
+                                             LaunchConfiguration('map_backend'), "' == 'nvblox' and '",
+                                             LaunchConfiguration('nav2_composition'), "'.lower() " + ('==' if composed else '!=') + " 'true'"]))
+    manager = {'autostart': True, 'node_names': ['map_saver'], 'bond_timeout': 60.0}
+    return [
+        Node(package='nav2_map_server', executable='map_saver_server', name='map_saver', output='screen',
+             sigterm_timeout='3', sigkill_timeout='3', condition=cond(False)),
+        LoadComposableNodes(target_container='/nav2_container', condition=cond(True), composable_node_descriptions=[
+            ComposableNode(package='nav2_map_server', plugin='nav2_map_server::MapSaver', name='map_saver')]),
+        TimerAction(period=4.0, actions=[
+            Node(package='nav2_lifecycle_manager', executable='lifecycle_manager', name='lifecycle_manager_map_saver',
+                 output='screen', parameters=[manager], sigterm_timeout='3', sigkill_timeout='3', condition=cond(False)),
+            LoadComposableNodes(target_container='/nav2_container', condition=cond(True), composable_node_descriptions=[
+                ComposableNode(package='nav2_lifecycle_manager', plugin='nav2_lifecycle_manager::LifecycleManager',
+                               name='lifecycle_manager_map_saver', parameters=[manager])])]),
+    ]
+
+
+def foxglove(context):
+    """Foxglove(맥·아이패드 앱)용 WebSocket 브리지 — 기본 끔 (use_foxglove:=true로 켬) · auto: foxglove_bridge가 설치돼 있을 때만 · 접속 ws://<로봇 IP 또는 bee.local>:<foxglove_port>
+    부하: 보는 쪽이 구독한 토픽만 보냄 (아무도 안 붙으면 discovery뿐) — 영상은 볼 때만 열 것"""
+    use = LaunchConfiguration('use_foxglove').perform(context).lower()
+    if use == 'false':
+        return []
+    try:
+        get_package_share_directory('foxglove_bridge')
+    except PackageNotFoundError:
+        if use == 'true':
+            raise RuntimeError('use_foxglove:=true인데 foxglove_bridge가 없음 — sudo apt install ros-lyrical-foxglove-bridge')
+        print('[bringup] foxglove_bridge 없음 — Foxglove 안 띄움 (설치: sudo apt install ros-lyrical-foxglove-bridge)')
+        return []
+    params = {'port': int(LaunchConfiguration('foxglove_port').perform(context)), 'address': '0.0.0.0',
+              'send_buffer_limit': 100_000_000}
+    if LaunchConfiguration('foxglove_tls').perform(context).lower() == 'true':  # wss:// — 아이패드 Safari(https 페이지)가 ws://를 막을 때
+        d = os.path.expanduser('~/.ros/foxglove')
+        if not os.path.exists(f'{d}/cert.pem'):
+            raise RuntimeError(f'foxglove_tls:=true인데 {d}/cert.pem 없음 — start.sh로 띄우면 만들어짐')
+        params.update({'tls': True, 'certfile': f'{d}/cert.pem', 'keyfile': f'{d}/key.pem'})
+    return [Node(package='foxglove_bridge', executable='foxglove_bridge', name='foxglove_bridge', output='screen',
+                 parameters=[params])]
+
 
 def generate_launch_description():
     learning = {'enabled': LaunchConfiguration('learning_enabled')}
+    start_pose = {'start_pose_arena': ParameterValue(LaunchConfiguration('start_pose'), value_type=None)}
     return LaunchDescription([
         DeclareLaunchArgument('use_ros_system', default_value='true',
                               description='false면 ros_system(📦)을 띄우지 않음'),
@@ -178,16 +314,22 @@ def generate_launch_description():
                               description='false면 mission_manager를 띄우지 않음 — 도면 벽(/arena/walls)이 /map에 안 겹침 (매핑·주행 시험용, 미션 불가)'),
         DeclareLaunchArgument('use_perception', default_value='auto',
                               description='false면 인지 노드(perception_node · signal_decoder · hand_relative)를 안 띄움 · true면 항상 · auto(기본)면 perception:=를 따름 (body_filter는 Nav2용이라 늘 뜸)'),
+        DeclareLaunchArgument(HAND_RELATIVE_PY_ARG[0], default_value=HAND_RELATIVE_PY_ARG[1], description=HAND_RELATIVE_PY_ARG[2]),
         DeclareLaunchArgument('use_ml', default_value='true',
                               description='false면 ml 노드(grasp_scorer)를 띄우지 않음'),
         *[DeclareLaunchArgument(f'use_{n}', default_value=LaunchConfiguration('use_ml'),
                                 description=f'false면 {n}을 띄우지 않음 (faker가 그 대역 fake_{n}을 띄울 때)') for n in ML_NODES],
         DeclareLaunchArgument('learning_enabled', default_value='true',
                               description='false면 학습 노드가 Δ=0 · 기본 프리셋 (노드는 그대로 뜸)'),
-        DeclareLaunchArgument('operation', default_value='MANUAL',
-                              description='초기 조작 모드: MANUAL(기본) | AUTO'),
+        DeclareLaunchArgument('core_composition', default_value='true',
+                              description='작은 C++ 노드를 컨테이너 둘(control_nodes · mission_nodes)에 — 메모리 절약 (11-16) · '
+                                          'false면 노드마다 프로세스 (예전, /cmd/restart node <이름>이 그 노드에 됨)'),
+        DeclareLaunchArgument('operation', default_value='AUTO',
+                              description='초기 조작 모드: AUTO(기본, 11-16) | MANUAL'),
         DeclareLaunchArgument('start_pose', default_value='',
                               description='mission_manager 출발 자세 arena [x, y, yaw] YAML (비면 plan.yaml start_pose_arena)'),
+        DeclareLaunchArgument('taught_routes', default_value='true',
+                              description='움직임 정답표 재생 (~/.ros/routes/*.motion.csv · tools/cli start.sh route로 녹화) — 구간 표가 있으면 Nav2 경로 대신 표대로'),
         DeclareLaunchArgument('grasp_check', default_value='true',
                               description='coordinator 잡기 판정(그리퍼 위치 + 전류) — 물리 없는 대역(faker)은 손가락이 끝까지 닫혀 늘 빈손이라 false'),
         DeclareLaunchArgument('restart_prepare', default_value='',
@@ -200,12 +342,24 @@ def generate_launch_description():
                               description='지도 폴더들이 있는 곳 — <map_dir>/<map_name>/nvblox.nvblx (비면 ~/.ros/beebot_maps)'),
         DeclareLaunchArgument('map_name', default_value='',
                               description='지도 폴더 이름 — slam: 비우면 날짜_시각으로 새로 · saved: 비우면 가장 최근'),
+        # C++ cuVSLAM CPU 여유를 주행 인지에 일부 재사용 (11-16): 이동 중 YOLO·AprilTag·상자 depth를 2 Hz로,
+        #   Nav2 남은 거리가 navigation_full_near_m 안이면 평소대로 (도착 직전 상자 측정 — approach). 저메모리 profile은 0 Hz를 별도 override
+        DeclareLaunchArgument('navigation_throttle', default_value='true'),
+        DeclareLaunchArgument('navigation_infer_hz', default_value='2.0'),
+        DeclareLaunchArgument('navigation_full_near_m', default_value='1.0'),
+        DeclareLaunchArgument('cv_threads', default_value='2'),
         DeclareLaunchArgument('perception', default_value='auto',
                               description='인지 노드(perception_node · signal_decoder · hand_relative): auto = 매핑(map:=slam)이면 끔 · true = 항상 · false = 항상 끔. body_filter는 Nav2 충돌감시용이라 그대로'),
         DeclareLaunchArgument('fake_slam', default_value='false',
                               description='true = faker SLAM 대역(코스 map_server · fake_cuvslam · fake_nvblox) — ros_system의 진짜 cuVSLAM·nvblox만 끔'),
+        DeclareLaunchArgument('use_foxglove', default_value='false',
+                              description='Foxglove 브리지 — 기본 false(안 띄움) · true: 띄움(없으면 오류) · auto: 설치돼 있으면'),
+        DeclareLaunchArgument('foxglove_port', default_value='8765', description='Foxglove WebSocket 포트 (ws://<로봇>:<이 포트>)'),
+        DeclareLaunchArgument('foxglove_tls', default_value='false',
+                              description='true = wss:// (~/.ros/foxglove/cert.pem·key.pem) — 아이패드 Safari가 https 페이지에서 ws://를 막을 때'),
         *[DeclareLaunchArgument(k, default_value=v, description=d) for k, (v, d) in ROS_SYSTEM_ARGS.items()],
         OpaqueFunction(function=setup_map),
+        OpaqueFunction(function=foxglove),
 
         # GroupAction: ros_system의 launch 인자가 이 파일 인자와 섞이지 않게 범위 분리 — 넘길 것만 골라서
         GroupAction([IncludeLaunchDescription(
@@ -214,42 +368,53 @@ def generate_launch_description():
             launch_arguments={**{k: LaunchConfiguration(k) for k in ROS_SYSTEM_ARGS},
                               'use_slam': LaunchConfiguration('use_real_slam'),
                               'localization': LaunchConfiguration('localization'),
-                              'nvblox_map': LaunchConfiguration('nvblox_map')}.items())],
+                              'nvblox_map': LaunchConfiguration('nvblox_map'),
+                              'static_map_yaml': LaunchConfiguration('static_map_yaml')}.items())],
             condition=IfCondition(LaunchConfiguration('use_ros_system'))),
-        # SLAM(slam·saved)일 때: 지도 저장 서버 (사람이 보는 미리보기 — 위치추정은 nvblox.nvblx) — /map_saver/save_map → <map_dir>/<map_name>/map.pgm·yaml (시뮬레이터 [지도 저장])
-        Node(package='nav2_map_server', executable='map_saver_server', name='map_saver', output='screen',
-             condition=IfCondition(PythonExpression(["'", LaunchConfiguration('use_ros_system'), "'.lower() == 'true' and '",
-                                                     LaunchConfiguration('use_slam'), "' == 'true'"]))),
-        Node(package='nav2_lifecycle_manager', executable='lifecycle_manager', name='lifecycle_manager_map_saver',
-             output='screen', parameters=[{'autostart': True, 'node_names': ['map_saver'], 'bond_timeout': 60.0}],
-             condition=IfCondition(PythonExpression(["'", LaunchConfiguration('use_ros_system'), "'.lower() == 'true' and '",
-                                                     LaunchConfiguration('use_slam'), "' == 'true'"]))),
+        *map_saver(),  # SLAM일 때 지도 저장 서버 (map_saver() 설명)
 
-        node('perception', 'perception_node', condition=IfCondition(LaunchConfiguration('use_perception'))),
+        node('perception', 'perception_node', overrides={
+            'navigation_throttle': ParameterValue(LaunchConfiguration('navigation_throttle'), value_type=bool),
+            'navigation_infer_hz': ParameterValue(LaunchConfiguration('navigation_infer_hz'), value_type=float),
+            'navigation_full_near_m': ParameterValue(LaunchConfiguration('navigation_full_near_m'), value_type=float),
+            'cv_threads': ParameterValue(LaunchConfiguration('cv_threads'), value_type=int)},
+            condition=IfCondition(LaunchConfiguration('use_perception'))),
         # coordinator: 계획 단계를 skill 노드에 맡기는 순서 담당 (적재함 장부 · 모드·비상정지 취소)
-        node('plan', 'coordinator', condition=IfCondition(LaunchConfiguration('use_mission'))),
+        node('plan', 'coordinator', condition=when('use_mission', composed=False)),
         # skill 노드 — 단계마다 액션 서버 /skills/<skill> (팔: arm_skills 컨테이너 · 주행: base_skills). 학습 정책은 skill마다 models/skills/<skill>/
         #   시작 자세(stow)는 skill_pose
         GroupAction([IncludeLaunchDescription(
             PythonLaunchDescriptionSource(PathJoinSubstitution([FindPackageShare('skills'), 'launch', 'skills.launch.py'])),
-            launch_arguments={'grasp_check': LaunchConfiguration('grasp_check')}.items())],
+            launch_arguments={'grasp_check': LaunchConfiguration('grasp_check'),
+                              'taught_routes': LaunchConfiguration('taught_routes')}.items())],
             condition=IfCondition(LaunchConfiguration('use_mission'))),
         # 주사위 미션 — /cmd/mission start로 시작 (abort로 멈춤). 출발 자세만 launch 인자로 덮어씀
-        node('plan', 'mission_manager', condition=IfCondition(PythonExpression(
-            ["'", LaunchConfiguration('use_mission'), "'.lower() == 'true' and '", LaunchConfiguration('use_mission_manager'),
-             "'.lower() == 'true' and '", LaunchConfiguration('start_pose'), "' == ''"]))),
-        node('plan', 'mission_manager', {'start_pose_arena': ParameterValue(LaunchConfiguration('start_pose'), value_type=None)},
-             condition=IfCondition(PythonExpression(
-                 ["'", LaunchConfiguration('use_mission'), "'.lower() == 'true' and '", LaunchConfiguration('use_mission_manager'),
-                  "'.lower() == 'true' and '", LaunchConfiguration('start_pose'), "' != ''"]))),
-        *[node('ml', n, learning, condition=IfCondition(PythonExpression(
-            ["'", LaunchConfiguration('use_mission'), "'.lower() == 'true' and '", LaunchConfiguration(f'use_{n}'), "'.lower() == 'true'"])))
-          for n in ML_NODES],
-        node('control', 'arm_safety_monitor'),
-        node('control', 'manual_control'),
-        node('perception', 'body_filter'),
-        node('perception', 'signal_decoder', condition=IfCondition(LaunchConfiguration('use_perception'))),
-        node('perception', 'hand_relative', condition=IfCondition(LaunchConfiguration('use_hand_relative'))),  # 손 카메라 상대값 → rl_arm_correction 정책 입력
+        node('plan', 'mission_manager', condition=when('use_mission', 'use_mission_manager', composed=False,
+                                                       extra=["'", LaunchConfiguration('start_pose'), "' == ''"])),
+        node('plan', 'mission_manager', start_pose,
+             condition=when('use_mission', 'use_mission_manager', composed=False,
+                            extra=["'", LaunchConfiguration('start_pose'), "' != ''"])),
+        *[node('ml', n, learning, condition=when('use_mission', f'use_{n}', composed=False)) for n in ML_NODES],
+        node('control', 'arm_safety_monitor', condition=when(composed=False)),
+        node('control', 'manual_control', condition=when(composed=False)),
+        node('perception', 'body_filter', condition=when(composed=False)),
+        node('perception', 'signal_decoder', condition=when('use_perception', composed=False)),
+        # core_composition:=true — 위 노드를 컨테이너 둘에 (COMPONENTS 설명)
+        container('control_nodes', [
+            component('control', 'arm_safety_monitor'),
+            component('control', 'manual_control'),
+            component('perception', 'body_filter'),
+            component('perception', 'signal_decoder', condition=IfCondition(LaunchConfiguration('use_perception'))),
+        ], condition=when(composed=True)),
+        container('mission_nodes', [
+            component('plan', 'coordinator'),
+            component('plan', 'mission_manager', condition=when('use_mission_manager', composed=True,
+                                                                extra=["'", LaunchConfiguration('start_pose'), "' == ''"])),
+            component('plan', 'mission_manager', start_pose,
+                      condition=when('use_mission_manager', composed=True, extra=["'", LaunchConfiguration('start_pose'), "' != ''"])),
+            *[component('ml', n, learning, condition=IfCondition(LaunchConfiguration(f'use_{n}'))) for n in ML_NODES],
+        ], condition=when('use_mission', composed=True)),
+        node('perception', hand_relative_exe(), condition=IfCondition(LaunchConfiguration('use_hand_relative'))),  # 손 카메라 상대값 → rl_arm_correction 정책 입력
         node('manager', 'state_manager', {'operation': LaunchConfiguration('operation'),
                                           'map_mode': LaunchConfiguration('map_mode'),
                                           'map_name': ParameterValue(LaunchConfiguration('map_name'), value_type=str),

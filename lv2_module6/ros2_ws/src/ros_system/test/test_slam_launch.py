@@ -36,6 +36,23 @@ def nodes(**args):
     return on
 
 
+def py_helpers_args(exe='py_helpers', **args):
+    """켜지는 py_helpers(또는 cpp_helpers)의 인자 (띄울 노드 이름들) — 안 켜지면 빈 목록"""
+    import importlib.util
+    spec = importlib.util.spec_from_file_location('ros_system_launch', LAUNCH)
+    mod = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(mod)
+    ctx = LaunchContext()
+    for e in mod.generate_launch_description().entities:
+        if isinstance(e, DeclareLaunchArgument):
+            ctx.launch_configurations.setdefault(e.name, perform_substitutions(ctx, e.default_value))
+            continue
+        ctx.launch_configurations.update(args)
+        if isinstance(e, Node) and e.node_executable == exe and e.condition.evaluate(ctx):
+            return [perform_substitutions(ctx, a) for a in e.cmd[1:] if not perform_substitutions(ctx, a).startswith('--')]
+    return []
+
+
 def params(node_name, **args):
     """켜지는 노드 하나의 dict 파라미터 (yaml 파일 경로는 빼고) — 인자에 따라 바뀌는 값 확인용"""
     import importlib.util
@@ -49,7 +66,7 @@ def params(node_name, **args):
             ctx.launch_configurations.setdefault(e.name, perform_substitutions(ctx, e.default_value))
             continue
         ctx.launch_configurations.update(args)
-        if isinstance(e, Node) and e._Node__node_name == node_name:
+        if isinstance(e, Node) and (e._Node__node_name or e.node_executable) == node_name:  # 이름 없으면 실행 파일 이름 (py_helpers)
             out = {}
             for p in evaluate_parameters(ctx, e._Node__parameters):
                 if isinstance(p, dict):
@@ -58,11 +75,27 @@ def params(node_name, **args):
     return {}
 
 
+def stop_timeouts(node_name):
+    """노드 하나의 끌 때 (SIGINT→SIGTERM, SIGTERM→SIGKILL) 초"""
+    import importlib.util
+    spec = importlib.util.spec_from_file_location('ros_system_launch', LAUNCH)
+    mod = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(mod)
+    ctx = LaunchContext()
+    entities = list(mod.generate_launch_description().entities)
+    for e in entities:
+        entities += getattr(e, 'actions', [])  # TimerAction 안 (관리자는 늦게 띄움)
+        if isinstance(e, Node) and e._Node__node_name == node_name:
+            return perform_substitutions(ctx, e.sigterm_timeout), perform_substitutions(ctx, e.sigkill_timeout)
+    return None
+
+
 def main():
-    base = {'use_cameras': 'false', 'use_ros2_control': 'false', 'use_nav2': 'false', 'use_twist_mux': 'false'}
+    base = {'use_cameras': 'false', 'use_ros2_control': 'false', 'use_nav2': 'false', 'use_twist_mux': 'false',
+            'py_helpers_one_process': 'false'}  # 노드 하나하나 보려고 따로 — 한 프로세스(기본)는 아래 py_helpers 검사
     on = nodes(**base)
     off = nodes(**base, use_slam='false')
-    slam = {'cuvslam_slam', 'nvblox_node', 'nvblox_map', 'pole_depth_gate'}
+    slam = {'cuvslam_slam', 'map_tf_relay', 'nvblox_node', 'nvblox_map', 'pole_depth_gate'}
     rtab = {'rtabmap', 'rgbdx_sync', 'scan_cam_gate', 'scan_cloud_merge', 'pole_rgbd_sync', 'gripper_rgbd_sync'}  # 예전 SLAM — 남아 있으면 안 됨
     # 지도 파일: 매핑이면 끌 때 저장(불러오기 없음) · 위치추정이면 시작할 때 불러오기(저장 안 함 — 불러온 지도를 안 덮어씀)
     m = {**base, 'nvblox_map': '/maps/a/nvblox.nvblx'}
@@ -70,6 +103,17 @@ def main():
     save_loc = params('nvblox_node', **m, localization='true').get('after_shutdown_map_save_path')
     load_map = params('nvblox_map', **m, localization='false').get('load_path')
     load_loc = params('nvblox_map', **m, localization='true').get('load_path')
+    nav = {**base, 'use_nav2': 'true'}
+    one = {**base, 'py_helpers_one_process': 'true', 'helpers_cpp': 'false'}  # 예전 파이썬 py_helpers — C++판(기본)은 아래 cpp
+    cpp = {**one, 'helpers_cpp': 'true'}
+    helpers_cpp, helpers_cpp_args = nodes(**cpp), py_helpers_args('cpp_helpers', **cpp)
+    helpers_cpp_off, helpers_cpp_pygate = nodes(**cpp, use_slam='false'), nodes(**cpp, depth_gate_cpp='false')
+    helpers_cpp_loc = params('cpp_helpers', **cpp, nvblox_map='/maps/a/nvblox.nvblx', localization='true')
+    helpers, helpers_off = nodes(**one), nodes(**one, use_slam='false')
+    helpers_args = py_helpers_args(**one)
+    helpers_py, helpers_py_args = nodes(**one, depth_gate_cpp='false'), py_helpers_args(**one, depth_gate_cpp='false')
+    helpers_loc = params('py_helpers', **one, nvblox_map='/maps/a/nvblox.nvblx', localization='true')
+    composed, separate = nodes(**nav), nodes(**nav, nav2_composition='false')
     checks = [
         ('SLAM 노드 전부 (cuVSLAM · depth gate · nvblox · nvblox_map)', slam <= on),
         ('손 카메라 depth gate 없음 (스캔 자세 없앰)', 'gripper_depth_gate' not in on),
@@ -79,7 +123,32 @@ def main():
         ('매핑: 불러오기 없음', load_map == ''),
         ('위치추정: 시작할 때 불러옴', load_loc == '/maps/a/nvblox.nvblx'),
         ('위치추정: 저장 안 함', save_loc == ''),
+        ('python 보조 노드 한 프로세스(py_helpers) · depth gate는 C++ 따로', 'py_helpers' in helpers and 'pole_depth_gate' in helpers
+                                                                and not ({'nvblox_map', 'rewind'} & helpers)),
+        ('py_helpers가 depth gate를 안 띄움 (C++판과 겹치지 않게)', 'pole_depth_gate' not in helpers_args),
+        ('depth_gate_cpp:=false = 예전 파이썬 (py_helpers 안)', 'pole_depth_gate' in helpers_py_args and 'pole_depth_gate' not in helpers_py),
+        ('py_helpers에 depth gate·지도 불러오기 파라미터', helpers_loc.get('load_path') == '/maps/a/nvblox.nvblx'
+                                                          and helpers_loc.get('depth_min_range') == 0.5),
+        ('SLAM 없으면 rewind만 따로', 'rewind' in helpers_off and 'py_helpers' not in helpers_off),
+        ('C++ 보조 노드 한 프로세스(cpp_helpers, 기본) · py_helpers 없음', 'cpp_helpers' in helpers_cpp and 'py_helpers' not in helpers_cpp
+                                                             and not ({'nvblox_map', 'rewind'} & helpers_cpp)),
+        ('cpp_helpers = nvblox_map · rewind', helpers_cpp_args == ['nvblox_map', 'rewind']),
+        ('cpp_helpers에 지도 불러오기 파라미터', helpers_cpp_loc.get('load_path') == '/maps/a/nvblox.nvblx'),
+        ('helpers_cpp + depth_gate_cpp:=false = 파이썬 depth gate 따로', 'pole_depth_gate' in helpers_cpp_pygate
+                                                                   and 'py_helpers' not in helpers_cpp_pygate),
+        ('helpers_cpp: SLAM 없으면 rewind만 따로', 'rewind' in helpers_cpp_off and 'cpp_helpers' not in helpers_cpp_off),
+        ('py_helpers_one_process:=false = 따로', {'pole_depth_gate', 'nvblox_map', 'rewind'} <= on and 'py_helpers' not in on),
         ('cuVSLAM이 map→odom', params('cuvslam_slam', **base).get('publish_map_tf') is True),
+        ('cuVSLAM frame_skip 기본 1 · 인자로 바뀜', params('cuvslam_slam', **base).get('frame_skip') == 1
+                                                and params('cuvslam_slam', **base, cuvslam_frame_skip='2').get('frame_skip') == 2),
+        ('Nav2·lifecycle_manager는 끌 때 3+3초', all(stop_timeouts(n) == ('3', '3') for n in
+                                                  ('nav2_container', 'planner_server', 'controller_server',
+                                                   'lifecycle_manager_base', 'lifecycle_manager_navigation'))),
+        ('Nav2 기본 = 한 프로세스(nav2_container) · controller_server만 따로 (젯슨 컨테이너에서 segfault)',
+         'nav2_container' in composed and 'controller_server' in composed and 'planner_server' not in composed),
+        ('nav2_composition:=false = 서버마다 프로세스', 'nav2_container' not in separate and {'controller_server', 'planner_server'} <= separate),
+        ('지도 없음(use_nav2:=false)에도 바퀴 체인용 nav2_container', 'nav2_container' in on),
+        ('nvblox(끌 때 지도 저장)는 launch 기본 5+5초', stop_timeouts('nvblox_node') == ('5', '5')),
     ]
     bad = [name for name, ok in checks if not ok]
     for name, ok in checks:

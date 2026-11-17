@@ -45,4 +45,14 @@ export QT_SCALE_FACTOR_ROUNDING_POLICY="${QT_SCALE_FACTOR_ROUNDING_POLICY:-Floor
 
 # RVIZ_CONFIG=light — 지도·TF·로봇 모델만 (map 기준, 로봇을 따라감). Wi-Fi 너머 PC에서 점구름·영상을 받으면
 #   Jetson 카메라 송신이 막혀 카메라·SLAM이 멈췄음 (실측 2026-10-27) → 원격 PC는 light 권장
-exec rviz2 -d "$HERE/${RVIZ_CONFIG:-operator}.rviz" "$@"
+# 주행 녹화 (record.sh) — PC에서만 같이 띄움 (Jetson 디스크·CPU는 주행에 씀). 운행 시작부터 녹화, RViz를 끄면 같이 끝
+#   RVIZ_RECORD=0 ./start.sh   # 녹화 없이
+if [ "${RVIZ_RECORD:-1}" != "0" ] && [ ! -f /etc/nv_tegra_release ]; then
+  setsid "$HERE/record.sh" &
+  REC=$!
+  # TERM, not INT: background jobs of a non-interactive shell start with SIGINT ignored, so the recorder never sees INT
+  trap 'kill -TERM -- -$REC 2>/dev/null; wait $REC 2>/dev/null' EXIT
+  rviz2 -d "$HERE/${RVIZ_CONFIG:-operator}.rviz" "$@"
+else
+  exec rviz2 -d "$HERE/${RVIZ_CONFIG:-operator}.rviz" "$@"
+fi

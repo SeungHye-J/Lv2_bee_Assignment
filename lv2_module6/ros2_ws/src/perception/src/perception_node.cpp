@@ -1,15 +1,19 @@
 // perception_node 구현 — 설명·선언은 include/perception/perception_node.hpp, main은 perception_node_main.cpp
 //   함수 이름·순서·규칙은 파이썬 scripts/perception_node.py와 같게 맞춤 (같은 곳을 찾아 비교하기 쉽게)
 #include "perception/perception_node.hpp"
+#include "perception/barcode_fallback.hpp"
 
+#include <regex>
 #include <algorithm>
 #include <chrono>
 #include <cmath>
+#include <cstdlib>
 #include <cstring>
 #include <stdexcept>
 #include <functional>
 #include <sstream>
 
+#include <opencv2/core/utility.hpp>
 #include <opencv2/imgproc.hpp>
 
 #include "ament_index_cpp/get_package_share_path.hpp"
@@ -35,7 +39,9 @@ constexpr double QR_GAP_S = 10.0;  // 바코드가 이만큼 안 보였다가 �
 // 모델 없을 때의 기본 클래스 (모델이 있으면 모델 안 이름)
 const std::vector<std::string> CLASSES = {"puck", "puck_lying", "goal_zone", "station_zone", "qr_board", "obstacle", "person",
                                           "traffic_light"};
-const std::set<std::string> DYNAMIC_CLASSES = {"person"};  // 스스로 움직이는 물체 — 예측 잡음 process_noise_dynamic
+const std::set<std::string> DYNAMIC_CLASSES = {"person"};
+// 경기장에 하나뿐인 물체 — 위치가 match_dist 넘게 튀어도 새 트랙을 만들지 않고, 둘이 생기면 하나로 합침 (11/13 신호등이 둘로 갈림)
+const std::set<std::string> SINGLE_CLASSES = {"traffic_light"};  // 스스로 움직이는 물체 — 예측 잡음 process_noise_dynamic
 
 double wall_s() { return std::chrono::duration<double>(std::chrono::system_clock::now().time_since_epoch()).count(); }
 double mono_s() { return std::chrono::duration<double>(std::chrono::steady_clock::now().time_since_epoch()).count(); }
@@ -122,6 +128,19 @@ struct PerceptionNode::Barcode {
                                 cv::Point2d(p.bottomRight().x, p.bottomRight().y),
                                 cv::Point2d(p.bottomLeft().x, p.bottomLeft().y)}});
     }
+    if (out.empty()) {  // 보조 읽기 — 라벨 여백이 좁거나 가장자리에 여분 막대가 붙은 바코드 (include/perception/barcode_fallback.hpp)
+      cv::Rect r;
+      const auto text = barcode_fallback(bgr, [](const cv::Mat & g, int bz) {
+        ZXing::ImageView giv(g.data, g.cols, g.rows, ZXing::ImageFormat::Lum, static_cast<int>(g.step));
+        const auto o = ZXing::ReaderOptions().setFormats(ZXing::BarcodeFormat::LinearCodes)
+          .setBinarizer(bz == 0 ? ZXing::Binarizer::FixedThreshold : ZXing::Binarizer::LocalAverage);
+        for (const auto & res : ZXing::ReadBarcodes(giv, o)) if (!res.text().empty()) return res.text();
+        return std::string();
+      }, 0.15, &r);
+      if (!text.empty())
+        out.push_back({text, {cv::Point2d(r.x, r.y), cv::Point2d(r.x + r.width, r.y), cv::Point2d(r.x + r.width, r.y + r.height),
+                              cv::Point2d(r.x, r.y + r.height)}});
+    }
 #else
     (void)bgr;
 #endif
@@ -175,7 +194,46 @@ PerceptionNode::PerceptionNode(const rclcpp::NodeOptions & options) : rclcpp::No
   device_ = ps("device", "cuda");                       // cuda (젯슨 GPU — ONNX Runtime CUDA, 안 되면 저절로 CPU) · cpu
                                                         //   bringup은 device를 안 넘겨서 기본값이 쓰임 → GPU부터 시도
   cpu_threads_ = pi("cpu_threads", 2);                  // CPU 추론 스레드 수 (제어·Nav2가 밀리지 않게)
+  // YOLO TensorRT (시작할 때만) — true면 ~/.cache/beebot/trt/<모델 이름>_fp16.engine 이 있을 때 추론을 TensorRT로
+  //   (젯슨에서 trtexec로 만든 엔진 · 없거나 안 맞으면 ONNX Runtime 그대로, 이유와 만드는 명령은 경고로) · false = 늘 ONNX Runtime
+  const bool tensorrt = declare_parameter<bool>("tensorrt", true);
+  // TensorRT 추론을 CUDA 그래프로 (시작할 때만, 11-16) — false = 예전처럼 enqueueV3 (yolo_onnx.hpp)
+  const bool tensorrt_cuda_graph = declare_parameter<bool>("tensorrt_cuda_graph", true);
+  const char * home = std::getenv("HOME");
+  const std::string trt_dir = std::string(home ? home : "") + "/.cache/beebot/trt";
+  // .onnx 경로 → 엔진 경로 (예: .../bee_yolo11n_v6.onnx → ~/.cache/beebot/trt/bee_yolo11n_v6_fp16.engine) · '' = 안 씀
+  const auto trt_engine_for = [&](const std::string & onnx) -> std::string {
+    if (!tensorrt || !home) return "";
+    const auto slash = onnx.find_last_of('/');
+    const std::string file = slash == std::string::npos ? onnx : onnx.substr(slash + 1);
+    return trt_dir + "/" + file.substr(0, file.size() - 5) + "_fp16.engine";  // ".onnx" 뗌 (load가 .onnx만 넘김)
+  };
+  // OpenCV 스레드 수 — 프로세스 전체 (AprilTag 3번 · resize · cvtColor · morphology …). 0 = OpenCV 기본(코어 수) · 시작할 때만
+  if (const auto n = declare_parameter<int>("cv_threads", 0); n > 0) cv::setNumThreads(n);
+  RCLCPP_INFO(get_logger(), "OpenCV 스레드 %d개 (cv_threads)", cv::getNumThreads());
+  // Startup-only opt-in: navigation keeps obstacle/body_filter processing, while
+  // YOLO/tag inference uses fewer frames. Terminal status resumes normal rate.
+  //   navigation_infer_hz 0 = 주행 중 끔 · navigation_full_near_m 안(Nav2 남은 거리)이면 평소대로 — 도착 직전 상자 측정 (11-15)
+  const bool navigation_throttle = pb("navigation_throttle", false);
+  inference_schedule_.configure(navigation_throttle, pd("navigation_infer_hz", 1.0), pd("navigation_full_near_m", 0.0),
+                                pd("navigation_feedback_timeout_s", 2.0));
+  if (navigation_throttle) {
+    navigation_status_sub_ = create_subscription<action_msgs::msg::GoalStatusArray>(
+      "/skills/navigate/_action/status", rclcpp::QoS(1).reliable().transient_local(),
+      [this](action_msgs::msg::GoalStatusArray::ConstSharedPtr m) { on_navigation_status(*m); });
+    navigation_feedback_sub_ = create_subscription<nav2_msgs::action::NavigateToPose::Impl::FeedbackMessage>(
+      "/navigate_to_pose/_action/feedback", rclcpp::QoS(5),
+      [this](nav2_msgs::action::NavigateToPose::Impl::FeedbackMessage::ConstSharedPtr m) {
+        std::lock_guard<std::mutex> lk(mutex_);
+        inference_schedule_.remaining(m->feedback.distance_remaining, wall_s());
+      });
+  }
   sync_slop_ = pd("sync_slop", 0.05);                   // 컬러·depth 시각 차 허용 [s]
+  max_frame_age_s_ = pd("max_frame_age_s", TRACK_TIMEOUT_S);
+  max_tf_fallback_age_s_ = pd("max_tf_fallback_age_s", 0.3);  // 영상 시각 TF가 없을 때 최신 TF 허용 시각 차 [s] (0 = 한도 없음)
+  map_tf_cache_s_ = pd("map_tf_cache_s", 0.0);          // map TF가 끊기면 마지막 값을 이만큼 유지 [s] (0 = 계속 — cuVSLAM 잠깐 놓침)
+  map_tf_required_ = declare_parameter<bool>("map_tf_required", false);  // true면 map TF가 한 번도 없을 때 좌표 발행 보류
+                                                        //   false: odom 그대로 (map:=none · SLAM 첫 TF 전 — map 원점 = 출발 자리라 같음)
   match_dist_ = pd("match_dist", 0.4);                  // 검출을 트랙에 붙이는 최대 거리 [m]
   puck_center_offset_ = pd("puck_center_offset", 0.015);  // 퍽 표면 → 중심 [m] (0 = 끔)
   puck_center_full_deg_ = pd("puck_center_full_deg", 45.0);
@@ -226,7 +284,7 @@ PerceptionNode::PerceptionNode(const rclcpp::NodeOptions & options) : rclcpp::No
   }
   puck_tag_size_ = pd("puck_tag_size_m", 0.016);
   yaw_min_points_ = pi("yaw_min_points", 30);
-  yaw_min_elong_ = pd("yaw_min_elong", 1.8);
+  yaw_min_elong_ = pd("yaw_min_elong", 1.5);  // 누운 퍽 윗면 60×30 = 2.0 · 실기 depth 1.9 (11-15) — 1.8은 여유 없음
   location_tag_size_ = pd("location_tag_size_m", 0.048);
   box_detect_ = pb("box_detect", true);                 // depth로 상자 윗면 찾기
   {
@@ -255,11 +313,32 @@ PerceptionNode::PerceptionNode(const rclcpp::NodeOptions & options) : rclcpp::No
   //   둘 다 네모 안. 본 모델에 'box' 종류가 없거나(장소 태그를 놓침) 이번 영상에 퍽·상자 네모가 없으면 예전처럼 화면 전체
   tag_roi_ = pb("tag_roi", false);  // 기본 끔 — 로봇에서 결과가 같은지 확인한 뒤 켬 (11/12)
   tag_roi_margin_ = pd("tag_roi_margin", 0.3);          // 네모를 변 길이의 이 비율 + 12 px만큼 넓혀서 (태그가 네모 가장자리에 걸려도)
+  // AprilTag 장치: auto = GPU(cuAprilTags)판으로 빌드됐고 GPU가 있으면 GPU · cuda = GPU (안 되면 경고 후 OpenCV) · opencv = 예전 그대로
+  //   GPU는 화면 전체를 한 번 (감마·반 크기·tag_roi는 OpenCV 때만) — 젯슨 640×360 한 장 ≈ 2 ms (OpenCV 3번 24~95 ms)
+  const std::string tag_backend = ps("tag_backend", "auto");
+  if (tag_backend != "opencv") {
+    tag_cuda_ = std::make_unique<CudaTagDetector>();
+    if (!tag_cuda_->available()) {
+      if (tag_backend == "cuda") RCLCPP_WARN(get_logger(), "AprilTag GPU 못 씀 — OpenCV로: %s", tag_cuda_->error().c_str());
+      else RCLCPP_INFO(get_logger(), "AprilTag GPU 없음 — OpenCV로: %s", tag_cuda_->error().c_str());
+      tag_cuda_.reset();
+    }
+  }
+  RCLCPP_INFO(get_logger(), "AprilTag: %s", tag_cuda_ ? "GPU (cuAprilTags)" : "OpenCV aruco");
   // 상자 깊이 찾기를 본 모델 'box' 네모 안에서만 (상자 전용 모델이 없을 때) — 해상도는 그대로라 위치·방향 정밀도는 같음
   //   이번 영상에 'box' 네모가 없으면 예전처럼 화면 전체
   box_roi_yolo_ = pb("box_roi_yolo", false);  // 기본 끔 — 로봇에서 상자가 같은지 확인한 뒤 켬 (11/12)
   robot_front_x_ = pd("robot_front_x", 0.069);  // base_footprint → 로봇 앞면 [m] (상자 face_dist_m 기준 · 시뮬 pick_env ROBOT_FRONT_X)
+  // 실물 gripper_cam 깊이가 바닥·상자를 12 mm 높게 봄 (11-14 실측 9자세: 바닥 +10~14 · 상자 +11~13 · 상자−바닥 70 그대로 · 팔 토크·카메라 높이와 무관)
+  //   → 퍽 자세·상자 윗면 판정의 바닥 높이만 올림 (위치·손 카메라 상대값은 그대로). Isaac 깊이는 정확해서 use_sim_time이면 0
+  gripper_floor_offset_ = get_parameter("use_sim_time").as_bool() ? 0.0 : pd("gripper_floor_offset_m", 0.0);
   barcode_once_ = pb("barcode_once", true);             // 바코드를 한 번 읽으면 더 안 찾고 읽은 내용만 0.5초마다 다시 냄
+  barcode_once_re_ = std::regex(declare_parameter<std::string>("barcode_once_pattern", "P2-0[1-4]"));  // 이 형식일 때만 고정 — 잘못 읽은 값에 묶이지 않게
+  // 바코드는 미션 시작(start · start:BARCODE) 뒤 barcode_window_s 동안만 찾음 — 찾는 데 한 장 4~180 ms(보조 읽기)라 늘 돌리면
+  //   YOLO와 같은 스레드를 막음 (젯슨 11/12 실측). 읽거나 abort면 그만 · barcode_always: true면 예전처럼 항상
+  barcode_window_s_ = pd("barcode_window_s", 180.0);
+  barcode_always_ = pb("barcode_always", false);
+  barcode_pole_s_ = pd("barcode_pole_s", 3.0);  // 창을 연 뒤 pole_front_cam은 이만큼만 (그 뒤는 손 카메라만 — pole은 신호등 YOLO에 양보)
 
   // ---- 모델
   std::string model_dir;
@@ -274,7 +353,7 @@ PerceptionNode::PerceptionNode(const rclcpp::NodeOptions & options) : rclcpp::No
       RCLCPP_WARN(get_logger(), "%s: .onnx만 읽음 (C++판) — %s", what, path.c_str());
       return nullptr;
     }
-    auto m = std::make_unique<YoloOnnx>(path, device_, cpu_threads_, imgsz_);
+    auto m = std::make_unique<YoloOnnx>(path, device_, cpu_threads_, imgsz_, trt_engine_for(path), tensorrt_cuda_graph);
     if (!m->ok()) {
       RCLCPP_WARN(get_logger(), "%s 로드 실패 (%s)", what, m->error().c_str());
       return nullptr;
@@ -307,6 +386,18 @@ PerceptionNode::PerceptionNode(const rclcpp::NodeOptions & options) : rclcpp::No
   dice_sub_ = create_subscription<std_msgs::msg::Int32>("/mission/capture_dice", 10,
     [this](std_msgs::msg::Int32::ConstSharedPtr m) { on_capture_dice(*m); });
   qr_pub_ = create_publisher<std_msgs::msg::String>("/mission/qr", latched);
+  // 미션을 (다시) 시작하면 지난 회차에 읽은 바코드를 잊고 새로 읽음 — barcode_once가 옛 값을 계속 내면 바코드 단계가 바로 통과됨 (실기 11-12)
+  mission_cmd_sub_ = create_subscription<std_msgs::msg::String>("/cmd/mission", rclcpp::QoS(10).reliable(),
+    [this](std_msgs::msg::String::ConstSharedPtr m) {
+      const std::string & d = m->data;  // start:DIAG… = 현장 진단 전체 미션 (FROM_SURVEY는 바코드를 안 봄)
+      if (d == "start" || d == "start:BARCODE" || (d.rfind("start:DIAG", 0) == 0 && d.find("FROM_SURVEY") == std::string::npos)) {
+        barcode_reset_ = true;
+        barcode_from_ = wall_s();
+        barcode_until_ = barcode_from_ + barcode_window_s_;
+      } else if (m->data == "abort") {
+        barcode_until_ = 0.0;
+      }
+    });
   for (const std::string cam : {"pole_front_cam", "gripper_cam"}) {
     // 컬러·정렬 depth는 시각 맞춘 쌍으로만 (다른 순간의 컬러·depth를 섞지 않게) · camera_info는 따로
     CamSync cs;
@@ -338,18 +429,12 @@ PerceptionNode::PerceptionNode(const rclcpp::NodeOptions & options) : rclcpp::No
 
 // ---------- 입력
 void PerceptionNode::on_frame(const std::string & cam, const Image::ConstSharedPtr & color, const Image::ConstSharedPtr & depth) {
-  cv::Mat bgr, d;
-  try {
-    bgr = image_to_mat(*color, true);
-    d = image_to_mat(*depth, false);
-  } catch (const std::exception & e) {
-    RCLCPP_WARN_THROTTLE(get_logger(), *get_clock(), 5000, "%s 변환 실패: %s", cam.c_str(), e.what());
-    return;
-  }
   std::lock_guard<std::mutex> lk(mutex_);
   Frame & s = frames_[cam];
-  s.bgr = bgr;
-  s.depth_mm = d;
+  s.color_msg = color;
+  s.depth_msg = depth;
+  s.bgr.release();
+  s.depth_mm.release();
   s.stamp = color->header.stamp;
   s.frame_id = color->header.frame_id.empty() ? cam + "_color_optical_frame" : color->header.frame_id;
   ++synced_[cam];
@@ -376,16 +461,70 @@ void PerceptionNode::prof_add(const std::string & cam, const std::string & key, 
 }
 
 // ---------- 추론 (타이머 4Hz, 카메라당 최대 4Hz)
+bool PerceptionNode::fresh_frame(const Frame & s) const {
+  const double stamp = stamp_s(s.stamp), age = now().seconds() - stamp;
+  return stamp > 0 && age >= -sync_slop_ && age <= max_frame_age_s_;
+}
+
+bool PerceptionNode::has_image_data(const Frame & frame) const {
+  return (frame.color_msg && frame.depth_msg) || (!frame.bgr.empty() && !frame.depth_mm.empty());
+}
+
+bool PerceptionNode::materialize_frame(Frame & frame) const {
+  if (!frame.bgr.empty() && !frame.depth_mm.empty()) return true;
+  if (!frame.color_msg || !frame.depth_msg) return false;
+  try {
+    auto bgr = image_to_mat(*frame.color_msg, true);
+    auto depth = image_to_mat(*frame.depth_msg, false);
+    frame.bgr = std::move(bgr);
+    frame.depth_mm = std::move(depth);
+    return true;
+  } catch (const std::exception & e) {
+    RCLCPP_WARN_THROTTLE(get_logger(), *get_clock(), 5000, "%s 변환 실패: %s", frame.frame_id.c_str(), e.what());
+    return false;
+  }
+}
+
+void PerceptionNode::check_clock() {
+  const double t = now().seconds();
+  if (last_ros_time_ && t < *last_ros_time_ - sync_slop_) {
+    tracks_.clear();
+    frames_.clear();  // bag rewind: 이전 타임라인의 영상과 처리 표식도 폐기
+    out_tf_.reset();
+    tf_->clear();
+    map_tf_available_ = false;
+  }
+  last_ros_time_ = t;
+}
+
+void PerceptionNode::on_navigation_status(const action_msgs::msg::GoalStatusArray & status) {
+  const bool active = std::any_of(status.status_list.begin(), status.status_list.end(),
+    [](const auto & goal) { return InferenceSchedule::active_status(goal.status); });
+  std::lock_guard<std::mutex> lk(mutex_);
+  inference_schedule_.navigation_active(active);
+}
+
+std::vector<std::pair<std::string, PerceptionNode::Frame>> PerceptionNode::take_frames() {
+  std::vector<std::pair<std::string, Frame>> cams;
+  std::lock_guard<std::mutex> lk(mutex_);
+  check_clock();
+  for (auto & [c, s] : frames_) {
+    if (!has_image_data(s) || s.fx <= 0 || !inference_schedule_.due(wall_s(), s.infer_t)) continue;
+    if (s.processed_stamp && *s.processed_stamp == s.stamp) continue;
+    s.processed_stamp = s.stamp;  // 선택·claim은 같은 잠금 안에서. 실패 영상도 무한 재시도하지 않음
+    if (!fresh_frame(s)) { ++stale_frames_; continue; }
+    s.infer_t = wall_s();
+    cams.emplace_back(c, s);
+  }
+  return cams;
+}
+
 void PerceptionNode::on_infer() {
   if (!model_) return;
-  std::vector<std::pair<std::string, Frame>> cams;
-  {
-    std::lock_guard<std::mutex> lk(mutex_);
-    for (auto & [c, s] : frames_)
-      if (!s.bgr.empty() && !s.depth_mm.empty() && s.fx > 0 && wall_s() - s.infer_t > 0.2) cams.emplace_back(c, s);
-  }
+  auto cams = take_frames();
   for (auto & [cam, s] : cams) {
-    const double t_start = wall_s(), t0 = mono_s();
+    if (!materialize_frame(s)) continue;
+    const double t0 = mono_s();
     {
       std::lock_guard<std::mutex> lk(mutex_);
       if (prof_last_.count(cam)) {
@@ -403,10 +542,6 @@ void PerceptionNode::on_infer() {
       continue;
     }
     prof_add(cam, "YOLO", t0);
-    {
-      std::lock_guard<std::mutex> lk(mutex_);
-      frames_[cam].infer_t = t_start;
-    }
     update_tracks(cam, s, res);
     prof_add(cam, "전체", t0);
   }
@@ -422,14 +557,18 @@ void PerceptionNode::update_tracks(const std::string & cam, Frame & s, const std
   const auto [rot, trans] = *tf;
   const double t_tag = mono_s();
   std::vector<Box> tag_rois;  // 퍽·상자 네모 (tag_roi) — 본 모델에 상자 종류가 있을 때만 (없으면 장소 태그를 놓침)
-  if (tag_roi_ && model_has_box_)
+  if (tag_roi_ && model_has_box_ && !tag_cuda_)  // GPU는 화면 전체가 더 빠름
     for (const auto & b : res) {
       const auto it = names_.find(b.cls);
       if (it == names_.end()) continue;
       const auto cls = split_class(it->second).first;
       if (cls == "puck" || cls == "box") tag_rois.push_back(clip_box(b.x0, b.y0, b.x1, b.y1, w, h));
     }
-  const auto tags = tag_rois.empty()
+  std::optional<std::vector<Tag>> gpu_tags = tag_cuda_ ? tag_cuda_->detect(s.bgr, tag_min_px_) : std::nullopt;
+  if (tag_cuda_ && !gpu_tags)
+    RCLCPP_WARN_THROTTLE(get_logger(), *get_clock(), 10000, "AprilTag GPU 실패 — 이번 영상은 OpenCV로: %s", tag_cuda_->error().c_str());
+  const auto tags = gpu_tags ? *gpu_tags
+    : tag_rois.empty()
     ? detect_tags(&tag_det_, s.bgr, tag_gamma_, tag_half_, tag_min_px_, tag_half_min_px_)
     : detect_tags_in(&tag_det_, s.bgr, merge_rois(tag_rois, tag_roi_margin_, 12, w, h), tag_gamma_, tag_half_, tag_min_px_,
                      tag_half_min_px_);
@@ -442,8 +581,18 @@ void PerceptionNode::update_tracks(const std::string & cam, Frame & s, const std
   std::vector<Det> dets;
   // 바닥 높이 = base_footprint 높이 (없으면 0) — 퍽 자세(높이)와 상자 윗면 찾기에 같이 씀
   const auto base_now = lookup_tf(base_frame_, now_stamp, true);
-  const double floor_z = base_now ? base_now->second[2] : 0.0;
+  const double floor_z = (base_now ? base_now->second[2] : 0.0) + (cam == "gripper_cam" ? gripper_floor_offset_ : 0.0);
   const bool side_view = view_from_side(rot);
+  std::optional<double> start_top;  // 가장 최근 추적한 시작 상자 윗면의 바닥 위 높이 (퍽 자세 받침)
+  {
+    std::lock_guard<std::mutex> lk(mutex_);
+    double newest = -1.0;
+    for (const auto & [id, tr] : tracks_)
+      if (tr.class_name == "start_box" && tr.t > newest && tr.p[2] - floor_z > 0.03) {
+        newest = tr.t;
+        start_top = tr.p[2] - floor_z;
+      }
+  }
   s.drops.clear();
   std::vector<Box> puck_boxes;  // 태그를 겹친 퍽 중 어디에 붙일지
   for (const auto & b : res) {
@@ -489,8 +638,12 @@ void PerceptionNode::update_tracks(const std::string & cam, Frame & s, const std
       posture = post;
       // 자세: 윗면 높이 먼저 (카메라 각도와 상관없음) · 모르면 옆에서 볼 때만 가로·세로 비율
       if (ok && zm > 0 && !clipped) {
-        const auto h_post = posture_from_height(depth_m, bx, zm, rot, trans, s.fx, s.fy, s.cx, s.cy, floor_z,
-                                                {0.0, location_box_size_[2]}).first;
+        auto h_post = posture_from_height(depth_m, bx, zm, rot, trans, s.fx, s.fy, s.cx, s.cy, floor_z,
+                                          {0.0, location_box_size_[2]}).first;
+        // 모르면 받침 = 같은 카메라가 잰 시작 상자 윗면으로 다시 — 11-14 실기: 상자 윗면을 0.085로 재는데 고정 0.07과 비교해
+        //   누운 퍽 윗면 0.115가 누움 0.10 · 섬 0.13 한가운데 → 자세 모름 → 누운 퍽을 못 찾음
+        if (h_post.empty() && start_top)
+          h_post = posture_from_height(depth_m, bx, zm, rot, trans, s.fx, s.fy, s.cx, s.cy, floor_z, {0.0, *start_top}).first;
         posture = !h_post.empty() ? h_post : (side_view ? posture : "");
       }
       const bool fine = std::max(bx.x1 - bx.x0, bx.y1 - bx.y0) >= fine_min_px_;  // 멀어 작으면 모양·자세를 픽셀로 못 가림
@@ -520,7 +673,9 @@ void PerceptionNode::update_tracks(const std::string & cam, Frame & s, const std
           if (z > 0.05f && z < 6.0f) valid.push_back(z);
         }
       if (valid.size() < 8) continue;
-      zm = np_median(valid);
+      // 신호등은 가늘어 박스 대부분이 뒤 벽 — 중간값이면 벽까지 거리가 섞여 프레임마다 0.4 m 넘게 튀고 트랙이 둘로 갈렸음
+      //   (11/13 젯슨: 신호등 2개 → signal_decoder가 꺼진 쪽을 따라가 사이클이 끊김) → 가까운 쪽 20 %(몸체 앞면)
+      zm = cls == "traffic_light" ? np_percentile(valid, 20) : np_median(valid);
       // 신호등: 이름에 상태가 있으면 그대로 · 없으면 램프 HSV로
       color = !model_color.empty() ? model_color : classify_color(cls, s.bgr(cv::Range(bx.y0, bx.y1), cv::Range(bx.x0, bx.x1)));
     }
@@ -557,13 +712,19 @@ void PerceptionNode::update_tracks(const std::string & cam, Frame & s, const std
   }
   // 상자 윗면 (depth) — 로봇 차체 둘레는 뺌
   std::optional<std::pair<cv::Vec2d, double>> avoid;
+  std::optional<Body> avoid_body;
   if (base_now) avoid = std::make_pair(cv::Vec2d(base_now->second[0], base_now->second[1]), body_radius_);
+  if (base_now && body_box_.size() == 3) {
+    Body b;
+    b.base = base_now->second; b.rot = base_now->first;
+    avoid_body = b;
+  }
   const double t_box = mono_s();
   std::vector<BoxTop> boxes;
   if (box_detect_) {
     const auto rois = box_rois(s.bgr, res);
     boxes = find_box_tops(depth_m, rot, trans, s.fx, s.fy, s.cx, s.cy, floor_z, box_h_, box_min_side_, box_max_side_, box_cell_, 4,
-                          3.0, avoid, rois, arm_all);
+                          3.0, avoid, rois, arm_all, avoid_body, body_box_);
     prof_add(cam, "상자", t_box);
   }
   std::vector<bool> cut(boxes.size(), false);
@@ -628,21 +789,23 @@ void PerceptionNode::update_tracks(const std::string & cam, Frame & s, const std
     }
     dets.push_back(d);
   }
-  const double now_s = stamp_s(now_stamp);
   dets = merge_overlap_dets(dets, det_merge_iou_);
   std::vector<int> tids;
   {
     std::lock_guard<std::mutex> lk(mutex_);
     tids = fuse(cam, now_stamp, dets);
-    const auto gone = merge_tracks(tracks_, track_merge_m_);
+    auto gone = merge_tracks(tracks_, track_merge_m_);
+    for (const auto & c : SINGLE_CLASSES)
+      for (const auto & [b, a] : merge_single(tracks_, c)) gone[b] = a;
     for (auto & t : tids)
       if (gone.count(t)) t = gone.at(t);
-    prune(now_s);
+    prune(now().seconds());
   }
   TrackedObjectArray out;
   out.header.stamp = now_stamp;
   out.header.frame_id = "map";
-  for (size_t i = 0; i < dets.size(); ++i) {
+  const auto map_tf = map_transform();  // 배열 전체가 같은 좌표 변환을 사용
+  for (size_t i = 0; map_tf && i < dets.size(); ++i) {
     const auto & d = dets[i];
     Track tr;  // 검출 하나를 트랙 모양으로 (발행 형식을 같게)
     tr.class_name = d.class_name;
@@ -653,9 +816,9 @@ void PerceptionNode::update_tracks(const std::string & cam, Frame & s, const std
     if (base_now) tr.face_dist = face_dist_now(tr, base_now->first, base_now->second, robot_front_x_);
     tr.last_seen_sec = now_stamp.sec; tr.last_seen_nsec = now_stamp.nanosec;
     tr.camera = cam;
-    out.objects.push_back(to_msg(tids[i], to_map(tr)));
+    out.objects.push_back(to_msg(tids[i], to_map(tr, *map_tf)));
   }
-  det_pubs_[cam]->publish(out);
+  if (map_tf || dets.empty()) det_pubs_[cam]->publish(out);
   if (debug_pubs_[cam]->get_subscription_count() > 0) publish_debug(cam, s, res, tags, dets, tids);  // 보는 쪽이 있을 때만
 }
 
@@ -761,7 +924,11 @@ void PerceptionNode::on_capture_dice(const std_msgs::msg::Int32 & msg) {
       if (tr.class_name == "location_box" || tr.class_name == "start_box") any_box.emplace_back(tid, tr);
     }
     for (const auto & [c, s] : frames_)
-      if (!s.bgr.empty() && s.fx > 0) frames[c] = s;
+      if (has_image_data(s) && s.fx > 0 && fresh_frame(s)) frames[c] = s;
+  }
+  for (auto it = frames.begin(); it != frames.end();) {
+    if (!materialize_frame(it->second)) it = frames.erase(it);
+    else ++it;
   }
   const int want = msg.data;
   if (want) {
@@ -873,28 +1040,31 @@ std::pair<std::optional<double>, double> PerceptionNode::puck_yaw(const Frame & 
                                                                   const std::string & posture, std::optional<double> tag_y,
                                                                   const std::string & face, const cv::Matx33d & rot,
                                                                   const cv::Vec3d & trans) {
-  // 누운 퍽: 퍽 색 화소의 바닥 위 점들의 긴 축 (주기 180°) · 서있는 원기둥: 방향 없음 · 그 밖: 태그 자세 (주기 90°)
+  // 누운 퍽: 윗면 점들의 긴 축 (주기 180°) · 서있는 원기둥: 방향 없음 · 그 밖: 태그 자세 (주기 90°)
   if (posture == "lying") {
-    std::vector<cv::Vec2d> pts;  // puck_points_xy — 퍽 색이고 깊이 있는 화소 (최대 400점)
+    // 누운 퍽: 윗면(60×30) 점들의 긴 축. 윗면 높이 = 퍽 색 화소 높이 p90, 그 높이 ±8 mm 안의 박스 안 화소는 색과 상관없이 (윗면 태그도)
+    //   11-15 실기: 퍽 색 화소마다 depth 점 → 반사 테이프 모서리의 번진 depth(높이가 윗면·상자 사이)가 시선 방향으로 퍼져
+    //   실제 축 약 75°를 −28°로 (직각으로 쥠) · 색 화소를 윗면 평면에 투영하면 옆면이 섞여 길이비 1.6 (< yaw_min_elong)
+    //   → 높이로 윗면만 남기면 번진 점은 빠짐 (같은 판 depth: 75°, 65×33 mm, 길이비 1.9)
+    std::vector<cv::Vec2d> pts;
     if (is_hue_name(color)) {
       cv::Mat hsv;
       cv::cvtColor(s.bgr(cv::Range(box.y0, box.y1), cv::Range(box.x0, box.x1)), hsv, cv::COLOR_BGR2HSV);
-      std::vector<cv::Point> idx;
-      for (int y = 0; y < hsv.rows; ++y)
-        for (int x = 0; x < hsv.cols; ++x) {
-          const auto & p = hsv.at<cv::Vec3b>(y, x);
+      std::vector<double> col_z;
+      std::vector<cv::Vec3d> all;
+      for (int y = 0; y < hsv.rows; y += 2)
+        for (int x = 0; x < hsv.cols; x += 2) {
           const float z = depth_m(box.y0 + y, box.x0 + x);
-          if (hue_dist(p[0], color) <= hue_tol_ && p[1] > 80 && p[2] > 50 && z > 0.05f && z < 3.0f) idx.emplace_back(x, y);
+          if (!(z > 0.05f && z < 3.0f)) continue;
+          const cv::Vec3d p = rot * cv::Vec3d((x + box.x0 - s.cx) * z / s.fx, (y + box.y0 - s.cy) * z / s.fy, z) + trans;
+          all.push_back(p);
+          const auto & h = hsv.at<cv::Vec3b>(y, x);
+          if (hue_dist(h[0], color) <= hue_tol_ && h[1] > 80 && h[2] > 50) col_z.push_back(p[2]);
         }
-      if (idx.size() > 400) {  // np.linspace(0, n−1, 400).astype(int)
-        std::vector<cv::Point> sub;
-        for (int k = 0; k < 400; ++k) sub.push_back(idx[static_cast<size_t>(k * (idx.size() - 1.0) / 399.0)]);
-        idx = sub;
-      }
-      for (const auto & q : idx) {
-        const float z = depth_m(box.y0 + q.y, box.x0 + q.x);
-        const cv::Vec3d p = rot * cv::Vec3d((q.x + box.x0 - s.cx) * z / s.fx, (q.y + box.y0 - s.cy) * z / s.fy, z) + trans;
-        pts.emplace_back(p[0], p[1]);
+      if (col_z.size() >= 8) {
+        const double zt = np_percentile(col_z, 90);
+        for (const auto & p : all)
+          if (std::abs(p[2] - zt) < 0.008) pts.emplace_back(p[0], p[1]);
       }
     }
     auto yaw = axis_yaw(pts, yaw_min_points_, yaw_min_elong_);
@@ -903,6 +1073,35 @@ std::pair<std::optional<double>, double> PerceptionNode::puck_yaw(const Frame & 
     return {std::nullopt, 0.0};
   }
   if (shape == "cyl" && posture == "standing") return {std::nullopt, 0.0};
+  if (!tag_y && shape == "box" && posture == "standing" && is_hue_name(color)) {
+    // 태그가 안 보이는 선 사각 퍽: depth 윗면(30×30) 사각형 방향 (90° 주기). 윗면 높이 = 퍽 색 화소 높이 p90, ±6 mm 안 화소
+    //   (11-15 실기: 반쯤 가린 퍽 · 막 세운 퍽이 태그 없이 yaw 0°로 → 모서리를 쥠)
+    cv::Mat hsv;
+    cv::cvtColor(s.bgr(cv::Range(box.y0, box.y1), cv::Range(box.x0, box.x1)), hsv, cv::COLOR_BGR2HSV);
+    std::vector<double> col_z;
+    std::vector<cv::Vec3d> all;
+    for (int y = 0; y < hsv.rows; y += 2)
+      for (int x = 0; x < hsv.cols; x += 2) {
+        const float z = depth_m(box.y0 + y, box.x0 + x);
+        if (!(z > 0.05f && z < 3.0f)) continue;
+        const cv::Vec3d p = rot * cv::Vec3d((x + box.x0 - s.cx) * z / s.fx, (y + box.y0 - s.cy) * z / s.fy, z) + trans;
+        all.push_back(p);
+        const auto & h = hsv.at<cv::Vec3b>(y, x);
+        if (hue_dist(h[0], color) <= hue_tol_ && h[1] > 80 && h[2] > 50) col_z.push_back(p[2]);
+      }
+    if (col_z.size() >= 8) {
+      const double zt = np_percentile(col_z, 90);
+      std::vector<cv::Point2f> top;  // [mm]
+      for (const auto & p : all)
+        if (std::abs(p[2] - zt) < 0.006) top.emplace_back(static_cast<float>(p[0] * 1000), static_cast<float>(p[1] * 1000));
+      if (static_cast<int>(top.size()) >= yaw_min_points_) {
+        const cv::RotatedRect r = cv::minAreaRect(top);
+        const double a = std::min(r.size.width, r.size.height), b = std::max(r.size.width, r.size.height);
+        if (a >= 20.0 && b <= 45.0 && b / a < 1.4)  // 윗면 30×30만 (옆 퍽 · 상자가 섞이면 안 믿음)
+          return {wrap_yaw(r.angle * PI / 180.0, PI / 2), PI / 2};
+      }
+    }
+  }
   if (!tag_y || (shape == "cyl" && face == "top")) return {std::nullopt, 0.0};  // 원기둥 윗면 태그는 방향이 없음
   return {wrap_yaw(*tag_y, PI / 2), PI / 2};
 }
@@ -921,7 +1120,7 @@ std::vector<int> PerceptionNode::fuse(const std::string & cam, const builtin_int
     for (const auto & [tid, tr] : tracks_) {
       if (!same_object(tr, dets[i])) continue;
       const cv::Vec3d e = dets[i].z - tr.p;
-      if (cv::norm(e) >= match_dist_) continue;
+      if (cv::norm(e) >= match_dist_ && !SINGLE_CLASSES.count(tr.class_name)) continue;  // 하나뿐인 물체는 거리 한도 없음
       const cv::Vec3d x = (pred[tid] + dets[i].R).solve(e, cv::DECOMP_LU);
       pairs.emplace_back(e.dot(x), i, tid);
     }
@@ -950,12 +1149,21 @@ std::vector<int> PerceptionNode::fuse(const std::string & cam, const builtin_int
     if (d.tag) tr.tag = d.tag;  // 태그 번호는 한 번 읽으면 남김
     if (!d.content.empty()) tr.content = d.content;
     if (!d.shape.empty()) tr.shape = d.shape;
-    if (d.yaw && tr.yaw && d.yaw_period < tr.yaw_period) {
-      // 장소 상자: 태그로 구한 방향(360°)을 윗면 사각형 방향(90°)으로 덮지 않음
+    if (d.yaw && tr.yaw && d.yaw_period < tr.yaw_period && tr.yaw_period > PI + 1e-6) {
+      // 장소 상자: 태그로 구한 방향(360°)을 윗면 사각형 방향(90°)으로 덮지 않음 — 360°만 지킴. 누운 퍽 축(180°)은 선 퍽 윗면(90°)이
+      //   덮어야 함 (11-15 실기: 세운 퍽이 누운 축 27°를 들고 있어 그 방향으로 쥐어 모서리를 묾 · 그리퍼 0.0080 m)
     } else if (d.yaw) {
-      tr.yaw = d.yaw; tr.yaw_period = d.yaw_period;  // 방향은 구한 관측의 최신값
-    } else if (!d.posture.empty() && d.posture != tr.yaw_posture) {
-      tr.yaw.reset();  // 자세가 바뀜 → 옛 방향은 뜻이 없음
+      // 방향은 구한 관측의 최신값 — 다만 지금 방향과 15° 넘게 다른 한 장은 다음 관측이 같은 값으로 확인할 때만 바꿈
+      //   (11-14 22:51 실기: 45° 퍽이 44° 사이 딱 한 장 5°(위치도 15 mm 빗나감) → 그 순간 찍은 기억으로 집어 면을 틀리게 쥠)
+      const auto near = [&](double a, double b) { return std::abs(wrap_yaw(a - b, d.yaw_period)) < 15.0 * PI / 180.0; };
+      if (!tr.yaw || tr.yaw_period != d.yaw_period || near(*d.yaw, *tr.yaw) || (tr.yaw_cand && near(*d.yaw, *tr.yaw_cand))) {
+        tr.yaw = d.yaw; tr.yaw_period = d.yaw_period;
+        tr.yaw_cand.reset();
+      } else {
+        tr.yaw_cand = d.yaw;
+      }
+    } else if (!d.posture.empty() && !tr.yaw_posture.empty() && d.posture != tr.yaw_posture) {
+      tr.yaw.reset(); tr.yaw_cand.reset();  // 자세가 바뀜 → 옛 방향은 뜻이 없음 · 자세를 처음 안 관측("" → standing)은 바뀐 게 아님 (11-14 r05: 45° 퍽 방향이 지워져 모서리를 쥠)
     }
     if (!d.posture.empty()) tr.yaw_posture = d.posture;
     if (tr.class_name == "start_box" || tr.class_name == "location_box") {  // 상자: 잘림 · 로봇 쪽 면은 최신 관측
@@ -1011,19 +1219,36 @@ std::optional<Body> PerceptionNode::robot_body(const builtin_interfaces::msg::Ti
   return b;
 }
 
-Track PerceptionNode::to_map(const Track & tr) {
-  // 추적 좌표(odom) → map 기준 사본 (지금의 map ← odom) · TF가 잠깐 없으면 마지막 값 · 한 번도 없었으면 그대로
+std::optional<PerceptionNode::Transform> PerceptionNode::map_transform() {
+  const double t_now = now().seconds();
   try {
     const auto t = tf_->lookupTransform("map", track_frame_, tf2::TimePointZero);
     const auto & tt = t.transform.translation;
     out_tf_ = std::make_pair(quat_to_rot(t.transform.rotation), cv::Vec3d(tt.x, tt.y, tt.z));
+    out_tf_at_ = t_now;
   } catch (const tf2::TransformException & e) {
-    if (!out_tf_) {
-      RCLCPP_WARN_THROTTLE(get_logger(), *get_clock(), 5000, "map ← %s TF 없음 — 그대로 발행: %s", track_frame_.c_str(), e.what());
-      return tr;
+    map_tf_available_ = false;
+    if (out_tf_ && (map_tf_cache_s_ <= 0 || (t_now >= out_tf_at_ && t_now - out_tf_at_ <= map_tf_cache_s_))) return out_tf_;
+    if (!out_tf_ && !map_tf_required_) {
+      RCLCPP_WARN_THROTTLE(get_logger(), *get_clock(), 5000, "map ← %s TF 없음 — %s 좌표 그대로 발행: %s", track_frame_.c_str(),
+                           track_frame_.c_str(), e.what());
+      return Transform(cv::Matx33d::eye(), cv::Vec3d(0, 0, 0));
     }
+    RCLCPP_WARN_THROTTLE(get_logger(), *get_clock(), 5000, "map ← %s TF 없음 — 좌표 발행 보류: %s", track_frame_.c_str(), e.what());
+    return std::nullopt;
   }
-  const auto & [rot, trans] = *out_tf_;
+  map_tf_available_ = true;
+  return out_tf_;
+}
+
+std::optional<Track> PerceptionNode::to_map(const Track & tr) {
+  const auto tf = map_transform();
+  if (!tf) return std::nullopt;
+  return to_map(tr, *tf);
+}
+
+Track PerceptionNode::to_map(const Track & tr, const Transform & tf) const {
+  const auto & [rot, trans] = tf;
   Track out = tr;
   out.p = rot * tr.p + trans;
   out.P = rot * tr.P * rot.t();
@@ -1100,6 +1325,18 @@ std::optional<std::pair<cv::Matx33d, cv::Vec3d>> PerceptionNode::lookup_tf(const
   } catch (const tf2::TransformException &) {
     try {
       t = tf_->lookupTransform(track_frame_, frame_id, tf2::TimePointZero);
+      // stamp 0 요청은 최신 조회, stamp 0 결과는 static TF. 영상은 시각 차에 상한을 둠.
+      const double skew = std::abs(stamp_s(t.header.stamp) - stamp_s(stamp));
+      if (max_tf_fallback_age_s_ > 0 && stamp_s(stamp) != 0.0 && stamp_s(t.header.stamp) != 0.0 && skew > max_tf_fallback_age_s_) {
+        {
+          std::lock_guard<std::mutex> lk(mutex_);
+          ++tf_stale_rejected_;
+          if (!quiet) last_tf_rejection_ = now().seconds();
+        }
+        if (!quiet) RCLCPP_WARN_THROTTLE(get_logger(), *get_clock(), 5000,
+          "영상 TF 시각 차 %.3fs > %.3fs — 관측 제외", skew, max_tf_fallback_age_s_);
+        return std::nullopt;
+      }
       if (!quiet) {
         std::lock_guard<std::mutex> lk(mutex_);
         ++tf_fallback_;
@@ -1121,13 +1358,33 @@ void PerceptionNode::on_publish() {
   std::vector<std::pair<int, Track>> items;
   {
     std::lock_guard<std::mutex> lk(mutex_);
+    check_clock();
+    prune(now().seconds());
     for (const auto & [tid, tr] : tracks_) items.emplace_back(tid, tr);
   }
+  if (items.empty()) {
+    // 좌표가 없는 빈 목록은 map TF 없이도 유효함: 기존 기동/모델 없음 heartbeat 유지.
+    pub_->publish(out);
+    std::lock_guard<std::mutex> lk(mutex_);
+    ++published_;
+    return;
+  }
+  const auto map_tf = map_transform();
+  if (!map_tf) {
+    // 기동 때는 coordinator의 첫 관측 대기를 유지. 운영 후에는 오래된 live 목록을 비움.
+    if (map_output_started_) {
+      pub_->publish(out);
+      std::lock_guard<std::mutex> lk(mutex_);
+      ++published_;
+    }
+    return;
+  }
+  map_output_started_ = true;
   const auto base = lookup_tf(base_frame_, builtin_interfaces::msg::Time(), true);  // 로봇 ~ 물체 바닥 위 거리
   for (auto & [tid, tr] : items) {
     if (base) tr.distance = std::hypot(tr.p[0] - base->second[0], tr.p[1] - base->second[1]);
     if (base) tr.face_dist = face_dist_now(tr, base->first, base->second, robot_front_x_);
-    out.objects.push_back(to_msg(tid, to_map(tr)));
+    out.objects.push_back(to_msg(tid, to_map(tr, *map_tf)));
   }
   pub_->publish(out);
   std::lock_guard<std::mutex> lk(mutex_);
@@ -1137,20 +1394,34 @@ void PerceptionNode::on_publish() {
 // ---------- 바코드 (2Hz) — 작업 지시 문자열 (P2-01 …) → 물체 barcode + /mission/qr
 void PerceptionNode::read_barcodes() {
   if (!barcode_) return;
+  if (barcode_reset_.exchange(false)) {
+    barcode_text_.clear();
+    qr_text_.clear();
+    RCLCPP_INFO(get_logger(), "미션 시작 — 바코드 다시 읽음");
+  }
   if (barcode_once_ && !barcode_text_.empty()) {
+    barcode_until_ = 0.0;  // 읽었으면 찾기 창 닫음
     // 이미 읽음 → 바코드 찾기는 더 안 하고 읽은 내용만 다시 냄 (mission_manager는 바코드 단계 시작 뒤에 받은 것만 씀)
     std_msgs::msg::String m;
     m.data = barcode_text_;
     qr_pub_->publish(m);
     return;
   }
+  if (!barcode_always_ && wall_s() > barcode_until_) return;  // 미션 바코드 단계 밖 — 안 찾음
   std::vector<std::pair<std::string, Frame>> frames;
   {
     std::lock_guard<std::mutex> lk(mutex_);
     for (const auto & [c, s] : frames_)
-      if (!s.bgr.empty() && !s.depth_mm.empty() && s.fx > 0) frames.emplace_back(c, s);
+      if (has_image_data(s) && s.fx > 0 && fresh_frame(s)) frames.emplace_back(c, s);
   }
+  for (auto it = frames.begin(); it != frames.end();) {
+    if (!materialize_frame(it->second)) it = frames.erase(it);
+    else ++it;
+  }
+  const bool grip = std::any_of(frames.begin(), frames.end(), [](const auto & f) { return f.first == "gripper_cam"; });
+  const bool pole_too = barcode_always_ || !grip || wall_s() < barcode_from_ + barcode_pole_s_;  // 손 카메라가 없으면 pole이 계속
   for (const auto & [cam, s] : frames) {
+    if (cam == "pole_front_cam" && !pole_too) continue;  // 관측 중 pole은 신호등 — 바코드(한 장 최대 180 ms)가 같은 스레드의 YOLO를 막지 않게
     const auto hits = barcode_->read(s.bgr);
     if (hits.empty()) continue;
     const auto tf = lookup_tf(s.frame_id, s.stamp, true);
@@ -1176,7 +1447,7 @@ void PerceptionNode::read_barcodes() {
                     barcode_once_ ? " — 이제 바코드는 안 읽음 (barcode_once)" : "");
       }
       qr_seen_ = now_w;
-      barcode_text_ = hit.text;
+      if (std::regex_match(hit.text, barcode_once_re_)) barcode_text_ = hit.text;  // 미등록 형식이면 계속 읽음
     }
     if (!dets.empty()) {
       std::lock_guard<std::mutex> lk(mutex_);
@@ -1197,6 +1468,27 @@ void PerceptionNode::on_diag() {
   {
     std::lock_guard<std::mutex> lk(mutex_);
     n = tracks_.size();
+    if (model_) {
+      const bool fresh = std::any_of(frames_.begin(), frames_.end(),
+        [this](const auto & f) { return has_image_data(f.second) && fresh_frame(f.second); });
+      if (!fresh) { s.level = DiagnosticStatus::WARN; s.message = "최신 카메라 영상 없음"; }
+      else if (!map_tf_available_) {
+        s.level = map_tf_required_ ? DiagnosticStatus::ERROR : DiagnosticStatus::WARN;
+        s.message = out_tf_ ? "map TF 끊김 — 마지막 변환 사용" : map_tf_required_ ? "map TF 없음 — 좌표 발행 보류" : "map TF 없음 — odom 좌표 그대로";
+      }
+      else if (now().seconds() - last_tf_rejection_ < 1.0) {
+        s.level = DiagnosticStatus::WARN; s.message = "영상 TF 시각 차 초과 — 관측 제외";
+      }
+    }
+    // 주행 중 인지 (navigation_throttle) — 쉼 = /skills/navigate 중이고 도착 navigation_full_near_m 밖 (YOLO·AprilTag·상자 건너뜀)
+    const bool resting = inference_schedule_.throttled(wall_s());
+    if (resting && s.level == DiagnosticStatus::OK) s.message = "주행 중 — 인지 쉼 (도착 직전 켬)";
+    KeyValue nav; nav.key = "주행 중 인지"; nav.value = !inference_schedule_.enabled() ? "끔(설정)" : resting ? "쉼" : "켬";
+    s.values.push_back(nav);
+    KeyValue rejected; rejected.key = "시각 차 초과 TF"; rejected.value = std::to_string(tf_stale_rejected_);
+    s.values.push_back(rejected);
+    rejected.key = "오래된 영상 제외"; rejected.value = std::to_string(stale_frames_);
+    s.values.push_back(rejected);
     for (const auto & [tid, tr] : tracks_) {  // 최근 2초 안에 두 카메라가 모두 본 트랙
       if (tr.seen.size() < 2) continue;
       double lo = 1e18, hi = -1e18;
@@ -1209,13 +1501,15 @@ void PerceptionNode::on_diag() {
   auto kv = [](const std::string & k, const std::string & v) { KeyValue x; x.key = k; x.value = v; return x; };
   std::string sy;
   for (const auto & [c, k] : synced) sy += (sy.empty() ? "" : " · ") + c + " " + std::to_string(k);
-  s.values = {kv("추적 물체", std::to_string(n)), kv("두 카메라 융합 물체", std::to_string(fused)),
+  const std::vector<KeyValue> main_values = {kv("추적 물체", std::to_string(n)), kv("두 카메라 융합 물체", std::to_string(fused)),
               kv("동기화 프레임", sy.empty() ? "0" : sy), kv("TF 최신 대체", std::to_string(fallback)),
               kv("자기 몸이라 버린 검출", std::to_string(dropped)), kv("발행한 /tracked_objects", std::to_string(pub)),
               kv("YOLO", model_ ? model_path_ + " · " + model_->provider() : "없음"),
-              kv("AprilTag (퍽 번호·장소)", std::string("OpenCV ") + CV_VERSION + (tag_det_.ok() ? " aruco 있음" : " aruco 없음")),
+              kv("AprilTag (퍽 번호·장소)", tag_cuda_ ? std::string("GPU cuAprilTags") + (tag_cuda_->error().empty() ? "" : " · 마지막 실패: " + tag_cuda_->error())
+                                           : std::string("OpenCV ") + CV_VERSION + (tag_det_.ok() ? " aruco 있음" : " aruco 없음")),
               kv("바코드 (장소 작업 지시)", barcode_ ? "zxing-cpp (1D)" + (barcode_text_.empty() ? std::string() : " · 읽음: " + barcode_text_)
                                                   : "없음 — zxing-cpp 없이 빌드됨 (libzxing-dev)")};
+  s.values.insert(s.values.end(), main_values.begin(), main_values.end());
   std::set<std::string> cams;
   for (const auto & [k, v] : prof) cams.insert(k.first);
   for (const auto & cam : cams) {  // 카메라마다: 단계 평균/최대 [ms] (지난 1초)

@@ -110,9 +110,9 @@ std::vector<V3> waypoints(const V3 & centre, double yaw, bool is_box, const Para
   const double ee_up = GRASP_Z - PUCK_H + GRIP_DEPTH / 2;  // 손끝이 손가락 접촉 중심 위 (손 아래 향함)
   const V3 u = {std::cos(yaw), std::sin(yaw), 0.0};
   const V3 pivot = plus(centre, u, -PUCK_L / 2);  // 가까운 끝 아래 모서리
-  close_yaw = yaw + M_PI / 2;                      // 닫는 축 = 퍽 축과 직각 (perp)
+  close_yaw = yaw + M_PI / 2 + (p.flip_roll ? M_PI : 0.0);  // 닫는 축 = 퍽 축과 직각 (perp) · flip_roll이면 같은 축에서 손목만 반 바퀴
   const auto on_arc = [&](double f, double h) {
-    V3 q = plus(pivot, u, a * std::cos(f) - b * std::sin(f));
+    V3 q = plus(pivot, u, a + p.arc_k * (a * std::cos(f) - b * std::sin(f) - a));  // 축 방향만 arc_k배 (타원)
     q[2] += a * std::sin(f) + b * std::cos(f) + ee_up + h;
     return q;
   };
@@ -141,9 +141,11 @@ std::vector<V3> waypoints(const V3 & centre, double yaw, bool is_box, const Para
     const double f_end = fs.back();
     for (double f : fs) pts.push_back(on_arc(f, p.tilt_over_m * f / f_end));  // 호 0 → 끝, 가며 tilt_over만큼 더 올림
     pts.push_back(pts.back());                                                // 멈춤
-    for (auto it = fs.rbegin(); it != fs.rend(); ++it)                        // 같은 호로 90°까지 되돌림
-      if (*it < f_end - 1e-9 && *it >= M_PI / 2 - 1e-9) pts.push_back(on_arc(*it, p.tilt_over_m));
-    pts.push_back(on_arc(M_PI / 2, p.set_dz_m));  // 눌러 놓기
+    if (p.arc_return) {
+      for (auto it = fs.rbegin(); it != fs.rend(); ++it)                      // 같은 호로 90°까지 되돌림
+        if (*it < f_end - 1e-9 && *it >= M_PI / 2 - 1e-9) pts.push_back(on_arc(*it, p.tilt_over_m));
+      pts.push_back(on_arc(M_PI / 2, p.set_dz_m));  // 눌러 놓기
+    }
   }
   V3 above = pts.front();
   above[2] += p.above_m;
@@ -183,6 +185,13 @@ bool plan_ik(const V3 & centre, double yaw, bool is_box, const Params & p, std::
     near = q;
   }
   return true;
+}
+
+double limit_slack(const std::vector<Q5> & qs) {
+  double m = 1e9;
+  for (const auto & q : qs)
+    for (int i = 0; i < 5; ++i) m = std::min({m, q[i] - LO[i], HI[i] - q[i]});
+  return m;
 }
 
 bool Table::ready(std::string & why) const {
@@ -232,6 +241,7 @@ int up_segments(const Params & p) {
 
 std::vector<std::pair<int, int>> arc_groups(const Params & p, int n_seg) {
   const int n = up_segments(p);
+  if (n + 1 >= n_seg) return {{0, n}, {n, n + 1}};  // 되돌림 없음 (arc_return false): 호 · 멈춤
   return {{0, n}, {n, n + 1}, {n + 1, n_seg}};
 }
 

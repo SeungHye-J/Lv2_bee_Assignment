@@ -4,66 +4,46 @@
 
 Isaac Sim이 beebot 하드웨어 역할을 하고, 실기와 같은 ROS 노드가 로봇을 움직인다. 명령은 모두 `lv2_module6`에서 실행한다.
 
-## 시연 목록
-
-| 시연 | 장면 + ROS | 임무 |
-|---|---|---|
-| [퍽 집어 적재](#퍽-집어-적재) | `pick_load_demo.sh` | `pick_load_play.py` |
-| [전체 미션](#전체-미션) | `isaac_sim.sh` | `mission_manager` |
-
-## 퍽 집어 적재
-
-바닥, 시작 상자 1개, 퍽 2개, 상자에서 30 cm 떨어진 로봇으로 시작한다. 기둥 카메라로 두 퍽을 찾아 상자 앞으로 접근한 뒤, 퍽마다 손 카메라로 분류(inspect) → 집기(pick) → 적재(load)를 한다.
-
-1. 장면과 ROS 노드를 띄운다.
-
-   ```bash
-   isaac/scripts/demo/pick_load_demo.sh
-   ```
-
-2. Isaac 창이 뜨면 새 터미널에서 임무를 시작한다. `ROS_DOMAIN_ID`는 1번 터미널 값을 물려받으니 같게 두고, `FASTDDS_DEFAULT_PROFILES_FILE`은 `ros2_ws/fastdds_local_only.xml`이어야 토픽이 보인다 (`isaac_sim.sh`가 쓰는 파일).
-
-   ```bash
-   source ros2_ws/install/setup.bash && python3 -u isaac/scripts/demo/pick_load_play.py --clear-basket
-   ```
-
-3. 다시 돌릴 때는 먼저 처음 자세로 되돌린 뒤 2번을 실행한다. ROS 노드도 재시작된다.
-
-   ```bash
-   isaac/scripts/standalone/reset.sh
-   ```
-
-`--clear-basket`은 적재함 장부를 비운다. 적재함이 실제로 비어 있을 때만 붙인다.
-
-### 인자
-
-```bash
-## demo 씬 생성
-### --puck:모양:색상:태그id
-isaac/scripts/demo/pick_load_demo.sh --puck red:cyl:stand:3 --puck green:box:lie:7 --seed 42
-
-## demo 실행
-### basket 비우기, 적재 슬롯
-python3 -u isaac/scripts/demo/pick_load_play.py --clear-basket --storage 0,1
-```
-
-| 인자 | 받는 곳 | 형식 |
-|---|---|---|
-| `--puck` | `pick_load_demo.sh` | `색:모양:상태:태그`, 두 번. `red\|green`, `box\|cyl`, `stand\|lie`, `0~11`. 뒤쪽·빈 항목은 seed로 정한다 (`green::lie`) |
-| `--seed` | `pick_load_demo.sh` | 비운 항목과 퍽 방향을 정한다. 자리는 두 곳 고정 |
-| `--headless` | `pick_load_demo.sh` | 창 없이 실행 |
-| `--no-play` | `pick_load_demo.sh` | Play를 자동으로 누르지 않음 |
-| `--no-policy` | `pick_load_demo.sh` | 그 skill 정책을 끄고 기준 동작만. `pick_standing_puck,load_slot` (이름 = `models/skills/` 폴더) · `all` |
-| `--no-twist-state` | `pick_load_demo.sh` | `/joint_states`에 관절 비틀림을 더하지 않음 (엔코더 각 그대로). 기본은 더함 = TF가 실제 팔 (`twist_state`) |
-| `--storage` | `pick_load_play.py` | 적재함 칸 2개를 싣는 순서대로. 없으면 `next` |
-| `--self-test` | `pick_load_play.py` | ROS 없이 계산만 확인 |
-
-누운 퍽은 `mission_manager`와 같이 `stand` 후 `stand_pick`으로 집는다.
-
 ## 전체 미션
 
-`scene_sim.usda` 장면과 전체 ROS 시스템(`isaac_system.launch.py`)을 띄운다.
+`scene_sim.usda` 장면과 전체 ROS 시스템(`isaac_system.launch.py`)을 띄운다. 인지를 켜고 AUTO로 띄워 바로 미션을 돌릴 수 있다. 신호·바코드를 넣어 한 판 돌리기 · RViz · Nav2 벽 지도는 [`isaac/mission/`](../mission/README.md).
+
+준비: `ros2_ws` 빌드(`install/`), `sudo apt install ros-lyrical-depth-image-proc`, Isaac Sim venv(기본 `~/pa-course/.venv-isaacsim`, 다르면 `ISAACSIM_VENV=<경로>`). 처음 띄울 때의 확인 항목과 문제 해결은 [standalone/README.md](../standalone/README.md).
 
 ```bash
-isaac/scripts/standalone/isaac_sim.sh
+isaac/standalone/isaac_sim.sh             # 기본 scene_sim
+isaac/standalone/isaac_sim.sh approach    # 다른 장면: usda/scene_<이름>.usda (sim · lab · approach · approach_matte)
+```
+
+- Isaac이 장면(기본 `scene_sim.usda`)을 열고 가상 OpenCR(`opencr_bridge.py`)를 띄운다. **Play를 눌러야** ROS가 뜬다. Play 전에 띄우면 `BeebotSystemHardware`가 시작 응답을 못 받아 컨트롤러가 전부 안 뜬다. 자동으로 Play하려면 `ISAAC_AUTOPLAY=1`.
+- 실행 중 **Stop은 누르지 않는다.** 시뮬 시계가 0으로 돌아가 TF·EKF·cuVSLAM·nvblox가 꼬인다. 잠깐 멈추려면 Pause, 처음부터 하려면 아래 `reset.sh`.
+- 관절 비틀림 모델(`opencr_bridge.py`)과 실기 보정(`rl_arm_correction` 앞먹임)은 늘 켜져 있다(`OPENCR_TWIST_SCALE=1`). 둘 다 끄려면 `OPENCR_TWIST_SCALE=0 isaac/standalone/isaac_sim.sh`.
+- Fast DDS는 `ros2_ws/fastdds_local_only.xml`(이 머신 안에서만, SHM)을 쓴다. 다른 터미널의 `ros2` 명령도 같은 파일(`FASTDDS_DEFAULT_PROFILES_FILE`)이어야 토픽이 보인다.
+- Isaac을 끄면 ROS 쪽도 같이 꺼진다.
+- 같은 `ROS_DOMAIN_ID`에 다른 노드가 떠 있으면 목록을 보여 주고 멈춘다(무시: `ALLOW_OTHER_NODES=1`).
+- 그 밖의 환경 변수: `ISAAC_HEADLESS=1`(창 없이), `BEE_SIM_NOISE=0`(센서 노이즈 끔 · 2 = 두 배), `BEE_MAP_FREEZE=1`(cuVSLAM map→odom 보정 끔), `BEE_BACK_CAM=false`(뒤 카메라 뺌), `BEE_NAV2_PARAMS=false`(costmap Nav2 기본값), `BEE_START_MINIMIZED=1`(로딩 중 창 최소화).
+
+Isaac을 끄지 않고 처음 자세로 되돌리고 ROS 노드를 재시작하려면:
+
+```bash
+isaac/standalone/runtime/reset.sh
+```
+
+## 팔만 시험 (SLAM · Nav2 없음)
+
+같은 Isaac 위에 `isaac_manipulator_demo.launch.py`(stand_test 스택 + Isaac 카메라 어댑터)를 올린다. 실기 시험과 같은 스크립트를 `use_sim:=true`로 돌린다. 자세한 흐름은 [실기 측정](calib.md)의 시험 반복 절을 본다.
+
+```bash
+isaac/standalone/isaac_sim.sh                    # 터미널 1: Play까지 누른다
+isaac/loops/manipulator-launcher.sh use_sim:=true # 터미널 2
+```
+
+`use_sim:=true`는 Isaac이 Play될 때까지(`/tmp/opencr`) 기다린 뒤, 떠 있는 ROS(전체 bringup 포함)를 정리하고 팔 스택(`isaac_manipulator_demo.launch.py`)을 띄운다. `ROS_DOMAIN_ID`는 떠 있는 `isaac_sim.sh`에서 가져오고 모든 노드가 `use_sim_time`이다. 정리 없이 띄우려면 `STAND_NO_CLEAN=1`(다른 ROS 작업이 같이 꺼지는 것을 피할 때).
+
+처음 자세로 되돌린 뒤(`reset.sh`)에는 전체 bringup이 다시 뜨므로 이 명령을 한 번 더 실행한다. 시험 루프(`pick_loop.py` 등)는 `--use_sim true`로 돌린다.
+
+`isaac_sim.sh` 한 번으로 팔 스택만 띄울 수도 있다:
+
+```bash
+ISAAC_ROS_LAUNCH=isaac_manipulator_demo.launch.py ISAAC_AUTOPLAY=1 isaac/standalone/isaac_sim.sh
 ```

@@ -2,8 +2,11 @@
 from __future__ import annotations
 
 import math
+import os
 import time
 from collections import deque
+
+from .fielddebug import SignalTracker, light_state
 
 # 3S LiPo (TurtleBot3 11.1V) 방전 곡선 — 대략값. 12.6V 만충 · 11.1V 공칭 · 10.5V 방전.
 #   아답터를 꽂으면 OpenCR 전원 입력값이라 배터리 잔량이 아니다 (표시에 '충전?'을 붙인다).
@@ -12,21 +15,27 @@ BATTERY_CURVE = ((12.6, 100), (12.3, 90), (12.0, 75), (11.8, 60),
 
 
 class Rate:
-    """토픽 수신 빈도 — 최근 2초 안의 수신 시각으로 Hz, 마지막 수신 뒤 경과."""
+    """토픽 수신 빈도 — 최근 2초 안의 수신 시각으로 Hz, 마지막 수신 뒤 경과.
+    seq(발행 순번, rclpy MessageInfo)가 오면 순번 차이로 센다 — 구독 depth 1로 건너뛴 메시지도 Hz에 들어간다."""
 
     def __init__(self):
-        self.times: deque[float] = deque(maxlen=200)
+        self.times: deque[tuple[float, int | None]] = deque(maxlen=200)
 
-    def tick(self):
-        self.times.append(time.monotonic())
+    def tick(self, seq: int | None = None):
+        self.times.append((time.monotonic(), seq or None))
 
     def age(self) -> float | None:
-        return time.monotonic() - self.times[-1] if self.times else None
+        return time.monotonic() - self.times[-1][0] if self.times else None
 
     def hz(self) -> float:
         now = time.monotonic()
-        recent = [t for t in self.times if now - t <= 2.0]
-        return (len(recent) - 1) / (recent[-1] - recent[0]) if len(recent) > 1 and recent[-1] > recent[0] else 0.0
+        recent = [ts for ts in self.times if now - ts[0] <= 2.0]
+        if len(recent) < 2 or recent[-1][0] <= recent[0][0]:
+            return 0.0
+        (t0, s0), (t1, s1) = recent[0], recent[-1]
+        # 발행자가 다시 떠 순번이 줄면 받은 개수로 (ponytail: 발행자 둘 이상이 섞인 토픽은 순번이 섞임 — 여기 토픽은 발행자 하나)
+        n = s1 - s0 if s0 is not None and s1 is not None and s1 > s0 else len(recent) - 1
+        return n / (t1 - t0)
 
 
 # map→odom이 TF 한 번 조회(0.5 s) 사이에 이만큼 넘게 바뀌면 'SLAM 점프'로 센다 — 실기에서 보며 조정
@@ -59,6 +68,8 @@ class StateStore:
         # 상시 상태바용 (없으면 0/빈 값으로 표시, 보드 미동작 아님)
         self.tracked_count = 0
         self.tracked: list = []                  # /tracked_objects 마지막 메시지의 물체들 (보이는 물체 화면 — 인지가 2 s 안 보이면 빼고 보냄)
+        self.tracked_frame = 'map'
+        self.tracked_at = 0.0
         self.task_status = ''
         self.rates: dict[str, Rate] = {}  # 상단 생존 표시 — 키는 bars/state/top_state_bar.py TOPIC_RATES
         self.rl_status: list[float] = []  # controller_server FollowPath RL/DWB 상태
@@ -69,9 +80,12 @@ class StateStore:
         self.mission = None                      # /mission/state (plan/MissionState)
         self.mission_since = 0.0                 # 지금 phase가 시작된 시각
         self.mission_phase = ''
+        self.phase_history: deque[tuple[float, str, str]] = deque(maxlen=12)  # TUI 연결 중 관측한 phase 전환
         self.task: tuple | None = None           # /task/status (plan_id, step, state, reason)
         self.task_since = 0.0                    # 지금 step이 시작된 시각
-        self.sub_goals: tuple[int, dict] = (0, {})  # /task/sub_goals (plan_id, {step: (skill, target)})
+        self.sub_goals: tuple[int, dict] = (0, {})  # /task/current_plan (legacy /task/sub_goals도 호환)
+        self.plan_steps: tuple[int, dict] = (0, {})  # 현재 계획의 각 skill 결과 — 모르면 UNKNOWN으로 표시
+        self.skill_feedback: tuple[int, int, str, str, float] | None = None  # plan, step, skill, stage, 받은 시각
         self.failures: deque = deque(maxlen=10)  # 최근 실패 (HH:MM:SS, monotonic, 출처, 이유) — 오래된 것부터
         self.basket = None                       # /coordinator/basket (plan/BasketState)
         self.signal = None                       # /mission/signal_status (perception/MissionSignal), 시각
@@ -81,9 +95,15 @@ class StateStore:
         self.map_odom: tuple | None = None       # TF map → odom (x, y, yaw) 지난 값
         self.slam_jumps = 0                      # map→odom이 SLAM_JUMP_M·SLAM_JUMP_RAD 넘게 바뀐 횟수
         self.slam_last_jump: tuple | None = None  # (크기 m, 각 deg, HH:MM:SS)
+        # 현장 디버그 (op/fielddebug.py)
+        self.signal_track = SignalTracker.from_config()      # /tracked_objects 신호등 → 지금 몇 번째 점멸
+        self.signal_answer = os.environ.get('BEE_SIGNAL_ANSWER', 'R G R R G R G G Y G Y G')   # 정답 신호 — 기본 = 현장 고정 문제 (신호등 보드 고정 세트) · 미션 메뉴 a로 바꿈
+        self.nav2_life: dict[str, str | None] = {}           # Nav2 노드 → 수명주기 상태 (None = 서비스 없음) · operator_tool이 5 s마다
+        self.barcode_cam: tuple[str, str] | None = None      # 바코드를 마지막으로 본 (카메라, 내용) — /tracked_objects class barcode
+        self.mission_cmd: tuple[str, float] | None = None    # 마지막 /cmd/mission (값, 받은 시각) — 바코드 찾기 창 계산
 
-    def tick(self, key: str):
-        self.rates.setdefault(key, Rate()).tick()
+    def tick(self, key: str, seq: int | None = None):
+        self.rates.setdefault(key, Rate()).tick(seq)
 
     @property
     def operation(self) -> str:
@@ -123,9 +143,9 @@ class StateStore:
         self.device_details[name] = text
         self._touch_state()
 
-    def on_joints(self, names, positions, velocities=None, efforts=None):
+    def on_joints(self, names, positions, velocities=None, efforts=None, seq=None):
         self._touch()
-        self.tick('joint_states')
+        self.tick('joint_states', seq)
         vels = [] if velocities is None else list(velocities)
         effs = [] if efforts is None else list(efforts)
         for i, name in enumerate(names):
@@ -189,12 +209,14 @@ class StateStore:
             self.diagnostics[status.name] = (level, status.message)
             self.diag_values[status.name] = [(kv.key, kv.value) for kv in status.values]
 
-    def on_objects(self, objects):
+    def on_objects(self, objects, frame_id: str = 'map'):
         self._touch()
         self.tick('tracked_objects')
         try:
             self.tracked_count = len(objects)
             self.tracked = list(objects)
+            self.tracked_frame = frame_id or 'map'
+            self.tracked_at = time.monotonic()
         except Exception:
             self.tracked_count = 0
             self.tracked = []
@@ -202,7 +224,27 @@ class StateStore:
         for o in objects or ():
             name = getattr(o, 'class_name', '') or '?'
             counts[name] = counts.get(name, 0) + 1
+            if name == 'barcode' and getattr(o, 'cameras', None):
+                content = next((kv.value for kv in getattr(o, 'details', ()) if kv.key == 'content'), '')
+                self.barcode_cam = (o.cameras[-1], content)
         self.class_counts = counts
+        self._feed_signal(objects or ())
+
+    def _feed_signal(self, objects):
+        """신호등 색 → SignalTracker (signal_decoder on_objects와 같은 고르기). 시각은 로봇 벽시계 —
+        last_seen이 그와 크게 다르면(시뮬 시각) 메시지 안 가장 최근 last_seen을 기준으로."""
+        lights = []
+        for o in objects:
+            if getattr(o, 'class_name', '') == 'traffic_light':
+                ls = getattr(o, 'last_seen', None)
+                lights.append((ls.sec + ls.nanosec * 1e-9 if ls is not None else time.time(), o.color))
+        now = time.time()
+        if lights and abs(now - max(t for t, _ in lights)) > 60:
+            now = max(t for t, _ in lights)
+        self.signal_track.feed(time.monotonic(), light_state(lights, now))
+
+    def on_mission_cmd(self, data: str):
+        self.mission_cmd = (data, time.monotonic())
 
     def _fail(self, source: str, reason: str):
         self.failures.append((time.strftime('%H:%M:%S'), time.monotonic(), source, reason))
@@ -221,16 +263,39 @@ class StateStore:
             skill = self.sub_goals[1].get(step, ('', ''))[0] if self.sub_goals[0] == plan_id else ''
             self._fail('skill', f'{skill or "step"}#{step}: {reason or "?"}')
         self.task = (plan_id, step, state, reason)
+        if self.plan_steps[0] == plan_id:
+            row = self.plan_steps[1].get(step)
+            if row is not None:
+                row['state'] = state
+                row['reason'] = reason or ''
+                row['since'] = self.task_since
+                row['updated'] = time.monotonic()
         skill = self.current_skill()
         self.task_status = (f'plan={plan_id} step={step}{" " + skill[0] if skill else ""} '
                             f'{TASK_STATES.get(state, state)} {reason}').strip()
 
     def on_sub_goals(self, msg):
         self._touch()
-        self.sub_goals = (msg.plan_id, {g.step: (g.skill, g.target) for g in msg.goals})
+        goals = {g.step: (g.skill, g.target) for g in msg.goals}
+        self.sub_goals = (msg.plan_id, goals)
+        if self.plan_steps[0] != msg.plan_id:
+            self.plan_steps = (msg.plan_id, {step: {'skill': skill, 'target': target, 'state': None,
+                                                    'reason': '', 'since': 0.0, 'updated': 0.0}
+                                          for step, (skill, target) in goals.items()})
+            if self.task is not None and self.task[0] == msg.plan_id and self.task[1] in self.plan_steps[1]:
+                row = self.plan_steps[1][self.task[1]]
+                row.update(state=self.task[2], reason=self.task[3] or '', since=self.task_since,
+                           updated=time.monotonic())
+
+    def on_skill_feedback(self, skill: str, stage: str):
+        self._touch()
+        task = self.task
+        current = self.current_skill()
+        if task is not None and task[2] == 0 and current and current[0] == skill:
+            self.skill_feedback = (task[0], task[1], skill, stage, time.monotonic())
 
     def current_skill(self) -> tuple[str, str] | None:
-        """지금 step의 (skill, target) — /task/sub_goals에서 찾음. 모르면 None."""
+        """지금 step의 (skill, target) — accepted current_plan에서 찾음. 모르면 None."""
         if self.task is None or self.sub_goals[0] != self.task[0]:
             return None
         return self.sub_goals[1].get(self.task[1])
@@ -240,6 +305,7 @@ class StateStore:
         if msg.phase != self.mission_phase:   # 단계는 문자열로 따로 둠 — 같은 msg 객체를 고쳐 다시 보내는 발행자(fake)도 있음
             self.mission_phase = msg.phase
             self.mission_since = time.monotonic()
+            self.phase_history.append((self.mission_since, msg.phase, msg.note or ''))
             if msg.phase == 'ERROR':
                 self._fail('미션', msg.error or msg.note or 'ERROR')
         self.mission = msg

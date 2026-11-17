@@ -85,7 +85,7 @@ Visualization Manager:
       Length: 0.3
       Line Style: Lines
       Line Width: 0.04
-      Name: cuVSLAM Path (/cuvslam/path, 최근 3분)
+      Name: cuVSLAM Path (/cuvslam/path, 최근 20초)
       Offset:
         X: 0
         Y: 0

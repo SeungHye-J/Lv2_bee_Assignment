@@ -2,16 +2,19 @@
 //   점 보기 (target 비움): goal.pose(map) 점 위 inspect_height_m에 손끝을 두고 inspect_wait_s 기다림 (camera_look_down).
 //     퍽 윗면 16mm AprilTag는 gripper_cam이 위에서 봐야 읽힘. values[0] = 손 방향 yaw (로봇 → 점) — 없으면 자유
 //   상자 보기 (target "box"): goal.pose = 상자 위 퍽 윗면 높이의 상자 가운데 (map), values[0] = 기대 퍽 수 (없으면 2)
-//     ⓪ 지금 자세에서 이미 기대 수만큼 보이고 태그도 다 읽었으면 끝 (팔 안 움직임)
+//     ⓪ 지금 자세에서 이미 기대 수만큼 보이고 태그·자세도 다 알면 끝 (팔 안 움직임)
 //     ① pose_look 관절 자세(arm.yaml — skill_pose "look"과 같은 값)로 → inspect_look_wait_s 기다림
-//     ② 상자 가운데에서 inspect_box_radius_m 안 퍽 트랙이 기대 수 이상이고 모두 태그를 읽었으면 끝
-//     ③ 아니면 본 퍽(모자라면 상자 가운데도)을 한 장에 담는 자세(look_plan)로 → 기다림 → 다시 셈. 모자라면 inspect_partial
+//     ② 상자 가운데에서 inspect_box_radius_m 안 퍽 트랙이 기대 수 이상이고 모두 태그·자세를 알면 끝
+//     ③ 아니면 본 퍽(모자라거나 태그·자세 모르는 퍽이 있으면 상자 가운데도)을 한 장에 담는 자세(look_plan)로 → 기다림 → 다시 셈. 모자라면 inspect_partial
 //     11/07 Isaac 전체 스택 퍽 40개: 1차 자세만 85 % · 다시 담으면 92 % (isaac/scripts/demo/inspect_test.py center)
 #include <cmath>
 #include <limits>
 #include <mutex>
 
+#include "nav2_msgs/action/back_up.hpp"
+#include "nav2_msgs/action/drive_on_heading.hpp"
 #include "perception/msg/tracked_object_array.hpp"
+#include "rclcpp_action/rclcpp_action.hpp"
 #include "rclcpp_components/register_node_macro.hpp"
 #include "skills/arm_io.hpp"
 #include "skills/look_plan.hpp"
@@ -29,6 +32,12 @@ public:
     look_q_ = declare_parameter<std::vector<double>>("pose_look", {0.0, -1.682497, 0.324631, 1.926843, 0.0});  // arm.yaml이 덮음
     look_wait_s_ = declare_parameter<double>("inspect_look_wait_s", 1.5);  // [s] 상자 보기 자세마다 (궤적 끝 · 처짐 보정 수렴 + 추론)
     box_radius_m_ = declare_parameter<double>("inspect_box_radius_m", 0.16);  // [m] 상자 가운데에서 이 안 퍽만 셈 (반 변 0.1025 + 여유)
+    // 퍽이 몸 가까이 있어 look 자세 · 위에서 보기로 다 못 보면 look 자세로 멈추지 않고 back_speed로 back_max_m까지 물러나며 봄 —
+    //   다 보이면 물러난 만큼 앞으로 되돌아옴 (그다음 pick이 원래 도킹 자리에서) · 0이면 끔 · 멈추지 않고 후진 (11-16 사용자) (11-16 시뮬: 하나 남은 퍽이 가까워 inspect_failed)
+    back_speed_ = declare_parameter<double>("inspect_back_speed", 0.03);  // [m/s] 멈추지 않고 이 속도로 물러나며 0.25 s마다 셈
+    back_max_m_ = declare_parameter<double>("inspect_back_max_m", 0.20);
+    backup_ = rclcpp_action::create_client<nav2_msgs::action::BackUp>(this, "/backup");
+    drive_ = rclcpp_action::create_client<nav2_msgs::action::DriveOnHeading>(this, "/drive_on_heading");
     objects_sub_ = create_subscription<perception::msg::TrackedObjectArray>("/tracked_objects", rclcpp::QoS(5).reliable(),
       [this](perception::msg::TrackedObjectArray::ConstSharedPtr m) { std::lock_guard<std::mutex> lk(mu_); objects_ = m; });
     serve("inspect", [this](const SkillGoal & g, Done done) {
@@ -51,8 +60,8 @@ private:
     at.pose.orientation = geometry_msgs::msg::Quaternion();
     const double yaw = g.values.empty() ? std::numeric_limits<double>::quiet_NaN() : g.values[0];
     stage("위에서 내려다보기");
-    const auto look = [this, done](bool ok) {
-      if (!ok) { done(false, "inspect_failed"); return; }
+    const auto look = [this, done, g](bool ok) {
+      if (!ok) { look_back(g.pose, 1, done); return; }  // 위에서 못 봄 (가까워 IK 밖 등) — look 자세로 물러나며
       stage("기다림");
       arm_.wait_step(wait_s_)([done](bool) { done(true, ""); });
     };
@@ -81,7 +90,7 @@ private:
     return true;
   }
 
-  // 상자 가운데 c에서 box_radius_m_ 안 퍽 트랙 → base_footprint 윗면 점들 (z = c.z) · 태그 읽은 수
+  // 상자 가운데 c에서 box_radius_m_ 안 퍽 트랙 → base_footprint 윗면 점들 (z = c.z) · 다 본 수 (태그와 자세를 앎)
   //   트랙 중복은 perception이 합침 (merge_tracks · merge_overlap_dets)
   bool box_pucks(const geometry_msgs::msg::PoseStamped & c, std::vector<look::V3> & tops, int & tagged) {
     tops.clear();
@@ -96,10 +105,92 @@ private:
       if (std::hypot(p.x - c.pose.position.x, p.y - c.pose.position.y) > box_radius_m_) continue;
       const tf2::Vector3 b = t * tf2::Vector3(p.x, p.y, c.pose.position.z);
       tops.push_back({b.x(), b.y(), b.z()});
-      for (const auto & kv : o.details)
-        if (kv.key == "tag" && !kv.value.empty()) { ++tagged; break; }
+      // 다 봤음 = 태그 + 자세(standing · lying)까지 — 자세를 모르면('?') coordinator가 세울지 집을지 못 정함 (11/09 Isaac)
+      bool tag = false, posture = false;
+      for (const auto & kv : o.details) {
+        if (kv.key == "tag" && !kv.value.empty()) tag = true;
+        if (kv.key == "posture" && !kv.value.empty()) posture = true;
+      }
+      if (tag && posture) ++tagged;
     }
     return true;
+  }
+
+  // look 자세로 멈추지 않고 천천히 뒤로 물러나며 c 둘레 퍽을 want개 · 태그까지 다 볼 때까지 (back_max까지) — 보이는 순간 멈추고
+  //   한 번 더 확인한 뒤 물러난 만큼 앞으로 되돌아옴
+  bool all_seen(const geometry_msgs::msg::PoseStamped & c, size_t want) {
+    std::vector<look::V3> tops;
+    int tagged = 0;
+    return box_pucks(c, tops, tagged) && tops.size() >= want && tagged >= static_cast<int>(tops.size());
+  }
+
+  void look_back(const geometry_msgs::msg::PoseStamped & c0, size_t want, Done done) {
+    auto c = c0;
+    if (c.header.frame_id.empty()) c.header.frame_id = "map";
+    if (back_speed_ <= 0.0 || back_max_m_ <= 0.0 || look_q_.size() != 5 || !backup_->action_server_is_ready()) {
+      done(false, "inspect_partial");
+      return;
+    }
+    stage("look 자세로 물러나며 보기");
+    arm_.move_joints(look_q_, [this, c, want, done](bool ok) {
+      if (!ok) { done(false, "inspect_failed"); return; }
+      arm_.wait_step(look_wait_s_)([this, c, want, done](bool) {
+        if (all_seen(c, want)) { done(true, ""); return; }
+        auto backed = std::make_shared<double>(0.0);
+        auto stopped = std::make_shared<bool>(false);  // 다 보여서 멈춤 (취소)
+        auto fin = std::make_shared<bool>(false);
+        // 끝 (다 보여 취소 · 끝까지 감 · 막힘): 멈춘 자리에서 한 번 더 보고 → 제자리로
+        auto finish = [this, c, want, done, backed, fin](const char * why) {
+          if (*fin) return;
+          *fin = true;
+          if (back_timer_) back_timer_->cancel();
+          arm_.wait_step(0.5)([this, c, want, done, backed, why](bool) {
+            const bool all = all_seen(c, want);
+            RCLCPP_INFO(get_logger(), "물러나 보기 %.2f m (%s) — %s", *backed, why, all ? "다 보임" : "그래도 모자람");
+            come_back(*backed, [done, all]() { done(all, all ? "" : "inspect_partial"); });
+          });
+        };
+        stage("뒤로 (보이면 멈춤)");
+        nav2_msgs::action::BackUp::Goal g;
+        g.target.x = back_max_m_;
+        g.speed = static_cast<float>(back_speed_);
+        g.time_allowance.sec = static_cast<int32_t>(back_max_m_ / back_speed_ + 4);
+        g.disable_collision_checks = false;  // 뒤는 카메라가 못 봄 — costmap 검사로 벽 앞에서 멈춤
+        rclcpp_action::Client<nav2_msgs::action::BackUp>::SendGoalOptions o;
+        o.feedback_callback = [backed](rclcpp_action::ClientGoalHandle<nav2_msgs::action::BackUp>::SharedPtr,
+                                       const std::shared_ptr<const nav2_msgs::action::BackUp::Feedback> f) {
+          *backed = std::abs(f->distance_traveled);
+        };
+        o.result_callback = [stopped, finish](const rclcpp_action::ClientGoalHandle<nav2_msgs::action::BackUp>::WrappedResult & r) {
+          finish(*stopped ? "보여서 멈춤" : r.code == rclcpp_action::ResultCode::SUCCEEDED ? "끝까지" : "막힘");
+        };
+        o.goal_response_callback = [this, c, want, stopped, finish](
+            const rclcpp_action::ClientGoalHandle<nav2_msgs::action::BackUp>::SharedPtr & h) {
+          if (!h) { finish("거절"); return; }
+          back_timer_ = create_wall_timer(std::chrono::milliseconds(250), [this, c, want, stopped, h]() {
+            if (*stopped || !all_seen(c, want)) return;
+            *stopped = true;
+            backup_->async_cancel_goal(h);  // result_callback(취소)이 finish
+          });
+        };
+        backup_->async_send_goal(g, o);
+      });
+    });
+  }
+
+  // 물러난 만큼 곧게 앞으로 (도킹 자리로) — 실패해도 then
+  void come_back(double d, std::function<void()> then) {
+    if (d <= 1e-3 || !drive_->action_server_is_ready()) { then(); return; }
+    stage("제자리로");
+    nav2_msgs::action::DriveOnHeading::Goal g;
+    g.target.x = d;
+    g.speed = 0.05f;
+    g.time_allowance.sec = static_cast<int32_t>(d / 0.05 + 4);
+    g.disable_collision_checks = true;  // 방금 지나온 길 — 앞의 상자는 costmap 팽창 안이라 검사하면 거절됨
+    rclcpp_action::Client<nav2_msgs::action::DriveOnHeading>::SendGoalOptions o;
+    o.result_callback = [then](const rclcpp_action::ClientGoalHandle<nav2_msgs::action::DriveOnHeading>::WrappedResult &) { then(); };
+    o.goal_response_callback = [then](const rclcpp_action::ClientGoalHandle<nav2_msgs::action::DriveOnHeading>::SharedPtr & h) { if (!h) then(); };
+    drive_->async_send_goal(g, o);
   }
 
   void look_box(const SkillGoal & g, Done done) {
@@ -124,9 +215,10 @@ private:
         int tagged = 0;
         if (!box_pucks(c, tops, tagged)) { done(false, "inspect_no_tf"); return; }
         if (tops.size() >= want && tagged >= static_cast<int>(tops.size())) { done(true, ""); return; }
-        // 다시 담기: 본 퍽 + (모자라면) 상자 가운데 — 못 본 퍽이 상자 위 어딘가에 있음
+        // 다시 담기: 본 퍽 + (모자라거나 태그 못 읽은 퍽이 있으면) 상자 가운데 — 못 본 퍽이 상자 위 어딘가에 있음
+        //   태그 못 읽은 퍽 위치는 옆면 depth라 19~39 mm 틀림 — 그 점만 담으면 퍽을 놓친 자세가 됨 (11/09 Isaac: 살짝 보인 퍽)
         tf2::Transform t;
-        if (tops.size() < want && to_base(c, t)) {
+        if ((tops.size() < want || tagged < static_cast<int>(tops.size())) && to_base(c, t)) {
           const tf2::Vector3 b = t * tf2::Vector3(c.pose.position.x, c.pose.position.y, c.pose.position.z);
           tops.push_back({b.x(), b.y(), b.z()});
         }
@@ -141,7 +233,8 @@ private:
             int tagged2 = 0;
             box_pucks(c, tops2, tagged2);
             const bool all = tops2.size() >= want && tagged2 >= static_cast<int>(tops2.size());
-            done(all, all ? "" : "inspect_partial");
+            if (all) { done(true, ""); return; }
+            look_back(c, want, done);  // 그래도 모자라면 look 자세로 물러나며
           });
         });
       });
@@ -149,7 +242,10 @@ private:
   }
 
   ArmIO arm_;
-  double height_m_, wait_s_, look_wait_s_, box_radius_m_;
+  double height_m_, wait_s_, look_wait_s_, box_radius_m_, back_speed_ = 0.03, back_max_m_ = 0.20;
+  rclcpp::TimerBase::SharedPtr back_timer_;
+  rclcpp_action::Client<nav2_msgs::action::BackUp>::SharedPtr backup_;
+  rclcpp_action::Client<nav2_msgs::action::DriveOnHeading>::SharedPtr drive_;
   std::vector<double> look_q_;
   std::mutex mu_;
   perception::msg::TrackedObjectArray::ConstSharedPtr objects_;

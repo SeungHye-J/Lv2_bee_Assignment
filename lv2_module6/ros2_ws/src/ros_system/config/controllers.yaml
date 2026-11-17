@@ -32,23 +32,41 @@ imu_sensor_broadcaster:
     sensor_name: imu
     frame_id: imu_link
     # 공분산 — 0이면 EKF가 IMU를 '완벽'으로 받아 바퀴와 섞는 비율이 의미 없음 (실측: 바퀴 odom은 실제와 같은데 EKF yaw만 4.5° 틀어짐).
-    # EKF는 yaw 각속도만 씀 (ekf.yaml imu0_config). 자이로 잡음 σ 0.01 rad/s → 분산 1e-4 (시뮬레이터 fake_opencr noise와 같음)
-    static_covariance_angular_velocity: [1.0e-4, 0.0, 0.0, 0.0, 1.0e-4, 0.0, 0.0, 0.0, 1.0e-4]
+    # EKF는 yaw 각속도만 씀 (ekf.yaml imu0_config). 예전 1e-4 (자이로 잡음 σ 0.01 rad/s — 시뮬레이터 fake_opencr noise와 같음)
+    # 11-16: 0.03 — 실제 잡음이 아니라 EKF 비중. IMU는 100 Hz라 cuVSLAM(15 Hz · 0.0025)보다 덜 믿게 하려면 크게 줘야 함
+    #   (재생 실측 yaw 회전속도 cuVSLAM 64% · IMU 36%. 1e-4면 IMU 거의 100%) — ekf.yaml 비중 설계 참고
+    static_covariance_angular_velocity: [0.03, 0.0, 0.0, 0.0, 0.03, 0.0, 0.0, 0.0, 0.03]
 
 diff_drive_controller:
   ros__parameters:
     left_wheel_names: [wheel_left_joint]
     right_wheel_names: [wheel_right_joint]
     wheel_separation: 0.287
-    wheel_radius: 0.033
+    # 바퀴 회전이 IMU·cuVSLAM(둘이 서로 맞음)보다 11~12% 크게 나옴 (실기 bag 11-15: 0.38/0.34 · 0.61/0.55 · 0.85/0.76 rad/s)
+    #   — 바퀴가 옆으로 끌리는 몫만큼 유효 간격이 넓음 (0.287 × 1.12 ≈ 0.32). odom 회전과 회전 명령의 바퀴 속도 둘 다에 들어감
+    #   (안 맞추면 바퀴 odom yaw가 100 s에 42° 틀어지고, 로봇이 명령보다 약 10% 덜 돎). 확인: 제자리 360° × 3을 IMU·테이프와 비교
+    # 11-16: 반지름 고침 → 회전식(r / (b·k))이 그대로이도록 배수도 같은 비율로 (1.12 × 0.03112/0.033 = 1.056).
+    #   위 11~12% 중 약 6%는 반지름 몫이었음. 2단계(360° × 3)로 이 값을 다시 확인
+    wheel_separation_multiplier: 1.056
+    # 11-16 실측 (isaac/loops/odom_calib.py, real_logs/odom_calib_1116_*.csv): 줄자 1.88 m 직진 2회에 odom 1.9936·1.9929 m
+    #   → 0.033 × 1.88 / 1.993 = 0.03112 (공칭 33 mm보다 6% 작음 — 타이어 눌림·적재 무게)
+    wheel_radius: 0.03112
+    # 11-16: 직진 1.88 m 3회 모두 IMU가 오른쪽으로 −4.36 · −1.85 · −2.29° (평균 −2.8°, 자이로 편향 0.0002°/s라 실제 휨)
+    #   → 왼쪽 바퀴가 0.287 × 0.0494 / 1.88 ≈ 0.75% 더 감 — 왼쪽 반지름을 크게 알려 줘야 odom·명령 둘 다 맞음
+    #   (끝점이 눈으로는 왼쪽 50 mm였던 건 출발 정렬 ~2.5° — IMU 부호는 왼쪽 회전으로 확인함)
+    #   단 바닥 기울기·요철일 수도 있어 보류 — 같은 줄 왕복(갔다가 180° 돌아 다시 직진)에서 두 구간 IMU yaw 부호가 같으면
+    #   바퀴 탓 → left_wheel_radius_multiplier ≈ 1.0075, 반대면 바닥 탓 → 1.0 그대로
+    # left_wheel_radius_multiplier: 1.0075
     base_frame_id: base_footprint
     odom_frame_id: odom
     enable_odom_tf: false       # odom→base_footprint TF는 EKF 하나만 (둘 다 내면 TF가 싸운다)
     # 공분산 [x, y, z, roll, pitch, yaw] — EKF는 twist의 vx·vy·vyaw를 씀. 0이면 '완벽'으로 받아 IMU와 섞는 비율이 의미 없음.
     #   vx·vy 0.001 (σ ≈ 0.03 m/s) · vyaw 0.01 (σ 0.1 rad/s — 바퀴 회전은 미끄러지면 틀어지므로 자이로(1e-4)를 더 믿게)
     #   쓰지 않는 축(z·roll·pitch)은 크게
+    # 11-16 twist: vx 0.1 (cuVSLAM이 주 · 바퀴는 받침 — 100 Hz라 크게 줘야 재생 실측 cuVSLAM 85%) · vy 1e-4 (옆으로 못 감 = 물리라 꽉)
+    #   vyaw 0.01 그대로 (EKF는 안 씀 — ekf_imu:=false일 때만). pose 공분산은 EKF가 안 씀 — ekf.yaml 비중 설계 참고
     pose_covariance_diagonal: [0.001, 0.001, 1000000.0, 1000000.0, 1000000.0, 0.01]
-    twist_covariance_diagonal: [0.001, 0.001, 1000000.0, 1000000.0, 1000000.0, 0.01]
+    twist_covariance_diagonal: [0.1, 0.0001, 1000000.0, 1000000.0, 1000000.0, 0.01]
     publish_rate: 50.0
 
 rl_arm_correction:
@@ -56,7 +74,10 @@ rl_arm_correction:
     joints: [joint1, joint2, joint3, joint4, joint5]
     enabled: true
     max_delta: 0.05
+    max_delta_step: 0.003  # [rad/정책 스텝] 학습 0.004 → 11-14 실기 0.003: 바닥 근처에서 퍽을 다시 잡을 때 쥐기 직전 Δ 급변(툭)을 부드럽게 (고정은 맞는 보정까지 막음)
+    settle_delta_step: 0.001  # [rad/정책 스텝] 닿는 구간(phase ≥ hand_jump_phase)만 — 11-15 실기 pick 끝 '툭': 이 구간에 Δ가 0.003 상한으로 0.2 s 몰려 j3·j4·j5 15~18 mrad · 0 = max_delta_step 그대로
     sag_enabled: true          # 처짐 보정 적분 (reference가 멈춰 있을 때만)
+    sag_joints: [false, true, true, true, true]  # 관절별 적분 — joint1 끔 (중력 처짐 없음, 5~6 Hz 공진 유지시킴 — 11/11 팔 교체 후 켜 봄: D 1500에서도 look 5.7 Hz osc 0.44° · 3 s 안 멈춤 → 다시 끔)
     gravity_enabled: true      # 중력 앞먹임 (관절 비틀림 d = c·τ를 미리 뺌 — 엔코더는 목표에서 d만큼 벗어나 보임)
     sag_gain: 4.2              # [1/s] 학습 env와 같은 감쇠율 (85 ms마다 오차 30 %)
     sag_max: 0.2               # [rad]
