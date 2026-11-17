@@ -139,31 +139,83 @@
 ## 전승혜
 - 담당: 인지 (`perception`)
 - GitHub: `SeungHye-J` — 아래 후보는 `gh pr list --author SeungHye-J --state merged`와 `gh search prs --reviewed-by SeungHye-J`로 자동으로 뽑은 것이라 **본인이 확인하고 고쳐 쓴다.**
-- 구현 — 후보 PR (병합 12건 중 **본인 커밋이 있는 11건**):
+- 구현 — 병합 13건 중 **본인 커밋이 있는 12건**. 인지 담당 PR과 인지 밖 PR을 나눴다. ([#63](https://github.com/visualkhh/Lv2_bee_Assignment/pull/63)은 `gh pr list --author` 자동 목록에 빠져 있어 `gh pr view 63`으로 확인해 넣음 — 작성자·커밋 모두 SeungHye-J, develop에 병합)
+
+  **① 인지 (perception) — 8건**
 
   | PR | 병합일 | 무엇을 (제목 기준) | 규모 |
   | --- | --- | --- | --- |
-  | [#9](https://github.com/visualkhh/Lv2_bee_Assignment/pull/9) | 10-22 | 퍽 기억·퍽 판단 및 새 YOLO 모델 추가 | +522/−29 |
-  | [#45](https://github.com/visualkhh/Lv2_bee_Assignment/pull/45) | 11-02 | 신호등 12회 점멸 해석, 퍽 인지 개선, 상자 인지 | +825/−178 |
+  | [#9](https://github.com/visualkhh/Lv2_bee_Assignment/pull/9) | 10-22 | 퍽 기억·퍽 판단 및 새 YOLO 모델 추가 (모델 v1) | +522/−29 |
+  | [#45](https://github.com/visualkhh/Lv2_bee_Assignment/pull/45) | 11-02 | 신호등 12회 점멸 해석, 퍽 인지 개선, 상자 인지 (모델 v3) | +825/−178 |
+  | [#63](https://github.com/visualkhh/Lv2_bee_Assignment/pull/63) | 11-04 | 모델 v4 · 기억은 통합으로 · 상자 인지 보강 · 주사위 사진 | +474/−20 |
   | [#95](https://github.com/visualkhh/Lv2_bee_Assignment/pull/95) | 11-09 | 퍽 자세를 윗면 높이로 판단 | +81/−12 |
   | [#144](https://github.com/visualkhh/Lv2_bee_Assignment/pull/144) | 11-11 | 퍽 모델 v5 · 긴 기억 삭제 · API.md 수정 | +1294/−581 |
-  | [#152](https://github.com/visualkhh/Lv2_bee_Assignment/pull/152) | 11-12 | MoveIt octomap 센서 연결 (pole_front_cam 점구름) | +78/−7 |
   | [#164](https://github.com/visualkhh/Lv2_bee_Assignment/pull/164) | 11-12 | 인지 노드 C++ 전환 · 젯슨 CPU 줄이기 | +3212/−142 |
   | [#180](https://github.com/visualkhh/Lv2_bee_Assignment/pull/180) | 11-12 | 퍽+상자 YOLO v6 · 상자 도킹 정보 · 인지 CPU 옵션 | +305/−31 |
-  | [#192](https://github.com/visualkhh/Lv2_bee_Assignment/pull/192) | 11-13 | pick_far 먼 퍽 집기 | +757/−13 |
-  | [#243](https://github.com/visualkhh/Lv2_bee_Assignment/pull/243) | 11-15 | 충돌 감시 구역 — 문틈에서 감속·정지 줄임 | +12/−6 |
   | [#246](https://github.com/visualkhh/Lv2_bee_Assignment/pull/246) | 11-15 | YOLO TensorRT FP16 추론 추가 | +243/−23 |
-  | [#284](https://github.com/visualkhh/Lv2_bee_Assignment/pull/284) | 11-16 | 조사 때 상자 윗면 안의 태그 퍽을 모두 등록 | +38/−11 |
+
+  **② 인지 밖 (조작·주행·계획) — 4건**
+
+  | PR | 병합일 | 무엇을 (제목 기준) | 규모 |
+  | --- | --- | --- | --- |
+  | [#152](https://github.com/visualkhh/Lv2_bee_Assignment/pull/152) | 11-12 | MoveIt octomap 센서 연결 (pole_front_cam 점구름) | +78/−7 |
+  | [#192](https://github.com/visualkhh/Lv2_bee_Assignment/pull/192) | 11-13 | pick_far 먼 퍽 집기 (강화학습 정책 + skill + coordinator 연결) | +757/−13 |
+  | [#243](https://github.com/visualkhh/Lv2_bee_Assignment/pull/243) | 11-15 | 충돌 감시 구역 — 문틈에서 감속·정지 줄임 | +12/−6 |
+  | [#284](https://github.com/visualkhh/Lv2_bee_Assignment/pull/284) | 11-16 | 조사 때 상자 윗면 안의 태그 퍽을 모두 등록 (plan) | +38/−11 |
 
   - **제외**: [#193](https://github.com/visualkhh/Lv2_bee_Assignment/pull/193) — 커밋 28개 중 본인 1개(JuneKunst 14 · claude 13). PR만 열고 병합한 건이라 구현 목록에서 제외.
-  - 변경 효과 (PR 본문 수치 · 시험 ID는 [results/test-results.csv](../results/test-results.csv)):
+  - 변경 효과 (**PR 본문 수치** — 원본 로그는 저장소에 없음 · 시험 ID는 [results/test-results.csv](../results/test-results.csv)):
     - [#95](https://github.com/visualkhh/Lv2_bee_Assignment/pull/95): 퍽 자세 판단 — Isaac 22% → 100%, 실물 그리퍼캠 88% → 99% (T-06)
     - [#144](https://github.com/visualkhh/Lv2_bee_Assignment/pull/144): 퍽 모델 v5 — 퍽 727/767 (94.8%), 신호등 상태 579/582 (T-04)
     - [#164](https://github.com/visualkhh/Lv2_bee_Assignment/pull/164): 인지 노드 C++ 전환 — CPU 약 108% → 약 23% (T-19)
     - [#246](https://github.com/visualkhh/Lv2_bee_Assignment/pull/246): YOLO TensorRT FP16 — 추론 21/24 ms → 7/7 ms (T-21)
     - [#192](https://github.com/visualkhh/Lv2_bee_Assignment/pull/192): 먼 퍽 집기 — 45° 기울여 진입하면 도달 영역 448 → 533 cm² (분석은 [#139](https://github.com/visualkhh/Lv2_bee_Assignment/pull/139)·송정혁, skill 구현·실기 확인은 #192) (T-24)
-    - 위 표의 나머지 행은 후보로 남긴 것이며 효과 수치를 확인하지 않았다.
-- 검증: 시험 기록은 [results/test-results.csv](../results/test-results.csv)의 T-04 · T-06 · T-19 · T-21 · T-24. 실물·모의 구분과 근거(PR 본문, 원본 로그 없음)는 그 표에 있다. 본인이 직접 수행한 시험인지는 본인 확인이 필요하다.
+    - 위 표의 나머지 행은 효과 수치를 확인하지 않았다.
+  - **YOLO 모델 작업** (인지 ①의 #9·#45·#63·#144·#180에 들어간 모델 v1~v6 — 자세한 근거는 [perception/YOLO_HISTORY.md](../../lv2_module6/ros2_ws/src/perception/YOLO_HISTORY.md)):
+    - 라벨링: 직접 라벨·확인 사진 약 900장·네모 약 3,000개(11-02까지 누적) + 이후 노트북 녹화 272장·상자 234장. 실물 경광등은 손 라벨 676장. 로봇 촬영분은 8,000장에서 흐림·중복을 걸러 1,256장만 썼다.
+    - 검수 5번: 신호등 라벨 48개 고침(10-29) · 시험 라벨 15곳(11-02) · 자동 상자 라벨 9건(11-09) · 학습 라벨 재검수 후 4번 재학습(11-10) · 상자 라벨 오류 11/15 확인 후 83장 재검수(11-12).
+    - 시험: 실물 90장 → 옛 실물 퍽 184·193개 → 11-02부터 **로봇 카메라 시험 세트**(최종 193장·퍽 767개) · 상자 39개 · 경광등 약 590장. 가중치가 남은 학습 57개, 채점 파일 98개.
+    - 저장소 모델 6개(v1~v6). 비교 뒤 버린 모델: 합성만 쓴 bee_v1~v3(실물 0.0003~0.68), 합성 추가·큰 모델 v5·v6_s(개선 없음), 퍽+상자 v11~13(작은 퍽 손해), 팀원 데이터 v14(실물 하락), 누운 퍽 OBB 3개(각도 19~22/126) 등.
+    - 이 수치는 모두 노트북에서 녹화·사진으로 채점한 값이다(개인 작업 폴더 기록, 저장소 밖).
+  - **먼 퍽 집기 pick_far** ([#192](https://github.com/visualkhh/Lv2_bee_Assignment/pull/192), 조작 쪽 — 팀 분석 #139를 이어받아 강화학습·skill 구현):
+    - Isaac Lab 재학습(11-11): 6144대 × 3000번(5시간 6분), 16384판 평가에서 학습 전 기본 동작 **78.0%** → 예전 정책 98.2% → 새 정책 **99.2%** (퍽 좌우 ±8 cm, 박스 거리 1~5 cm 구간별 99.0~99.7%).
+    - 속도·박스 각도 추가 학습(11-12~13): 팔 속도 50~70%, 박스 각도 ±45° → `pick_far_by_6600` 속도 0.5에서 99.3%, 0.7에서 97.9% (4096판).
+    - ROS skill(`PickFarSkill`, 경유점 계산 `far_plan`)과 coordinator 연결(`pick_unreachable`이면 `pick_far`): Isaac + ROS 스택 화면 시험 4판 중 4판 성공.
+    - 한계: 실기(11-13)에서 정책을 켜면 손이 퍽 윗부분으로 가서 놓쳐 **정책은 꺼 둠**(`models/skills/pick_standing_far/meta.yaml` `use: false`). 시뮬 수치는 모의 결과다.
+- 검증:
+  - **직접 수행한 실물 시험 (2026-11-17)** — T-36 ~ T-44, 증빙 [results/perception_1117/](../results/perception_1117/README.md) (사진 22장 · 원본 rosbag·영상은 본인 노트북 보관, 319 MB). T-36~T-43은 수동 모드 인지 시험이며, T-44는 자동 모드에서 바코드 단계의 미등록 입력 거부·오류 종료·정지 명령까지 확인했다.
+    - 신호 12회: 사이클 31번 중 30번 정답(G G Y Y R G R Y R R Y Y = R4·Y5·G3), 1번 한 칸 오독 (T-36)
+    - 바코드 P2-01~04: 4/4 (모두 손 카메라 · 폴 카메라로는 못 읽음) (T-37)
+    - 퍽 ID 0~11: 12/12 · 색·모양도 맞음 · 누운 퍽 3개 맞음 (T-38)
+    - 장소 ID: 태그 12·13·14 3/3 판독 (14는 손 카메라 look) (T-39) · 거리별 인지 0.62~1.37 m (T-40) · 사람 최대 2.75 m · 장애물 최대 1.61 m (T-41)
+    - 인지 노드 CPU 평균 42.6 % (코어 1개 = 100 %) · YOLO 5 ms · `/tracked_objects` 9.4 Hz (T-43)
+  - **미등록 바코드 오류 처리(T-44)**: 미등록 문자열 거부 → `unknown_barcode` 오류 종료 → 종료 후 속도 명령 0 확인. [실물 성공 증빙](../results/perception_1117/unknown_barcode/README.md). 정상 P2-09 판독과 자동 모드의 미등록 문자열 처리 회차는 구분했다.
+  - 그 전 기록 T-04 · T-06 · T-19 · T-21 · T-24는 **PR 본문 수치**(원본 로그 없음)다.
+  - 한계·개선 (11-17 실물에서 확인):
+    - 상자 **먼 끝에 서 있는 퍽을 누움으로 오판** 2/2 (T-42) — 손 카메라가 비스듬히 볼 때. 개선: 먼 끝 퍽은 윗면 높이 기준을 다시 보거나 더 붙어서 위에서 다시 보기.
+    - **장소 상자는 태그를 놓친 프레임에서 `start_box`로 돌아감** (`perception_node.cpp` 741~790 · 1194~1205). 미션은 장소를 도면 좌표로 정해 동작 영향은 작음. 개선: 읽은 장소 태그를 그 상자 자리에 기억.
+    - 멀리서(1.1~1.5 m) 상자 하나를 2~3개로 잡음 · 초록 테이프를 퍽으로 오검출.
+    - 신호 확정이 한 사이클(`confirm: 1`)이라 오독 사이클이 그대로 확정 신호로 한 번 나감.
+    - 시험 범위: 신호 순서 1가지 · 장소 태그 3/3 판독 · 거리는 줄자 기준 없이 이동량과만 비교.
+  - **인지 담당 미션 진행 현황** (발제 「요구사항 평가표」 No.3·4·7과 기본/결합 채점 항목에서 인지가 맡는 부분 · 작성 기준 develop `48cc6b2b`, 2026-11-17)
+
+    | 요구사항 | 내 담당 범위 | 구현 | 검증 | 코드 근거 | 시험 근거 | 남은 작업 |
+    | --- | --- | --- | --- | --- | --- | --- |
+    | 퍽 ID 0~11 판독 | 손 카메라 AprilTag → `details.tag` | 구현 | **검증 완료 (실물 12/12)** | `perception_node.cpp` 태그 · `tag_cuda` | T-38 | — |
+    | 장소 ID 12~14 판독 | 장소 태그 → `location_box` | 구현 | **검증 완료 (실물 3/3)** | `perception_node.cpp` 741~790 | T-39 | 태그 놓침 시 `start_box` 전환은 별도 상자 인지 항목 |
+    | 바코드 4종 | zxing-cpp → `/mission/qr` | 구현 | **검증 완료 (실물 4/4)** | `read_barcodes` | T-37 | 폴 카메라로는 못 읽음 |
+    | 신호 순서·횟수 (12회) | `signal_decoder` → `/mission/signal` | 구현 | 부분 (31 사이클 중 1 오독 · 순서 1가지) | `signal_decoder.cpp` | T-36 | 다른 순서 시험, 확정 기준(`confirm`) 검토 |
+    | 신호 종료 판단 (3초 소등) | 사이클 경계 | 구현 | **검증 완료 (실물 31 사이클 경계)** | `signal_decoder.cpp` | T-36 | — |
+    | 신호 오류 상태 출력 (누락·불명) | `signal_status` error(count·range·unknown) | 구현 | 미확인 (가림 시험에서 오류 출력 미확인) | `signal_decoder.cpp` `check()` | 없음 | 신호 가림·누락 시험 |
+    | 퍽 색·모양 | YOLO 클래스 → `color`·`shape` | 구현 | **검증 완료 (실물 12/12)** | `perception_core.cpp` | T-38 | — |
+    | 퍽 자세 (서 있음/누움) | 윗면 높이 → `posture` | 구현 | 실패/개선 필요 (가까운 쪽 맞음 · 먼 끝 2/2 오판) | `posture_from_height` | T-38 · T-42 | 먼 끝 오판 |
+    | 위치·거리 (깊이 → map) | `pose` · `details.distance` | 구현 | 부분 (이동량과 맞음, 줄자 기준 없음) | `perception_node.cpp` 1385 | T-40 | 줄자 비교 |
+    | 상자 인지 (시작·장소, 면 거리) | `start_box`·`location_box` · `face_dist_m` | 구현 | 실패/개선 필요 (멀리서 중복 · 장소 상자 전환) | `perception_node.cpp` 741~790 | T-39 · T-40 | 중복·전환 |
+    | 사람·장애물 | YOLO `person`·`obstacle` | 구현 | **검증 완료 (실물 검출)** | 모델 v6 클래스 | T-41 | 정답 개수 기준 시험 |
+    | ROS 발행·연동 | `/tracked_objects` 10 Hz · `/mission/qr` · `/mission/signal` | 구현 | **검증 완료 (rosbag 9.4 Hz, 세 토픽 기록)** | `on_publish` | T-43 · rosbag | — |
+
+    - 인지 담당 필수 요구사항: 총 **12**개 / 코드로 구현 확인 **12**개 / 증빙 기반 검증 완료 **7**개 / 부분·실패·재시험 필요 **4**개 / 미확인 **1**개
+    - **검증 완료율 = 7 ÷ 12 × 100 ≈ 58.3 %**, 구현 완료율 = 12 ÷ 12 × 100 = 100 % (모든 검증은 실물 · 동일 가중치의 **임시 관리 지표**이며 공식 경기 점수가 아님 · 요구사항 나눔은 본인 기준)
 - 리뷰 — 후보 PR (타인 PR, 모두 병합됨): [#47](https://github.com/visualkhh/Lv2_bee_Assignment/pull/47)
   - 리뷰 내용: `gh pr view 47` 기준 APPROVED(2026-11-02). `vlm_task_planner.cpp` 4곳의 `location` → `location_box`를 확인했고 PR 브랜치에 옛 이름이 남은 곳이 없음, API.md의 상자 설명이 `perception_node.py` 동작과 같음, MissionSignal 옛 칸은 perception이 실제로 채우지 않음을 남겼다. 그리고 `location_box`의 `yaw_period`는 늘 360이 아니라 태그 법선을 못 구하면 90이라고 정정을 요청했다. 현재 API.md의 TrackedObject 설명에 "360 태그 법선 · 못 구했으면 90 윗면 변"이 들어 있다.
 - 설명: 신호 읽기부터 복귀까지: 출발 구역에서 바코드(Code 128)와 신호등 12회 점멸을 읽어 색 순서와 R·Y·G 횟수를 기억하고(`BARCODE`·`READ`), 바코드가 오름/내림차순을 정한다. 시작 박스 6곳을 돌며 퍽을 확인해 적재함에 싣고 12개를 L1~L3 그룹에 한 번에 할당한다(`SURVEY`). 퍽마다 장소 앞으로 가서 주사위 칸에 놓고(`BUILD`), 새 관측으로 칸별 판정과 중복·누락을 재검증한 뒤(`VERIFY`) 출발 구역으로 돌아와 3초 정지한다(`RETURN`). 관측 오류·복귀 실패는 `ERROR`로 안전 정지하고 퍽 단위 실패는 기록하고 이어간다 ([architecture.md](architecture.md), `mission_solver.cpp`의 `next_phase` 기준). 맡지 않은 계획 쪽: [#47](https://github.com/visualkhh/Lv2_bee_Assignment/pull/47)에서 plan 쪽 `vlm_task_planner.cpp`의 물체 이름 사용처를 직접 열어 확인했고, 인지 결과가 SURVEY에서 퍽·상자 후보로 쓰이는 흐름을 이해해 상자 윗면 태그 퍽 등록([#284](https://github.com/visualkhh/Lv2_bee_Assignment/pull/284))을 수정했다.

@@ -1,0 +1,218 @@
+header:
+  stamp:
+    sec: 1794906256
+    nanosec: 589058622
+  frame_id: ''
+phase: ERROR
+note: 'interrupted: manual_mode'
+barcode: ''
+count_r: 0
+count_y: 0
+count_g: 0
+order: ''
+tray: []
+placed: 0
+total: 0
+results: []
+error: 'interrupted: manual_mode'
+---
+header:
+  stamp:
+    sec: 1794906498
+    nanosec: 859727164
+  frame_id: ''
+phase: ERROR
+note: '단계만 실행: BARCODE'
+barcode: ''
+count_r: 0
+count_y: 0
+count_g: 0
+order: ''
+tray: []
+placed: 0
+total: 0
+results: []
+error: ''
+---
+header:
+  stamp:
+    sec: 1794906498
+    nanosec: 859936831
+  frame_id: ''
+phase: BARCODE
+note: 관측 — 바코드(pole 3초 뒤 손 카메라 gaze) + 신호(pole_front_cam) 같이
+barcode: ''
+count_r: 0
+count_y: 0
+count_g: 0
+order: ''
+tray: []
+placed: 0
+total: 0
+results: []
+error: ''
+---
+header:
+  stamp:
+    sec: 1794906501
+    nanosec: 860551309
+  frame_id: ''
+phase: BARCODE
+note: 팔 접은 채 신호 먼저 확정 (팔 과부하 방지) — 확정 뒤 gaze로 바코드
+barcode: ''
+count_r: 0
+count_y: 0
+count_g: 0
+order: ''
+tray: []
+placed: 0
+total: 0
+results: []
+error: ''
+---
+header:
+  stamp:
+    sec: 1794906516
+    nanosec: 610596367
+  frame_id: ''
+phase: BARCODE
+note: 팔 gaze 자세로 뻗으며 손 카메라로 바코드
+barcode: ''
+count_r: 0
+count_y: 0
+count_g: 0
+order: ''
+tray: []
+placed: 0
+total: 0
+results: []
+error: ''
+---
+header:
+  stamp:
+    sec: 1794906520
+    nanosec: 110880549
+  frame_id: ''
+phase: BARCODE
+note: 바코드가 안 읽혀 다가감 (지금까지 0.06 m · 손 카메라 정면 0.19 m · 팔 �
+barcode: ''
+count_r: 0
+count_y: 0
+count_g: 0
+order: ''
+tray: []
+placed: 0
+total: 0
+results: []
+error: ''
+---
+header:
+  stamp:
+    sec: 1794906532
+    nanosec: 360483407
+  frame_id: ''
+phase: BARCODE
+note: 바코드가 안 읽혀 다가감 (지금까지 0.12 m · 손 카메라 정면 0.47 m · 팔 �
+barcode: ''
+count_r: 0
+count_y: 0
+count_g: 0
+order: ''
+tray: []
+placed: 0
+total: 0
+results: []
+error: ''
+---
+header:
+  stamp:
+    sec: 1794906548
+    nanosec: 861558211
+  frame_id: ''
+phase: BARCODE
+note: 바코드가 안 읽혀 다가감 (지금까지 0.18 m · 손 카메라 정면 0.44 m · 팔 �
+barcode: ''
+count_r: 0
+count_y: 0
+count_g: 0
+order: ''
+tray: []
+placed: 0
+total: 0
+results: []
+error: ''
+---
+header:
+  stamp:
+    sec: 1794906570
+    nanosec: 360639806
+  frame_id: ''
+phase: BARCODE
+note: 바코드가 안 읽혀 다가감 (지금까지 0.24 m · 손 카메라 정면 0.40 m · 팔 �
+barcode: ''
+count_r: 0
+count_y: 0
+count_g: 0
+order: ''
+tray: []
+placed: 0
+total: 0
+results: []
+error: ''
+---
+header:
+  stamp:
+    sec: 1794906578
+    nanosec: 110793434
+  frame_id: ''
+phase: BARCODE
+note: 바코드가 안 읽혀 다가감 (지금까지 0.30 m · 손 카메라 정면 0.67 m · 팔 �
+barcode: ''
+count_r: 0
+count_y: 0
+count_g: 0
+order: ''
+tray: []
+placed: 0
+total: 0
+results: []
+error: ''
+---
+header:
+  stamp:
+    sec: 1794906615
+    nanosec: 853326694
+  frame_id: ''
+phase: BARCODE
+note: 바코드가 안 읽혀 다가감 (지금까지 0.30 m · 손 카메라 정면 0.67 m · 팔 �
+barcode: ''
+count_r: 0
+count_y: 0
+count_g: 0
+order: ''
+tray: []
+placed: 0
+total: 0
+results:
+- 'BARCODE: unknown_barcode:"2#09'
+error: ''
+---
+header:
+  stamp:
+    sec: 1794906615
+    nanosec: 853953459
+  frame_id: ''
+phase: ERROR
+note: unknown_barcode:"2#09
+barcode: ''
+count_r: 0
+count_y: 0
+count_g: 0
+order: ''
+tray: []
+placed: 0
+total: 0
+results:
+- 'BARCODE: unknown_barcode:"2#09'
+error: unknown_barcode:"2#09
+---

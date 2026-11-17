@@ -1,0 +1,48 @@
+[
+ {
+  "t": 1794905376.5,
+  "objects": [
+   {
+    "id": 244,
+    "class": "location_box",
+    "conf": 1.0,
+    "x": -0.419,
+    "y": -5.377,
+    "z": 0.083,
+    "color": "",
+    "cams": [
+     "gripper_cam"
+    ],
+    "details": {
+     "distance": "0.261",
+     "tag": "14",
+     "face_dist_m": "0.088",
+     "cut": "true"
+    }
+   }
+  ]
+ },
+ {
+  "t": 1794905377.5,
+  "objects": [
+   {
+    "id": 244,
+    "class": "location_box",
+    "conf": 1.0,
+    "x": -0.419,
+    "y": -5.377,
+    "z": 0.083,
+    "color": "",
+    "cams": [
+     "gripper_cam"
+    ],
+    "details": {
+     "distance": "0.261",
+     "tag": "14",
+     "face_dist_m": "0.088",
+     "cut": "true"
+    }
+   }
+  ]
+ }
+]

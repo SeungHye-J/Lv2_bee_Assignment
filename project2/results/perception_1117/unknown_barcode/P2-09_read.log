@@ -1,0 +1,5 @@
+[component_container_mt-20] [INFO] [1794906256.581040683] [mission_manager]: [BARCODE] 팔 gaze 자세로 뻗으며 손 카메라로 바코드
+[component_container_mt-20] [WARN] [1794906256.581970225] [coordinator]: 계획 1163004 거부: MANUAL 모드
+[component_container_mt-20] [ERROR] [1794906256.588872189] [mission_manager]: 미션 오류: interrupted: manual_mode — 안전 정지
+[component_container_mt-20] [INFO] [1794906256.589029566] [mission_manager]: [ERROR] interrupted: manual_mode
+[perception_node-16] [INFO] [1794906261.747977559] [perception]: 바코드 (gripper_cam): P2-09 — 이제 바코드는 안 읽음 (barcode_once)

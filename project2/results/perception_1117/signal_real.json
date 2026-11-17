@@ -1,0 +1,346 @@
+{
+ "source": "실물 (Jetson · pole_front_cam · develop 인지 노드 signal_decoder)",
+ "observed_at": "2026-11-17",
+ "answer": {
+  "sequence": [
+   "G",
+   "G",
+   "Y",
+   "Y",
+   "R",
+   "G",
+   "R",
+   "Y",
+   "R",
+   "R",
+   "Y",
+   "Y"
+  ],
+  "R": 4,
+  "Y": 5,
+  "G": 3
+ },
+ "end_detected": "사이클마다 마지막 3초 꺼짐을 보고 확정 (header.stamp = 사이클 끝 시각)",
+ "cycles_total": 31,
+ "cycles_match": 30,
+ "first_confirm": {
+  "cycle_end": "16:06:35",
+  "raw": "G G Y Y R G R Y R R Y Y",
+  "R": 4,
+  "Y": 5,
+  "G": 3,
+  "ok": true,
+  "error": ""
+ },
+ "published": [
+  {
+   "cycle_end": "16:06:35",
+   "raw": "G G Y Y R G R Y R R Y Y",
+   "R": 4,
+   "Y": 5,
+   "G": 3,
+   "ok": true,
+   "error": ""
+  },
+  {
+   "cycle_end": "16:26:32",
+   "raw": "G G Y Y R R R Y R R Y Y",
+   "R": 5,
+   "Y": 5,
+   "G": 2,
+   "ok": true,
+   "error": ""
+  },
+  {
+   "cycle_end": "16:27:01",
+   "raw": "G G Y Y R G R Y R R Y Y",
+   "R": 4,
+   "Y": 5,
+   "G": 3,
+   "ok": true,
+   "error": ""
+  }
+ ],
+ "cycles": [
+  {
+   "cycle_end": "16:11:41",
+   "raw": "G G Y Y R G R Y R R Y Y",
+   "R": 4,
+   "Y": 5,
+   "G": 3,
+   "ok": true,
+   "error": ""
+  },
+  {
+   "cycle_end": "16:12:07",
+   "raw": "G G Y Y R G R Y R R Y Y",
+   "R": 4,
+   "Y": 5,
+   "G": 3,
+   "ok": true,
+   "error": ""
+  },
+  {
+   "cycle_end": "16:12:34",
+   "raw": "G G Y Y R G R Y R R Y Y",
+   "R": 4,
+   "Y": 5,
+   "G": 3,
+   "ok": true,
+   "error": ""
+  },
+  {
+   "cycle_end": "16:13:03",
+   "raw": "G G Y Y R G R Y R R Y Y",
+   "R": 4,
+   "Y": 5,
+   "G": 3,
+   "ok": true,
+   "error": ""
+  },
+  {
+   "cycle_end": "16:13:29",
+   "raw": "G G Y Y R G R Y R R Y Y",
+   "R": 4,
+   "Y": 5,
+   "G": 3,
+   "ok": true,
+   "error": ""
+  },
+  {
+   "cycle_end": "16:13:55",
+   "raw": "G G Y Y R G R Y R R Y Y",
+   "R": 4,
+   "Y": 5,
+   "G": 3,
+   "ok": true,
+   "error": ""
+  },
+  {
+   "cycle_end": "16:14:21",
+   "raw": "G G Y Y R G R Y R R Y Y",
+   "R": 4,
+   "Y": 5,
+   "G": 3,
+   "ok": true,
+   "error": ""
+  },
+  {
+   "cycle_end": "16:14:48",
+   "raw": "G G Y Y R G R Y R R Y Y",
+   "R": 4,
+   "Y": 5,
+   "G": 3,
+   "ok": true,
+   "error": ""
+  },
+  {
+   "cycle_end": "16:15:13",
+   "raw": "G G Y Y R G R Y R R Y Y",
+   "R": 4,
+   "Y": 5,
+   "G": 3,
+   "ok": true,
+   "error": ""
+  },
+  {
+   "cycle_end": "16:15:59",
+   "raw": "G G Y Y R G R Y R R Y Y",
+   "R": 4,
+   "Y": 5,
+   "G": 3,
+   "ok": true,
+   "error": ""
+  },
+  {
+   "cycle_end": "16:16:25",
+   "raw": "G G Y Y R G R Y R R Y Y",
+   "R": 4,
+   "Y": 5,
+   "G": 3,
+   "ok": true,
+   "error": ""
+  },
+  {
+   "cycle_end": "16:16:51",
+   "raw": "G G Y Y R G R Y R R Y Y",
+   "R": 4,
+   "Y": 5,
+   "G": 3,
+   "ok": true,
+   "error": ""
+  },
+  {
+   "cycle_end": "16:17:18",
+   "raw": "G G Y Y R G R Y R R Y Y",
+   "R": 4,
+   "Y": 5,
+   "G": 3,
+   "ok": true,
+   "error": ""
+  },
+  {
+   "cycle_end": "16:18:07",
+   "raw": "G G Y Y R G R Y R R Y Y",
+   "R": 4,
+   "Y": 5,
+   "G": 3,
+   "ok": true,
+   "error": ""
+  },
+  {
+   "cycle_end": "16:18:34",
+   "raw": "G G Y Y R G R Y R R Y Y",
+   "R": 4,
+   "Y": 5,
+   "G": 3,
+   "ok": true,
+   "error": ""
+  },
+  {
+   "cycle_end": "16:18:59",
+   "raw": "G G Y Y R G R Y R R Y Y",
+   "R": 4,
+   "Y": 5,
+   "G": 3,
+   "ok": true,
+   "error": ""
+  },
+  {
+   "cycle_end": "16:19:26",
+   "raw": "G G Y Y R G R Y R R Y Y",
+   "R": 4,
+   "Y": 5,
+   "G": 3,
+   "ok": true,
+   "error": ""
+  },
+  {
+   "cycle_end": "16:19:51",
+   "raw": "G G Y Y R G R Y R R Y Y",
+   "R": 4,
+   "Y": 5,
+   "G": 3,
+   "ok": true,
+   "error": ""
+  },
+  {
+   "cycle_end": "16:20:25",
+   "raw": "G G Y Y R G R Y R R Y Y",
+   "R": 4,
+   "Y": 5,
+   "G": 3,
+   "ok": true,
+   "error": ""
+  },
+  {
+   "cycle_end": "16:20:52",
+   "raw": "G G Y Y R G R Y R R Y Y",
+   "R": 4,
+   "Y": 5,
+   "G": 3,
+   "ok": true,
+   "error": ""
+  },
+  {
+   "cycle_end": "16:21:18",
+   "raw": "G G Y Y R G R Y R R Y Y",
+   "R": 4,
+   "Y": 5,
+   "G": 3,
+   "ok": true,
+   "error": ""
+  },
+  {
+   "cycle_end": "16:26:05",
+   "raw": "G G Y Y R G R Y R R Y Y",
+   "R": 4,
+   "Y": 5,
+   "G": 3,
+   "ok": true,
+   "error": ""
+  },
+  {
+   "cycle_end": "16:26:32",
+   "raw": "G G Y Y R R R Y R R Y Y",
+   "R": 5,
+   "Y": 5,
+   "G": 2,
+   "ok": true,
+   "error": ""
+  },
+  {
+   "cycle_end": "16:27:01",
+   "raw": "G G Y Y R G R Y R R Y Y",
+   "R": 4,
+   "Y": 5,
+   "G": 3,
+   "ok": true,
+   "error": ""
+  },
+  {
+   "cycle_end": "16:27:27",
+   "raw": "G G Y Y R G R Y R R Y Y",
+   "R": 4,
+   "Y": 5,
+   "G": 3,
+   "ok": true,
+   "error": ""
+  },
+  {
+   "cycle_end": "16:28:27",
+   "raw": "G G Y Y R G R Y R R Y Y",
+   "R": 4,
+   "Y": 5,
+   "G": 3,
+   "ok": true,
+   "error": ""
+  },
+  {
+   "cycle_end": "16:28:53",
+   "raw": "G G Y Y R G R Y R R Y Y",
+   "R": 4,
+   "Y": 5,
+   "G": 3,
+   "ok": true,
+   "error": ""
+  },
+  {
+   "cycle_end": "16:29:31",
+   "raw": "G G Y Y R G R Y R R Y Y",
+   "R": 4,
+   "Y": 5,
+   "G": 3,
+   "ok": true,
+   "error": ""
+  },
+  {
+   "cycle_end": "16:29:57",
+   "raw": "G G Y Y R G R Y R R Y Y",
+   "R": 4,
+   "Y": 5,
+   "G": 3,
+   "ok": true,
+   "error": ""
+  },
+  {
+   "cycle_end": "16:30:23",
+   "raw": "G G Y Y R G R Y R R Y Y",
+   "R": 4,
+   "Y": 5,
+   "G": 3,
+   "ok": true,
+   "error": ""
+  },
+  {
+   "cycle_end": "16:30:49",
+   "raw": "G G Y Y R G R Y R R Y Y",
+   "R": 4,
+   "Y": 5,
+   "G": 3,
+   "ok": true,
+   "error": ""
+  }
+ ],
+ "note": "rosbag ~/Downloads/evidence_1117/bag_obs (저장소 밖)에서 뽑음 · 정답은 시험자가 신호등에 설정한 순서"
+}
