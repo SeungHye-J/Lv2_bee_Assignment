@@ -1,27 +1,10 @@
 {
-  "_note": "TODO: 작성 필요 — 계산 기록 없음: 공식 경기 로그(~/.ros/mission/<시작 시각>/)가 남아 있지 않아 값을 채우지 않았다. 로그가 생기면 그 파일을 그대로 복사해 이 파일을 교체한다.",
-  "locations": {
-    "L1": {
-      "group": null,
-      "puck_ids": [],
-      "condition": null,
-      "positions": []
-    },
-    "L2": {
-      "group": null,
-      "puck_ids": [],
-      "condition": null,
-      "positions": []
-    },
-    "L3": {
-      "group": null,
-      "puck_ids": [],
-      "condition": null,
-      "positions": []
-    }
-  },
-  "check": {
-    "duplicates": null,
-    "missing": null
-  }
+  "_source": "모의 결과로 대체 (공식 경기 기록 아님) — 2026-11-17 도커 testbed 모의 실행 sim-run/의 파일 그대로. 신호·바코드는 run_mission.py가 주입한 값. 퍽 0개라 할당 실패(puck_count)",
+  "source": "모의",
+  "pucks": [],
+  "ok": false,
+  "why": "puck_count",
+  "partial": false,
+  "empty": [],
+  "locations": {}
 }
