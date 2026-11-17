@@ -1,7 +1,7 @@
 # 경기 문제 (문제 패키지 ①)
 
 > 원문은 발제문 `mission.pdf`(경기 문제지)이고, 이 문서는 [documents/mission/README.md](../../documents/mission/README.md)의 정리본을 문제 패키지 형식으로 옮긴 것이다. 다르면 **PDF가 맞다.**
-> 우리 팀이 실제로 푼 **확정 문제**(실제 퍽 12개 · 신호 · 바코드)는 아래 "우리 팀의 확정 문제"와 [signals.json](signals.json) · [placement.csv](placement.csv)에 둔다.
+> 우리 팀이 시험한 **모의 문제**(퍽 12개 · 신호 · 바코드)는 아래 "우리 팀의 모의 문제"와 [signals.json](signals.json) · [placement.csv](placement.csv)에 둔다.
 
 ## 한 줄 요약
 출발 구역에서 신호등 **12회 점멸**의 색 순서와 R·Y·G 횟수를 기억하고, **바코드**로 세 횟수의 정렬 방향을 정해 L1·L2·L3에 그 횟수만큼 퍽으로 **주사위 눈**을 만든 뒤, 카메라로 다시 확인하고 **출발 구역으로 복귀**한다.
@@ -111,7 +111,7 @@
 ```
 공개 예제는 **빨강 6 · 초록 6** 설명용이고 경기 고정 비율이 아니다.
 
-## 우리 팀의 확정 문제
+## 우리 팀의 모의 문제
 - **공식 문제가 아니라 우리 팀 모의 문제다.** 2026-11-17 모의 실행([results/sim-run](../results/sim-run/README.md))에서 쓴 입력과 같다.
   1. 신호 `R G Y R G R Y G R G Y R` → R 5 · Y 3 · G 4 ([signals.json](signals.json))
   2. 바코드 `P2-01` (오름차순)

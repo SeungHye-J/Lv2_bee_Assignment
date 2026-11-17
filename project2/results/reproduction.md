@@ -8,3 +8,4 @@
 | 2026-11-16 | GitHub Actions (push) | 도커 testbed, test-all | `3ffaf682` (develop) | 성공 — [run 43826093974](https://github.com/visualkhh/Lv2_bee_Assignment/actions/runs/43826093974) |
 | 2026-11-16 | GitHub Actions (push) | 도커 testbed, test-all | `c9002372` (develop) | **실패** — [run 43836774523](https://github.com/visualkhh/Lv2_bee_Assignment/actions/runs/43836774523). `plan.yaml` 163행 키 누락으로 faker 단계 ParserError |
 | 2026-11-17 | GitHub Actions (push · 예약 실행) | 도커 testbed, test-all | `0119580b` (main) | **실패** — [run 43991586191](https://github.com/visualkhh/Lv2_bee_Assignment/actions/runs/43991586191) · [43994595225](https://github.com/visualkhh/Lv2_bee_Assignment/actions/runs/43994595225). 같은 원인 |
+| 2026-11-17 | GitHub Actions (main push) | `testbed (aarch64-noble)` | `6bd1cab8` (main) | 성공 — [run 44012882551](https://github.com/visualkhh/Lv2_bee_Assignment/actions/runs/44012882551) |
