@@ -1,0 +1,20 @@
+test,equipment,day,files,attempts,success,rate_pct,load_attempts,load_ok,seated_checked,seated_yes,cycle_median_s,hand_cam_median_mm,top_fail
+pick_loop,real,11-08,72,214,125,58.4,87,85,12,4,20.7,4.4,grasp_empty 38; grasp_failed_all 36; no_grasp 11
+pick_loop,real,11-10,20,41,35,85.4,35,35,18,17,12.4,4.1,pick_unreachable 5; grasp_empty 1
+pick_loop,real,11-12,24,29,24,82.8,21,21,10,5,19.4,2.4,grasp_failed_all 4; timeout 1
+pick_loop,real,11-13,79,180,129,71.7,129,128,49,13,12.9,2.8,grasp_failed_all 50; grasp_empty 1
+pick_loop,real,11-14,53,154,145,94.2,145,145,72,46,13.6,3.7,grasp_failed_all 7; grasp_empty 2
+stand_loop,real,11-08,,38,18,47.4,,,,,,,stood_no 17; stand_ik_unreachable 1; stand_no_yaw 1
+stand_loop,real,11-10,,14,4,28.6,,,,,,,stood_no 9; stand_ik_unreachable 1
+stand_loop,real,11-15,,26,4,15.4,,,,,,,stood_no 22
+stand_auto,real,11-10,,153,19,12.4,,,,,,,cam_lying 86; stand_ik_unreachable 23; cam_gone 13
+stand_auto,real,11-15,,12,5,41.7,,,,,,,cam_lying 5; cam_gone 2
+place_loop,real,11-08,,44,44,100.0,,,,,,,
+place_loop,real,11-10,,11,9,81.8,,,,,,,place_failed 2
+pick_coord (puck),real,11-14~15,89,87,59,67.8,,,,,,,grasp_empty 12; arm_jam 8; other 6; slot_full 2
+pick_coord (puck_lying),real,11-14~15,89,77,15,19.5,,,,,,,stand_still_lying 30; stand_failed 17; grasp_empty 5; arm_jam 5; slot_full 4; other 1
+pick_loop,sim,11-09,,49,26,53.1,,,,,,,grasp_failed_all 12; stand_grip_timeout 10; stand_failed 1
+pick_loop,sim,11-12,,2,2,100.0,,,,,,,
+approach (scene_approach),sim,11-12~16,,117,30,25.6,,,,,,,approach_blocked 35; nav_no_progress 21; approach_box_unseen 17; nav_failed 8; other 6
+approach (scene_approach_matte),sim,11-12~16,,158,64,40.5,,,,,,,nav_no_progress 39; approach_blocked 20; nav_failed 18; approach_box_unseen 12; other 5
+approach (scene_sim),sim,11-12~16,,50,30,60.0,,,,,,,nav_no_progress 7; approach_box_unseen 4; nav_failed 4; other 3; approach_blocked 2

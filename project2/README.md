@@ -35,12 +35,12 @@
 [docs/architecture.md](docs/architecture.md) (상태도·완료 조건·오류 처리) · [lv2_module6/README.md — 전체 아키텍처](../lv2_module6/README.md#전체-아키텍처) · [documents/project/ros](../documents/project/ros/README.md)
 
 ## 5. 시험 결과
-[results/test-results.csv](results/test-results.csv) · [results/scorecard.md](results/scorecard.md).
-[results/test-results.csv](results/test-results.csv) 27건: 26건은 git 기록(PR 본문·커밋·CI)에서, T-27은 이번에 직접 돌린 모의 실행에서 모았다. **원본 로그·영상은 없고**, 각 행은 PR 본문에 적힌 내용을 옮긴 것이다. 장비 구분은 행마다 적었다 (실물 / 모의).
-- 판정 (CSV 27건): 성공 18 · 실패 8 · 부분 성공 1. 공식 1·2회차는 이 표에 없고 모의 결과로 대체했다. 날짜는 PR 병합 시각(UTC) 기준이라 T-11·T-13은 한국 시간으로 하루 늦다.
-- 실패 8건: 실기 미션 SURVEY 통과 못 함(바코드 7회·박스 접근 11회, T-07·08), 상자 이동 충돌감시 정지(T-09)·TF 끊김(T-10), 젯슨 CPU 과부하(T-22·23), main CI 실패(T-26), 모의 미션 한 판이 퍽 0개로 끝남(T-27, [sim-run](results/sim-run/)). T-10·22·23은 수정이 반영된 기록이다.
+[results/test-results.csv](results/test-results.csv) · [results/scorecard.md](results/scorecard.md) · 팔 skill 반복 시험·RL 평가: [results/arm-rl-tests/](results/arm-rl-tests/README.md).
+[results/test-results.csv](results/test-results.csv) 35건: 26건은 git 기록(PR 본문·커밋·CI)에서, T-27은 이번에 직접 돌린 모의 실행에서, T-28~35는 팔 skill 반복 시험 로그(원본은 저장소 밖, [arm-rl-tests](results/arm-rl-tests/README.md)에 요약·도표)에서 모았다. T-01~26은 **원본 로그·영상이 없고** PR 본문에 적힌 내용을 옮긴 것이다. 장비 구분은 행마다 적었다 (실물 / 모의).
+- 판정 (CSV 35건): 성공 20 · 실패 9 · 부분 성공 6. 공식 1·2회차는 이 표에 없고 모의 결과로 대체했다. 날짜는 PR 병합 시각(UTC) 기준이라 T-11·T-13은 한국 시간으로 하루 늦다.
+- 실패 9건: 실기 미션 SURVEY 통과 못 함(바코드 7회·박스 접근 11회, T-07·08), 상자 이동 충돌감시 정지(T-09)·TF 끊김(T-10), 젯슨 CPU 과부하(T-22·23), main CI 실패(T-26), 모의 미션 한 판이 퍽 0개로 끝남(T-27, [sim-run](results/sim-run/)), 실기 누운 퍽 세우기(T-30). T-10·22·23은 수정이 반영된 기록이다.
 - 공식 1·2회차: 기록이 없어 **모의 결과로 대체**했다 ([scorecard.md](results/scorecard.md), [sim-run](results/sim-run/)). 모의 1판에서 확인되는 점수는 0, 신호·바코드 25점 항목은 주입값이라 평가 제외.
-- 성공 항목 상당수는 모의(Isaac Sim·도커)나 이미지 단위 수치이고, 실기 완주 성공 기록은 없다.
+- 공식 회차와 미션 완주는 실기 기록이 없고, 성공 항목 상당수는 모의(Isaac Sim·도커)나 이미지 단위 수치다. 다만 **실물 로봇에서 팔 단위로 반복한 실측**은 있다: pick → load 618회(11-14 pick 94 %), 정책 끔·켬 비교(자로 잰 손 안 어긋남 6.0 → 2.2 mm), 놓기 53/55 (T-28·29·31). 실기 누운 퍽 세우기는 15~47 %로 가장 약하다 (T-30).
 
 ## 6. 실패 원인과 수정 전후 비교
 | 증상 | 원인 | 수정 | 전 → 후 |
