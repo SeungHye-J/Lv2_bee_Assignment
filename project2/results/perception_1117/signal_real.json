@@ -1,5 +1,5 @@
 {
- "source": "실물 (Jetson · pole_front_cam · develop 인지 노드 signal_decoder)",
+ "source": "실물 (Jetson · pole_front_cam · signal_decoder; 실행 브랜치 feat/arena-corr-boxes-wall-keep, 관측한 HEAD 700cec1f; 인지 빌드 2026-11-16 05:12, 실행 바이너리의 정확한 소스 커밋은 미확정)",
  "observed_at": "2026-11-17",
  "answer": {
   "sequence": [
