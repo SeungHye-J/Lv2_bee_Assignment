@@ -3,7 +3,7 @@
 - **장비**: 실물 로봇 (Jetson · RealSense 2대 `pole_front_cam` · `gripper_cam`). 시뮬레이션 아님.
 - **실행한 코드**: 젯슨 팀 폴더 `~/Lv2_bee_Assignment` (브랜치 `feat/arena-corr-boxes-wall-keep` `700cec1f`, perception 빌드 2026-11-16 05:12). 모델 `bee_yolo11n_v6.onnx` · TensorRT.
 - **방법**: 미션은 돌리지 않음. 수동 모드에서 로봇을 놓고, 인지 노드가 내는 값만 기록. 바코드 찾기는 `/cmd/mission start:BARCODE`로만 열었음 (로봇은 안 움직임).
-- **원본**: rosbag `bag_obs` (16:11~17:13, `/tracked_objects` · `/mission/signal(_status)` · `/mission/qr` · `/diagnostics` · 카메라별 detections), 카메라 영상(mp4), 1초마다 저장한 사진 + `tracked.json`. 319 MB라 저장소에 안 올림 — 전승혜 노트북 `~/Downloads/evidence_1117/`.
+- **원본**: rosbag `bag_obs` (16:11~17:13, `/tracked_objects` · `/mission/signal(_status)` · `/mission/qr` · `/diagnostics` · 카메라별 detections), 카메라 영상(mp4), 1초마다 저장한 사진 + `tracked.json`. 초기 수집분 약 319 MB 및 추가 시험 영상은 저장소에 올리지 않고 별도 보관 — 전승혜 노트북 `~/Downloads/evidence_1117/`.
 - 아래 사진은 원본에서 고른 것. 인지 화면(debug_image)은 검출 네모·종류·속성을 그려 둔 화면.
 
 ## 결과 요약
