@@ -112,10 +112,14 @@
 공개 예제는 **빨강 6 · 초록 6** 설명용이고 경기 고정 비율이 아니다.
 
 ## 우리 팀의 확정 문제
-- TODO: 작성 필요 — 확정 문제 — 문제지(`mission.pdf`)의 우리 회차 값이 저장소에 없어 적지 못했다. [signals.json](signals.json)·[placement.csv](placement.csv)도 비어 있다.
+- **공식 문제가 아니라 우리 팀 모의 문제다.** 2026-11-17 모의 실행([results/sim-run](../results/sim-run/README.md))에서 쓴 입력과 같다.
+  1. 신호 `R G Y R G R Y G R G Y R` → R 5 · Y 3 · G 4 ([signals.json](signals.json))
+  2. 바코드 `P2-01` (오름차순)
+  3. 퍽 12개: `isaac/usda/scene_sim.usda` 실제 장면 — 빨강 7(상자 4·원기둥 3) · 초록 5(상자 2·원기둥 3), 시작 박스 6곳 × 퍽 2개 ([placement.csv](placement.csv))
+  4. 정답 할당 ([answer.json](answer.json)): 오름차순이므로 **L1 = Y 3개**(원기둥 `red_4`·`red_5`·`green_11`) · **L2 = G 4개** · **L3 = R 5개**. Y는 한 모양(원기둥)으로 통일해야 하고 R·G는 모양 무관이라 위처럼 나뉜다. 유효한 전체 할당은 21개.
 
 ## 실행 가능성 (통과 경로 · 초기화 · 동료 검토)
 - 통과 경로: 도면 벽 기준 A* 경로 길이를 [route_order.py](../../lv2_module6/tools/plan/route_order.py)로 계산했다 (시작 → 박스 6 → 장소 3 → 복귀 26.6 m, [PR #146](https://github.com/visualkhh/Lv2_bee_Assignment/pull/146)). 벽·장소 좌표는 `plan.yaml`의 `arena_walls`. 실제 경기장에서 모든 경로를 걸어 확인한 기록은 없다.
 - 초기화: [../README.md](../README.md) §3의 경기 초기화 순서와 같다 (출발 구역 배치 → `stop.sh` → 지도 선택 → `start.sh` → 미션 시작). 퍽을 원래 자리로 되돌리는 절차는 기록이 없다.
-- TODO: 작성 필요 — 다른 팀의 검토 기록 — 없음.
-- TODO: 작성 필요 — 문제 검증 기록 — 없음 (`validate_problem.py`는 저장소에 없고 실행한 기록도 없다).
+- TODO: 작성 필요 — 다른 팀의 검토 기록: 없음 (모의 문제라 검토를 받지 않았다).
+- 문제 검증 기록: [validation.md](validation.md) — 직접 만든 [validate_mock_problem.py](validate_mock_problem.py)로 모의 문제 PASS, 일부러 틀린 답은 FAIL. 발제의 `validate_problem.py`는 쓰지 못했다.
