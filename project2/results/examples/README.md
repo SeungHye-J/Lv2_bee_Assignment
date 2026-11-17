@@ -15,4 +15,6 @@ grep -rn "_example\|EX-0" project2 --exclude-dir=examples --exclude=REMAINING.md
 | --- | --- |
 | [signal.example.json](signal.example.json) | [../signal.json](../signal.json) |
 | [allocation.example.json](allocation.example.json) | [../allocation.json](../allocation.json) |
+| [placement.example.csv](placement.example.csv) | [../../problem/placement.csv](../../problem/placement.csv) |
+| [scorecard.example.md](scorecard.example.md) | [../scorecard.md](../scorecard.md) |
 | [test-results.example.csv](test-results.example.csv) | [../test-results.csv](../test-results.csv) |

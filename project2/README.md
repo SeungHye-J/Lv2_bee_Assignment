@@ -36,9 +36,9 @@
 
 ## 5. 시험 결과
 [results/test-results.csv](results/test-results.csv) · [results/scorecard.md](results/scorecard.md).
-[results/test-results.csv](results/test-results.csv) 26건을 git 기록(PR 본문·커밋·CI)에서 모았다. **원본 로그·영상은 없고**, 각 행은 PR 본문에 적힌 내용을 옮긴 것이다. 장비 구분은 행마다 적었다 (실물 / 모의).
-- 판정: 성공 18 · 실패 7 · 부분 성공 1 · 미확인(공식 회차) 2.
-- 실패 7건: 실기 미션 SURVEY 통과 못 함(바코드 7회·박스 접근 11회, T-07·08), 상자 이동 충돌감시 정지(T-09)·TF 끊김(T-10), 젯슨 CPU 과부하(T-22·23), main CI 실패(T-26). T-10·22·23은 수정이 반영된 기록이다.
+[results/test-results.csv](results/test-results.csv) 27건: 26건은 git 기록(PR 본문·커밋·CI)에서, T-27은 이번에 직접 돌린 모의 실행에서 모았다. **원본 로그·영상은 없고**, 각 행은 PR 본문에 적힌 내용을 옮긴 것이다. 장비 구분은 행마다 적었다 (실물 / 모의).
+- 판정: 성공 18 · 실패 8 · 부분 성공 1 · 미확인(공식 회차) 2.
+- 실패 8건: 실기 미션 SURVEY 통과 못 함(바코드 7회·박스 접근 11회, T-07·08), 상자 이동 충돌감시 정지(T-09)·TF 끊김(T-10), 젯슨 CPU 과부하(T-22·23), main CI 실패(T-26), 모의 미션 한 판이 퍽 0개로 끝남(T-27, [sim-run](results/sim-run/)). T-10·22·23은 수정이 반영된 기록이다.
 - 공식 1·2회차 점수와 완주 여부: 기록 없음 → **미확인** ([scorecard.md](results/scorecard.md)).
 - 성공 항목 상당수는 모의(Isaac Sim·도커)나 이미지 단위 수치이고, 실기 완주 성공 기록은 없다.
 
