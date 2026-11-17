@@ -1,6 +1,6 @@
 # 발표 자료 (개요)
 
-TODO: 슬라이드 파일과 링크 — 아직 없다 (링크 없음). 아래는 발표에 넣을 내용의 요지이며, 수치는 [시험 결과](../results/test-results.csv)의 PR 본문 기록이다.
+이 문서가 발표 자료다 (별도 슬라이드 파일은 만들지 않았다). 아래는 발표 내용의 요지이며, 수치는 [시험 결과](../results/test-results.csv)의 PR 본문 기록이다.
 
 1. **문제와 목표** — 신호등 12회 점멸과 바코드를 읽고, 주사위 눈을 맞춰 퍽을 상자에 담고, 재확인 후 출발 구역으로 복귀한다. ([problem/problem.md](../problem/problem.md))
 2. **시스템 흐름** — IDLE → GO_OBSERVE → BARCODE → READ → SURVEY → BUILD → VERIFY → RETURN → DONE/ERROR. ([architecture.md](architecture.md))
