@@ -44,7 +44,7 @@
 
   | PR | 병합일 | 무엇을 (제목 기준) | 규모 |
   | --- | --- | --- | --- |
-  | [#1](https://github.com/visualkhh/Lv2_bee_Assignment/pull/1) | 10-15 | 시뮬레이션 초기 구성 중 **URDF 최신화** (본인 커밋 1개) | +2312/−289 |
+  | [#1](https://github.com/visualkhh/Lv2_bee_Assignment/pull/1) | 10-15 | 시뮬레이션 초기 구성 중 URDF 최신화 | +2312/−289 |
   | [#6](https://github.com/visualkhh/Lv2_bee_Assignment/pull/6) | 10-21 | beebot_v00 URDF·USD 초기 셋업 | +1743/−156 |
   | [#46](https://github.com/visualkhh/Lv2_bee_Assignment/pull/46) | 11-02 | Isaac Sim 최종 URDF·USDA 셋업 | +13551/−464 |
   | [#75](https://github.com/visualkhh/Lv2_bee_Assignment/pull/75) | 11-06 | Isaac 재구성 · 시뮬 집기 시연 · 팔 처짐 보정(twist_state) · calib 도구 | +7363/−5399 |
@@ -57,8 +57,8 @@
   | [#260](https://github.com/visualkhh/Lv2_bee_Assignment/pull/260) | 11-15 | 사람이 찍은 경유점 지도 · 끼임 풀기 · 문 경유점 보완 · EKF 바퀴 뺌 | +426/−41 |
   | [#286](https://github.com/visualkhh/Lv2_bee_Assignment/pull/286) | 11-16 | 끼임 풀기 벽 반대쪽 · 적재 실패 되돌리기 · RETURN 재시도 | +110/−18 |
 
-  - **제외**: [#272](https://github.com/visualkhh/Lv2_bee_Assignment/pull/272) — PR 작성자는 본인이지만 **커밋 8개가 전부 JuneKunst·claude이고 본인 커밋은 0개**다. PR 본문도 "11-16 실기에서 한 작업, develop 위에 커밋 8개"라고만 적혀 있다. 구현 목록에 넣지 않는다.
-  - **규모 정정**: [#1](https://github.com/visualkhh/Lv2_bee_Assignment/pull/1)은 PR 전체 +18177줄이지만 커밋 3개 중 2개(초기 구조 +13320/−3, 시뮬레이터 수정 +3105/−271)가 visualkhh 것이라, 위 표에는 본인 커밋(URDF 최신화 +2312/−289)만 적었다.
+  - **제외**: [#272](https://github.com/visualkhh/Lv2_bee_Assignment/pull/272) — 커밋 8개가 전부 JuneKunst·claude(본인 0). PR만 열고 병합한 건이라 구현 목록에서 제외. (PR 본문: "11-16 실기에서 한 작업, develop 위에 커밋 8개")
+  - **규모**: [#1](https://github.com/visualkhh/Lv2_bee_Assignment/pull/1)은 PR 전체 +18177줄이지만 커밋 3개 중 2개(초기 구조 +13320/−3, 시뮬레이터 수정 +3105/−271)가 visualkhh 것이라, 위 표에는 본인 커밋(URDF 최신화 +2312/−289)만 적었다.
 
   - 변경 효과 (PR 본문 수치 · 시험 ID는 [results/test-results.csv](../results/test-results.csv)):
     - [#225](https://github.com/visualkhh/Lv2_bee_Assignment/pull/225): 코너 회전 뒤 위치 정확도 — 기존 3/6 성공(오차 114~976 mm) → `BEE_CUVSLAM_LEVEL=1` 4/6 성공(성공 시 5~15 mm) (모의, T-13)
@@ -92,7 +92,7 @@
   | [#256](https://github.com/visualkhh/Lv2_bee_Assignment/pull/256) | 11-15 | 가르친 경로 (teach & repeat) — 수동 경로를 AUTO 경유점으로 | +272/−1 |
   | [#273](https://github.com/visualkhh/Lv2_bee_Assignment/pull/273) | 11-15 | 답지 재생 · route_tables · 몸 모양 collision_monitor | +839/−99 |
 
-  - **제외**: [#227](https://github.com/visualkhh/Lv2_bee_Assignment/pull/227) — PR 작성자는 본인이지만 **커밋 2개가 claude·cowsjh이고 본인 커밋은 0개**다. PR 본문에 "11-15 로봇 실기에서 sjh 작업 폴더(feature/isaac-setup)의 커밋 4a05da59로 주행한 코드, 파일 22개 내용이 같다(blob 비교). 원래 작성자·메시지를 그대로 두었다"고 적혀 있다. 구현 목록에 넣지 않는다.
+  - **제외**: [#227](https://github.com/visualkhh/Lv2_bee_Assignment/pull/227) — 커밋 2개가 claude·cowsjh(본인 0). PR만 열고 병합한 건이라 구현 목록에서 제외. (PR 본문: "11-15 로봇 실기에서 sjh 작업 폴더(feature/isaac-setup)의 커밋 4a05da59로 주행한 코드, 파일 22개 내용이 같다(blob 비교). 원래 작성자·메시지를 그대로 두었다")
 
   - 변경 효과 (PR 본문 수치 · 시험 ID는 [results/test-results.csv](../results/test-results.csv)):
     - [#145](https://github.com/visualkhh/Lv2_bee_Assignment/pull/145): navigate 진척 감시 — 벽 앞 반복을 26초 만에 갇힘 판단(기존 4~5분 이상 미종료), 정상 주행은 판단하지 않음 (모의, T-14)
@@ -107,25 +107,24 @@
 
 ## 전승혜
 - 담당: 인지 (`perception`)
-- GitHub: `SeungHye-J`
-- 데이터 기준 (2026-11-17): `gh pr list --author SeungHye-J --state merged` 12건. 그중 **11건은 커밋도 본인 작성**이고, [#193](https://github.com/visualkhh/Lv2_bee_Assignment/pull/193)은 **커밋 28개 중 27개가 JuneKunst(14)·claude(13), 본인 1개**라 구현 목록에서 제외했다 (PR만 본인이 열고 병합).
-- 구현 — 본인 커밋이 있는 PR 11건 (괄호 = 커밋 수):
+- GitHub: `SeungHye-J` — 아래 후보는 `gh pr list --author SeungHye-J --state merged`와 `gh search prs --reviewed-by SeungHye-J`로 자동으로 뽑은 것이라 **본인이 확인하고 고쳐 쓴다.**
+- 구현 — 후보 PR (병합 12건 중 **본인 커밋이 있는 11건**):
 
-  | PR | 병합일 | 무엇을 (제목 기준) | 규모 | 커밋 |
-  | --- | --- | --- | --- | --- |
-  | [#9](https://github.com/visualkhh/Lv2_bee_Assignment/pull/9) | 10-22 | 퍽 기억·퍽 판단 및 새 YOLO 모델 추가 | +522/−29 | 1 (본인) |
-  | [#45](https://github.com/visualkhh/Lv2_bee_Assignment/pull/45) | 11-02 | 신호등 12회 점멸 해석, 퍽 인지 개선, 상자 인지 | +825/−178 | 8 (본인) |
-  | [#95](https://github.com/visualkhh/Lv2_bee_Assignment/pull/95) | 11-09 | 퍽 자세를 윗면 높이로 판단 | +81/−12 | 2 (본인) |
-  | [#144](https://github.com/visualkhh/Lv2_bee_Assignment/pull/144) | 11-11 | 퍽 모델 v5 · 긴 기억 삭제 · API.md 수정 | +1294/−581 | 7 (본인) |
-  | [#152](https://github.com/visualkhh/Lv2_bee_Assignment/pull/152) | 11-12 | MoveIt octomap 센서 연결 (pole_front_cam 점구름) | +78/−7 | 3 (본인) |
-  | [#164](https://github.com/visualkhh/Lv2_bee_Assignment/pull/164) | 11-12 | 인지 노드 C++ 전환 · 젯슨 CPU 줄이기 | +3212/−142 | 13 (본인) |
-  | [#180](https://github.com/visualkhh/Lv2_bee_Assignment/pull/180) | 11-12 | 퍽+상자 YOLO v6 · 상자 도킹 정보 · 인지 CPU 옵션 | +305/−31 | 16 (본인) |
-  | [#192](https://github.com/visualkhh/Lv2_bee_Assignment/pull/192) | 11-13 | pick_far 먼 퍽 집기 (skills·모델 중심) | +757/−13 | 1 (본인) |
-  | [#243](https://github.com/visualkhh/Lv2_bee_Assignment/pull/243) | 11-15 | 충돌 감시 구역 — 문틈에서 감속·정지 줄임 (ros_system 설정 1파일) | +12/−6 | 1 (본인) |
-  | [#246](https://github.com/visualkhh/Lv2_bee_Assignment/pull/246) | 11-15 | YOLO TensorRT FP16 추론 추가 | +243/−23 | 1 (본인) |
-  | [#284](https://github.com/visualkhh/Lv2_bee_Assignment/pull/284) | 11-16 | 조사 때 상자 윗면 안의 태그 퍽을 모두 등록 (plan 1커밋) | +38/−11 | 1 (본인) |
+  | PR | 병합일 | 무엇을 (제목 기준) | 규모 |
+  | --- | --- | --- | --- |
+  | [#9](https://github.com/visualkhh/Lv2_bee_Assignment/pull/9) | 10-22 | 퍽 기억·퍽 판단 및 새 YOLO 모델 추가 | +522/−29 |
+  | [#45](https://github.com/visualkhh/Lv2_bee_Assignment/pull/45) | 11-02 | 신호등 12회 점멸 해석, 퍽 인지 개선, 상자 인지 | +825/−178 |
+  | [#95](https://github.com/visualkhh/Lv2_bee_Assignment/pull/95) | 11-09 | 퍽 자세를 윗면 높이로 판단 | +81/−12 |
+  | [#144](https://github.com/visualkhh/Lv2_bee_Assignment/pull/144) | 11-11 | 퍽 모델 v5 · 긴 기억 삭제 · API.md 수정 | +1294/−581 |
+  | [#152](https://github.com/visualkhh/Lv2_bee_Assignment/pull/152) | 11-12 | MoveIt octomap 센서 연결 (pole_front_cam 점구름) | +78/−7 |
+  | [#164](https://github.com/visualkhh/Lv2_bee_Assignment/pull/164) | 11-12 | 인지 노드 C++ 전환 · 젯슨 CPU 줄이기 | +3212/−142 |
+  | [#180](https://github.com/visualkhh/Lv2_bee_Assignment/pull/180) | 11-12 | 퍽+상자 YOLO v6 · 상자 도킹 정보 · 인지 CPU 옵션 | +305/−31 |
+  | [#192](https://github.com/visualkhh/Lv2_bee_Assignment/pull/192) | 11-13 | pick_far 먼 퍽 집기 | +757/−13 |
+  | [#243](https://github.com/visualkhh/Lv2_bee_Assignment/pull/243) | 11-15 | 충돌 감시 구역 — 문틈에서 감속·정지 줄임 | +12/−6 |
+  | [#246](https://github.com/visualkhh/Lv2_bee_Assignment/pull/246) | 11-15 | YOLO TensorRT FP16 추론 추가 | +243/−23 |
+  | [#284](https://github.com/visualkhh/Lv2_bee_Assignment/pull/284) | 11-16 | 조사 때 상자 윗면 안의 태그 퍽을 모두 등록 | +38/−11 |
 
-  - **제외**: [#193](https://github.com/visualkhh/Lv2_bee_Assignment/pull/193) — PR 작성자만 본인이고 커밋은 JuneKunst·claude가 대부분이다. '신호등 하나로 추적 · 켜진 신호등 우선' 구현을 본인 작업으로 적지 않는다.
+  - **제외**: [#193](https://github.com/visualkhh/Lv2_bee_Assignment/pull/193) — 커밋 28개 중 본인 1개(JuneKunst 14 · claude 13). PR만 열고 병합한 건이라 구현 목록에서 제외.
   - 변경 효과 (PR 본문 수치 · 시험 ID는 [results/test-results.csv](../results/test-results.csv)):
     - [#95](https://github.com/visualkhh/Lv2_bee_Assignment/pull/95): 퍽 자세 판단 — Isaac 22% → 100%, 실물 그리퍼캠 88% → 99% (T-06)
     - [#144](https://github.com/visualkhh/Lv2_bee_Assignment/pull/144): 퍽 모델 v5 — 퍽 727/767 (94.8%), 신호등 상태 579/582 (T-04)
