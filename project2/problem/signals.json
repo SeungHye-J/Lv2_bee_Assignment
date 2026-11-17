@@ -1,5 +1,5 @@
 {
-  "_note": "TODO: 문제지(mission.pdf)의 우리 회차 값이 저장소에 없어 비워 둔다. 값이 확인되면 sequence·counts·barcode를 채우고 이 _note를 지운다.",
+  "_note": "TODO: 작성 필요 — 문제지(mission.pdf)의 우리 회차 값이 저장소에 없어 비워 둔다. 값이 확인되면 sequence·counts·barcode를 채우고 이 _note를 지운다.",
   "sequence": [],
   "counts": {"R": null, "Y": null, "G": null},
   "barcode": null

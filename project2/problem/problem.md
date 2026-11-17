@@ -112,10 +112,10 @@
 공개 예제는 **빨강 6 · 초록 6** 설명용이고 경기 고정 비율이 아니다.
 
 ## 우리 팀의 확정 문제
-- TODO: 확정 문제 — 문제지(`mission.pdf`)의 우리 회차 값이 저장소에 없어 적지 못했다. [signals.json](signals.json)·[placement.csv](placement.csv)도 비어 있다.
+- TODO: 작성 필요 — 확정 문제 — 문제지(`mission.pdf`)의 우리 회차 값이 저장소에 없어 적지 못했다. [signals.json](signals.json)·[placement.csv](placement.csv)도 비어 있다.
 
 ## 실행 가능성 (통과 경로 · 초기화 · 동료 검토)
 - 통과 경로: 도면 벽 기준 A* 경로 길이를 [route_order.py](../../lv2_module6/tools/plan/route_order.py)로 계산했다 (시작 → 박스 6 → 장소 3 → 복귀 26.6 m, [PR #146](https://github.com/visualkhh/Lv2_bee_Assignment/pull/146)). 벽·장소 좌표는 `plan.yaml`의 `arena_walls`. 실제 경기장에서 모든 경로를 걸어 확인한 기록은 없다.
 - 초기화: [../README.md](../README.md) §3의 경기 초기화 순서와 같다 (출발 구역 배치 → `stop.sh` → 지도 선택 → `start.sh` → 미션 시작). 퍽을 원래 자리로 되돌리는 절차는 기록이 없다.
-- TODO: 다른 팀의 검토 기록 — 없음.
-- TODO: 문제 검증 기록 — 없음 (`validate_problem.py`는 저장소에 없고 실행한 기록도 없다).
+- TODO: 작성 필요 — 다른 팀의 검토 기록 — 없음.
+- TODO: 작성 필요 — 문제 검증 기록 — 없음 (`validate_problem.py`는 저장소에 없고 실행한 기록도 없다).
