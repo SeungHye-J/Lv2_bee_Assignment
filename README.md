@@ -1,7 +1,8 @@
 # 자율주행 기반 물류 이송 및 장애물 회피
 
 # BEE 팀
-- https://app.notion.com/p/teamsparta/B-_BEE-3de2dc3ef51480ce978edf40651c6b35
+- 노션: https://app.notion.com/p/teamsparta/B-_BEE-3de2dc3ef51480ce978edf40651c6b35
+  - 개인 작업 일지, 팀 논의 및 의사결정 기록은 위 노션에 정리한다.
 - 참고아키텍쳐: https://dooboostore.github.io/ros2?concept=design&sec=arch
 - 설계 문서: [documents/project/ros](documents/project/ros/README.md)
 - ROS 2 워크스페이스: [lv2_module6](lv2_module6/README.md) · 개발 가이드: [lv2_module6/README.md](lv2_module6/README.md) · 테스트베드: `docker/lv2_module6/` (CI: `.github/workflows/ci.yml`)
