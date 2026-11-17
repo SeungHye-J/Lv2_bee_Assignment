@@ -1,6 +1,6 @@
 # 3 Nav2·SLAM — 주행 계획·위치추정·지도
 
-mission_manager·coordinator가 보낸 목표를 Nav2가 받아 경로를 만들고 따라가며, 위치(`map→odom`)와 지도(`/map`)는 cuVSLAM + nvblox가 냅니다. 모두 [ros_system 패키지](../../../lv2_module6/ros2_ws/src/ros_system/)에 있고 설정은 `config/`, 띄우는 곳은 [ros_system.launch.py](../../../lv2_module6/ros2_ws/src/ros_system/launch/ros_system.launch.py)입니다. 토픽·액션 이름은 [API.md](../API.md), 전체 흐름은 [01-arch.md](01-arch.md).
+mission_manager·coordinator가 보낸 목표를 Nav2가 받아 경로를 만들고 따라가며, 위치(`map→odom`)와 지도(`/map`)는 cuVSLAM + nvblox가 냅니다. 모두 [ros_system 패키지](../../../lv2_module6/ros2_ws/src/ros_system/)에 있고 설정은 `config/`, 띄우는 곳은 [ros_system.launch.py](../../../lv2_module6/ros2_ws/src/ros_system/launch/ros_system.launch.py)입니다. 토픽·액션 이름은 [API.md](../../API.md), 전체 흐름은 [01-arch.md](01-arch.md).
 
 근거: [nav2_params.yaml](../../../lv2_module6/ros2_ws/src/ros_system/config/nav2_params.yaml) · [navigate_to_pose.xml](../../../lv2_module6/ros2_ws/src/ros_system/config/navigate_to_pose.xml) · [navigate_through_poses.xml](../../../lv2_module6/ros2_ws/src/ros_system/config/navigate_through_poses.xml) · [nvblox.yaml](../../../lv2_module6/ros2_ws/src/ros_system/config/nvblox.yaml) · [twist_mux.yaml](../../../lv2_module6/ros2_ws/src/ros_system/config/twist_mux.yaml) · [ekf.yaml](../../../lv2_module6/ros2_ws/src/ros_system/config/ekf.yaml) · [CUVSLAM.md](../../jetson-orin-nano/CUVSLAM.md)
 

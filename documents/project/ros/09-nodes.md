@@ -5,7 +5,7 @@
 직접 작성은 아래 표의 🛠 노드 + 컨트롤러 플러그인(rl_arm_correction) + 하드웨어 플러그인(BeebotSystemHardware) + OpenCR 펌웨어입니다. 나머지는 생태계 패키지를 가져와 설정하고 연결하는 일입니다.
 구현 위치: `lv2_module6/ros2_ws/src/<패키지>` — 패키지는 전부 ament_cmake, 노드는 C++이 기본 (perception_node · hand_relative · depth_gate · nvblox_map · rewind · cuvslam_slam도 C++판이 기본 — 예전 Python판은 되돌리기용 `*_py`/py_helpers/scan_cam_gate로 남아 있고, cuvslam_slam은 C++판이 빌드돼 있을 때만 C++).
 
-> 인터페이스 명세: [커스텀 인터페이스](../API.md#api-custom)
+> 인터페이스 명세: [커스텀 인터페이스](../../API.md#api-custom)
 
 | 노드 | 구분 | 패키지 · 형태 | 핵심 작업 |
 | --- | --- | --- | --- |
@@ -41,7 +41,7 @@
 
 ### 노드 외에 직접 만드는 것
 
-- **커스텀 인터페이스:** 별도 interfaces 패키지 없이 메시지를 내보내는 패키지가 가진다 — perception(TrackedObject(Array), MissionSignal) · plan(SubGoal(Array), TaskStatus, MissionState, BasketState · ExecutePlan/Skill 액션) · control(ArmSafetyEvent, MotorStatus) · ml(ScoreGrasps.srv · SetFallback.srv). 필드는 [API.md](../API.md#api-custom)
+- **커스텀 인터페이스:** 별도 interfaces 패키지 없이 메시지를 내보내는 패키지가 가진다 — perception(TrackedObject(Array), MissionSignal) · plan(SubGoal(Array), TaskStatus, MissionState, BasketState · ExecutePlan/Skill 액션) · control(ArmSafetyEvent, MotorStatus) · ml(ScoreGrasps.srv · SetFallback.srv). 필드는 [API.md](../../API.md#api-custom)
 - **launch 파일:** 전체 기동(bringup — `use_mission` · `use_mission_manager` · `use_perception` · `use_ml` · `learning_enabled` · `core_composition` · `map` 등 인자), 📦 기동(ros_system), 리매핑 (diff_drive_controller 토픽 → /cmd_vel·/odom, twist_mux 출력 → /cmd_vel_mux), 학습 노드 on/off 인자
 - **설정 파일:** 패키지별 config/*.yaml, nav2_params.yaml, ekf.yaml, controllers.yaml, twist_mux.yaml, diagnostics.yaml, collision_monitor 다각형, MoveIt 설정 패키지
 - **상태 진단:** 모든 🛠 노드 · 하드웨어 플러그인이 diagnostic_updater로 /diagnostics

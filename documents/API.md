@@ -417,7 +417,7 @@ string message
 - diff_drive_controller 토픽은 기본 `/diff_drive_controller/cmd_vel`·`/odom` — launch에서 `/cmd_vel`·`/odom`으로 리매핑.
 - odom TF는 ekf만 (`diff_drive_controller enable_odom_tf: false`, ekf `publish_tf: true`).
 
-### 수동 조작·운영 모드 ([노드 사전](project/ros/10-catalog.md#manual_control))
+### 수동 조작·운영 모드 ([노드 사전](project/ros/10-catalog.md))
 
 | 이름 | 타입 | 보내는 쪽 → 받는 쪽 | 주기 · QoS |
 | --- | --- | --- | --- |
@@ -550,7 +550,7 @@ coordinator가 계획 단계마다 skill 노드 하나에 맡김 — 한 노드�
 <a id="api-qos"></a>
 ## 6. QoS 규칙
 
-[07 QoS 정리](project/ros/07-tf.md#qoS-정리).
+[07 QoS 정리](project/ros/07-tf.md#qos-정리).
 
 | 데이터 | Reliability | Durability | Depth | 이유 |
 | --- | --- | --- | --- | --- |

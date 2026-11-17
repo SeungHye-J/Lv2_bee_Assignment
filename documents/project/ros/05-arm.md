@@ -127,7 +127,7 @@ carry 방향은 **칸이 정합니다**. basket.yaml `basket_carry`에서 칸 0�
 | `pick` | 퍽 id | 위에서 집기: 접근 → 벌림 → 내려감 → 닫기 → **잡기 판정** → 들어올림. 파지 후보는 grasp_scorer가 냄. 닿는 구간은 학습 정책(`pick_standing_puck`, `contact_mode: sim`)이 보정함([4절](#pick-정책--contact_mode)). 손을 수직으로 못 두는 먼 퍽은 coordinator가 같은 목표로 `pick_far`를 한 번 더 부름 (계획 단계 이름은 아님) | 들어올린 자리 |
 | `load` | 칸 `0`~`11` · `next` | 손에 든 퍽을 적재함 칸에 싣기: **carry(칸 방향) → q_over → q_low → 벌림 → q_over → 끝 자세**. 닿는 구간(q_over → q_low → 벌림 → q_over)은 `contact_mode: sim`이면 `load_slot` 정책 흐름, `moveit`이면 예전 순서(q_lift → stow). 옮기는 동안 쥐는 힘은 `grip_current_a` × `load_grip_scale`(2) | `load_end_pose`(기본 `over` — 칸 위 그대로, 다음 `pick`이 carry를 지나 퍽 위로. `stow` · `carry`도 가능) |
 | `unload` | 칸 `0`~`11` · `last` | 적재함 칸의 퍽 꺼내기: **carry(칸 방향) → 벌림 → q_over → q_grasp → 닫기 → 잡기 판정 → q_over → carry** | `carry_<칸 방향>` |
-| `place` | `location_box` id (다른 물체도 됨) · `"x,y,z"` | 손에 든 퍽을 상자 윗면에 놓기 ([4절](#place--상자-값)). 좌표면 **손 안 퍽 바닥이 z**가 되게: 칸 위까지 MoveIt → 닿는 구간(`place_cell` 정책) 또는 `contact_mode: moveit`이면 위 `place_approach_m` → 내려가 `place_release_m`에서 벌림 → 다시 위 (주사위 칸) | 상자 위 · 그 점 위 |
+| `place` | `location_box` id (다른 물체도 됨) · `"x,y,z"` | 손에 든 퍽을 상자 윗면에 놓기 ([4절](#place-상자-값)). 좌표면 **손 안 퍽 바닥이 z**가 되게: 칸 위까지 MoveIt → 닿는 구간(`place_cell` 정책) 또는 `contact_mode: moveit`이면 위 `place_approach_m` → 내려가 `place_release_m`에서 벌림 → 다시 위 (주사위 칸) | 상자 위 · 그 점 위 |
 | `stand` | 퍽 id (`puck_lying`) | 누운 퍽을 세워 놓음 — 먼 끝을 가볍게(0.4N) 쥐고 가까운 아래 모서리를 축으로 돌려 세운 뒤 벌리고 위로 (팀원 `right_env` tilt 방식). 경유점 `stand_waypoints`: `ik`(기본) · `table` | 있음 ([6-1](#6-1-세우기--stand--stand_pick)) |
 | `stand_pick` | 아무 값 (직전 `stand`의 퍽 — 기록용으로 퍽 id) | 세운 퍽을 다시 집기 — 직전 `stand` 계획의 같은 손목으로 선 퍽 위 → 바로 아래로 → 제 힘으로 쥐고 잡기 판정 → 들어올림. 성공하면 그 퍽(tag·색·모양)을 손에 든 것으로 장부에 | 있음 |
 

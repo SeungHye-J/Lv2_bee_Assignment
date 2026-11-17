@@ -4,7 +4,7 @@
 
 카메라 영상은 두 갈래로 갑니다. **인지**(perception_node → `/tracked_objects`)는 퍽·상자·신호등·바코드를 찾아 계획 쪽에 주고, **주행용 depth**(depth_gate·body_filter)는 자기 몸을 지운 뒤 nvblox·Nav2·MoveIt에 줍니다. 코드는 [perception 패키지](../../../lv2_module6/ros2_ws/src/perception/), 카메라 드라이버는 [ros_system.launch.py](../../../lv2_module6/ros2_ws/src/ros_system/launch/ros_system.launch.py)의 `camera()`입니다.
 
-> 인터페이스 명세: [토픽](../API.md#api-topics) · [TrackedObject 필드](../API.md#api-msg-trackedobject)
+> 인터페이스 명세: [토픽](../../API.md#api-topics) · [TrackedObject 필드](../../API.md#api-msg-trackedobject)
 
 ```mermaid
 flowchart LR
@@ -66,7 +66,7 @@ flowchart LR
 | 바코드 | zxing-cpp 1D, `/cmd/mission`의 `start` 뒤 `barcode_window_s` 180 s 동안만 읽음, 실패 시 보조 읽기(`barcode_fallback.hpp`). 읽으면 `barcode` 물체 + `/mission/qr` |
 | 신호등 | YOLO 클래스 `traffic_light_<상태>` → `class_name: traffic_light` + `color`/`details.state` |
 
-`class_name`은 `puck` · `puck_lying` · `traffic_light` · `person` · `obstacle` · `location_box` · `start_box` · `barcode` 8가지만 나갑니다 ([API.md](../API.md#api-msg-trackedobject)). `details`는 클래스별 키(`tag`·`shape`·`yaw_period`·`content`·`state`·`distance`)이고 값이 없으면 키가 없습니다. 메시지: [TrackedObject.msg](../../../lv2_module6/ros2_ws/src/perception/msg/TrackedObject.msg).
+`class_name`은 `puck` · `puck_lying` · `traffic_light` · `person` · `obstacle` · `location_box` · `start_box` · `barcode` 8가지만 나갑니다 ([API.md](../../API.md#api-msg-trackedobject)). `details`는 클래스별 키(`tag`·`shape`·`yaw_period`·`content`·`state`·`distance`)이고 값이 없으면 키가 없습니다. 메시지: [TrackedObject.msg](../../../lv2_module6/ros2_ws/src/perception/msg/TrackedObject.msg).
 
 ## signal_decoder
 

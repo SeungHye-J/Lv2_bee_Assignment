@@ -1,6 +1,6 @@
 # 시나리오 — 운영자 시작부터 복귀까지
 
-주사위 기억 미션([mission/README.md](../../mission/README.md)) 한 번을 **운영자가 하는 일 → 로봇 단계 → 화면에서 볼 것** 순서로 따라갑니다. 단계 규칙·파라미터 상세는 [03-plan.md](03-plan.md), 토픽은 [API.md](../API.md)를 봅니다.
+주사위 기억 미션([mission/README.md](../../mission/README.md)) 한 번을 **운영자가 하는 일 → 로봇 단계 → 화면에서 볼 것** 순서로 따라갑니다. 단계 규칙·파라미터 상세는 [03-plan.md](03-plan.md), 토픽은 [API.md](../../API.md)를 봅니다.
 
 - 구현: [mission_manager.cpp](../../../lv2_module6/ros2_ws/src/plan/src/mission_manager.cpp) · [mission_solver.cpp](../../../lv2_module6/ros2_ws/src/plan/src/mission_solver.cpp)
 - 값: [plan.yaml](../../../lv2_module6/ros2_ws/src/plan/config/plan.yaml) `mission_manager`

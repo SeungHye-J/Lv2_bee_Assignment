@@ -1,7 +1,7 @@
 # 원격 데스크톱 — VNC (x11vnc, 기본 방법)
 
 Jetson의 **로그인된 실제 데스크톱(`:0`)** 을 그대로 공유한다. GPU로 그린 화면이라 RViz도 쓸 만하다.
-모니터가 없어도 된다 — `run-vnc-server --headless`를 한 번 하면 X에 가상 모니터가 꽂힌다([0장](#0-모니터-없이-headless-한-번)).
+모니터가 없어도 된다 — `run-vnc-server --headless`를 한 번 하면 X에 가상 모니터가 꽂힌다([0장](#0-모니터-없이---headless-한-번)).
 VNC가 안 될 때만 [RDP.md](RDP.md).
 
 [← README.md](README.md) (SSH 키 등록 · 방법 고르기)
@@ -398,7 +398,7 @@ Authorization required, but no authorization protocol specified
 xset: unable to open display ":0"
 ```
 
-> 모니터가 없으면 자동 로그인만으로는 GNOME이 화면을 안 그린다(검은 화면) — [0장](#0-모니터-없이-headless-한-번) `--headless`.
+> 모니터가 없으면 자동 로그인만으로는 GNOME이 화면을 안 그린다(검은 화면) — [0장](#0-모니터-없이---headless-한-번) `--headless`.
 > RDP(`run-rdp-server`)를 설정하면 자동 로그인이 꺼진다 — VNC로 돌아오려면 `~/run-rdp-server --undo`.
 
 Jetson이 부팅될 때 `bee`로 자동 로그인하게 만든다. 보안상 **임시방편**으로만
