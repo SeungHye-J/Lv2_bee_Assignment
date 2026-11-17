@@ -1,7 +1,7 @@
 # 시스템 설계
 
 > 이 문서는 **코드 기준 설계**다 (`mission_solver.cpp`의 `next_phase`, `mission_manager.hpp`, `plan.yaml`, `nav2_params.yaml`, `twist_mux.yaml`을 읽고 정리). 실물 시험으로 확인한 사실이 아니며, 실제 동작 확인은 [results/test-results.csv](../results/test-results.csv)에 기록한다.
-> TODO: 팀원 대조 확인 — 이 문서는 `plan.yaml`·`mission_solver.cpp`(`next_phase`)를 읽고 쓴 것이다. 다른 팀원의 대조 확인은 받지 않았고, 코드와 다르면 코드가 기준이다.
+> 대조 확인: 2026-11-17에 작성 시점의 파라미터(`retries`·`signal_error_cycles`·`barcode_timeout_s`·`signal_timeout_s`·`home_hold_s`)를 `plan.yaml`과, 단계 전이를 `mission_solver.cpp`의 `next_phase`와 다시 맞춰 보았다 (일치). 다른 팀원의 별도 확인은 받지 않았다. 코드와 다르면 코드가 기준이다.
 
 ## 이미 있는 문서
 - ROS 2 노드·토픽·메시지, 전체 구조: [lv2_module6/README.md — 전체 아키텍처](../../lv2_module6/README.md#전체-아키텍처) · [documents/project/ros](../../documents/project/ros/README.md)
@@ -103,4 +103,4 @@ stateDiagram-v2
 
 - 관측(신호·바코드) 오류와 복귀 실패만 `ERROR`로 전체를 멈추고, 퍽 단위 실패는 기록하고 이어간다 (그때까지의 점수는 유효하므로 끝까지 간다).
 - 실패 후 같은 회차를 수동으로 보정해 이어가지 않는다 (발제 규칙).
-- TODO: 안전 동작 시험 — 위 표의 안전 정지·오류 처리 동작(신호 소등 혼동·미등록 바코드·통신 끊김·비상정지)은 **설계**이며, 이를 직접 시험한 기록은 [test-results.csv](../results/test-results.csv)에 없다.
+- 안전 동작 시험: 신호 오류·잘못된 바코드 판정은 `test_mission_solver.cpp`의 단위 테스트(`InvalidSignalAndBarcode`, `SignalAction`)가 있고 CI에서 통과한다 ([test-results.csv](../results/test-results.csv) T-26의 369 tests, 단 그 CI는 plan.yaml 오류로 faker 단계에서 실패). 신호 소등 혼동·통신 끊김·비상정지를 실물에서 시험한 기록은 없다.

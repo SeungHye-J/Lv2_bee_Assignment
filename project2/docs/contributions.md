@@ -33,8 +33,8 @@
     - 위 표의 나머지 행은 후보로 남긴 것이며 효과 수치를 확인하지 않았다.
 - 검증: 시험 기록은 [results/test-results.csv](../results/test-results.csv)의 T-15 · T-16 · T-17. 실물·모의 구분과 근거(PR 본문, 원본 로그 없음)는 그 표에 있다. 본인이 직접 수행한 시험인지는 본인 확인이 필요하다.
 - 리뷰 — 후보 PR (`gh search prs --reviewed-by visualkhh`로 검색된 타인 PR 9건, 모두 병합됨): [#156](https://github.com/visualkhh/Lv2_bee_Assignment/pull/156) · [#71](https://github.com/visualkhh/Lv2_bee_Assignment/pull/71) · [#70](https://github.com/visualkhh/Lv2_bee_Assignment/pull/70) · [#64](https://github.com/visualkhh/Lv2_bee_Assignment/pull/64) · [#9](https://github.com/visualkhh/Lv2_bee_Assignment/pull/9) · [#8](https://github.com/visualkhh/Lv2_bee_Assignment/pull/8) · [#7](https://github.com/visualkhh/Lv2_bee_Assignment/pull/7) · [#6](https://github.com/visualkhh/Lv2_bee_Assignment/pull/6)
-  - TODO: 리뷰 내용 — 선별하지 않았다 (승인 외에 확인한 지적 기록을 찾지 못함).
-  - TODO: 리뷰 내용 — 선별하지 않았다 (승인 외에 확인한 지적 기록을 찾지 못함).
+  - 리뷰 내용: 리뷰 6건(#1·#6·#8·#64·#70·#71)은 모두 승인과 "good" 수준의 코멘트였고 구체적인 지적 기록은 없다. 근거로 내세울 리뷰는 없다.
+- 설명: 신호 읽기부터 복귀까지: 출발 구역에서 바코드(Code 128)와 신호등 12회 점멸을 읽어 색 순서와 R·Y·G 횟수를 기억하고(`BARCODE`·`READ`), 바코드가 오름/내림차순을 정한다. 시작 박스 6곳을 돌며 퍽을 확인해 적재함에 싣고 12개를 L1~L3 그룹에 한 번에 할당한다(`SURVEY`). 퍽마다 장소 앞으로 가서 주사위 칸에 놓고(`BUILD`), 새 관측으로 칸별 판정과 중복·누락을 재검증한 뒤(`VERIFY`) 출발 구역으로 돌아와 3초 정지한다(`RETURN`). 관측 오류·복귀 실패는 `ERROR`로 안전 정지하고 퍽 단위 실패는 기록하고 이어간다 ([architecture.md](architecture.md), `mission_solver.cpp`의 `next_phase` 기준). 맡지 않은 계획 쪽: 주행 오류를 고치던 중 `mission_solver.cpp`의 누락된 `}`를 수정했고(커밋 `f0b993c`) `test_mission_solver.cpp`로 상태 전이를 확인했다. 단계별 완료 조건과 실패 이유는 plan.yaml 값과 함께 [architecture.md](architecture.md)에 정리했다.
 
 ## 송정혁
 - 담당: 설계, 학습 (`ml`) — 실제로는 시뮬레이션·URDF·실기 시험·주행까지 폭넓게 작업
@@ -63,8 +63,8 @@
     - 위 표의 나머지 행은 후보로 남긴 것이며 효과 수치를 확인하지 않았다.
 - 검증: 시험 기록은 [results/test-results.csv](../results/test-results.csv)의 T-11 · T-13. 실물·모의 구분과 근거(PR 본문, 원본 로그 없음)는 그 표에 있다. 본인이 직접 수행한 시험인지는 본인 확인이 필요하다.
 - 리뷰 — 후보 PR (타인 PR, 모두 병합됨): [#43](https://github.com/visualkhh/Lv2_bee_Assignment/pull/43) · [#45](https://github.com/visualkhh/Lv2_bee_Assignment/pull/45) · [#48](https://github.com/visualkhh/Lv2_bee_Assignment/pull/48) · [#50](https://github.com/visualkhh/Lv2_bee_Assignment/pull/50) · [#59](https://github.com/visualkhh/Lv2_bee_Assignment/pull/59) · [#62](https://github.com/visualkhh/Lv2_bee_Assignment/pull/62) · [#63](https://github.com/visualkhh/Lv2_bee_Assignment/pull/63) · [#78](https://github.com/visualkhh/Lv2_bee_Assignment/pull/78)
-  - TODO: 리뷰 내용 — 선별하지 않았다 (승인 외에 확인한 지적 기록을 찾지 못함).
-  - TODO: 리뷰 내용 — 선별하지 않았다 (승인 외에 확인한 지적 기록을 찾지 못함).
+  - 리뷰 내용: [#48](https://github.com/visualkhh/Lv2_bee_Assignment/pull/48)(coordinator 팔 skill)에 skill 이름을 참고해 이후 정책 이름도 통일하겠다고 남겼다. #45·#50·#59·#62·#63·#78 리뷰는 확인·승인 코멘트라 구체적 지적은 없다.
+- 설명: 신호 읽기부터 복귀까지: 출발 구역에서 바코드(Code 128)와 신호등 12회 점멸을 읽어 색 순서와 R·Y·G 횟수를 기억하고(`BARCODE`·`READ`), 바코드가 오름/내림차순을 정한다. 시작 박스 6곳을 돌며 퍽을 확인해 적재함에 싣고 12개를 L1~L3 그룹에 한 번에 할당한다(`SURVEY`). 퍽마다 장소 앞으로 가서 주사위 칸에 놓고(`BUILD`), 새 관측으로 칸별 판정과 중복·누락을 재검증한 뒤(`VERIFY`) 출발 구역으로 돌아와 3초 정지한다(`RETURN`). 관측 오류·복귀 실패는 `ERROR`로 안전 정지하고 퍽 단위 실패는 기록하고 이어간다 ([architecture.md](architecture.md), `mission_solver.cpp`의 `next_phase` 기준). 맡지 않은 인지·계획 쪽: 신호등 해석·퍽 인지 [#45](https://github.com/visualkhh/Lv2_bee_Assignment/pull/45)와 Isaac 미션 시뮬(무작위 출제·바코드) [#62](https://github.com/visualkhh/Lv2_bee_Assignment/pull/62)를 리뷰했고, 코너 회전 뒤 위치 오차는 cuVSLAM 설정(`BEE_CUVSLAM_LEVEL`)을 다룬 [#225](https://github.com/visualkhh/Lv2_bee_Assignment/pull/225)에서 직접 다뤘다.
 
 ## 권형중
 - 담당: 통합 (`plan`, `ros_system`, `bringup`, `faker`)
@@ -96,9 +96,9 @@
     - [#202](https://github.com/visualkhh/Lv2_bee_Assignment/pull/202): 현장 진단 모드로 실기 미션이 SURVEY에서 막힌 지점(barcode_missing 7·approach_blocked 11)을 기록 (실물, T-07·T-08)
     - 위 표의 나머지 행은 후보로 남긴 것이며 효과 수치를 확인하지 않았다.
 - 검증: 시험 기록은 [results/test-results.csv](../results/test-results.csv)의 T-07 · T-08 · T-14 · T-25. 실물·모의 구분과 근거(PR 본문, 원본 로그 없음)는 그 표에 있다. 본인이 직접 수행한 시험인지는 본인 확인이 필요하다.
-- 리뷰 — 후보 PR (타인 PR, 모두 병합됨): [#3](https://github.com/visualkhh/Lv2_bee_Assignment/pull/3) · [#45](https://github.com/visualkhh/Lv2_bee_Assignment/pull/45) · [#46](https://github.com/visualkhh/Lv2_bee_Assignment/pull/46) · [#75](https://github.com/visualkhh/Lv2_bee_Assignment/pull/75) · [#83](https://github.com/visualkhh/Lv2_bee_Assignment/pull/83) · [#95](https://github.com/visualkhh/Lv2_bee_Assignment/pull/95) · [#192](https://github.com/visualkhh/Lv2_bee_Assignment/pull/192) · [#193](https://github.com/visualkhh/Lv2_bee_Assignment/pull/193) · [#246](https://github.com/visualkhh/Lv2_bee_Assignment/pull/246)
-  - TODO: 리뷰 내용 — 선별하지 않았다 (승인 외에 확인한 지적 기록을 찾지 못함).
-  - TODO: 리뷰 내용 — 선별하지 않았다 (승인 외에 확인한 지적 기록을 찾지 못함).
+- 리뷰 — 후보 PR (타인 PR, #3은 병합되지 않고 닫힘): [#3](https://github.com/visualkhh/Lv2_bee_Assignment/pull/3) · [#45](https://github.com/visualkhh/Lv2_bee_Assignment/pull/45) · [#46](https://github.com/visualkhh/Lv2_bee_Assignment/pull/46) · [#75](https://github.com/visualkhh/Lv2_bee_Assignment/pull/75) · [#83](https://github.com/visualkhh/Lv2_bee_Assignment/pull/83) · [#95](https://github.com/visualkhh/Lv2_bee_Assignment/pull/95) · [#192](https://github.com/visualkhh/Lv2_bee_Assignment/pull/192) · [#193](https://github.com/visualkhh/Lv2_bee_Assignment/pull/193) · [#246](https://github.com/visualkhh/Lv2_bee_Assignment/pull/246)
+  - 리뷰 내용: [#3](https://github.com/visualkhh/Lv2_bee_Assignment/pull/3)(Gazebo 카메라 확인 스크립트): 실제 동작 코드가 아니라 테스트용이니 `test` 디렉토리로 따로 구분하자고 의견을 냈다 (이 PR은 병합되지 않고 닫혔다). [#193](https://github.com/visualkhh/Lv2_bee_Assignment/pull/193): "merge 처리 후 확인 필요"라고 남겼다. 나머지 #45·#46·#75·#83·#95·#192·#246은 LGTM 수준이다.
+- 설명: 신호 읽기부터 복귀까지: 출발 구역에서 바코드(Code 128)와 신호등 12회 점멸을 읽어 색 순서와 R·Y·G 횟수를 기억하고(`BARCODE`·`READ`), 바코드가 오름/내림차순을 정한다. 시작 박스 6곳을 돌며 퍽을 확인해 적재함에 싣고 12개를 L1~L3 그룹에 한 번에 할당한다(`SURVEY`). 퍽마다 장소 앞으로 가서 주사위 칸에 놓고(`BUILD`), 새 관측으로 칸별 판정과 중복·누락을 재검증한 뒤(`VERIFY`) 출발 구역으로 돌아와 3초 정지한다(`RETURN`). 관측 오류·복귀 실패는 `ERROR`로 안전 정지하고 퍽 단위 실패는 기록하고 이어간다 ([architecture.md](architecture.md), `mission_solver.cpp`의 `next_phase` 기준). 맡지 않은 인지 쪽: 신호등 해석·퍽 인지([#45](https://github.com/visualkhh/Lv2_bee_Assignment/pull/45)), 퍽 자세 판단([#95](https://github.com/visualkhh/Lv2_bee_Assignment/pull/95)), pick_far([#192](https://github.com/visualkhh/Lv2_bee_Assignment/pull/192)), YOLO TensorRT([#246](https://github.com/visualkhh/Lv2_bee_Assignment/pull/246))를 리뷰했다. 인지 결과가 mission_manager로 들어오는 경로(`/tracked_objects`, `/mission/signal`)는 [architecture.md](architecture.md)의 노드 도식에 적었다.
 - 참고: 병합 PR이 90건으로 많아 위 16건은 제목 기준으로 추린 것이다. 같은 GitHub 계정에 현장 진단·튜닝 PR이 많으니, 그중 **본인이 설명할 수 있는 것**만 고른다.
 
 ## 전승혜
@@ -130,5 +130,5 @@
     - 위 표의 나머지 행은 후보로 남긴 것이며 효과 수치를 확인하지 않았다.
 - 검증: 시험 기록은 [results/test-results.csv](../results/test-results.csv)의 T-04 · T-06 · T-19 · T-21 · T-24. 실물·모의 구분과 근거(PR 본문, 원본 로그 없음)는 그 표에 있다. 본인이 직접 수행한 시험인지는 본인 확인이 필요하다.
 - 리뷰 — 후보 PR (타인 PR, 모두 병합됨): [#47](https://github.com/visualkhh/Lv2_bee_Assignment/pull/47)
-  - TODO: 리뷰 내용 — 선별하지 않았다 (승인 외에 확인한 지적 기록을 찾지 못함).
-  - TODO: 리뷰 내용 — 선별하지 않았다 (승인 외에 확인한 지적 기록을 찾지 못함).
+  - 리뷰 내용: [#47](https://github.com/visualkhh/Lv2_bee_Assignment/pull/47)(장소 물체 이름 `location_box`로 통일): `vlm_task_planner.cpp` 4곳의 `location` → `location_box`를 확인했고 PR 브랜치에 옛 이름이 남은 곳이 없음, API.md의 상자 설명이 `perception_node.py` 동작과 같음, MissionSignal 옛 칸은 perception이 실제로 채우지 않음을 남겼다. 그리고 `location_box`의 `yaw_period`는 늘 360이 아니라 태그 법선을 못 구하면 90이라고 정정을 요청했다. 현재 API.md의 TrackedObject 설명에 "360 태그 법선 · 못 구했으면 90 윗면 변"이 들어 있다.
+- 설명: 신호 읽기부터 복귀까지: 출발 구역에서 바코드(Code 128)와 신호등 12회 점멸을 읽어 색 순서와 R·Y·G 횟수를 기억하고(`BARCODE`·`READ`), 바코드가 오름/내림차순을 정한다. 시작 박스 6곳을 돌며 퍽을 확인해 적재함에 싣고 12개를 L1~L3 그룹에 한 번에 할당한다(`SURVEY`). 퍽마다 장소 앞으로 가서 주사위 칸에 놓고(`BUILD`), 새 관측으로 칸별 판정과 중복·누락을 재검증한 뒤(`VERIFY`) 출발 구역으로 돌아와 3초 정지한다(`RETURN`). 관측 오류·복귀 실패는 `ERROR`로 안전 정지하고 퍽 단위 실패는 기록하고 이어간다 ([architecture.md](architecture.md), `mission_solver.cpp`의 `next_phase` 기준). 맡지 않은 계획 쪽: [#47](https://github.com/visualkhh/Lv2_bee_Assignment/pull/47)에서 plan 쪽 `vlm_task_planner.cpp`의 물체 이름 사용처를 직접 열어 확인했고, 인지 결과가 SURVEY에서 퍽·상자 후보로 쓰이는 흐름을 이해해 상자 윗면 태그 퍽 등록([#284](https://github.com/visualkhh/Lv2_bee_Assignment/pull/284))을 수정했다.
