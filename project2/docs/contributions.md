@@ -102,6 +102,32 @@
 - T-07·T-08의 실기 기록은 `barcode_missing` 7회와 `approach_blocked` 11회이며, 해당 미션이 SURVEY 이후로 진행되지 못했다. 이는 진단 도구가 남긴 팀 시험 기록이지, 이 문서만으로 개인의 시험 수행자를 확정하지 않는다.
 - 공식 1·2회차 결과와 전체 실기 미션 완주 기록은 저장소에 없다. 원본 로그·영상이 없는 PR 기반 시험 수치는 출처의 한계를 유지한다. 세부 근거: [시험 결과](../results/test-results.csv) · [프로젝트 현황](../README.md#5-시험-결과).
 
+### 구현 이력: 작성·push 날짜별
+
+아래는 GitHub에 작성자 `hjkwon9401@gmail.com`으로 기록된 구현 커밋을 날짜별로 묶은 작업 내용이다. 각 날짜에는 해당 날짜의 코드·설정·문서 변경이 원격 저장소에 push됐다. 같은 날의 연관 작업은 분야별로 묶었다. PR 링크는 구현 맥락과 변경을 확인할 수 있는 대표 자료다.
+
+| 날짜 | 분야 | 실제 구현·정리한 내용 | 대표 근거 |
+| --- | --- | --- | --- |
+| 2026-10-16 | Nav2 설정 | 프로젝트 초기 Nav2 서버·컨트롤러 파라미터 파일을 작성해 주행 설정의 기준을 마련했다. | [PR #2](https://github.com/visualkhh/Lv2_bee_Assignment/pull/2) |
+| 2026-10-27 | 위치 추정 | cuVSLAM odometry와 SLAM 설정을 시험할 수 있도록 관련 구성과 실행 기반을 손봤다. | [cuVSLAM·nvblox 통합 PR #43](https://github.com/visualkhh/Lv2_bee_Assignment/pull/43) |
+| 2026-10-28 | SLAM 실행·관측 | cuVSLAM 설치·현장 실행 절차와 원격 RViz 확인 환경을 정리했다. | [PR #43](https://github.com/visualkhh/Lv2_bee_Assignment/pull/43) |
+| 2026-10-29 | SLAM·지도 | RTAB-Map 구성을 cuVSLAM·nvblox 중심으로 전환하고 map TF 및 RViz 구성을 맞췄다. | [PR #43](https://github.com/visualkhh/Lv2_bee_Assignment/pull/43) |
+| 2026-10-30 | 미션 실행 | 미션 skill 묶음과 coordinator 실행 시나리오를 구성해 작업 흐름을 연결했다. | [주사위 미션 흐름 PR #49](https://github.com/visualkhh/Lv2_bee_Assignment/pull/49) |
+| 2026-11-02 | 미션·조작 통합 | 주사위 미션 상태 흐름과 stand-up·arm skill 실행을 통합했다. | [PR #49](https://github.com/visualkhh/Lv2_bee_Assignment/pull/49) |
+| 2026-11-03 | 적재·팔 동작 | load/unload 동작과 팔 보정 정책을 연결하고, 블랙박스 현장 로그로 실행 실패를 추적했다. | [PR #49](https://github.com/visualkhh/Lv2_bee_Assignment/pull/49) |
+| 2026-11-04 | 미션·skill·경로 | 미션 상태 흐름과 skill 실행을 연결하고 Nav2 A* 경로 설정을 적용했다. | [미션 흐름 PR #49](https://github.com/visualkhh/Lv2_bee_Assignment/pull/49) · [skill 학습 PR #53](https://github.com/visualkhh/Lv2_bee_Assignment/pull/53) · [Nav2 A* PR #58](https://github.com/visualkhh/Lv2_bee_Assignment/pull/58) |
+| 2026-11-06 | Isaac 실행·미션 상태 | Isaac 시뮬 실행 구조와 mission_manager의 퍽 tag 추적을 정리했다. | [Isaac 실행·정리 PR #75](https://github.com/visualkhh/Lv2_bee_Assignment/pull/75) |
+| 2026-11-09 | 정책 실행·현장 비교 | 학습 정책을 ONNX Runtime으로 실행하고 `.onnx`/`.policy` 선택 비교를 추가했다. | [정책 실행 PR #83](https://github.com/visualkhh/Lv2_bee_Assignment/pull/83) |
+| 2026-11-10 | Isaac 시험·실행 환경 | Isaac 팔 시험 환경과 먼 퍽 도달성 분석을 정리하고 Jetson 현장 실행 구성을 손봤다. | [팔 시험·도달성 PR #139](https://github.com/visualkhh/Lv2_bee_Assignment/pull/139) |
+| 2026-11-11 | 위치·주행 안전 | cuVSLAM map jump 보정, 벽을 고려한 접근 면, 진척 없음 감지를 구현했다. | [벽 고려 접근 PR #141](https://github.com/visualkhh/Lv2_bee_Assignment/pull/141) · [진척 감시 PR #145](https://github.com/visualkhh/Lv2_bee_Assignment/pull/145) · [map 보정 PR #147](https://github.com/visualkhh/Lv2_bee_Assignment/pull/147) |
+| 2026-11-12 | 관측·미션 진단 | 바코드와 신호등을 미션 관측 단계에 연결하고, rosbag을 남기는 field-test 실행 도구를 추가했다. | [field-test PR #173](https://github.com/visualkhh/Lv2_bee_Assignment/pull/173) · [ExecutePlan PR #195](https://github.com/visualkhh/Lv2_bee_Assignment/pull/195) |
+| 2026-11-13 | 진단·시험 도구 | 단계 실행 시간·실패 이유를 기록하는 DIAG 흐름, TUI 현장 상태, 상자 이동 시험을 구현했다. | [DIAG PR #202](https://github.com/visualkhh/Lv2_bee_Assignment/pull/202) · [상자 이동 PR #209](https://github.com/visualkhh/Lv2_bee_Assignment/pull/209) |
+| 2026-11-14 | 자원·지도 관측 | 노드별 CPU·메모리 현황과 static 2D/ESDF 입력을 Nav2 주행에 연결했다. | [노드별 부하 표시 PR #220](https://github.com/visualkhh/Lv2_bee_Assignment/pull/220) · [static 2D 입력 PR #218](https://github.com/visualkhh/Lv2_bee_Assignment/pull/218) |
+| 2026-11-15 | 경로·충돌 복구 | 사람이 기록한 경로의 저장·재생, 벽 보정, Nav2 복구와 로봇 몸체 충돌 확인을 보강했다. | [경로 녹화 PR #256](https://github.com/visualkhh/Lv2_bee_Assignment/pull/256) · [경로 재생·충돌 감시 PR #273](https://github.com/visualkhh/Lv2_bee_Assignment/pull/273) |
+| 2026-11-16 | 현장 통합·성능 | arena 좌표·상자 접근 보정, Nav2 no-path 대응, 보조 Python 기능의 C++ 전환, cuVSLAM/GPU 입력 및 GPU perception 실행, 시작 안내를 반영했다. | [박스 보정 커밋](https://github.com/visualkhh/Lv2_bee_Assignment/commit/d596253b) · [상자 중심 접근 커밋](https://github.com/visualkhh/Lv2_bee_Assignment/commit/d6011de2) · [Nav2 현장 조정 커밋](https://github.com/visualkhh/Lv2_bee_Assignment/commit/ad76b113) · [C++ 런타임 커밋](https://github.com/visualkhh/Lv2_bee_Assignment/commit/3d946600) · [cuVSLAM/GPU 입력 커밋](https://github.com/visualkhh/Lv2_bee_Assignment/commit/0ef31eb2) · [GPU perception 커밋](https://github.com/visualkhh/Lv2_bee_Assignment/commit/9fd88a1b) · [시작 안내 PR #281](https://github.com/visualkhh/Lv2_bee_Assignment/pull/281) |
+
+날짜는 커밋 작성일을 기준으로 했으며, 커밋이 확인되지 않는 날짜를 임의로 채우지 않았다. PR·커밋으로 확인되는 구현과 별도의 시험 수행자 기록은 구분한다. 실기 시험 결과는 위의 시험 기록과 한계 항목을 따른다.
+
 ### 리뷰·시스템 설명
 
 - 리뷰 근거: [#3](https://github.com/visualkhh/Lv2_bee_Assignment/pull/3)에서 테스트 스크립트를 테스트 디렉터리에 분리하자는 의견을 남겼고, [#193](https://github.com/visualkhh/Lv2_bee_Assignment/pull/193)에서 merge 뒤 확인을 요청했다. 나머지 링크는 주로 승인 기록이며 구체적인 기술 피드백이 없으면 별도 성과로 표현하지 않는다.
