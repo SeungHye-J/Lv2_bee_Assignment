@@ -39,7 +39,7 @@ flowchart LR
 - spawner는 한 프로세스가 `CONTROLLERS` 순서대로 켭니다: joint_state_broadcaster → imu_sensor_broadcaster → diff_drive_controller → gripper_controller → rl_arm_correction → arm_controller. 실패하기 쉬운 팔 체인을 맨 뒤에 두어, 팔이 안 떠도 바퀴·그리퍼는 뜹니다.
 - spawner가 `~/cmd_vel:=/cmd_vel`, `~/odom:=/odom`, `~/imu:=/imu` 리매핑을 컨트롤러에 넘깁니다.
 - `enforce_command_limits: false` — URDF 한계로 자르는 기본 기능을 끔 (관절이 한계 밖일 때 되돌리는 명령도 막혀서, 2026-11-02 기록).
-- MoveIt은 `arm_controller`의 `follow_joint_trajectory`만 씁니다 (`moveit_controllers.yaml`). 그리퍼는 plan 패키지가 `/gripper_controller/gripper_cmd`를 직접 호출합니다.
+- MoveIt은 `arm_controller`의 `follow_joint_trajectory`만 씁니다 (`moveit_controllers.yaml`). 그리퍼는 skills 패키지(`arm_io.cpp`)와 `manual_control`이 `/gripper_controller/gripper_cmd`를 직접 호출합니다.
 
 ## 인터페이스 (URDF `<ros2_control name="BeebotSystem">`)
 

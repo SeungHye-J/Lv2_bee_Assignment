@@ -90,7 +90,7 @@ flowchart LR
 
 - 비상정지는 `/cmd/e_stop`(Bool) → **state_manager**가 받아 `/state/emergency`(transient_local)로 낸 것만 twist_mux가 구독합니다 ([state_manager.cpp](../../../lv2_module6/ros2_ws/src/manager/src/state_manager.cpp), twist_mux.yaml 주석: "직접 구독 금지").
 - 수동 조작: 운영 모드가 수동일 때만 `/cmd/manual/cmd_vel`을 `/cmd_vel_manual`로 넘기고, 모드를 벗어나면 정지합니다 ([manual_control.cpp](../../../lv2_module6/ros2_ws/src/control/src/manual_control.cpp)).
-- 속도 한계: Nav2 controller_server는 DWB `max_vel_x` 0.26 m/s · `max_vel_theta` 0.91 rad/s(11-16에 절반으로 줄임), MPPI(기본) `vx_max` 0.26 · `wz_max` 1.82 rad/s, smoother 상한 0.26 m/s · 1.82 rad/s. 바퀴 최대 각속도는 URDF 관절 `limit velocity` 8.063 rad/s.
+- 속도 한계: Nav2 controller_server는 DWB `max_vel_x` 0.26 m/s · `max_vel_theta` 0.91 rad/s(11-16에 절반으로 줄임), `inner_mppi` 블록 `vx_max` 0.26 · `wz_max` 1.82 rad/s (RlNavController가 꺼진 기본 상태에서는 DWB가 주행), smoother 상한 0.26 m/s · 1.82 rad/s. 바퀴 최대 각속도는 URDF 관절 `limit velocity` 8.063 rad/s.
 - stand_test용 launch는 `cmd_vel_relay`가 `/cmd_vel_mux`를 `/cmd_vel`로 바로 넘깁니다 ([bringup/launch/stand_test.launch.py](../../../lv2_module6/ros2_ws/src/bringup/launch/stand_test.launch.py)).
 
 ## 확인 못 한 것

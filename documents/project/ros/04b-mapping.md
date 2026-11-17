@@ -5,7 +5,7 @@
 ## 지도 한 벌
 
 폴더 하나 = 지도 하나: `<map_dir>/<map_name>/` 안에 `nvblox.nvblx`(위치추정용 정본) · `map.pgm` · `map.yaml`(사람이 보는 미리보기).
-- `./start.sh`는 `map_dir:=<ros2_ws>/map`을 자동으로 붙입니다 → `lv2_module6/ros2_ws/map/<이름>/` (저장소에 날짜_시각 이름 폴더가 이미 여럿 있음). bringup 자체의 기본은 `~/.ros/beebot_maps`.
+- `./start.sh`는 `map_dir:=<ros2_ws>/map`을 자동으로 붙입니다 → `lv2_module6/ros2_ws/map/<이름>/` (날짜_시각 이름 폴더가 로컬에 쌓이며, 저장소에는 올라가지 않음). bringup 자체의 기본은 `~/.ros/beebot_maps`.
 - CLI도 같은 폴더를 봅니다 (`BEEBOT_MAP_DIR` 환경변수로 바꿈). 지도 목록은 `nvblox.nvblx`가 있는 폴더만 (CLI `local_maps`).
 - 보기(터미널 지도 화면)는 `map.yaml` + `map.pgm`이 있는 지도만 됩니다.
 
@@ -27,7 +27,7 @@
    ```bash
    ./start.sh map:=saved map_name:=<이름> operation:=AUTO
    ```
-   `map_name`을 비우면 가장 최근 지도, 기본 `operation`은 `AUTO`입니다. 실행 중에는 메뉴 `5` 지도 전환 / `4` LOCALIZATION. **출발 자리·방향이 저장 때와 같아야** 합니다.
+   `map_name`을 비우면 `./start.sh`가 `scene_sim`을 붙이고(bringup만 단독 실행하면 가장 최근 지도), 기본 `operation`은 `AUTO`입니다. 실행 중에는 메뉴 `5` 지도 전환 / `4` LOCALIZATION. **출발 자리·방향이 저장 때와 같아야** 합니다.
 
 그 밖의 CLI `map` 동작: `status` · `list` · `mode <none|mapping|localization>` · `switch <이름>` · `save` · `rename` · `delete`. 지금 쓰는 지도는 이름 바꾸기·삭제가 거부됩니다.
 

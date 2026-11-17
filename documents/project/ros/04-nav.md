@@ -64,7 +64,7 @@ Nav2 서버는 `nav2_composition:=true`(기본)이면 컴포넌트 컨테이너 
 ### BT (행동 트리)
 
 Nav2 기본 트리의 복사본이며 bt_navigator에 파일 경로로 넘깁니다 (`default_nav_to_pose_bt_xml`, `default_nav_through_poses_bt_xml`). 바꾼 곳은 각 XML 머리 주석에 이유와 실측 날짜가 있습니다.
-- 계획 1 Hz(`RateController`) · 복구 순서: 코스트맵 지우기 + 제자리 회전 1.57 rad → 지우기 + 0.10 m 후진(0.05 m/s) → 대기 2 s (RoundRobin). 복구 Spin·BackUp은 `disable_collision_checks=true`.
+- 계획 주기(`RateController`): `navigate_to_pose` 1 Hz · `navigate_through_poses` 0.333 Hz · 복구 순서: 코스트맵 지우기 + 제자리 회전 1.57 rad → 지우기 + 0.10 m 후진(0.05 m/s) → 대기 2 s (RoundRobin). 복구 Spin·BackUp은 `disable_collision_checks=true`.
 - 최상위 재시도 3회 후 ABORTED. 이때 ros_system의 `rewind` 노드가 주행 궤적을 0.4 m 되감습니다 (XML 주석 ⑤). 실기 검증 전이라고 주석에 적혀 있습니다.
 - through_poses: `RemovePassedGoals` 반경 0.10 m (11-16 시뮬 결과).
 

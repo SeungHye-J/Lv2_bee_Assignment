@@ -85,7 +85,7 @@ flowchart LR
 | 토픽 | 방향 | QoS (코드) |
 | --- | --- | --- |
 | `/tracked_objects` | perception_node → coordinator 등 | 발행 depth 5 (reliable) |
-| `/perception/<cam>/detections`, `…/debug_image` | perception_node → 확인용 | 5 · SensorData 계열(best_effort, depth 5) |
+| `/perception/<cam>/detections`, `…/debug_image` | perception_node → 확인용 | 5 · detections는 기본 QoS(reliable, depth 5), debug_image만 SensorData 계열(best_effort) |
 | `/mission/qr` | perception_node → mission_manager | reliable + transient_local, depth 1 |
 | `/mission/dice_image`, `/mission/dice_image_raw` | perception_node → mission_manager | transient_local (`/mission/capture_dice` Int32 요청) |
 | `/mission/signal` | signal_decoder → mission_manager | reliable + transient_local, depth 1 (새 답이 확정될 때만) |
